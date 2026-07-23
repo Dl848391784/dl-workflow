@@ -229,6 +229,95 @@ def _run_hook(payload: dict) -> subprocess.CompletedProcess:
     )
 
 
+def _ev(text: str) -> str:
+    """构造一条 assistant 事件 JSONL 行。"""
+    return json.dumps(
+        {
+            "type": "assistant",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": text}],
+            },
+        }
+    )
+
+
+def _user(text: str) -> str:
+    """构造一条 user 事件 JSONL 行（轮次边界）。"""
+    return json.dumps(
+        {
+            "type": "user",
+            "message": {"role": "user", "content": [{"type": "text", "text": text}]},
+        }
+    )
+
+
+# ─────────── _last_assistant_text 轮次边界 ───────────
+
+
+def test_last_assistant_text_scans_whole_current_turn() -> None:
+    """当前轮多条 assistant 消息都要扫（一条 user 后可能多条 assistant）。
+
+    隐患修复：旧逻辑取全局最后一条 assistant 文本，会漏掉同轮较早 assistant 消息里的标记。
+    """
+    from io import StringIO
+
+    import evidence_append as ev2
+
+    transcript = "\n".join(
+        [
+            _user("q1"),
+            _ev("上一轮回复"),
+            _user("q2"),  # 当前轮起点
+            _ev(
+                '当前轮第1条 ### EVIDENCE:{"step":1,"claim":"A","claim_type":"premise","depends_on":[],"evidence":[]}'
+            ),
+            _ev("当前轮第2条，无标记"),
+        ]
+    )
+    txt = ev2._last_assistant_text_io(StringIO(transcript))
+    assert "### EVIDENCE:" in txt, "当前轮较早 assistant 消息里的标记被漏了"
+
+
+def test_last_assistant_text_excludes_previous_turn() -> None:
+    """只扫当前轮（最后一条 user 之后），不扫上一轮。"""
+    from io import StringIO
+
+    import evidence_append as ev2
+
+    transcript = "\n".join(
+        [
+            _user("q1"),
+            _ev(
+                '上一轮 ### EVIDENCE:{"step":1,"claim":"OLD","claim_type":"premise","depends_on":[],"evidence":[]}'
+            ),
+            _user("q2"),  # 当前轮起点：上一轮的标记不该被采
+            _ev("当前轮无标记"),
+        ]
+    )
+    txt = ev2._last_assistant_text_io(StringIO(transcript))
+    assert "OLD" not in txt, "上一轮的标记被误采了"
+    assert "当前轮无标记" in txt
+
+
+def test_last_assistant_text_handles_no_user() -> None:
+    """无 user 消息（全是 assistant）-> 全部算当前轮。"""
+    from io import StringIO
+
+    import evidence_append as ev2
+
+    transcript = "\n".join(
+        [
+            _ev("a1"),
+            _ev(
+                'a2 ### EVIDENCE:{"step":1,"claim":"A","claim_type":"premise","depends_on":[],"evidence":[]}'
+            ),
+        ]
+    )
+    txt = ev2._last_assistant_text_io(StringIO(transcript))
+    assert "### EVIDENCE:" in txt
+
+
 def test_stop_hook_appends_evidence_to_file(repo_wt) -> None:
     repo, wt = repo_wt
     transcript = _write_transcript(

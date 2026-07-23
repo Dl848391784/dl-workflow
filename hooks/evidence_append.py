@@ -165,43 +165,70 @@ def _load_state(project_root: Path, name: str) -> dict | None:
         return None
 
 
-def _last_assistant_text(transcript_path: str) -> str:
-    """读 transcript JSONL，取最后一条 assistant message 的文本。
+def _assistant_text_of(msg: dict) -> str:
+    """从一条 message dict 取其文本（content 是 str 或 list[{type:text}]）。"""
+    content = msg.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(
+            block.get("text", "")
+            for block in content
+            if isinstance(block, dict) and block.get("type") == "text"
+        )
+    return ""
 
-    防御式：transcript_path 缺失/格式不符/解析失败 -> 返回 ""。
-    （与 workflow_advance.py._last_assistant_text 同实现。）
+
+def _last_assistant_text_io(stream) -> str:
+    """扫 transcript JSONL 流，取**当前轮**所有 assistant 文本（拼接）。
+
+    「当前轮」= 最后一条 user message 之后的所有 assistant message。
+    隐患修复（2026-07-23 live smoke 推演）：旧实现取全局最后一条 assistant 文本，
+    会漏掉同轮较早 assistant 消息里的 ### EVIDENCE 标记（一条 user 回合后模型可能
+    发多条 assistant 消息，标记可能不在最后一条）。改成扫整轮 + 仅当前轮
+    （不采上一轮，避免重复追加已落库的旧标记）。
+
+    防御式：解析失败/格式不符 -> 跳过该行。无 assistant 文本 -> ""。
+    """
+    current_turn_texts: list[str] = []
+    for line in stream:
+        line = line.strip() if isinstance(line, str) else line
+        if not line:
+            continue
+        try:
+            ev = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if not isinstance(ev, dict):
+            continue
+        msg = ev.get("message")
+        if not isinstance(msg, dict):
+            continue
+        role = msg.get("role")
+        if role == "user":
+            # 新轮开始：重置当前轮收集（之前的 assistant 归上一轮）。
+            # 无 user 时永不重置 -> 全部 assistant 算当前轮（test_last_assistant_text_handles_no_user）。
+            current_turn_texts = []
+        elif role == "assistant":
+            txt = _assistant_text_of(msg)
+            if txt:
+                current_turn_texts.append(txt)
+    return " ".join(current_turn_texts).strip()
+
+
+def _last_assistant_text(transcript_path: str) -> str:
+    """读 transcript JSONL 文件，取当前轮所有 assistant 文本。
+
+    防御式：transcript_path 缺失/读失败 -> 返回 ""。
+    委派 _last_assistant_text_io（可单测，传 StringIO）。
     """
     if not transcript_path or not Path(transcript_path).exists():
         return ""
-    texts: list[str] = []
     try:
         with open(transcript_path, encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    ev = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                msg = ev.get("message") if isinstance(ev, dict) else None
-                if not isinstance(msg, dict):
-                    continue
-                if msg.get("role") != "assistant":
-                    continue
-                content = msg.get("content")
-                if isinstance(content, str):
-                    texts.append(content)
-                elif isinstance(content, list):
-                    for block in content:
-                        if isinstance(block, dict) and block.get("type") == "text":
-                            texts.append(block.get("text", ""))
+            return _last_assistant_text_io(fh)
     except OSError:
         return ""
-    for t in reversed(texts):
-        if t.strip():
-            return t
-    return ""
 
 
 def _stamp_commit_sha(cwd: str) -> str:
