@@ -147,6 +147,12 @@ Stop hook  evidence_append.py（新增，与 workflow_advance.py 并列）
 - 模型**不填** `id`/`ts`/`phase`/`commit_sha`/`status`/`superseded_by`（hook 负责）。
 - 标记失败（JSON 解析失败）-> hook 跳过该节点并留痕（no silent fallback：记 `.wf_evidence.log`），不阻断。
 
+**注入渠道（方案1，live smoke 后定稿）**：`workflow_phase.py` `_format_injection` 追加证据标记格式提示块（见 §9 step4），每轮注入告诉模型：
+- 何时输出：推导出**结论/中间结论**时（claim_type=conclusion/intermediate），或确立**前提**时（claim_type=premise）。
+- 格式：`### EVIDENCE:{json}` 一行一节点，depends_on 用本地句柄 `step<N>`。
+- 语义：仅当该结论真正成立时输出（与 PHASE_DONE 同「仅当真正达成时输出」语义）；非结论性回复可不发。
+- 不重复发：同一结论已被记录（canonical id 存在）后，跨轮引用直接用上轮 canonical id 作 depends_on。
+
 ### 4.2 hook 侧：`evidence_append.py`（Stop hook）
 
 伪流程：
@@ -225,10 +231,13 @@ exit 0（永不阻断，与 workflow_advance.py 一致）
 1. ✅ `evidence-chain-design.md`（本文档，H8 产物）。
 2. ✅ `evidence_append.py`（Stop hook：解析标记 + 分配 id + 戳 SHA + append）+ 22 例单测（真 git worktree 端到端）。
 3. ✅ `wf-lib.sh` `wf_write_settings` 注册 evidence_append.py 为第二个 Stop hook。冒烟：source wf-lib.sh 生成 settings.json 验 Stop hooks=2 且顺序正确（advance 先 evidence 后）。
-   - **未做**：`dl <name>` 真实会话 live smoke（需交互式会话，管道模拟会 Execution error 见 §10；hook 协议复用已验证的 workflow_advance.py，机制低风险）。用户首次跑 `dl <name>` 即可亲验 `.claude/evidence/<name>.jsonl` 落节点。
-   - **注意**：仅新生成的工作流含新 hook；已存在的 `demo/settings.json` 是旧版不含 evidence_append，需重建工作流或重生成 settings.json 才生效。
-4. ⏳（后议）门控遍历器。
-5. ⏳（后议）审核还原器。
+4. ✅ **live smoke 排查（2026-07-23）+ 证据注入修复（方案1）**：
+   - live smoke 在 `dl demo` 真实会话跑通 hook 全链路：`.wf_evidence.log` 留痕两次触发（17:21 `tlen=0`、17:23 `tlen=360`），`_last_assistant_text` 解析真实 transcript 正确（返回 360 字符真实文本），Stop hooks 注册正确（settings.json 含 2 个 hook）。
+   - **根因（非 hook bug）**：两次均 `no_markers` -- 会话里 assistant 回复**从未输出** `### EVIDENCE:{json}` 标记。demo 停在 understand 子阶段 1，其注入规则（`workflow_phase.py`）只提示输出 `### SUB_DONE`/`### PHASE_DONE`，**无任何渠道告诉模型该发证据标记** -> design §4.1 写了格式但未落实到注入机制 = 真实缺口。
+   - **修复（方案1）**：扩展 `workflow_phase.py` `_format_injection` 追加证据标记格式提示块。复用现有 UserPromptSubmit 注入通道，模型每轮看到 `### EVIDENCE:{json}` 格式 + 何时输出。`evidence_append.py` 本体不改（解析逻辑已验证正确）。
+   - understand 阶段也会提示证据格式（其子阶段 3「确定范围与约束」/ 4「定义成功标准」常含可证据化的结论）；非结论性回复模型可不发（与 PHASE_DONE 同「仅当真正达成时输出」语义）。
+5. ⏳（后议）门控遍历器。
+6. ⏳（后议）审核还原器。
 
 ## 10. 门控与审核（占位 - 后议）
 

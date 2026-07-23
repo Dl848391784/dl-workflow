@@ -80,7 +80,12 @@ PHASE_RULES = {
 # 与 wf-lib.sh WF_SUBPHASES_UNDERSTAND / workflow_advance.py SUBPHASES 三处各持一份（避免跨语言 source）。
 # 详见 designs/understand-subphases-design.md。
 SUBPHASES = {
-    "understand": ["理解问题和背景", "明确目标和价值", "确定范围与约束", "定义成功标准和验收方式"],
+    "understand": [
+        "理解问题和背景",
+        "明确目标和价值",
+        "确定范围与约束",
+        "定义成功标准和验收方式",
+    ],
 }
 
 
@@ -205,7 +210,9 @@ def _format_injection(state: dict) -> str:
 
     subs = SUBPHASES.get(phase, [])
     has_sub = sub_total > 0 and bool(subs)
-    cur_sub_label = subs[sub_index - 1] if has_sub and 1 <= sub_index <= len(subs) else ""
+    cur_sub_label = (
+        subs[sub_index - 1] if has_sub and 1 <= sub_index <= len(subs) else ""
+    )
 
     # 任务清单目标状态（镜像 state.json 当前 index/sub_index；供模型同步原生 TaskList）
     # 阶段有子阶段时，紧跟该阶段任务后插入子任务 1.1..1.N（全程保留，已完成的也显示 completed）
@@ -218,7 +225,11 @@ def _format_injection(state: dict) -> str:
             if i < idx:
                 sst = "completed"
             elif i == idx:
-                sst = "completed" if j < sub_index else ("in_progress" if j == sub_index else "pending")
+                sst = (
+                    "completed"
+                    if j < sub_index
+                    else ("in_progress" if j == sub_index else "pending")
+                )
             else:
                 sst = "pending"
             task_rows.append(f"    {i}.{j} {slabel} -> {sst}")
@@ -240,7 +251,11 @@ def _format_injection(state: dict) -> str:
     if has_sub:
         lines.append(f"- 子阶段(共 {sub_total} 个, 依次完成, 各自动推进到下一子阶段):")
         for j, slabel in enumerate(subs, 1):
-            sst = "completed" if j < sub_index else ("in_progress" if j == sub_index else "pending")
+            sst = (
+                "completed"
+                if j < sub_index
+                else ("in_progress" if j == sub_index else "pending")
+            )
             lines.append(f"  {j}. {slabel} -> {sst}")
         lines.append(
             f"  完成子阶段 1..{sub_total - 1} 各输出: `### SUB_DONE: <n>` (Stop hook 自动推进 sub_index);"
@@ -248,15 +263,19 @@ def _format_injection(state: dict) -> str:
         lines.append(
             f"  末子阶段({sub_total})完成 -> 写阶段产物 + 输出 `### PHASE_DONE: {phase}` (触发该阶段闸门/推进);"
         )
-        lines.append("  未走完子阶段直接输出 PHASE_DONE 会被 Stop hook 守卫阻断(强制依次).")
+        lines.append(
+            "  未走完子阶段直接输出 PHASE_DONE 会被 Stop hook 守卫阻断(强制依次)."
+        )
 
-    lines.extend([
-        "- 任务清单(原生 TaskList, 置顶常驻): 维护阶段任务作常驻进度清单, 状态须镜像当前 index/sub_index:",
-        *task_rows,
-        "  首轮或续接后缺失时 TaskCreate 建齐(阶段任务 subject=各阶段中文名; 有子阶段的阶段后紧跟其 1.1..1.N 子任务)并按上设状态;",
-        "  其后每轮若 in_progress 任务与当前不符则 TaskUpdate 对齐(旧->completed, 当前->in_progress);",
-        "  阶段任务(含子任务)全程保留勿删; execute 阶段工作子任务可追加在下方, 勿动阶段任务与其子任务。",
-    ])
+    lines.extend(
+        [
+            "- 任务清单(原生 TaskList, 置顶常驻): 维护阶段任务作常驻进度清单, 状态须镜像当前 index/sub_index:",
+            *task_rows,
+            "  首轮或续接后缺失时 TaskCreate 建齐(阶段任务 subject=各阶段中文名; 有子阶段的阶段后紧跟其 1.1..1.N 子任务)并按上设状态;",
+            "  其后每轮若 in_progress 任务与当前不符则 TaskUpdate 对齐(旧->completed, 当前->in_progress);",
+            "  阶段任务(含子任务)全程保留勿删; execute 阶段工作子任务可追加在下方, 勿动阶段任务与其子任务。",
+        ]
+    )
     # 完成标记：无子阶段->PHASE_DONE；有子阶段->子1..N-1 用 SUB_DONE，末子阶段(N)用 PHASE_DONE
     if has_sub:
         if sub_index < sub_total:
@@ -271,7 +290,30 @@ def _format_injection(state: dict) -> str:
         lines.append("（仅当当前子阶段目标真正达成时输出对应标记；未达成绝不输出）")
     else:
         lines.append(f"完成本阶段后，回复末尾单独一行输出: `### PHASE_DONE: {phase}`")
-        lines.append("（仅当阶段目标真正达成时输出；闸门阶段不会自动推进，需 /wf gate 放行）")
+        lines.append(
+            "（仅当阶段目标真正达成时输出；闸门阶段不会自动推进，需 /wf gate 放行）"
+        )
+
+    # 证据标记提示块（方案1，designs/evidence-chain-design.md §4.1/§9 step4）。
+    # live smoke 排查：无此块 -> 模型不知发 ### EVIDENCE -> evidence_append.py 一直 no_markers。
+    # 复用 UserPromptSubmit 注入通道（与 PHASE_DONE/SUB_DONE 同位），5 阶段均注入（证据链跨阶段）。
+    lines.append("- 推导证据链(每轮可选, 仅当本轮推导出新结论/前提时输出):")
+    lines.append(
+        "  每个可证据化的断言, 回复末尾单独一行输出: "
+        '`### EVIDENCE:{"step":<int>,"claim":"<断言>",'
+        '"claim_type":"<premise|intermediate|conclusion>",'
+        '"depends_on":["step<N>"],"evidence":[{"kind":"<file|test|codegraph|reasoning>","ref":"<相对指针>"}]}`'
+    )
+    lines.append(
+        "  - step=本轮序号(本地句柄); depends_on 用本地句柄 step<N>(不预知 canonical id);"
+    )
+    lines.append(
+        "  - evidence.ref 用相对指针(file:path:line / test 输出 / codegraph 原始输出 / reasoning 推理文本);"
+    )
+    lines.append(
+        "  - 同一结论已记录后, 跨轮引用直接用上轮 canonical id 作 depends_on(不重复发同一结论);"
+    )
+    lines.append("  - 非结论性回复(纯查证/提问/叙述)可不发; 仅当真正成立时输出。")
     return "\n".join(lines) + "\n"
 
 
@@ -305,11 +347,22 @@ def main() -> int:
 
     context = _format_injection(state)
     out = json.dumps(
-        {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": context}},
+        {
+            "hookSpecificOutput": {
+                "hookEventName": "UserPromptSubmit",
+                "additionalContext": context,
+            }
+        },
         ensure_ascii=False,
     )
     sys.stdout.write(out)
-    _log_invocation(project_root, "injected", name=name, phase=state.get("phase", ""), prompt_len=len(prompt))
+    _log_invocation(
+        project_root,
+        "injected",
+        name=name,
+        phase=state.get("phase", ""),
+        prompt_len=len(prompt),
+    )
     return 0
 
 
