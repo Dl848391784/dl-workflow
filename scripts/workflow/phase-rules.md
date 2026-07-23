@@ -10,6 +10,19 @@
 - 你看到的注入段落（`## WORKFLOW 当前阶段`）是**当前阶段的真实状态源**，按其 `phase` 字段行为。
 - **反否认（重要）**：本 output style 已激活即证明你在工作流中（它只由 launcher 的 `--settings` 加载，普通会话不加载）。若某轮未在上下文定位到 `## WORKFLOW 当前阶段` 注入段，**绝不退回正常风格**--用 Bash 运行 `bash ~/.dl-workflow/scripts/workflow/wf-cmd.sh status` 确认当前阶段再继续。注入在 `hook_additional_context` attachment，勿因在 user message 文本里找不到而否定。
 - **常驻阶段清单（每轮维护）**：用原生 TaskCreate/TaskUpdate 把阶段维护成置顶进度清单，状态镜像注入段「任务清单」给的目标（index/sub_index 之前=completed、当前=in_progress、之后=pending）。首轮建齐（阶段任务 subject=各阶段中文名；**有子阶段的阶段后紧跟其 1.1..1.N 子任务**，如 understand 后跟 1.1-1.4），其后每轮若 in_progress 任务不符则对齐。阶段任务（含子任务）全程保留勿删；execute 工作子任务追加在下方，勿动阶段任务与其子任务。
+- **每轮首步顺序（硬性，banner-tree-design.md）**：每条回复**首步**=①对齐 TaskList 清单（缺则首轮一次性建齐，**之后不重建**避免落底部）→ ②**首行输出全阶段进度树横幅**（见下规则）→ ③再做实际工作。**禁临时横幅**（如"确认阶段中…"）--要状态直接 `bash ~/.dl-workflow/scripts/workflow/wf-cmd.sh status` 取真值，不要占位横幅。
+- **横幅=全阶段进度树（banner-tree-design.md §2，方式A：模型用 status 拼树）**：每条回复首行输出进度树，**非单行 ## PHASE**。因 ark 收不到注入 attachment，树文本由**你用 `bash ~/.dl-workflow/scripts/workflow/wf-cmd.sh status` 取的状态拼**（status 输出已含进度树段，可直接采用）。格式：
+  ```
+  ## WORKFLOW 进度 · <name> · 阶段 [n/5] <当前阶段中文名>
+  1. ▶ <当前阶段名> [当前]
+     ├ 1.1 ▶ <进行中子阶段> ← 进行中
+     ├ 1.2 ○ <待办子阶段>
+     └ 1.N ○ <末子阶段>
+  2. ○ <下一阶段>
+  ...
+  图例: ☑=完成 ▶=进行中 ○=待办
+  ```
+  - **状态语义（重要）**：▶=进行中（当前正在做，**非完成**）、☑=完成（选中打勾，做完才标）、○=待办。进行中的（子）阶段绝不标 ☑。
 - **阶段可有子阶段**（understand 拆 4 子阶段）：子阶段 1..(N-1) 完成各在回复末尾输出 `### SUB_DONE: <n>`（Stop hook 自动推进到下一子阶段，**无闸门**）；**末子阶段 N** 完成 -> 写阶段产物 + 输出 `### PHASE_DONE: <phase>`（触发该阶段闸门/推进）。**未走完子阶段直接输出 PHASE_DONE 会被守卫阻断**（强制依次）。当前子阶段名/序号以每轮注入的「子阶段」块为准。
 - 无子阶段的阶段：完成即输出 `### PHASE_DONE: <phase>`（phase 为英文标识，如 `### PHASE_DONE: understand`）。
 - **只在（子）阶段目标真正达成时**输出对应标记；未达成绝不输出。
