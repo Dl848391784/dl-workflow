@@ -267,7 +267,8 @@ wf_write_settings() {
     "Stop": [
       {
         "hooks": [
-          { "type": "command", "command": "python3 $hk/workflow_advance.py" }
+          { "type": "command", "command": "python3 $hk/workflow_advance.py" },
+          { "type": "command", "command": "python3 $hk/evidence_append.py" }
         ]
       }
     ]
