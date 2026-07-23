@@ -158,15 +158,14 @@ install_bashrc() {
 # BEGIN dl-workflow  (installed by ~/.dl-workflow/install.sh)
 # 5 阶段工作流入口。真源：~/.dl-workflow/scripts/workflow/wf-launch.sh
 #
-# 三种入口（都拦 --dl/--workflow 参数转交 launcher）：
-#   claude --dl <name>     # install.sh 装的 claude wrapper 拦 --dl（其他用法透传原生 claude）
-#   dl <name>              # 独立 dl 函数
-#   ac-ark --dl <name>     # 你的 provider 函数拦 --dl（需在 ac-ark 里 source dl-shim，见 README）
+# 两种入口（都拦 --dl 参数转交 launcher）：
+#   dl <name>              # 独立 dl 函数（install.sh 装）
+#   ac-ark --dl <name>     # 你的 provider 函数拦 --dl（在 ac-ark 里加，见 README）
 #
 # provider env 由调用方 shell 继承：launcher 子进程 exec 原生 claude，
 # 自动带上当前 shell 的 ANTHROPIC_* env。
 #   - ac-ark --dl foo: ac-ark 已 export ark env，launcher 起 claude 带 ark ✓
-#   - claude --dl foo / dl foo: 用当前 shell env（默认或你 export 的）
+#   - dl foo: 用当前 shell env（默认或你 export 的）
 #
 # 用法：
 #   <入口> <name>              新建工作流（停在「理解和求证问题」）
@@ -178,7 +177,7 @@ install_bashrc() {
 
 export DL_WF_HOME="$HOME/.dl-workflow"
 
-# launcher 调用核心：接受去掉 --dl 后的剩余参数，转交 wf-launch.sh
+# launcher 调用核心：转交 wf-launch.sh（加 --workflow 前缀）
 _dl_launch() {
   "$DL_WF_HOME/scripts/workflow/wf-launch.sh" --workflow "$@"
 }
@@ -188,32 +187,14 @@ dl() {
   [ $# -ge 1 ] || { echo "用法: dl <name> [--resume|--phase <p>|--base <ref>|--done] | list" >&2; return 1; }
   _dl_launch "$@"
 }
-
-# claude wrapper：拦 --dl 进工作流，其他透传原生 claude
-# 若你已有自定义 claude 函数，install.sh 不会覆盖（见下方检测）；请手工把 --dl 分支并入。
-if ! declare -F claude >/dev/null 2>&1; then
-  claude() {
-    if [ "$1" = "--dl" ]; then
-      shift
-      _dl_launch "$@"
-      return $?
-    fi
-    command claude "$@"
-  }
-fi
 # END dl-workflow
 BASHRC_EOF
 
   if [ "$dl_conflict" = "1" ]; then
     echo "  ⚠ 检测到 ~/.bashrc 已有 dl 定义。dl-workflow 的 dl 函数定义在后，会覆盖。"
   fi
-  if grep -qE '^(function claude|claude\(\))' "$BASHRC" 2>/dev/null; then
-    echo "  ⚠ 检测到已有 claude 函数（可能是你自定义的）。dl-workflow 不覆盖；"
-    echo "    若要让 claude --dl 生效，请在你 claude 函数里加："
-    echo "      [ \"\$1\" = \"--dl\" ] && { shift; _dl_launch \"\$@\"; return \$?; }"
-  fi
-  echo "✓ ~/.bashrc 已追加 dl-workflow 段落（dl 函数 + claude wrapper）"
-  echo "  入口：dl <name> | claude --dl <name> | ac-ark --dl <name>（后者需 source dl-shim，见 README）"
+  echo "✓ ~/.bashrc 已追加 dl-workflow 段落（dl 函数 + _dl_launch）"
+  echo "  入口：dl <name> | ac-ark --dl <name>（后者需在 ac-ark 里加 --dl 拦截，见 README）"
 }
 
 # ---------- 主 ----------

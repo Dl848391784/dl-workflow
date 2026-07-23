@@ -39,12 +39,11 @@ install.sh 做什么：
 
 ## 用
 
-三种入口（都拦 `--dl` 参数转交 launcher）：
+两种入口（都拦 `--dl` 参数转交 launcher）：
 
 ```bash
 dl demo                        # 独立 dl 命令
-claude --dl demo               # claude wrapper（其他用法透传原生 claude）
-ac-ark --dl demo               # 你的 provider 函数（需在 ac-ark 里 source dl-shim.sh，见下）
+ac-ark --dl demo               # 你的 provider 函数（在 ac-ark 里加 --dl 拦截，见下）
 
 # 通用参数（接在 <入口> <name> 后）
 dl demo --resume               # 续接
@@ -56,9 +55,9 @@ dl list                         # 列举所有工作流
 
 **provider env 怎么带上**：launcher 永远 `exec` 原生 `claude`，env 由调用方 shell 继承。
 - `ac-ark --dl demo`：ac-ark 函数已 export ark env，launcher 子进程继承，claude 走 ark ✓
-- `claude --dl demo` / `dl demo`：用当前 shell env（默认或你 `export` 的）
+- `dl demo`：用当前 shell env（默认或你 `export` 的）
 
-> 为什么不是 `dl @provider`？provider 若是 bashrc 函数，launcher 子进程 `exec` 不到（函数只在交互 shell 存在）。改成「provider 调 launcher」而非「launcher 调 provider」：ac-ark 在交互 shell 里设好 env 再调 launcher，env 天然继承。
+> 为什么不是 `dl @provider` 或 `claude --dl`？provider 若是 bashrc 函数，launcher 子进程 `exec` 不到（函数只在交互 shell 存在）。改成「provider 调 launcher」而非「launcher 调 provider」：ac-ark 在交互 shell 里设好 env 再调 launcher，env 天然继承。`claude --dl` 需要覆盖原生 `claude` 为函数，侵入性大，故不提供。
 
 **让 `ac-ark --dl` 生效**：在你 ac-ark 函数里加 `--dl` 拦截（见 `dl-shim.sh` 注释模板），或直接：
 ```bash
