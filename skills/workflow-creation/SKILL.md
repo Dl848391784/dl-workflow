@@ -1,6 +1,6 @@
 ---
 name: workflow-creation
-description: 建工作流系统 + 运行诊断。触发：新建/改工作流、ac-ark --workflow、阶段不推进、注入没生效、/wf 报错、hook 装错位置、模型否认收到注入。
+description: 建工作流系统 + 运行诊断。触发：新建/改工作流、dl 命令、阶段不推进、注入没生效、/wf 报错、hook 装错位置、模型否认收到注入。
 version: 2.0
 ---
 
@@ -12,7 +12,7 @@ version: 2.0
 ## 0. 系统全景（5 秒理解）
 
 ```
-ac-ark --workflow <name>  ─►  ~/.dl-workflow/scripts/workflow/wf-launch.sh
+dl <name>  ─►  ~/.dl-workflow/scripts/workflow/wf-launch.sh
                                   │ 建 git worktree(<项目>/.claude/worktrees/<name>, 分支 wf/<name>)
                                   │ + state.json(<项目>/.claude/workflows/<name>/) + 钉 session
                                   │ 起 claude: --settings(per-wf) --append-system-prompt-file(phase-rules) --session-id
@@ -31,17 +31,17 @@ ac-ark --workflow <name>  ─►  ~/.dl-workflow/scripts/workflow/wf-launch.sh
 
 ### 1.1 新建一个工作流（用户侧）
 ```bash
-ac-ark --workflow <name>              # 新建（停在 understand）
-ac-ark --workflow <name> --resume     # 续接
-ac-ark --workflow list                # 列举
-ac-ark --workflow <name> --done       # 归档（删 worktree+分支+元数据）
+dl <name>              # 新建（停在 understand）
+dl <name> --resume     # 续接
+dl list                # 列举
+dl <name> --done       # 归档（删 worktree+分支+元数据）
 ```
 - `<name>` 仅小写字母/数字/连字符/下划线，≤64（`wf-lib.sh` 校验）。
 - 必须在 git repo 内运行（launcher 用 `git rev-parse` 反查项目根）。
 
 ### 1.2 改工作流脚本/hook/command 后
 - 改 `~/.dl-workflow/hooks/*.py` 或 `output-styles/*.md` 或 `commands/*.md` -> 跑 `~/.dl-workflow/install.sh` copy 到 `~/.claude/`，**下轮 hook 触发即最新版**（无需重建 worktree）。
-- 改 `~/.dl-workflow/scripts/workflow/*.sh` -> 无需 install（launcher 直接从 dl-workflow 内跑），下次 `ac-ark --workflow <name> --resume` 或新建即最新。
+- 改 `~/.dl-workflow/scripts/workflow/*.sh` -> 无需 install（launcher 直接从 dl-workflow 内跑），下次 `dl <name> --resume` 或新建即最新。
 - 改 `phase-rules.md`（append-system-prompt）-> 仅新开会话生效（append-system-prompt 是启动时载入）；已有会话不同步。
 - per-wf `settings.json`（在项目 `.claude/workflows/<name>/`，非快照）改了要重启会话加载。
 
@@ -117,7 +117,7 @@ tail -5 <项目>/.claude/.wf_advance.log
 hook 从 payload.cwd 用 `git rev-parse --git-common-dir` 反查主 repo 根。worktree 内 `--git-common-dir` 返回主 repo `.git` 绝对路径 -> `.parent` = 主 repo 根 -> `state.json` 在 `<主 repo>/.claude/workflows/<name>/`。
 
 - 报错 `state.json` 路径若含 `worktrees/<name>/.claude/workflows/` → 反查逻辑错，正确路径不应含 `worktrees/`。检查 `~/.dl-workflow/hooks/workflow_phase.py` 是否有 `_resolve_project_root` 函数（v2.0 引入）；缺失 -> 旧版遗留，重跑 install.sh 覆盖。
-- worktree 是手工建（不是 `ac-ark --workflow`）-> state.json 从未建过。用 launcher 建。
+- worktree 是手工建（不是 `dl`）-> state.json 从未建过。用 launcher 建。
 
 ### 症状 D：模型否认收到注入（说"没有 hook 注入"/"不在工作流中"）
 
@@ -163,7 +163,7 @@ hook 从 payload.cwd 用 `git rev-parse --git-common-dir` 反查主 repo 根。w
 
 ## 5. 触发关键词速查
 
-- "建工作流 / 新建工作流 / ac-ark --workflow" → §1
+- "建工作流 / 新建工作流 / dl 命令" → §1
 - "注入没生效 / 阶段没注入 / 模型说没注入" → §2 症状 A/D
 - "阶段不推进 / PHASE_DONE 没推进" → §2 症状 B
 - "/wf 报错 / state 缺失 / state.json not found" → §2 症状 C

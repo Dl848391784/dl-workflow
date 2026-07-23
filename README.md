@@ -6,7 +6,7 @@ Claude Code 5 阶段工作流 + codegraph H15 查证门禁的独立仓库。**�
 
 两套工具，都是 Claude Code 的通用扩展（不是任何单一项目的领域代码）：
 
-1. **5 阶段工作流**（`ac-ark --workflow <name>`）
+1. **5 阶段工作流**（`dl <name>`）
    - 阶段：理解和求证问题 -> 生成执行计划 -> 执行 -> 审核结果 -> 进化
    - 每个工作流独立 git worktree + 分支 + session，可恢复
    - 阶段自动推进 + 闸门（`/wf gate`），原生 TaskList 常驻进度清单
@@ -31,7 +31,7 @@ install.sh 做什么：
 - copy `output-styles/workflow.md` -> `~/.claude/output-styles/`（同上）
 - copy `commands/wf.md` -> `~/.claude/commands/`（同上）
 - 合并 `~/.claude/settings.json` 的 hooks 注册（幂等，已存在跳过）
-- 追写 `~/.bashrc`：`export DL_WF_HOME` + `ac-ark` 函数（若无自定义则装简版）
+- 追写 `~/.bashrc`：`export DL_WF_HOME` + `dl` 函数（工作流入口，独立于 ac-ark/claude）
 
 > 为什么 hooks 不 copy 而 skills 要 copy？`settings.json` 的 hook command 是自由字符串（任意路径）；但 skills/output-styles/commands 的加载路径是 Claude Code 硬编码的 `~/.claude/{skills,output-styles,commands}/`，必须物理在那。
 
@@ -40,10 +40,10 @@ install.sh 做什么：
 ## 用
 
 ```bash
-ac-ark --workflow my-feature          # 新建工作流（停在「理解和求证问题」）
-ac-ark --workflow my-feature --resume # 续接
-ac-ark --workflow list                # 列举
-ac-ark --workflow my-feature --done   # 归档（删 worktree + 分支 + 元数据）
+dl my-feature          # 新建工作流（停在「理解和求证问题」）
+dl my-feature --resume # 续接
+dl list                # 列举
+dl my-feature --done   # 归档（删 worktree + 分支 + 元数据）
 
 # 会话内
 /wf status                            # 看当前阶段

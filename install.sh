@@ -2,7 +2,7 @@
 # dl-workflow install.sh
 # copy 4 hooks / 1 skill / 1 output-style / 1 command 到 ~/.claude/
 # 合并 ~/.claude/settings.json 的 hook 注册
-# 追写 ~/.bashrc 的 ac-ark 函数（若未安装）
+# 追写 ~/.bashrc 的 dl 函数（工作流入口，若未安装）
 #
 # 幂等：连续跑两次结果一致。冲突文件备份到 ~/.claude/.dl-workflow-backup/<ts>/。
 
@@ -131,8 +131,11 @@ PY
   echo "✓ settings.json 合并完成"
 }
 
-# ---------- 追写 ~/.bashrc 的 ac-ark 函数 ----------
+# ---------- 追写 ~/.bashrc 的 dl 函数 ----------
 # 用 BEGIN/END dl-workflow 段落做幂等标记。
+# dl 是工作流入口，独立于 ac-ark/claude（不碰用户的 provider shim）。
+# 用法：dl <name> [--resume|--phase <p>|--base <ref>|--done]
+#      dl list
 install_bashrc() {
   echo "▸ 检查 $BASHRC"
   if grep -q "# BEGIN dl-workflow" "$BASHRC" 2>/dev/null; then
@@ -144,43 +147,41 @@ install_bashrc() {
   mkdir -p "$BACKUP_DIR"
   cp -p "$BASHRC" "$BACKUP_DIR/bashrc" 2>/dev/null || touch "$BASHRC"
 
-  # 检查是否已存在 ac-ark 函数（旧手工版）
-  local has_old_ac_ark=0
-  if grep -qE '^(function ac-ark|ac-ark\(\))' "$BASHRC" 2>/dev/null; then
-    has_old_ac_ark=1
+  # 检查 dl 是否已被占用（alias/函数/命令）
+  local dl_conflict=0
+  if grep -qE '^(dl|function dl|dl\(\))|alias dl=' "$BASHRC" 2>/dev/null; then
+    dl_conflict=1
   fi
 
   cat >> "$BASHRC" <<'BASHRC_EOF'
 
 # BEGIN dl-workflow  (installed by ~/.dl-workflow/install.sh)
-# 5 阶段工作流 launcher shim。真源：~/.dl-workflow/scripts/workflow/wf-launch.sh
-# 用法：ac-ark --workflow <name>[--resume|--phase <p>|--base <ref>|--done|list]
-#
-# 若你已有自定义 ac-ark 函数（如设 ANTHROPIC_BASE_URL 之类），本段只加 --workflow shim；
-# 请手工把 shim 逻辑并入你的 ac-ark 定义，或删旧的 ac-ark 只留本段。
+# 5 阶段工作流入口。真源：~/.dl-workflow/scripts/workflow/wf-launch.sh
+# 用法：
+#   dl <name>              新建工作流（停在「理解和求证问题」）
+#   dl <name> --resume     续接
+#   dl <name> --phase <p>  跳到某阶段
+#   dl <name> --base <ref> 从指定 ref 建分支
+#   dl <name> --done       归档（删 worktree+分支+元数据）
+#   dl list                列举所有工作流
+# 独立于 ac-ark/claude：不设任何 provider env，只拦参数转交 launcher。
+# 进 worktree 后由 launcher 起的 claude 会话继承你当前 shell 的 env。
 
 export DL_WF_HOME="$HOME/.dl-workflow"
 
-# dl-workflow 提供的 shim：识别 --workflow 参数走 launcher
-if ! declare -F ac-ark >/dev/null 2>&1; then
-  # 无自定义 ac-ark，dl-workflow 提供一个简版
-  ac-ark() {
-    if [ "$1" = "--workflow" ]; then
-      "$DL_WF_HOME/scripts/workflow/wf-launch.sh" "$@"
-      return $?
-    fi
-    claude "$@"
-  }
-fi
+dl() {
+  [ $# -ge 1 ] || { echo "用法: dl <name> [--resume|--phase <p>|--base <ref>|--done] | list" >&2; return 1; }
+  "$DL_WF_HOME/scripts/workflow/wf-launch.sh" --workflow "$@"
+}
 # END dl-workflow
 BASHRC_EOF
 
-  if [ "$has_old_ac_ark" = "1" ]; then
-    echo "  ⚠ 检测到已有 ac-ark 函数（可能是你自定义的 provider shim）。"
-    echo "    dl-workflow 段落只在无 ac-ark 时提供简版；你的自定义 ac-ark 保留。"
-    echo "    请手工在你的 ac-ark 里加：if [ \"\$1\" = \"--workflow\" ]; then \"\$DL_WF_HOME/scripts/workflow/wf-launch.sh\" \"\$@\"; return \$?; fi"
+  if [ "$dl_conflict" = "1" ]; then
+    echo "  ⚠ 检测到 ~/.bashrc 已有 dl 定义（alias/函数）。dl-workflow 的 dl 函数定义在后，会覆盖。"
+    echo "    若不想覆盖，请手工把上面 dl() 改名，或删已有的 dl 定义。"
   fi
-  echo "✓ ~/.bashrc 已追加 dl-workflow 段落（export DL_WF_HOME + ac-ark shim）"
+  echo "✓ ~/.bashrc 已追加 dl-workflow 段落（export DL_WF_HOME + dl 函数）"
+  echo "  用法：dl <name>  建工作流；dl list  列举"
 }
 
 # ---------- 主 ----------
@@ -198,7 +199,7 @@ main() {
   if [ -d "$BACKUP_DIR" ]; then
     echo "  备份在: $BACKUP_DIR/"
   fi
-  echo "  下一步: exec bash 或新开终端，然后 ac-ark --workflow <name> 建工作流"
+  echo "  下一步: exec bash 或新开终端，然后 dl <name> 建工作流"
 }
 
 main "$@"

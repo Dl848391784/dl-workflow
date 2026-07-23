@@ -37,7 +37,7 @@
 ## 2. 架构总览
 
 ```
-ac-ark --workflow <name>  ──►  scripts/workflow/wf-launch.sh  (repo 内, 版本化)
+dl <name>  ──►  scripts/workflow/wf-launch.sh  (repo 内, 版本化)
                                   │  1. resolve repo root (git rev-parse --show-toplevel)
                                   │  2. git worktree add .claude/worktrees/<name> -b wf/<name>
                                   │  3. 写 .claude/workflows/<name>/{state.json, settings.json}

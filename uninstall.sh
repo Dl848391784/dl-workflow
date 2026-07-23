@@ -79,4 +79,4 @@ fi
 echo
 echo "═══ 完成 ═══"
 echo "  注：已存在的 workflow state 未删（~/.claude/workflows/ 或项目 <repo>/.claude/workflows/）"
-echo "      清理 state 请手工 rm，或用 'ac-ark --workflow <name> --done' 一个个归档。"
+echo "      清理 state 请手工 rm，或用 'dl <name> --done' 一个个归档。"

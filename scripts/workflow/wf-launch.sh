@@ -1,15 +1,15 @@
 #!/bin/bash
 # wf-launch.sh - 工作流 launcher：建/续 worktree + state + session，起 claude TUI
 # 真源：designs/workflow-system-design.md
-# 被 ~/.bashrc 的 ac-ark --workflow 调用（透传 ark env）。
+# 被 ~/.bashrc 的 dl 调用（不设 provider env，继承当前 shell env）。
 #
 # 用法：
-#   ac-ark --workflow <name>              新建/续工作流（停在 understand）
-#   ac-ark --workflow <name> --resume     续已存在工作流（恢复 session + 当前阶段）
-#   ac-ark --workflow <name> --phase <p>  直接跳到某阶段
-#   ac-ark --workflow <name> --base <ref> 从指定 ref 建分支（默认当前 HEAD）
-#   ac-ark --workflow list                列举所有工作流
-#   ac-ark --workflow <name> --done       归档工作流（删 worktree，保留元数据）
+#   dl <name>              新建/续工作流（停在 understand）
+#   dl <name> --resume     续已存在工作流（恢复 session + 当前阶段）
+#   dl <name> --phase <p>  直接跳到某阶段
+#   dl <name> --base <ref> 从指定 ref 建分支（默认当前 HEAD）
+#   dl list                列举所有工作流
+#   dl <name> --done       归档工作流（删 worktree，保留元数据）
 
 set -euo pipefail
 

@@ -35,7 +35,7 @@ resolve_name() {
 NAME="$(resolve_name || true)"
 if [ -z "$NAME" ]; then
   echo "✗ 当前不在工作流 worktree 内（cwd 不含 .claude/worktrees/<name>）。" >&2
-  echo "  请在 ac-ark --workflow <name> 启动的会话中使用 /wf。" >&2
+  echo "  请在 dl <name> 启动的会话中使用 /wf。" >&2
   exit 1
 fi
 

@@ -80,4 +80,4 @@
 
 - `python3 -c "...import workflow_phase; print(_format_injection({'phase':'execute','index':3,...}))"` -> 注入含「任务清单」块，5 行目标状态正确，PHASE_DONE 行仍英文。
 - `source scripts/workflow/wf-lib.sh; wf_phase_label understand` -> `理解和求证问题`。
-- 实跑验证：`ac-ark --workflow test` 新建工作流，确认首轮模型 TaskCreate 出 5 阶段任务（understand=in_progress），推进后清单逐个打勾。
+- 实跑验证：`dl test` 新建工作流，确认首轮模型 TaskCreate 出 5 阶段任务（understand=in_progress），推进后清单逐个打勾。
