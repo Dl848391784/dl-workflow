@@ -1,7 +1,7 @@
 ---
 name: workflow-creation
-description: 建工作流系统 + 运行诊断。触发：新建/改工作流、dl 命令、阶段不推进、注入没生效、/wf 报错、hook 装错位置、模型否认收到注入、5 阶段不显示。
-version: 2.1
+description: 建工作流系统 + 运行诊断。触发：新建/改工作流、dl 命令、阶段不推进、注入没生效、/wf 报错、hook 装错位置、模型否认收到注入、5 阶段不显示、证据链(evidence)不落地/no_markers。
+version: 2.2
 ---
 
 # workflow-creation
@@ -9,7 +9,7 @@ version: 2.1
 > 建工作流 + 运行诊断手册。自包含。真源 = `~/.dl-workflow/designs/workflow-system-design.md`。
 > **dl-workflow 版本核心事实**：跨所有项目生效，装在**用户级**。两类 artifacts 装法不同：
 > - **skill / output-style / command**：`install.sh` **copy** 到 `~/.claude/`（Claude Code 硬编码加载路径）。改后跑 `install.sh` 重 copy + 重启会话加载。
-> - **hooks（4 个 .py）**：**不 copy**，`settings.json` 直接引用 `~/.dl-workflow/hooks/*.py` 源（shell 执行时展开 `~`）。改 hook 源后 `git pull` 即生效，**连 `install.sh` 都不用，更无需重建 worktree**——这是与 v1.x 项目内嵌版本的关键差别（v1.x 里 hook 是 worktree 内 git 快照，改后必须 commit + 重建 worktree）。
+> - **hooks（5 个 .py）**：**不 copy**，`settings.json` 直接引用 `~/.dl-workflow/hooks/*.py` 源（shell 执行时展开 `~`）。改 hook 源后 `git pull` 即生效，**连 `install.sh` 都不用，更无需重建 worktree**——这是与 v1.x 项目内嵌版本的关键差别（v1.x 里 hook 是 worktree 内 git 快照，改后必须 commit + 重建 worktree）。
 
 ## 0. 系统全景（5 秒理解）
 
@@ -24,6 +24,7 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/wf-launch.sh
      ├─ ~/.claude/output-styles/workflow.md  → 引导模型输出 ## PHASE: <中文名> [n/5] + 维护 TaskList 常驻清单
      │     ⚠ 注入走 attachment，部分模型（ark-code-latest）收不到；output-style 已加 fallback：看不到注入时模型用 Bash 跑 wf-cmd.sh status 自取阶段（allowlist 免提示）。见症状 D
      ├─ ~/.dl-workflow/hooks/workflow_advance.py (Stop) → 检 ### PHASE_DONE 标记 → 闸门判定 → 推进 state
+     ├─ ~/.dl-workflow/hooks/evidence_append.py (Stop, 第二个) -> 检 ### EVIDENCE:{json} 标记 -> 分配 canonical id + 戳 commit_sha -> append <项目>/.claude/evidence/<name>.jsonl（推导证据链，见 designs/evidence-chain-design.md + 症状 I）
      └─ /wf status|next|back|jump|gate|done  → ~/.dl-workflow/scripts/workflow/wf-cmd.sh
 ```
 
@@ -67,6 +68,7 @@ dl <name> --done          # 归档（删 worktree+分支+元数据）
 | ↑ | `phase-rules.md` | append-system-prompt，各阶段行为规则 |
 | `~/.dl-workflow/hooks/`            | `workflow_phase.py` | UserPromptSubmit 注入当前阶段 |
 | ↑ | `workflow_advance.py` | Stop 检 PHASE_DONE 推进 |
+| ↑ | `evidence_append.py` | Stop（第二个）检 `### EVIDENCE:{json}` 追加证据链到 `<项目>/.claude/evidence/<name>.jsonl`（见 designs/evidence-chain-design.md） |
 | ↑ | `codegraph_gate.py` | PreToolUse H15 门禁（改已有 .py 前先查 codegraph） |
 | ↑ | `codegraph_audit.py` | PostToolUse 记 codegraph 查询 |
 | `~/.claude/output-styles/` | `workflow.md` | 横幅 + 常驻 TaskList 首要规则 |
@@ -87,7 +89,7 @@ dl <name> --done          # 归档（删 worktree+分支+元数据）
    ```bash
    cat <项目>/.claude/workflows/<name>/settings.json | python3 -c "import json,sys;d=json.load(sys.stdin);[print(h['command']) for v in d['hooks'].values() for g in v for h in g['hooks']]"
    ```
-   应看到 4 个 `~/.dl-workflow/hooks/*.py` 命令。缺失 -> `wf_write_settings` 没跑，用 `--resume` 重新起 launcher（会补写 settings）。
+   应看到 5 个 `~/.dl-workflow/hooks/*.py` 命令。缺失 -> `wf_write_settings` 没跑，用 `--resume` 重新起 launcher（会补写 settings）。
 2. `~/.dl-workflow/hooks/workflow_phase.py` 存在吗？
    ```bash
    ls -l ~/.dl-workflow/hooks/workflow_phase.py
@@ -152,6 +154,7 @@ claude --settings <per-wf settings> --append-system-prompt-file phase-rules.md \
 
 **改 output-style/phase-rules 后生效**：跑 `install.sh` 同步 workflow.md 到 `~/.claude/output-styles/`；**须重启会话**（fresh，非 `--resume`，output-style/append-system-prompt 启动时载入）。旧工作流的 per-wf settings 若缺 allowlist，重新 `dl <name> --resume`（launcher 会用新 `wf_write_settings` 补）或手动加。
 ### 症状 E：管道 `printf | claude` 测试出 `Execution error`
+- "证据链 / evidence / no_markers / evidence.jsonl 不生成 / 证据不落地" -> §2 症状 I
 
 **测试方法伪问题**，非工作流 bug。管道 EOF 触发 claude 异常。真实 TTY 交互不受影响。
 - **别用管道模拟交互会话验证**。用真实 TTY 或 `-p`（注意 -p 下 transcript 不可靠，见症状 B）。
@@ -181,6 +184,32 @@ understand 拆 4 子阶段（1.理解问题和背景 / 2.明确目标和价值 /
 
 **旧 state.json 迁移**：旧 understand 工作流的 state 无 sub_index/sub_total（在本次改造前建的），hook 默认 sub_total=0 -> 走无子阶段路径（可直接 `PHASE_DONE: understand`）。想让旧工作流用上子阶段：手改 state.json 加 `"sub_index":1,"sub_total":4`，或跳过（新建工作流自然生效）。
 
+### 症状 I：证据链不落地 / `.wf_evidence.log` 一直 `no_markers` / `.claude/evidence/<name>.jsonl` 不生成
+
+证据链系统（designs/evidence-chain-design.md）：模型在回复末尾输出 `### EVIDENCE:{json}` 标记，Stop hook `evidence_append.py` 解析后追加到 `<项目>/.claude/evidence/<name>.jsonl`。日志在**项目根** `<项目>/.claude/.wf_evidence.log`。
+
+**先分清 `no_markers` 是不是真问题**（最易误判，本次排查踩过）：
+- `no_markers|tlen=0` -> transcript 读出空。看 transcript_path 是否指向真会话（见下「transcript 找错目录」）。
+- `no_markers|tlen=N`（N>0）-> transcript 有内容但**当前轮 assistant 文本里无 `### EVIDENCE:` 标记**。**多数情况是正常的**：模型按注入提示"非结论性回复可不发 / 仅当推导出新结论时输出"语义合规未发。understand 元讨论轮次、纯查证轮次不发是设计行为，非 bug。要见节点须走到有具体结论的轮次（execute 实现 / review 判定）。
+
+**排查三步（按序）**：
+
+1. **transcript 找对目录了吗**（本次排查第一坑）：
+   - worktree 会话的 transcript 落在**独立项目目录** `~/.claude/projects/-<项目路径编码>--claude-worktrees-<name>/`，**不在主项目目录** `-<项目路径编码>/`。
+   - demo 的 transcript 在 `~/.claude/projects/-...-worktrees-demo/<sid>.jsonl`，别在 `~/.claude/projects/-...-factor-ic-analyzer/` 找（那里没有 `wf/<name>` session 的 jsonl）。
+   - session_id 取自 state.json 的 `session_id` 字段；worktree 项目目录名 = 主项目路径编码 + `--claude-worktrees-<name>`（`/` -> `-`）。
+
+2. **注入提示生效了吗**（本次排查第二坑：注入渠道缺口已修）：
+   - `workflow_phase.py` `_format_injection` 必须含「推导证据链」提示块（告诉模型 `### EVIDENCE:{json}` 格式 + 何时输出）。
+   - 验：真会话 transcript 的 `attachment` 行（`type=hook_additional_context`）里应能 `grep` 到 `### EVIDENCE:` 字样（那是注入的提示文本）。
+   - **误判陷阱**：`grep "### EVIDENCE" <transcript>` 命中 ≠ 模型真输出了标记。命中可能是注入的 attachment 文本。必须遍历 `role=assistant` 的消息文本判模型是否真发了（attachment 的 role 不是 assistant）。
+
+3. **`_last_assistant_text` 取到的是当前轮吗**（已修，commit 5b7bf01）：
+   - 旧实现取「全局最后一条 assistant 文本」，会漏同轮较早 assistant 消息里的标记（一条 user 后模型可能发多条 assistant）。
+   - 现 `evidence_append.py._last_assistant_text_io` 扫「当前轮」= 最后一条 user 之后所有 assistant 文本。若仍漏，检 hook 是否最新版（`git -C ~/.dl-workflow pull`，hooks 不 copy 源即生效）。
+
+**真验证节点落地**：走完一轮让模型推结论（如 execute 实现完输出 `### EVIDENCE:{...,"claim_type":"conclusion",...}`），看 `<项目>/.claude/evidence/<name>.jsonl` 是否新增一行 + `.wf_evidence.log` 是否 `appended|n=1`。
+
 ### 症状 G：install.sh 后 hook 没触发
 
 - `~/.claude/settings.json` 是否含 dl-workflow hook 注册？`grep -c workflow_phase.py ~/.claude/settings.json`。
@@ -191,11 +220,13 @@ understand 拆 4 子阶段（1.理解问题和背景 / 2.明确目标和价值 /
 
 排查工作流问题按此顺序：
 
-1. **先看日志，别猜**：项目根 `.wf_phase.log`（注入）、`.wf_advance.log`（推进）。
+1. **先看日志，别猜**：项目根 `.wf_phase.log`（注入）、`.wf_advance.log`（推进）、`.wf_evidence.log`（证据链）。
 2. **分清"没调用"vs"调用了没投递"vs"投递了模型不遵循"**：三层次，日志+attachment 分别诊断（症状 A1/A2/D）。
 3. **看 session jsonl 的 attachment**：注入真相在 `hook_additional_context` attachment，不在 user message。但**投递到 jsonl ≠ 模型收到**--ark-code-latest 实测 jsonl 有 attachment 却进不了上下文（症状 D）。怀疑时用 canary `-p` 问模型能否复述阶段名直接验。
 4. **install 状态优先怀疑**：任何"改了不生效"，检 `~/.dl-workflow/hooks/` 是否含 _resolve_project_root（git pull 后即最新，无副本同步问题）。
 5. **验证用真实交互，别用管道/-p**：管道有 Execution error（症状 E），-p transcript 不可靠（症状 B）。
+- "证据链 / evidence / no_markers / evidence.jsonl 不生成 / 证据不落地" -> §2 症状 I
+6. **grep 命中 ≠ 模型真输出**：transcript 里 `### EVIDENCE` / `### PHASE_DONE` 命中可能是注入的 attachment 文本，必须按 `role=assistant` 过滤后再判模型是否真发了标记（症状 I）。
 
 ## 4. 不要做的事
 
@@ -204,6 +235,8 @@ understand 拆 4 子阶段（1.理解问题和背景 / 2.明确目标和价值 /
 - ❌ **在 user message 文本里找注入**：注入在 `hook_additional_context` attachment。
 - ❌ **用 `printf | claude` 验证交互行为**：Execution error 伪问题。
 - ❌ **同时在项目级和用户级注册同一 hook**：会双跑或路径解析错。删项目级注册，只留用户级（install.sh 装的）。
+- ❌ **在主项目目录找 worktree 会话的 transcript**：worktree 会话 transcript 在独立目录 `~/.claude/projects/-...-worktrees-<name>/`，非主项目目录。按 state.json 的 session_id + worktree 路径编码找（症状 I）。
+- ❌ **见 `no_markers` 就当 bug**：多数是模型按"非结论性回复不发"语义合规未发标记。先判 transcript 取对没、注入生效没、当前轮有无真结论，再下结论（症状 I）。
 
 ## 5. 触发关键词速查
 
@@ -216,3 +249,4 @@ understand 拆 4 子阶段（1.理解问题和背景 / 2.明确目标和价值 /
 - "阶段清单不显示 / TaskList 状态错 / 1.1-1.4 顺序错" → §2 症状 F
 - "子阶段 / SUB_DONE / understand 子阶段不推进 / 提前 PHASE_DONE 被阻断" → §2 症状 H
 - "Execution error / 管道测试" → §2 症状 E
+- "证据链 / evidence / no_markers / evidence.jsonl 不生成 / 证据不落地" -> §2 症状 I
