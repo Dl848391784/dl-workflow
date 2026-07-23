@@ -58,6 +58,11 @@ case "$SUB" in
     BR="$(wf_state_get "$NAME" branch)"
     echo "═══ 工作流: $NAME ═══"
     echo "  阶段:  $(wf_phase_label "$P") [$I/5]"
+    SUB_TOTAL="$(wf_sub_total "$P")"
+    if [ "$SUB_TOTAL" -gt 0 ]; then
+      SUB_IDX="$(wf_state_get "$NAME" sub_index 2>/dev/null || echo 1)"
+      echo "  子阶段: $(wf_sub_label "$P" "$SUB_IDX") [$SUB_IDX/$SUB_TOTAL]"
+    fi
     echo "  闸门:  $G"
     echo "  分支:  $BR"
     echo "  worktree: $(wf_state_get "$NAME" worktree_path)"
