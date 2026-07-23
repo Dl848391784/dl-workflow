@@ -157,9 +157,13 @@ fi
 
 cd "$WORKTREE_PATH"
 
+# provider 命令：默认 claude，可被环境变量 DL_CLAUDE 覆盖（dl 函数解析 @provider 前缀后 export）。
+# 这样 dl @ac-ark foo / dl @ac-mm foo 等可用任意 provider 起会话，launcher 不硬编码 claude。
+DL_CLAUDE="${DL_CLAUDE:-claude}"
+
 # resume：用钉死的 session_id 恢复；否则用 --session-id 钉死
 if [ "$WF_RESUME" = "1" ] && [ -n "${SESSION_ID:-}" ]; then
-  exec claude --resume "$SESSION_ID" "${SETTINGS_ARGS[@]}" "${SYS_PROMPT_ARGS[@]}" "$@"
+  exec "$DL_CLAUDE" --resume "$SESSION_ID" "${SETTINGS_ARGS[@]}" "${SYS_PROMPT_ARGS[@]}" "$@"
 else
-  exec claude --session-id "$SESSION_ID" "${SETTINGS_ARGS[@]}" "${SYS_PROMPT_ARGS[@]}" "$@"
+  exec "$DL_CLAUDE" --session-id "$SESSION_ID" "${SETTINGS_ARGS[@]}" "${SYS_PROMPT_ARGS[@]}" "$@"
 fi

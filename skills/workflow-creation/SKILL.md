@@ -31,13 +31,16 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/wf-launch.sh
 
 ### 1.1 新建一个工作流（用户侧）
 ```bash
-dl <name>              # 新建（停在 understand）
-dl <name> --resume     # 续接
-dl list                # 列举
-dl <name> --done       # 归档（删 worktree+分支+元数据）
+dl <name>                # 新建（停在 understand），默认 claude
+dl @<provider> <name>    # 用指定 provider 起会话（如 @ac-ark / @ac-mm / @ac-ark1）
+dl <name> --resume       # 续接
+dl @ac-ark <name> --resume  # 指定 provider 续接
+dl list                  # 列举
+dl <name> --done         # 归档（删 worktree+分支+元数据）
 ```
 - `<name>` 仅小写字母/数字/连字符/下划线，≤64（`wf-lib.sh` 校验）。
 - 必须在 git repo 内运行（launcher 用 `git rev-parse` 反查项目根）。
+- `@<provider>`：把该 provider 命令当起会话入口（`DL_CLAUDE` env 传 launcher）。多 provider 机器按需选；不指定用默认 `claude`。dl 本身不设任何 ANTHROPIC_* env，由 provider 命令负责。
 
 ### 1.2 改工作流脚本/hook/command 后
 - 改 `~/.dl-workflow/hooks/*.py` 或 `output-styles/*.md` 或 `commands/*.md` -> 跑 `~/.dl-workflow/install.sh` copy 到 `~/.claude/`，**下轮 hook 触发即最新版**（无需重建 worktree）。

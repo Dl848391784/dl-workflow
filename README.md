@@ -40,10 +40,16 @@ install.sh 做什么：
 ## 用
 
 ```bash
-dl my-feature          # 新建工作流（停在「理解和求证问题」）
-dl my-feature --resume # 续接
-dl list                # 列举
-dl my-feature --done   # 归档（删 worktree + 分支 + 元数据）
+dl my-feature                  # 新建工作流（停在「理解和求证问题」）
+dl @ac-ark my-feature          # 用 ac-ark provider 起会话（走 ark env）
+dl @ac-mm my-feature           # 用 ac-mm provider
+dl my-feature --resume         # 续接
+dl @ac-ark my-feature --resume # 指定 provider 续接
+dl list                        # 列举
+dl my-feature --done           # 归档（删 worktree + 分支 + 元数据）
+```
+
+**provider 选择**：`dl` 不硬编码 `claude`。`dl @<provider> <name>` 把 `<provider>` 当作起会话的命令（通过 `DL_CLAUDE` env 传给 launcher）。这样你的多个 provider 命令（`ac-ark`/`ac-mm`/`ac-ark1`/未来更多）都能用工作流，dl-workflow 不用改。不指定 `@provider` 时用默认 `claude`（或你 `export DL_CLAUDE=...` 的值）。
 
 # 会话内
 /wf status                            # 看当前阶段

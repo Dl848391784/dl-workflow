@@ -158,20 +158,37 @@ install_bashrc() {
 # BEGIN dl-workflow  (installed by ~/.dl-workflow/install.sh)
 # 5 阶段工作流入口。真源：~/.dl-workflow/scripts/workflow/wf-launch.sh
 # 用法：
-#   dl <name>              新建工作流（停在「理解和求证问题」）
-#   dl <name> --resume     续接
-#   dl <name> --phase <p>  跳到某阶段
-#   dl <name> --base <ref> 从指定 ref 建分支
-#   dl <name> --done       归档（删 worktree+分支+元数据）
-#   dl list                列举所有工作流
-# 独立于 ac-ark/claude：不设任何 provider env，只拦参数转交 launcher。
-# 进 worktree 后由 launcher 起的 claude 会话继承你当前 shell 的 env。
+#   dl <name>               新建工作流（停在「理解和求证问题」）
+#   dl @<provider> <name>   用指定 provider 起会话（如 @ac-ark / @ac-mm / @ac-ark1）
+#   dl <name> --resume      续接
+#   dl <name> --phase <p>   跳到某阶段
+#   dl <name> --base <ref>  从指定 ref 建分支
+#   dl <name> --done        归档（删 worktree+分支+元数据）
+#   dl list                 列举所有工作流
+# provider 选择：dl 不硬编码 claude，调 launcher 时 export DL_CLAUDE。
+#   - dl foo          -> DL_CLAUDE 用默认（claude 或你 export 的值）
+#   - dl @ac-ark foo  -> DL_CLAUDE=ac-ark，会话走 ac-ark 的 env
+#   - dl @ac-mm foo   -> DL_CLAUDE=ac-mm
+#   未来加新 provider 命令只需定义该命令，dl @新命令 立即可用，dl-workflow 不用改。
+# 独立于 provider：dl 本身不设任何 ANTHROPIC_* env，由被调的 provider 命令负责。
 
 export DL_WF_HOME="$HOME/.dl-workflow"
 
 dl() {
-  [ $# -ge 1 ] || { echo "用法: dl <name> [--resume|--phase <p>|--base <ref>|--done] | list" >&2; return 1; }
-  "$DL_WF_HOME/scripts/workflow/wf-launch.sh" --workflow "$@"
+  [ $# -ge 1 ] || { echo "用法: dl [@<provider>] <name> [--resume|--phase <p>|--base <ref>|--done] | list" >&2; return 1; }
+  local provider=""
+  # 解析 @provider 前缀（首个参数以 @ 开头且 @ 后非空）
+  if [ "${1#@}" != "$1" ] && [ "${1#@}" != "" ]; then
+    provider="${1#@}"
+    shift
+    [ $# -ge 1 ] || { echo "✗ @provider 后须跟工作流名" >&2; return 1; }
+  fi
+  # 指定了 provider 才 export DL_CLAUDE 覆盖 launcher 默认
+  if [ -n "$provider" ]; then
+    DL_CLAUDE="$provider" "$DL_WF_HOME/scripts/workflow/wf-launch.sh" --workflow "$@"
+  else
+    "$DL_WF_HOME/scripts/workflow/wf-launch.sh" --workflow "$@"
+  fi
 }
 # END dl-workflow
 BASHRC_EOF
@@ -181,7 +198,7 @@ BASHRC_EOF
     echo "    若不想覆盖，请手工把上面 dl() 改名，或删已有的 dl 定义。"
   fi
   echo "✓ ~/.bashrc 已追加 dl-workflow 段落（export DL_WF_HOME + dl 函数）"
-  echo "  用法：dl <name>  建工作流；dl list  列举"
+  echo "  用法：dl <name> 建工作流；dl @ac-ark <name> 指定 provider；dl list 列举"
 }
 
 # ---------- 主 ----------
