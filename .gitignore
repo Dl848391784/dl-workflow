@@ -3,3 +3,6 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .ruff_cache/
+
+# 运行态：hook 日志 + workflow state.json 等（.claude/ 由 dl-flow-engine hook 写入，不入库）
+.claude/

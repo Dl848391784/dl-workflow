@@ -31,28 +31,32 @@ fi
 WF_META_ROOT="$WF_REPO_ROOT/.claude/workflows"
 WF_WT_ROOT="$WF_REPO_ROOT/.claude/worktrees"
 
-# ---------- 阶段定义 ----------
+# ---------- 阶段定义（§8.5：从 engine meta 缓存,删 bash 侧副本）----------
+# 不再各持 PHASES/GATED_AFTER/SUBPHASES 副本（避免三处同步）。source 时调 engine
+# meta 取一次常量缓存到 bash 变量。engine 是真源,bash 仅为显示/手动覆盖用。
+# engine 路径：dl-workflow 一级目录（与 scripts/workflow/ 同级）。
+WF_ENGINE="$(cd "$WF_LIB_DIR/../.." && pwd)/dl-flow-engine.py"
+if [ -f "$WF_ENGINE" ]; then
+  _meta_json="$(python3 "$WF_ENGINE" meta 2>/dev/null || echo '{}')"
+  # 解析到 bash 数组/变量（python 一次产出,避免每函数都起进程）。
+  WF_PHASES=()
+  while IFS= read -r _p; do
+    WF_PHASES+=("$_p")
+  done < <(python3 -c "import json,sys;d=json.loads(sys.argv[1]);[print(p) for p in d['phases']]" "$_meta_json" 2>/dev/null)
+  WF_GATED_AFTER="$(python3 -c "import json,sys;print(' '.join(json.loads(sys.argv[1])['gated_after']))" "$_meta_json" 2>/dev/null)"
+  # phase_labels / subphases 按需查（函数内 python 取,避免大 declare）。
+else
+  # engine 缺失（dl-workflow 损坏）-> 退化为空,各函数返回空串（no silent fallback：不假数据）。
+  echo "⚠ dl-flow-engine.py 缺失（$WF_ENGINE），阶段常量不可用。" >&2
+  WF_PHASES=()
+  WF_GATED_AFTER=""
+fi
 
-# 5 阶段顺序（index 从 1 起）
-WF_PHASES=(understand plan execute review evolution)
-
-# 闸门：key=来源阶段，value=1 表示该阶段完成后进下一阶段需人工 gate 放行
-# understand->plan、plan->execute 两处闸门（认知/决策关口）
-WF_GATED_AFTER="understand plan"
-
-# 阶段中文显示名（仅显示用；逻辑层 state/PHASE_DONE/jump 仍用英文标识）
-declare -A WF_PHASE_LABELS=(
-  [understand]="理解和求证问题"
-  [plan]="生成执行计划"
-  [execute]="执行"
-  [review]="审核结果"
-  [evolution]="进化"
-)
-
-# 英文阶段名 -> 中文显示名（未知回退原值）；仅供显示，不参与逻辑判定
+# 英文阶段名 -> 中文显示名（委托 engine,按需查）。
 wf_phase_label() {
   local p="$1"
-  printf '%s' "${WF_PHASE_LABELS[$p]:-$p}"
+  [ -f "$WF_ENGINE" ] || { printf '%s' "$p"; return; }
+  python3 -c "import json,sys;print(json.loads(sys.argv[1])['phase_labels'].get(sys.argv[2],sys.argv[2]))" "$_meta_json" "$p" 2>/dev/null
 }
 
 # 阶段 -> index
@@ -93,31 +97,19 @@ wf_is_gated_after() {
   esac
 }
 
-# ---------- 子阶段定义 ----------
-# understand 拆 4 子阶段（顺序）；仅 understand 有子阶段，其他阶段 sub_total=0。
-# 与 PHASES/PHASE_LABELS 一样在 bash + 两 python hook 各持一份（避免跨语言 source）。
-# 详见 designs/understand-subphases-design.md。
-WF_SUBPHASES_UNDERSTAND=(
-  "理解问题和背景"
-  "明确目标和价值"
-  "确定范围与约束"
-  "定义成功标准和验收方式"
-)
+# ---------- 子阶段定义（§8.5：从 engine meta 取,删 bash 副本）----------
 
 # 阶段 -> 子阶段数（0=无子阶段）
 wf_sub_total() {
-  case "$1" in
-    understand) echo 4;;
-    *) echo 0;;
-  esac
+  [ -f "$WF_ENGINE" ] || { echo 0; return; }
+  python3 -c "import json,sys;print(json.loads(sys.argv[1])['sub_total'].get(sys.argv[2],0))" "$_meta_json" "$1" 2>/dev/null
 }
 
 # 阶段 + n -> 第 n 个子阶段标签（n 越界/无子阶段返回空）
 wf_sub_label() {
   local phase="$1" n="$2"
-  if [ "$phase" = "understand" ]; then
-    echo "${WF_SUBPHASES_UNDERSTAND[$((n-1))]:-}"
-  fi
+  [ -f "$WF_ENGINE" ] || return
+  python3 -c "import json,sys;subs=json.loads(sys.argv[1])['subphases'].get(sys.argv[2],[]);n=int(sys.argv[3]);print(subs[n-1] if 1<=n<=len(subs) else '')" "$_meta_json" "$phase" "$n" 2>/dev/null
 }
 
 # ---------- state.json 读写 ----------
@@ -267,8 +259,7 @@ wf_write_settings() {
     "Stop": [
       {
         "hooks": [
-          { "type": "command", "command": "python3 $hk/workflow_advance.py" },
-          { "type": "command", "command": "python3 $hk/evidence_append.py" }
+          { "type": "command", "command": "python3 $hk/workflow_advance.py" }
         ]
       }
     ]

@@ -69,7 +69,8 @@ class Node:
 # 节点表。<node_id> -> Node。node_id = f"{phase}:{sub}"。
 # 闸门 GATED_AFTER：这些 phase 的末节点完成需用户 /wf gate 放行才进下一 phase。
 #   继承现有 workflow_advance.py:39 GATED_AFTER 语义,收口到 engine 一份。
-GATED_AFTER = frozenset({"understand", "plan"})
+#   用 tuple 保序（显示用自然顺序 understand,plan）;is_gated_after 成员判定 O(n) 可接受（5 阶段）。
+GATED_AFTER: tuple[str, ...] = ("understand", "plan")
 
 _NODES: dict[str, Node] = {
     # ---------- understand（含 4 子阶段;design §3 / workflow_advance.py:47 SUBPHASES 同源）----------
@@ -163,15 +164,6 @@ _NODES: dict[str, Node] = {
 # 大阶段顺序（英文标识;与 wf-lib.sh:37 WF_PHASES 同源,收口到 engine 一份）。
 PHASES = ("understand", "plan", "execute", "review", "evolution")
 
-# 各 phase 子阶段数（0=无子节点）。与 wf-lib.sh:108 wf_sub_total 同源。
-_SUB_TOTAL: dict[str, int] = {
-    "understand": 4,
-    "plan": 0,
-    "execute": 0,
-    "review": 0,
-    "evolution": 0,
-}
-
 # 大阶段中文显示名（仅显示;逻辑层用英文标识）。
 PHASE_LABELS: dict[str, str] = {
     "understand": "理解和求证问题",
@@ -206,9 +198,27 @@ def get_node(phase: str, sub: int) -> Node:
     return _NODES[nid]
 
 
+# 各 phase 子阶段数（0=无子节点）。从 _NODES 推导（单源,不再持 _SUB_TOTAL 副本）。
 def sub_total(phase: str) -> int:
     """phase -> 子阶段数（0=无子节点）。"""
-    return _SUB_TOTAL.get(phase, 0)
+    n = 0
+    while f"{phase}:{n + 1}" in _NODES:
+        n += 1
+    return n
+
+
+def subphase_labels(phase: str) -> list[str]:
+    """phase -> 子阶段标签列表（按 sub 序号;空 phase 返回 []）。
+
+    从 _NODES 推导（单源）。收口 understand 4 子阶段标签,
+    供 workflow_phase.py 注入子阶段块（不再各持 SUBPHASES 副本）。
+    """
+    labels: list[str] = []
+    i = 1
+    while f"{phase}:{i}" in _NODES:
+        labels.append(_NODES[f"{phase}:{i}"].label)
+        i += 1
+    return labels
 
 
 def phase_index(phase: str) -> int:
@@ -299,6 +309,26 @@ def resolve_workflow_name(cwd: str) -> str | None:
         if i + 1 < len(parts):
             return parts[i + 1]
     return None
+
+
+def stamp_commit_sha(cwd: str) -> str:
+    """取 worktree 内项目 repo 当前 HEAD SHA（防腐锚点,evidence-chain-design §6.1）。
+
+    取不到（非 git / 无 commit）-> 空串（不阻断,事后回溯降级）。
+    收口到 engine:evidence_append.py 旧 _stamp_commit_sha 范式迁此。
+    """
+    try:
+        res = subprocess.run(
+            ["git", "-C", cwd, "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if res.returncode == 0:
+            return res.stdout.strip()
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+    return ""
 
 
 def state_path(project_root: Path, name: str) -> Path:
@@ -409,6 +439,57 @@ def advance_state(project_root: Path, name: str, via: str = "auto") -> dict[str,
     state["history"] = hist
     save_state(project_root, name, state)
     return state
+
+
+# ---------- gate 裁决记录（design §8.6：gate-pass 写证据,替代旧 ### EVIDENCE 溯源）----------
+#
+# design §8.6 + 用户决策（2026-07-23）：旧「模型每轮自发记 claim/依赖/证据」溯源系统弃用,
+# 改为 gate 判定通过时记一笔「此节点输出经审核合格」的裁决记录。
+# 落点沿用 <项目>/.claude/evidence/<name>.jsonl（per-workflow,与旧系统同文件,新记录 kind=gate）。
+# 只在 gate pass 时写（block 不写;block 的重试计数在 state.node_attempts,pass 时一并记 attempts）。
+
+
+def _evidence_path(project_root: Path, name: str) -> Path:
+    return project_root / ".claude" / "evidence" / (name + ".jsonl")
+
+
+def write_gate_verdict(
+    project_root: Path,
+    name: str,
+    node: Node,
+    attempts: int,
+    cwd: str,
+    via: str = "auto-stop",
+) -> bool:
+    """gate pass 时写一笔裁决记录到 evidence/<name>.jsonl。
+
+    记录：节点 + gate=passed + rubric（审据;None=仅机械过）+ attempts（重试次数）+
+    gate_mech（机械类型）+ ts + commit_sha（防腐锚点）。
+    返回 True=写入成功;False=写失败（no silent fallback：失败留痕由调用方 log,不阻断）。
+    """
+    record = {
+        "kind": "gate",
+        "node": node_id(node.phase, node.sub),
+        "phase": node.phase,
+        "sub": node.sub,
+        "label": node.label,
+        "gate": "passed",
+        "gate_mech": node.gate_mech.value,
+        "rubric": node.gate_rubric,  # None=仅机械过（无语义审）
+        "attempts": attempts,
+        "skill": node.skill,
+        "via": via,
+        "ts": _now(),
+        "commit_sha": stamp_commit_sha(cwd),
+    }
+    path = _evidence_path(project_root, name)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except OSError:
+        return False
+    return True
 
 
 # ---------- gate（compound + 短路;design §5）----------
@@ -630,15 +711,35 @@ def _cmd_advance(project_root: Path, name: str) -> int:
     return 0
 
 
+def _cmd_meta() -> int:
+    """输出全部静态常量 JSON（供 wf-lib.sh 启动时缓存,删 bash 侧副本）。
+
+    bash 侧不再各持 PHASES/GATED_AFTER/SUBPHASES 副本,source 本输出一次缓存。
+    """
+    out = {
+        "phases": list(PHASES),
+        "phase_labels": PHASE_LABELS,
+        "gated_after": list(GATED_AFTER),
+        "subphases": {p: subphase_labels(p) for p in PHASES},
+        "sub_total": {p: sub_total(p) for p in PHASES},
+    }
+    print(json.dumps(out, ensure_ascii=False))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="dl-flow-engine",
         description="工作流编排内核（被 hook 咨询;不当主进程）",
     )
-    parser.add_argument("cmd", choices=["status", "current", "advance"])
+    parser.add_argument("cmd", choices=["status", "current", "advance", "meta"])
     parser.add_argument("name", nargs="?", help="工作流名（不填则从 cwd 反查）")
     parser.add_argument("--cwd", help="覆盖 cwd（默认进程 cwd）")
     args = parser.parse_args(argv)
+
+    # meta 是静态常量,不需要 git repo / name。
+    if args.cmd == "meta":
+        return _cmd_meta()
 
     cwd = args.cwd or str(Path.cwd())
     project_root = resolve_project_root(cwd)

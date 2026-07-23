@@ -261,7 +261,12 @@ def main() -> int:
                 reason=reason[:120],
             )
             return _block_continue(f"子阶段 {n}({node.label})未通过门控：{reason}")
-        # 通过：推进 sub_index
+        # 通过：写裁决记录（§8.6）+ 推进 sub_index
+        _ev_ok = engine.write_gate_verdict(
+            project_root, name, node,
+            attempts=state.get("node_attempts", 0), cwd=cwd, via="sub-advance",
+        )
+        _log(project_root, "gate_verdict_written", wf=name, node=engine.node_id(cur_phase, cur_sub), ev_ok=_ev_ok)
         now = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
         state["sub_index"] = n + 1
         state["node"] = engine.node_id(cur_phase, n + 1)
@@ -323,6 +328,13 @@ def main() -> int:
             reason=reason[:120],
         )
         return _block_continue(f"节点 {node.label}未通过门控：\n{reason}")
+
+    # gate 过：写裁决记录（§8.6）
+    _ev_ok = engine.write_gate_verdict(
+        project_root, name, node,
+        attempts=state.get("node_attempts", 0), cwd=cwd, via="auto-stop",
+    )
+    _log(project_root, "gate_verdict_written", wf=name, node=state["node"], ev_ok=_ev_ok)
 
     # ---- 3. gate 过 -> 闸门判定 + 推进 ----
     if engine.is_gated_after(cur_phase):

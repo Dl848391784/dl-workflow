@@ -100,6 +100,27 @@ class TestNodeTable:
         for nid, node in eng._NODES.items():
             assert nid == eng.node_id(node.phase, node.sub)
 
+    def test_subphase_labels(self):
+        # 子阶段标签从 _NODES 推导（单源,收口 understand 4 子阶段）
+        labels = eng.subphase_labels("understand")
+        assert labels == [
+            "理解问题和背景",
+            "明确目标和价值",
+            "确定范围与约束",
+            "定义成功标准和验收方式",
+        ]
+
+    def test_subphase_labels_no_sub(self):
+        # 无子阶段 phase -> []
+        assert eng.subphase_labels("plan") == []
+        assert eng.subphase_labels("execute") == []
+
+    def test_sub_total_derived_from_nodes(self):
+        # sub_total 从 _NODES 推导（不再 _SUB_TOTAL 副本）,与 subphase_labels 长度一致
+        assert eng.sub_total("understand") == 4
+        assert len(eng.subphase_labels("understand")) == 4
+        assert eng.sub_total("plan") == 0
+
 
 # ---------- 推进链 ----------
 
@@ -270,6 +291,81 @@ class TestAdvanceState:
         # state 缺失 -> 报错,不静默建（守 no silent fallback）
         with pytest.raises(FileNotFoundError):
             eng.advance_state(tmp_path, "nonexistent", via="test")
+
+
+# ---------- write_gate_verdict（§8.6：gate-pass 写裁决记录）----------
+
+
+class TestWriteGateVerdict:
+    def test_writes_gate_record(self, tmp_path):
+        # gate pass -> 写一笔 kind=gate 记录到 evidence/<name>.jsonl
+        node = eng.get_node("understand", 4)  # 有 rubric 的末子阶段
+        ok = eng.write_gate_verdict(tmp_path, "t", node, attempts=1, cwd=str(tmp_path))
+        assert ok is True
+        ev = eng._evidence_path(tmp_path, "t")
+        lines = ev.read_text(encoding="utf-8").strip().splitlines()
+        assert len(lines) == 1
+        rec = json.loads(lines[0])
+        assert rec["kind"] == "gate"
+        assert rec["node"] == "understand:4"
+        assert rec["gate"] == "passed"
+        assert rec["rubric"] == node.gate_rubric
+        assert rec["attempts"] == 1
+        assert rec["gate_mech"] == "artifact_exists"
+        assert "ts" in rec
+
+    def test_rubric_none_for_mech_only_node(self, tmp_path):
+        # rubric=None 的节点（understand 子 1-3）-> rubric 字段 None（仅机械过）
+        node = eng.get_node("understand", 1)
+        ok = eng.write_gate_verdict(tmp_path, "t", node, attempts=0, cwd=str(tmp_path))
+        assert ok is True
+        rec = json.loads(
+            eng._evidence_path(tmp_path, "t").read_text(encoding="utf-8").strip()
+        )
+        assert rec["rubric"] is None
+        assert rec["gate_mech"] == "none"
+
+    def test_appends_multiple_records(self, tmp_path):
+        # 多次 pass -> 多行追加（不覆盖）
+        node = eng.get_node("plan", 0)
+        eng.write_gate_verdict(tmp_path, "t", node, attempts=1, cwd=str(tmp_path))
+        eng.write_gate_verdict(tmp_path, "t", node, attempts=3, cwd=str(tmp_path))
+        lines = (
+            eng._evidence_path(tmp_path, "t")
+            .read_text(encoding="utf-8")
+            .strip()
+            .splitlines()
+        )
+        assert len(lines) == 2
+        assert json.loads(lines[0])["attempts"] == 1
+        assert json.loads(lines[1])["attempts"] == 3
+
+    def test_commit_sha_from_git_repo(self, tmp_path):
+        # 在 git repo 内 -> commit_sha 非空（stamp_commit_sha 用 git rev-parse HEAD）
+        import subprocess
+
+        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=tmp_path, check=True)
+        subprocess.run(["git", "config", "user.email", "t@t"], cwd=tmp_path, check=True)
+        subprocess.run(["git", "config", "user.name", "t"], cwd=tmp_path, check=True)
+        (tmp_path / "f.txt").write_text("x")
+        subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=tmp_path, check=True)
+        node = eng.get_node("execute", 0)
+        eng.write_gate_verdict(tmp_path, "t", node, attempts=1, cwd=str(tmp_path))
+        rec = json.loads(
+            eng._evidence_path(tmp_path, "t").read_text(encoding="utf-8").strip()
+        )
+        assert rec["commit_sha"] != ""  # git repo 有 HEAD
+        assert len(rec["commit_sha"]) == 40  # SHA 长度
+
+    def test_commit_sha_empty_non_git(self, tmp_path):
+        # 非 git -> commit_sha 空串（不阻断,降级）
+        node = eng.get_node("review", 0)
+        eng.write_gate_verdict(tmp_path, "t", node, attempts=1, cwd=str(tmp_path))
+        rec = json.loads(
+            eng._evidence_path(tmp_path, "t").read_text(encoding="utf-8").strip()
+        )
+        assert rec["commit_sha"] == ""
 
 
 # ---------- gate_verdict_mech（骨架阶段;仅 NONE 通过,其他降级）----------
@@ -534,3 +630,21 @@ class TestCLI:
         rc = eng.main(["status", "t", "--cwd", str(tmp_path)])
         assert rc == 0
         assert "生成执行计划" in capsys.readouterr().out
+
+    def test_meta_outputs_constants_json(self, capsys):
+        # meta 不需 git repo/name（静态常量）;供 wf-lib.sh 缓存删 bash 副本
+        rc = eng.main(["meta"])
+        assert rc == 0
+        out = json.loads(capsys.readouterr().out)
+        assert out["phases"] == ["understand", "plan", "execute", "review", "evolution"]
+        assert out["phase_labels"]["understand"] == "理解和求证问题"
+        assert out["gated_after"] == ["understand", "plan"]  # 保序（tuple 定义顺序）
+        assert out["subphases"]["understand"] == [
+            "理解问题和背景",
+            "明确目标和价值",
+            "确定范围与约束",
+            "定义成功标准和验收方式",
+        ]
+        assert out["subphases"]["plan"] == []
+        assert out["sub_total"]["understand"] == 4
+        assert out["sub_total"]["plan"] == 0

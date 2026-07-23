@@ -17,26 +17,33 @@ UserPromptSubmit hook：工作流阶段注入。
 都存到主仓库 .claude/ 下（与旧版兼容）。
 """
 
+import importlib.util
 import json
 import subprocess
 import sys
 import time
 from pathlib import Path
 
+# ---------- 加载 engine（§8.4：PHASES/PHASE_LABELS/SUBPHASES 委托 engine 单源）----------
+_DLWF_ROOT = Path(__file__).resolve().parents[1]  # ~/.dl-workflow/
+_ENGINE_PATH = _DLWF_ROOT / "dl-flow-engine.py"
+_spec = importlib.util.spec_from_file_location("dl_flow_engine", _ENGINE_PATH)
+engine = importlib.util.module_from_spec(_spec)  # type: ignore[arg-type]
+sys.modules["dl_flow_engine"] = engine  # dataclass 探测类型注解要查此表
+_spec.loader.exec_module(engine)  # type: ignore[union-attr]
 
-# 5 阶段顺序（与 wf-lib.sh WF_PHASES 一致；hook 独立持有，避免 source bash）
-PHASES = ["understand", "plan", "execute", "review", "evolution"]
+# 5 阶段顺序 / 标签 / 子阶段标签：委托 engine（§8.4 删三处副本,单源）。
+PHASES = list(engine.PHASES)
+PHASE_LABELS = engine.PHASE_LABELS
 
-# 阶段中文显示名（仅显示用；逻辑层 state/PHASE_DONE 标记/jump 参数仍用英文标识）
-PHASE_LABELS = {
-    "understand": "理解和求证问题",
-    "plan": "生成执行计划",
-    "execute": "执行",
-    "review": "审核结果",
-    "evolution": "进化",
-}
+
+def _subphases(phase: str) -> list[str]:
+    """phase -> 子阶段标签列表（委托 engine.subphase_labels,单源）。"""
+    return engine.subphase_labels(phase)
 
 # 各阶段规则（注入给模型的"允许/禁止/产物/推进"四要素）
+# §8.4：goal/allow/deny 是行为约束文本（design §0.4 不收口文本规则）,留此处;
+# PHASES/PHASE_LABELS/SUBPHASES 已委托 engine（上面）,不再各持副本。
 PHASE_RULES = {
     "understand": {
         "goal": "理清真实问题（问题背后要解决的本质，非字面请求）",
@@ -76,17 +83,8 @@ PHASE_RULES = {
 }
 
 
-# 子阶段：phase -> 子阶段标签列表（仅 understand 有 4 个；其他阶段无子阶段）。
-# 与 wf-lib.sh WF_SUBPHASES_UNDERSTAND / workflow_advance.py SUBPHASES 三处各持一份（避免跨语言 source）。
+# 子阶段标签：委托 engine.subphase_labels（§8.4 删此处 SUBPHASES 副本,单源）。
 # 详见 designs/understand-subphases-design.md。
-SUBPHASES = {
-    "understand": [
-        "理解问题和背景",
-        "明确目标和价值",
-        "确定范围与约束",
-        "定义成功标准和验收方式",
-    ],
-}
 
 
 def _payload_cwd(payload: dict) -> str:
@@ -208,7 +206,7 @@ def _format_injection(state: dict) -> str:
     except Exception:
         total = 5
 
-    subs = SUBPHASES.get(phase, [])
+    subs = _subphases(phase)
     has_sub = sub_total > 0 and bool(subs)
     cur_sub_label = (
         subs[sub_index - 1] if has_sub and 1 <= sub_index <= len(subs) else ""
@@ -221,7 +219,7 @@ def _format_injection(state: dict) -> str:
         lbl = PHASE_LABELS.get(p, p)
         st = "completed" if i < idx else ("in_progress" if i == idx else "pending")
         task_rows.append(f"  {i}. {lbl} -> {st}")
-        for j, slabel in enumerate(SUBPHASES.get(p, []), 1):
+        for j, slabel in enumerate(_subphases(p), 1):
             if i < idx:
                 sst = "completed"
             elif i == idx:
@@ -294,26 +292,8 @@ def _format_injection(state: dict) -> str:
             "（仅当阶段目标真正达成时输出；闸门阶段不会自动推进，需 /wf gate 放行）"
         )
 
-    # 证据标记提示块（方案1，designs/evidence-chain-design.md §4.1/§9 step4）。
-    # live smoke 排查：无此块 -> 模型不知发 ### EVIDENCE -> evidence_append.py 一直 no_markers。
-    # 复用 UserPromptSubmit 注入通道（与 PHASE_DONE/SUB_DONE 同位），5 阶段均注入（证据链跨阶段）。
-    lines.append("- 推导证据链(每轮可选, 仅当本轮推导出新结论/前提时输出):")
-    lines.append(
-        "  每个可证据化的断言, 回复末尾单独一行输出: "
-        '`### EVIDENCE:{"step":<int>,"claim":"<断言>",'
-        '"claim_type":"<premise|intermediate|conclusion>",'
-        '"depends_on":["step<N>"],"evidence":[{"kind":"<file|test|codegraph|reasoning>","ref":"<相对指针>"}]}`'
-    )
-    lines.append(
-        "  - step=本轮序号(本地句柄); depends_on 用本地句柄 step<N>(不预知 canonical id);"
-    )
-    lines.append(
-        "  - evidence.ref 用相对指针(file:path:line / test 输出 / codegraph 原始输出 / reasoning 推理文本);"
-    )
-    lines.append(
-        "  - 同一结论已记录后, 跨轮引用直接用上轮 canonical id 作 depends_on(不重复发同一结论);"
-    )
-    lines.append("  - 非结论性回复(纯查证/提问/叙述)可不发; 仅当真正成立时输出。")
+    # §8.6b：旧的 ### EVIDENCE 推理溯源注入块已移除（用户决策：弃用模型自发记 claim/依赖的溯源系统,
+    # 改由 engine.write_gate_verdict 在 gate-pass 写裁决记录,见 dl-flow-engine.py）。
     return "\n".join(lines) + "\n"
 
 
