@@ -18,9 +18,9 @@ ac-ark --workflow <name>  ─►  ~/.dl-workflow/scripts/workflow/wf-launch.sh
                                   │ 起 claude: --settings(per-wf) --append-system-prompt-file(phase-rules) --session-id
                                   ▼
    原生 claude TUI（worktree 内 cwd）
-     ├─ ~/.claude/hooks/workflow_phase.py    (UserPromptSubmit) → 注入「## WORKFLOW 当前阶段」到 hook_additional_context attachment
+     ├─ ~/.dl-workflow/hooks/workflow_phase.py   (UserPromptSubmit) → 注入「## WORKFLOW 当前阶段」到 hook_additional_context attachment
      ├─ ~/.claude/output-styles/workflow.md  → 引导模型输出 ## PHASE: <中文名> [n/5] + 维护 TaskList 常驻清单
-     ├─ ~/.claude/hooks/workflow_advance.py  (Stop) → 检 ### PHASE_DONE 标记 → 闸门判定 → 推进 state
+     ├─ ~/.dl-workflow/hooks/workflow_advance.py (Stop) → 检 ### PHASE_DONE 标记 → 闸门判定 → 推进 state
      └─ /wf status|next|back|jump|gate|done  → ~/.dl-workflow/scripts/workflow/wf-cmd.sh
 ```
 
@@ -45,7 +45,7 @@ ac-ark --workflow <name> --done       # 归档（删 worktree+分支+元数据�
 - 改 `phase-rules.md`（append-system-prompt）-> 仅新开会话生效（append-system-prompt 是启动时载入）；已有会话不同步。
 - per-wf `settings.json`（在项目 `.claude/workflows/<name>/`，非快照）改了要重启会话加载。
 
-**与 v1.x 项目内嵌版本对比**：v1.x 里 hook 在 `<项目>/.claude/hooks/` 是 git 快照，改后必须 commit + 重建 worktree；本版本 hook 在 `~/.claude/hooks/` 由 install.sh 管，无此约束。
+**与 v1.x 项目内嵌版本对比**：v1.x 里 hook 在 `<项目>/.claude/hooks/` 是 git 快照，改后必须 commit + 重建 worktree；本版本 hook 在 `~/.dl-workflow/hooks/` 直接引用（不 copy），无此约束。
 
 ### 1.3 关键文件职责（改前必读）
 | 位置 | 文件 | 职责 |
@@ -54,7 +54,7 @@ ac-ark --workflow <name> --done       # 归档（删 worktree+分支+元数据�
 | ↑ | `wf-lib.sh` | 阶段定义 + state 读写 + `wf_write_settings` + 路径反查 |
 | ↑ | `wf-cmd.sh` | `/wf` 子命令逻辑 |
 | ↑ | `phase-rules.md` | append-system-prompt，各阶段行为规则 |
-| `~/.claude/hooks/` （install 后） | `workflow_phase.py` | UserPromptSubmit 注入当前阶段 |
+| `~/.dl-workflow/hooks/`            | `workflow_phase.py` | UserPromptSubmit 注入当前阶段 |
 | ↑ | `workflow_advance.py` | Stop 检 PHASE_DONE 推进 |
 | ↑ | `codegraph_gate.py` | PreToolUse H15 门禁（改已有 .py 前先查 codegraph） |
 | ↑ | `codegraph_audit.py` | PostToolUse 记 codegraph 查询 |
@@ -76,10 +76,10 @@ ac-ark --workflow <name> --done       # 归档（删 worktree+分支+元数据�
    ```bash
    cat <项目>/.claude/workflows/<name>/settings.json | python3 -c "import json,sys;d=json.load(sys.stdin);[print(h['command']) for v in d['hooks'].values() for g in v for h in g['hooks']]"
    ```
-   应看到 4 个 `~/.claude/hooks/*.py` 命令。缺失 -> `wf_write_settings` 没跑，用 `--resume` 重新起 launcher（会补写 settings）。
-2. `~/.claude/hooks/workflow_phase.py` 存在吗？
+   应看到 4 个 `~/.dl-workflow/hooks/*.py` 命令。缺失 -> `wf_write_settings` 没跑，用 `--resume` 重新起 launcher（会补写 settings）。
+2. `~/.dl-workflow/hooks/workflow_phase.py` 存在吗？
    ```bash
-   ls -l ~/.claude/hooks/workflow_phase.py
+   ls -l ~/.dl-workflow/hooks/workflow_phase.py
    ```
    缺失 -> `~/.dl-workflow/install.sh` 没跑或跑失败。
 
@@ -116,7 +116,7 @@ tail -5 <项目>/.claude/.wf_advance.log
 
 hook 从 payload.cwd 用 `git rev-parse --git-common-dir` 反查主 repo 根。worktree 内 `--git-common-dir` 返回主 repo `.git` 绝对路径 -> `.parent` = 主 repo 根 -> `state.json` 在 `<主 repo>/.claude/workflows/<name>/`。
 
-- 报错 `state.json` 路径若含 `worktrees/<name>/.claude/workflows/` → 反查逻辑错，正确路径不应含 `worktrees/`。检查 `~/.claude/hooks/workflow_phase.py` 是否有 `_resolve_project_root` 函数（v2.0 引入）；缺失 -> 旧版遗留，重跑 install.sh 覆盖。
+- 报错 `state.json` 路径若含 `worktrees/<name>/.claude/workflows/` → 反查逻辑错，正确路径不应含 `worktrees/`。检查 `~/.dl-workflow/hooks/workflow_phase.py` 是否有 `_resolve_project_root` 函数（v2.0 引入）；缺失 -> 旧版遗留，重跑 install.sh 覆盖。
 - worktree 是手工建（不是 `ac-ark --workflow`）-> state.json 从未建过。用 launcher 建。
 
 ### 症状 D：模型否认收到注入（说"没有 hook 注入"/"不在工作流中"）
@@ -150,12 +150,12 @@ hook 从 payload.cwd 用 `git rev-parse --git-common-dir` 反查主 repo 根。w
 1. **先看日志，别猜**：项目根 `.wf_phase.log`（注入）、`.wf_advance.log`（推进）。
 2. **分清"没调用"vs"调用了没投递"vs"投递了模型不遵循"**：三层次，日志+attachment 分别诊断（症状 A1/A2/D）。
 3. **看 session jsonl 的 attachment**：注入真相在 `hook_additional_context` attachment，不在 user message。
-4. **install 状态优先怀疑**：任何"改了不生效"，检 `~/.claude/hooks/` 与 `~/.dl-workflow/hooks/` 的 diff（`diff -rq`），差了就 `install.sh` 覆盖。
+4. **install 状态优先怀疑**：任何"改了不生效"，检 `~/.dl-workflow/hooks/` 是否含 _resolve_project_root（git pull 后即最新，无副本同步问题）。
 5. **验证用真实交互，别用管道/-p**：管道有 Execution error（症状 E），-p transcript 不可靠（症状 B）。
 
 ## 4. 不要做的事
 
-- ❌ **手改 `~/.claude/hooks/`**：应改 `~/.dl-workflow/hooks/` 后 `install.sh` 覆盖，不然 upgrade 会丢改动。
+- ❌ **手改 hook 逻辑**：应直接改 `~/.dl-workflow/hooks/*.py`（git 跟踪），`git pull` 即生效，无副本同步。
 - ❌ **用 `-p` 验证推进**：-p 下 transcript 可能空，Stop hook 读不到 PHASE_DONE。
 - ❌ **在 user message 文本里找注入**：注入在 `hook_additional_context` attachment。
 - ❌ **用 `printf | claude` 验证交互行为**：Execution error 伪问题。

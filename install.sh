@@ -45,10 +45,9 @@ copy_with_backup() {
 
 install_files() {
   echo "▸ 复制文件到 $CLAUDE_HOME/"
-  # hooks
-  for f in workflow_phase.py workflow_advance.py codegraph_gate.py codegraph_audit.py; do
-    copy_with_backup "$SRC_DIR/hooks/$f" "$CLAUDE_HOME/hooks/$f"
-  done
+  # hooks 不 copy：直接引用源 ~/.dl-workflow/hooks/*.py（settings.json 里写 ~ 路径，
+  # shell 执行时展开）。改 hook 后 git pull 即生效，无同步副本开销。
+  # 只 copy Claude Code 硬编码加载路径的文件（skills/output-styles/commands）。
   # skill（整个子目录）
   mkdir -p "$CLAUDE_HOME/skills/workflow-creation"
   copy_with_backup "$SRC_DIR/skills/workflow-creation/SKILL.md" "$CLAUDE_HOME/skills/workflow-creation/SKILL.md"
@@ -56,7 +55,7 @@ install_files() {
   copy_with_backup "$SRC_DIR/output-styles/workflow.md" "$CLAUDE_HOME/output-styles/workflow.md"
   # command
   copy_with_backup "$SRC_DIR/commands/wf.md" "$CLAUDE_HOME/commands/wf.md"
-  echo "✓ 文件复制完成"
+  echo "✓ 文件复制完成（hooks 不 copy，settings.json 直接引用 ~/.dl-workflow/hooks/）"
 }
 
 # ---------- 合并 ~/.claude/settings.json 的 hooks ----------
@@ -71,11 +70,12 @@ merge_settings() {
     echo "  ↺ 备份现有 settings.json -> $BACKUP_DIR/settings.json"
   fi
 
-  python3 - "$settings" "$CLAUDE_HOME/hooks" <<'PY'
+  python3 - "$settings" <<'PY'
 import json, sys, os
 
 settings_path = sys.argv[1]
-hooks_dir = sys.argv[2]
+# hooks 不 copy，直接引用源 ~/.dl-workflow/hooks/（~ 在 shell 执行时展开）
+hooks_src = "~/.dl-workflow/hooks"
 
 if os.path.exists(settings_path):
     with open(settings_path, encoding="utf-8") as f:
@@ -87,19 +87,19 @@ if os.path.exists(settings_path):
 else:
     settings = {}
 
-# dl-workflow 要注册的 hooks
+# dl-workflow 要注册的 hooks（command 直接引用 ~/.dl-workflow/hooks/ 源，不 copy）
 DLWF_HOOKS = {
     "PreToolUse": [
-        {"matcher": "Edit|Write", "hooks": [{"type": "command", "command": f"python3 {hooks_dir}/codegraph_gate.py"}]}
+        {"matcher": "Edit|Write", "hooks": [{"type": "command", "command": f"python3 {hooks_src}/codegraph_gate.py"}]}
     ],
     "PostToolUse": [
-        {"matcher": "Bash", "hooks": [{"type": "command", "command": f"python3 {hooks_dir}/codegraph_audit.py"}]}
+        {"matcher": "Bash", "hooks": [{"type": "command", "command": f"python3 {hooks_src}/codegraph_audit.py"}]}
     ],
     "UserPromptSubmit": [
-        {"hooks": [{"type": "command", "command": f"python3 {hooks_dir}/workflow_phase.py"}]}
+        {"hooks": [{"type": "command", "command": f"python3 {hooks_src}/workflow_phase.py"}]}
     ],
     "Stop": [
-        {"hooks": [{"type": "command", "command": f"python3 {hooks_dir}/workflow_advance.py"}]}
+        {"hooks": [{"type": "command", "command": f"python3 {hooks_src}/workflow_advance.py"}]}
     ],
 }
 

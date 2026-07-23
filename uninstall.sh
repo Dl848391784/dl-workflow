@@ -8,15 +8,13 @@ set -euo pipefail
 
 CLAUDE_HOME="$HOME/.claude"
 BASHRC="$HOME/.bashrc"
-DLWF_MARKER_HOOKS="workflow_phase.py workflow_advance.py codegraph_gate.py codegraph_audit.py"
 
 echo "═══ dl-workflow uninstall ═══"
 
 # ---------- 删文件 ----------
-echo "▸ 删除 hook / skill / output-style / command"
-for f in $DLWF_MARKER_HOOKS; do
-  rm -f "$CLAUDE_HOME/hooks/$f" && echo "  - $CLAUDE_HOME/hooks/$f"
-done
+# hooks 不删（install 时没 copy，直接引用源 ~/.dl-workflow/hooks/）。
+# 只删 Claude Code 硬编码加载路径下 copy 的文件。
+echo "▸ 删除 skill / output-style / command"
 rm -rf "$CLAUDE_HOME/skills/workflow-creation" && echo "  - $CLAUDE_HOME/skills/workflow-creation/"
 rm -f "$CLAUDE_HOME/output-styles/workflow.md" && echo "  - $CLAUDE_HOME/output-styles/workflow.md"
 rm -f "$CLAUDE_HOME/commands/wf.md" && echo "  - $CLAUDE_HOME/commands/wf.md"
@@ -35,8 +33,8 @@ with open(path, encoding="utf-8") as f:
     except json.JSONDecodeError:
         sys.exit(0)  # 损坏 -> 别动
 
-# 匹配 dl-workflow 装的 hook 命令（路径含 ~/.claude/hooks/ + 4 个文件名）
-DLWF_RE = re.compile(r"\.claude/hooks/(workflow_phase|workflow_advance|codegraph_gate|codegraph_audit)\.py")
+# 匹配 dl-workflow 注册的 hook 命令（直接引用 ~/.dl-workflow/hooks/ 源）
+DLWF_RE = re.compile(r"~?/?.*\.dl-workflow/hooks/(workflow_phase|workflow_advance|codegraph_gate|codegraph_audit)\.py")
 
 hooks = settings.get("hooks", {})
 removed = 0

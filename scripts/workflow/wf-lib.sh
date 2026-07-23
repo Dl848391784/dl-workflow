@@ -184,19 +184,21 @@ wf_state_mark_artifact() {
 # worktree 内无 project settings.json（.gitignore *.json 规则致 settings.json 未入库），
 # 故 per-wf settings 须自包含全部 hook + outputStyle。
 #
-# **dl-workflow 版本**：hook 装在 ~/.claude/hooks/（用户级，install.sh copy），
-# 用绝对路径 `~/.claude/hooks/*.py` 引用，好处：
-# 1. hook 是最新版：install.sh copy 覆盖后 per-wf settings 无需重建
-# 2. worktree 隔离无影响：~/.claude/ 与项目 worktree 无关
-# 3. hook 内已改造为 payload.cwd -> git 反查主 repo 根（不再依赖 __file__.parents[2]）
+# **dl-workflow 版本**：hook 直接引用源 `~/.dl-workflow/hooks/*.py`（不 copy 到 ~/.claude/hooks/）。
+# settings.json 的 command 是自由字符串，Claude Code 执行时 shell 展开 `~`。
+# 好处：改 hook 后 git pull 即生效，无需重跑 install.sh 同步副本。
+# hook 内已改造为 payload.cwd -> git 反查主 repo 根（不再依赖 __file__.parents[2]）。
 #
 # 注：`codegraph_inject.py` 是**项目专属** hook（读项目 codegraph db 结构），
 # 不由 dl-workflow 管，由项目自己的 `.claude/settings.json` 注册即可。
 # dl-workflow 生成的 per-wf settings 只登 workflow + codegraph_gate/audit 这 4 个。
+#
+# `hk` 用字面 `~`（不展开成绝对路径）-> per-wf settings 跨用户 home 通用；
+# heredoc 内 `~` 不展开（bash tilde 只在命令行词首展开），$hk 取变量字面值。
 wf_write_settings() {
   local name="$1"
   local dir="$WF_META_ROOT/$name"
-  local hk="$HOME/.claude/hooks"
+  local hk="~/.dl-workflow/hooks"
   mkdir -p "$dir"
   cat > "$dir/settings.json" <<JSON
 {
