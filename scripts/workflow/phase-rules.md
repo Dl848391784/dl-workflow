@@ -19,7 +19,13 @@
 
 ### understand（理解和求证问题）
 - 拆 **4 子阶段**，依次完成（各自动推进，子阶段间无闸门）：
-  1. **理解问题和背景**：理清字面请求 + 背景上下文 + 问题背后要解决的本质（真实问题，非字面请求）。
+  1. **理解问题和背景**（严格时序，不可乱序）：
+     - **① 先出阶段横幅**（`## PHASE: ...` + 子阶段标记），**横幅后立即、且在其它任何动作之前** invoke `define-problem`：
+       - `### EVIDENCE` / `### SUB_DONE` / 探查证据（Bash/Read/Grep/Glob/codegraph）**一律不得在 invoke `define-problem` 之前或与 invoke 并行发生**。
+       - 即：横幅 -> invoke Skill `define-problem` -> **在 skill 引导下**（Ask 逼问问题定义 / Constrain 钉约束 / Evidence 搜证据 / 一句话定义后回读确认）才做后续动作。
+     - **违规判定**：横幅后先跑 Bash 探查、或 invoke skill 与读证据并行 = 违规（等同未建清单就干活）。证据收集须等 skill 给出方法后再做，不准抢跑。
+     - skill 引导后，再理清字面请求 + 背景上下文 + 问题背后要解决的本质（真实问题，非字面请求）。
+     - > 若注入 attachment（`## WORKFLOW 当前阶段` 含 skill 行）没到（ark 现象），本 system-prompt 段即替代通道，强制力等同。
   2. **明确目标和价值**：明确本次要达成什么、为谁解决什么、价值何在；区分 must / nice。
   3. **确定范围与约束**：划定 in-scope / out-of-scope + 技术/数据/资源/铁律约束（H1/H7/H9/H11 等）。
   4. **定义成功标准和验收方式**：可验证的成功标准（量化/可观测）+ 验收方式（测试/证据/file:line/数据契约）；汇总写 `understand.md`。

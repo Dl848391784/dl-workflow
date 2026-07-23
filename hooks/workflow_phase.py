@@ -245,6 +245,17 @@ def _format_injection(state: dict) -> str:
         f"- 阶段产物: {rules.get('artifact', '')}",
         f"- 推进: {rules.get('advance', '')}",
     ]
+    # 通用 skill 注入（§7 #1 落地，designs/skill-injection-link-design.md §3）：
+    # 节点声明 skill 则提示模型 invoke；engine.NODES.skill 之前是死字段（_format_injection 不读）
+    node_skill = None
+    try:
+        node_skill = engine.get_node(phase, sub_index).skill
+    except (KeyError, Exception):
+        pass  # get_node 非法节点 raise（engine 守 no silent fallback）；注入侧降级不阻断
+    if node_skill:
+        lines.append(
+            f"- 技能: 当前节点应载 skill `{node_skill}`，请用 Skill 工具 invoke 它（已载则继续遵循）"
+        )
     # 子阶段块（仅当前阶段有子阶段时注入）
     if has_sub:
         lines.append(f"- 子阶段(共 {sub_total} 个, 依次完成, 各自动推进到下一子阶段):")
