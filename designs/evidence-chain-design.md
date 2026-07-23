@@ -220,13 +220,15 @@ exit 0（永不阻断，与 workflow_advance.py 一致）
 - **no silent fallback**：标记解析失败 / transcript 缺失 / 文件写失败 -> 留痕 `.wf_evidence.log` + exit 0（不阻断工作流，但留证据可查）。与 `workflow_advance.py` 防御式降级一致。
 - **Read before write / verify before claiming done**：实现后须真实跑 `dl demo` 验证追加落地，附 `.wf_evidence.log` + 文件内容证据。
 
-## 9. 实施步骤（分小 commit，本轮只到 step 1）
+## 9. 实施步骤（分小 commit）
 
-1. ✅ **本 commit**：`evidence-chain-design.md`（本文档，H8 产物）。
-2. `evidence_append.py`（Stop hook：解析标记 + 分配 id + 戳 SHA + append）。附单测。
-3. `wf-lib.sh` `wf_write_settings` 注册 evidence_append.py 为第二个 Stop hook。冒烟：`dl demo` 跑一轮，看 `.claude/evidence/demo.jsonl` 是否落节点。
-4. （后议）门控遍历器。
-5. （后议）审核还原器。
+1. ✅ `evidence-chain-design.md`（本文档，H8 产物）。
+2. ✅ `evidence_append.py`（Stop hook：解析标记 + 分配 id + 戳 SHA + append）+ 22 例单测（真 git worktree 端到端）。
+3. ✅ `wf-lib.sh` `wf_write_settings` 注册 evidence_append.py 为第二个 Stop hook。冒烟：source wf-lib.sh 生成 settings.json 验 Stop hooks=2 且顺序正确（advance 先 evidence 后）。
+   - **未做**：`dl <name>` 真实会话 live smoke（需交互式会话，管道模拟会 Execution error 见 §10；hook 协议复用已验证的 workflow_advance.py，机制低风险）。用户首次跑 `dl <name>` 即可亲验 `.claude/evidence/<name>.jsonl` 落节点。
+   - **注意**：仅新生成的工作流含新 hook；已存在的 `demo/settings.json` 是旧版不含 evidence_append，需重建工作流或重生成 settings.json 才生效。
+4. ⏳（后议）门控遍历器。
+5. ⏳（后议）审核还原器。
 
 ## 10. 门控与审核（占位 - 后议）
 
