@@ -1,7 +1,7 @@
 ---
 name: workflow-creation
-description: 建工作流系统 + 运行诊断。触发：新建/改工作流、dl 命令、阶段不推进、注入没生效、/wf 报错、hook 装错位置、模型否认收到注入。
-version: 2.0
+description: 建工作流系统 + 运行诊断。触发：新建/改工作流、dl 命令、阶段不推进、注入没生效、/wf 报错、hook 装错位置、模型否认收到注入、5 阶段不显示。
+version: 2.1
 ---
 
 # workflow-creation
@@ -22,6 +22,7 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/wf-launch.sh
    原生 claude TUI（worktree 内 cwd）
      ├─ ~/.dl-workflow/hooks/workflow_phase.py   (UserPromptSubmit) → 注入「## WORKFLOW 当前阶段」到 hook_additional_context attachment
      ├─ ~/.claude/output-styles/workflow.md  → 引导模型输出 ## PHASE: <中文名> [n/5] + 维护 TaskList 常驻清单
+     │     ⚠ 注入走 attachment，部分模型（ark-code-latest）收不到；output-style 已加 fallback：看不到注入时模型用 Bash 跑 wf-cmd.sh status 自取阶段（allowlist 免提示）。见症状 D
      ├─ ~/.dl-workflow/hooks/workflow_advance.py (Stop) → 检 ### PHASE_DONE 标记 → 闸门判定 → 推进 state
      └─ /wf status|next|back|jump|gate|done  → ~/.dl-workflow/scripts/workflow/wf-cmd.sh
 ```
@@ -104,7 +105,7 @@ for line in open('~/.claude/projects/<proj>/<sid>.jsonl'.replace('~',__import__(
         if a.get('type')=='hook_additional_context': print('✓ 注入已投递:', str(a.get('content',[''])[0])[:100])
 "
 ```
-- attachment 有 `## WORKFLOW 当前阶段` → **注入成功**，问题在模型（见症状 D）。
+- attachment 有 `## WORKFLOW 当前阶段` -> **hook 产出 + 投递成功**。但注意投递≠模型收到：ark-code-latest 实测 jsonl 有 attachment 却收不到（见症状 D，用 canary 验）。非 ark 模型此时确系模型遵从问题。
 - attachment 无 → hook 没输出 additionalContext，查日志 `workflow_phase.py` 是否走了 `no_state`/`no_project_root` 分支（见症状 C）。
 
 ### 症状 B：阶段不自动推进（`### PHASE_DONE` 后没进下一阶段）
@@ -128,12 +129,27 @@ hook 从 payload.cwd 用 `git rev-parse --git-common-dir` 反查主 repo 根。w
 - 报错 `state.json` 路径若含 `worktrees/<name>/.claude/workflows/` → 反查逻辑错，正确路径不应含 `worktrees/`。检查 `~/.dl-workflow/hooks/workflow_phase.py` 是否有 `_resolve_project_root` 函数（v2.0 引入）；缺失 -> 旧版遗留，在 `~/.dl-workflow` 跑 `git pull` 更新（hooks 不 copy，源即生效；**install.sh 不会更新 hook 脚本**，它只管 settings.json 注册）。
 - worktree 是手工建（不是 `dl`）-> state.json 从未建过。用 launcher 建。
 
-### 症状 D：模型否认收到注入（说"没有 hook 注入"/"不在工作流中"）
+### 症状 D：模型否认收到注入（说"没有 hook 注入"/"不在工作流中"）/ 5 阶段横幅、清单不显示
 
-**判定**：先按症状 A2 确认 attachment 已投递。若 attachment 有注入但模型否认 → 模型遵从问题。
-- 部分模型（如 ark-code-latest）能读 `hook_additional_context` attachment，但有时**逻辑上否认注入存在**。
-- output style 的对策：`~/.claude/output-styles/workflow.md` 明确"注入在 attachment，见 `## WORKFLOW 当前阶段` 段落即须遵循，禁止声称没有注入"。若模型仍否认 -> 换模型或改用 `/wf status` 显式命令让模型看到当前阶段。
+**这是最常踩的坑（ark-code-latest）。** 根因已坐实：**ark-code-latest 收不到 `hook_additional_context` attachment**——hook 触发正常、`injected` 留痕、jsonl 有 attachment 事件，但**内容没进模型上下文**（attachment 被端点/模型侧丢弃）。模型能看到 system-reminder（CLAUDE.md/MEMORY.md）和系统提示（output-style/phase-rules），唯独看不到 `## WORKFLOW 当前阶段` 段。
 
+**判定（canary 法，决定性）**：用 `-p` 直接问模型能否复述注入里的阶段名。
+```bash
+claude --settings <per-wf settings> --append-system-prompt-file phase-rules.md \
+  -p "只回答：你的上下文里是否有一段 '## WORKFLOW 当前阶段' 的注入？有则复述阶段名和 [n/5]，无则答 NO_INJECTION。只复述不调工具。"
+```
+- 答 `NO_INJECTION` -> **ark 收不到 attachment**（本症状）。别再怀疑 hook 没跑（日志 `injected` 已证 hook 正常）。
+- 能复述阶段名 -> attachment 投递正常，问题在 output-style 没加载（见症状 A1/G 查 per-wf settings 的 `outputStyle`）。
+
+**旧陷阱（已修，记录以防回退）**：原 output-style 有静默兜底"找不到 `## WORKFLOW 当前阶段` 就退正常风格"，模型据此假装不在工作流（违反 H13 静默兜底禁令）。**已删**。
+
+**已实现修复（commit f5a6eea，不改 hook、不写文件）**：
+1. `output-styles/workflow.md` + `phase-rules.md`：删静默兜底，改"output style 激活即在工作流中"；**看不到注入时模型用 Bash 跑 `bash ~/.dl-workflow/scripts/workflow/wf-cmd.sh status` 自取阶段**（wf-cmd.sh 从 cwd 自动探测工作流名 + 读 state.json，输出 `阶段: 理解和求证问题 [1/5]`）。Bash 输出走模型必读通道，绕过 attachment 投递。
+2. `wf-lib.sh` 的 `wf_write_settings` 模板加 `permissions.allow`：`Bash(bash ~/.dl-workflow/scripts/workflow/wf-cmd.sh status:*)` 免提示放行。
+
+**端到端验证**（session eb9749c3）：仅「你好呀」-> 模型自动跑 `wf-cmd.sh status`（allowlist 免提示）-> 输出 `## PHASE: 理解和求证问题 [1/5]` + TaskCreate ×5。
+
+**改 output-style/phase-rules 后生效**：跑 `install.sh` 同步 workflow.md 到 `~/.claude/output-styles/`；**须重启会话**（fresh，非 `--resume`，output-style/append-system-prompt 启动时载入）。旧工作流的 per-wf settings 若缺 allowlist，重新 `dl <name> --resume`（launcher 会用新 `wf_write_settings` 补）或手动加。
 ### 症状 E：管道 `printf | claude` 测试出 `Execution error`
 
 **测试方法伪问题**，非工作流 bug。管道 EOF 触发 claude 异常。真实 TTY 交互不受影响。
@@ -158,7 +174,7 @@ hook 从 payload.cwd 用 `git rev-parse --git-common-dir` 反查主 repo 根。w
 
 1. **先看日志，别猜**：项目根 `.wf_phase.log`（注入）、`.wf_advance.log`（推进）。
 2. **分清"没调用"vs"调用了没投递"vs"投递了模型不遵循"**：三层次，日志+attachment 分别诊断（症状 A1/A2/D）。
-3. **看 session jsonl 的 attachment**：注入真相在 `hook_additional_context` attachment，不在 user message。
+3. **看 session jsonl 的 attachment**：注入真相在 `hook_additional_context` attachment，不在 user message。但**投递到 jsonl ≠ 模型收到**--ark-code-latest 实测 jsonl 有 attachment 却进不了上下文（症状 D）。怀疑时用 canary `-p` 问模型能否复述阶段名直接验。
 4. **install 状态优先怀疑**：任何"改了不生效"，检 `~/.dl-workflow/hooks/` 是否含 _resolve_project_root（git pull 后即最新，无副本同步问题）。
 5. **验证用真实交互，别用管道/-p**：管道有 Execution error（症状 E），-p transcript 不可靠（症状 B）。
 
@@ -177,6 +193,6 @@ hook 从 payload.cwd 用 `git rev-parse --git-common-dir` 反查主 repo 根。w
 - "阶段不推进 / PHASE_DONE 没推进" → §2 症状 B
 - "/wf 报错 / state 缺失 / state.json not found" → §2 症状 C
 - "install.sh 后没生效 / hook 没触发" → §2 症状 G
-- "模型否认注入 / 不输出横幅" → §2 症状 D
+- "模型否认注入 / 不输出横幅 / 5 阶段不显示" -> §2 症状 D（ark 收不到 attachment）
 - "阶段清单不显示 / TaskList 状态错" → §2 症状 F
 - "Execution error / 管道测试" → §2 症状 E
