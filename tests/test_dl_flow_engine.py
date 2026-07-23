@@ -1,0 +1,536 @@
+"""
+dl-flow-engine.py 的单元测试（dl-workflow v0.1+）。
+
+对应 designs/tui-state-machine-design.md §8.1（骨架阶段）。
+通过 import 纯库函数测节点树推导（不 subprocess,纯函数快）。
+advance_state 用 tmp state.json 测读写 + 推进。
+
+覆盖：
+- 节点标识推导（phase+sub -> node_id / current_node_id）
+- 节点表完整性（每 phase 首节点存在;末节点 advance 正确）
+- 推进链（understand:1 -> ... -> evolution:0 终结）
+- 子阶段推进 vs 阶段推进（advance="sub"/"phase"/"done"）
+- next_phase / is_gated_after / phase_index
+- state.json 读写 + normalize_state 旧 state 兼容 + 不一致报错
+- advance_state：子阶段推进 / 阶段推进（含闸门 passed）/ 终结
+- gate_verdict_mech：NONE 通过 / 其他暂降级
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+DLWF_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(DLWF_ROOT))
+
+# dl-flow-engine.py 文件名带连字符无法直接 import,用 importlib 加载。
+import importlib.util  # noqa: E402
+
+_spec = importlib.util.spec_from_file_location(
+    "dl_flow_engine", DLWF_ROOT / "dl-flow-engine.py"
+)
+eng = importlib.util.module_from_spec(_spec)  # type: ignore[arg-type]
+# 注册进 sys.modules 再 exec：Python 3.11 dataclass 探测类型注解时要查此表（dynamically
+# loaded module 未注册会触发 AttributeError 'NoneType'.__dict__）。load_state 内 import
+# subprocess 也依赖模块在 sys.modules 中。
+sys.modules["dl_flow_engine"] = eng
+_spec.loader.exec_module(eng)  # type: ignore[union-attr]
+
+
+# ---------- 节点标识推导 ----------
+
+
+class TestNodeId:
+    def test_sub_zero_is_whole_phase(self):
+        assert eng.node_id("execute", 0) == "execute:0"
+
+    def test_sub_n_is_subphase(self):
+        assert eng.node_id("understand", 3) == "understand:3"
+
+    def test_current_node_id_whole_phase(self):
+        # 无子阶段 phase sub_index=0 -> 整阶段节点
+        assert eng.current_node_id("plan", 0) == "plan:0"
+
+    def test_current_node_id_subphase(self):
+        assert eng.current_node_id("understand", 2) == "understand:2"
+
+    def test_get_node_unknown_raises(self):
+        # 守 no silent fallback：未知节点报错暴露,不返回 None 猜
+        with pytest.raises(KeyError, match="未知节点"):
+            eng.get_node("nope", 0)
+
+    def test_get_node_unknown_sub_raises(self):
+        with pytest.raises(KeyError, match="未知节点"):
+            eng.get_node("understand", 9)  # 只有 1-4
+
+
+# ---------- 节点表完整性 ----------
+
+
+class TestNodeTable:
+    def test_every_phase_has_first_node(self):
+        # 每 phase 首节点存在（有子阶段=sub=1,无=sub=0）
+        for phase in eng.PHASES:
+            first_sub = 1 if eng.sub_total(phase) > 0 else 0
+            node = eng.get_node(phase, first_sub)
+            assert node.phase == phase
+
+    def test_last_node_advance(self):
+        # 末 phase(evolution) 整阶段 advance="done"
+        node = eng.get_node("evolution", 0)
+        assert node.advance == "done"
+
+    def test_subphases_advance_sub_except_last(self):
+        # understand 子 1-3 advance="sub",子 4 advance="phase"
+        for sub in (1, 2, 3):
+            assert eng.get_node("understand", sub).advance == "sub"
+        assert eng.get_node("understand", 4).advance == "phase"
+
+    def test_whole_phase_advance_phase(self):
+        # plan/execute/review 整阶段 advance="phase"
+        for phase in ("plan", "execute", "review"):
+            assert eng.get_node(phase, 0).advance == "phase"
+
+    def test_node_id_matches_phase_sub(self):
+        # node_id 与 Node.phase/sub 一致（防表错配）
+        for nid, node in eng._NODES.items():
+            assert nid == eng.node_id(node.phase, node.sub)
+
+
+# ---------- 推进链 ----------
+
+
+class TestNextNode:
+    def test_sub_advance_within_phase(self):
+        # understand:1 -> understand:2（同 phase, sub+1）
+        assert eng.next_node_id("understand", 1) == ("understand", 2)
+
+    def test_last_subphase_advances_to_next_phase(self):
+        # understand:4 -> plan:0（下一 phase 首节点,plan 无子阶段=sub=0）
+        assert eng.next_node_id("understand", 4) == ("plan", 0)
+
+    def test_whole_phase_advances_to_next_phase(self):
+        # plan:0 -> execute:0
+        assert eng.next_node_id("plan", 0) == ("execute", 0)
+
+    def test_done_returns_none(self):
+        # evolution:0 -> None（终结）
+        assert eng.next_node_id("evolution", 0) is None
+
+    def test_full_chain_understand_to_evolution(self):
+        # 完整推进链：从 understand:1 一路推进到终结,节点序列正确
+        chain: list[str] = []
+        phase, sub = "understand", 1
+        for _ in range(20):  # 上限防爆
+            chain.append(eng.node_id(phase, sub))
+            nxt = eng.next_node_id(phase, sub)
+            if nxt is None:
+                break
+            phase, sub = nxt
+        assert chain == [
+            "understand:1",
+            "understand:2",
+            "understand:3",
+            "understand:4",
+            "plan:0",
+            "execute:0",
+            "review:0",
+            "evolution:0",
+        ]
+
+
+# ---------- 阶段辅助 ----------
+
+
+class TestPhaseHelpers:
+    def test_phase_index_one_based(self):
+        assert eng.phase_index("understand") == 1
+        assert eng.phase_index("evolution") == 5
+
+    def test_phase_index_unknown_raises(self):
+        with pytest.raises(KeyError):
+            eng.phase_index("nope")
+
+    def test_next_phase(self):
+        assert eng.next_phase("understand") == "plan"
+        assert eng.next_phase("evolution") is None
+
+    def test_is_gated_after(self):
+        # design §3：understand/plan 末节点完成需闸门
+        assert eng.is_gated_after("understand") is True
+        assert eng.is_gated_after("plan") is True
+        assert eng.is_gated_after("execute") is False
+
+    def test_sub_total(self):
+        assert eng.sub_total("understand") == 4
+        assert eng.sub_total("plan") == 0
+
+
+# ---------- normalize_state（旧 state 兼容 + 不一致报错）----------
+
+
+class TestNormalizeState:
+    def test_old_state_gets_node_field(self):
+        # 旧 state 无 node/node_attempts -> 补默认
+        old = {"phase": "understand", "sub_index": 1, "sub_total": 4}
+        norm = eng.normalize_state(dict(old))
+        assert norm["node"] == "understand:1"
+        assert norm["node_attempts"] == 0
+
+    def test_whole_phase_old_state(self):
+        old = {"phase": "execute", "sub_index": 0}
+        norm = eng.normalize_state(dict(old))
+        assert norm["node"] == "execute:0"
+
+    def test_inconsistent_node_raises(self):
+        # 显式 node 与 phase+sub 推导不一致 -> 暴露,不猜（守 no silent fallback）
+        bad = {"phase": "understand", "sub_index": 1, "node": "execute:0"}
+        with pytest.raises(ValueError, match="不一致"):
+            eng.normalize_state(bad)
+
+    def test_consistent_node_kept(self):
+        ok = {"phase": "plan", "sub_index": 0, "node": "plan:0"}
+        norm = eng.normalize_state(dict(ok))
+        assert norm["node"] == "plan:0"
+
+
+# ---------- advance_state（读写 state.json）----------
+
+
+def _write_state(tmp_path: Path, name: str, phase: str, sub: int) -> Path:
+    """在 tmp repo 内建一个最小 state.json。"""
+    wf_dir = tmp_path / ".claude" / "workflows" / name
+    wf_dir.mkdir(parents=True, exist_ok=True)
+    state = {
+        "name": name,
+        "phase": phase,
+        "index": eng.phase_index(phase),
+        "sub_index": sub,
+        "sub_total": eng.sub_total(phase),
+        "node": eng.current_node_id(phase, sub),
+        "gate": "passed" if (sub == 0 and phase != "understand") else "pending",
+        "node_attempts": 0,
+        "session_id": "test-sid",
+        "branch": f"wf/{name}",
+        "worktree_path": str(tmp_path),
+        "created_at": "2026-07-23T00:00:00",
+        "updated_at": "2026-07-23T00:00:00",
+        "history": [],
+    }
+    (wf_dir / "state.json").write_text(json.dumps(state), encoding="utf-8")
+    return tmp_path
+
+
+class TestAdvanceState:
+    def test_sub_advance(self, tmp_path):
+        _write_state(tmp_path, "t", "understand", 1)
+        state = eng.advance_state(tmp_path, "t", via="test")
+        assert state["phase"] == "understand"
+        assert state["sub_index"] == 2
+        assert state["node"] == "understand:2"
+        assert state["node_attempts"] == 0  # 新节点归零
+        assert state["sub_total"] == 4
+
+    def test_phase_advance_from_last_subphase(self, tmp_path):
+        # understand:4 -> plan:0,且因 understand in GATED_AFTER -> plan gate=passed
+        _write_state(tmp_path, "t", "understand", 4)
+        state = eng.advance_state(tmp_path, "t", via="test")
+        assert state["phase"] == "plan"
+        assert state["sub_index"] == 0
+        assert state["node"] == "plan:0"
+        assert state["gate"] == "passed"  # 跨闸门后新 phase gate=passed
+        assert state["sub_total"] == 0
+
+    def test_phase_advance_no_gate(self, tmp_path):
+        # execute:0 -> review:0,execute 不在 GATED_AFTER -> review gate=pending
+        _write_state(tmp_path, "t", "execute", 0)
+        state = eng.advance_state(tmp_path, "t", via="test")
+        assert state["phase"] == "review"
+        assert state["gate"] == "pending"
+
+    def test_done_terminates(self, tmp_path):
+        _write_state(tmp_path, "t", "evolution", 0)
+        state = eng.advance_state(tmp_path, "t", via="test")
+        assert state["gate"] == "done"
+        assert state["phase"] == "evolution"  # 不再推进
+
+    def test_advance_persists_to_disk(self, tmp_path):
+        _write_state(tmp_path, "t", "understand", 1)
+        eng.advance_state(tmp_path, "t", via="test")
+        # 重读确认落盘
+        reread = eng.load_state(tmp_path, "t")
+        assert reread is not None
+        assert reread["node"] == "understand:2"
+
+    def test_advance_missing_state_raises(self, tmp_path):
+        # state 缺失 -> 报错,不静默建（守 no silent fallback）
+        with pytest.raises(FileNotFoundError):
+            eng.advance_state(tmp_path, "nonexistent", via="test")
+
+
+# ---------- gate_verdict_mech（骨架阶段;仅 NONE 通过,其他降级）----------
+
+
+class TestGateVerdictMech:
+    def test_none_passes(self):
+        node = eng.get_node("understand", 1)  # gate_mech=NONE
+        assert eng.gate_verdict_mech(node, project_root=Path(".")) is None
+
+    def test_no_project_root_degrades(self):
+        # 无 project_root -> 机械项降级放行（宁纵勿枉,同 codegraph_gate 非 git）
+        node = eng.get_node("understand", 4)  # ARTIFACT_EXISTS
+        assert eng.gate_verdict_mech(node, project_root=None) is None
+
+    def test_artifact_exists_not_yet_impl(self):
+        # ARTIFACT_EXISTS 文件查找未实现（§8.3）-> 暂降级 None,不误 block
+        node = eng.get_node("plan", 0)
+        assert eng.gate_verdict_mech(node, project_root=Path(".")) is None
+
+
+# ---------- _strip_json_fence / _extract_judge_result（judge 输出解析）----------
+
+
+class TestJudgeParse:
+    def test_strip_fence_json_block(self):
+        assert eng._strip_json_fence('```json\n{"pass": true}\n```') == '{"pass": true}'
+
+    def test_strip_fence_plain(self):
+        assert eng._strip_json_fence('```\n{"pass": false}\n```') == '{"pass": false}'
+
+    def test_strip_no_fence(self):
+        assert eng._strip_json_fence('{"pass": true}') == '{"pass": true}'
+
+    def test_extract_pass_with_reason(self):
+        v = eng._extract_judge_result('{"pass": false, "reason": "缺边界"}')
+        assert v == {"pass": False, "reason": "缺边界"}
+
+    def test_extract_pass_no_reason_defaults_empty(self):
+        v = eng._extract_judge_result('{"pass": true}')
+        assert v == {"pass": True, "reason": ""}
+
+    def test_extract_with_surrounding_text(self):
+        # 模型前后带解释 -> 取 {...}
+        v = eng._extract_judge_result('结论如下：\n{"pass": true}\n以上。')
+        assert v == {"pass": True, "reason": ""}
+
+    def test_extract_fenced(self):
+        v = eng._extract_judge_result('```json\n{"pass": false, "reason": "x"}\n```')
+        assert v == {"pass": False, "reason": "x"}
+
+    def test_extract_no_json_returns_none(self):
+        assert eng._extract_judge_result("没有JSON") is None
+
+    def test_extract_no_pass_key_returns_none(self):
+        assert eng._extract_judge_result('{"reason": "x"}') is None
+
+
+# ---------- run_judge（mock subprocess.run;不真调 claude -p）----------
+
+
+def _fake_run_factory(returncode: int, stdout: str):
+    """造一个假的 subprocess.run 替换函数。stdout 末行应是 {\"is_error\":...,\"result\":\"...\"}。"""
+    import types
+
+    def _fake(cmd, **kw):
+        r = types.SimpleNamespace()
+        r.returncode = returncode
+        r.stdout = stdout
+        r.stderr = ""
+        return r
+
+    return _fake
+
+
+def _result_line(result_text: str, is_error: bool = False) -> str:
+    """造 claude -p --output-format json 的末行 result JSON。"""
+    return json.dumps({"is_error": is_error, "result": result_text})
+
+
+class TestRunJudge:
+    def test_pass(self, monkeypatch):
+        monkeypatch.setattr(
+            eng.subprocess, "run", _fake_run_factory(0, _result_line('{"pass": true}'))
+        )
+        ok, reason = eng.run_judge("rubric", "节点", "模型输出")
+        assert ok is True
+        assert reason == ""
+
+    def test_block_with_reason(self, monkeypatch):
+        monkeypatch.setattr(
+            eng.subprocess,
+            "run",
+            _fake_run_factory(
+                0, _result_line('{"pass": false, "reason": "缺成功标准"}')
+            ),
+        )
+        ok, reason = eng.run_judge("rubric", "节点", "模型输出")
+        assert ok is False
+        assert "缺成功标准" in reason
+
+    def test_fenced_output(self, monkeypatch):
+        # 模型把 JSON 包代码块
+        monkeypatch.setattr(
+            eng.subprocess,
+            "run",
+            _fake_run_factory(0, _result_line('```json\n{"pass": true}\n```')),
+        )
+        ok, _ = eng.run_judge("rubric", "节点", "模型输出")
+        assert ok is True
+
+    def test_non_json_result_blocks(self, monkeypatch):
+        # result 不是合法 JSON -> 降级 block（no silent fallback,不默认放行）
+        monkeypatch.setattr(
+            eng.subprocess, "run", _fake_run_factory(0, _result_line("我看挺好的"))
+        )
+        ok, reason = eng.run_judge("rubric", "节点", "模型输出")
+        assert ok is False
+        assert "非合法 JSON" in reason
+
+    def test_api_error_blocks(self, monkeypatch):
+        # claude -p 退出非 0 -> block
+        monkeypatch.setattr(eng.subprocess, "run", _fake_run_factory(2, "boom"))
+        ok, reason = eng.run_judge("rubric", "节点", "模型输出")
+        assert ok is False
+        assert "退出码" in reason
+
+    def test_no_result_line_blocks(self, monkeypatch):
+        # stdout 无 result JSON 行 -> block
+        monkeypatch.setattr(
+            eng.subprocess, "run", _fake_run_factory(0, "乱七八糟没有json行")
+        )
+        ok, _ = eng.run_judge("rubric", "节点", "模型输出")
+        assert ok is False
+
+    def test_is_error_blocks(self, monkeypatch):
+        # is_error=true -> block
+        monkeypatch.setattr(
+            eng.subprocess,
+            "run",
+            _fake_run_factory(0, _result_line("出错了", is_error=True)),
+        )
+        ok, reason = eng.run_judge("rubric", "节点", "模型输出")
+        assert ok is False
+        assert "出错" in reason
+
+    def test_timeout_blocks(self, monkeypatch):
+        import subprocess as sp
+
+        def _raise(cmd, **kw):
+            raise sp.TimeoutExpired(cmd=cmd, timeout=1)
+
+        monkeypatch.setattr(eng.subprocess, "run", _raise)
+        ok, reason = eng.run_judge("rubric", "节点", "模型输出")
+        assert ok is False
+        assert "TimeoutExpired" in reason
+
+    def test_artifact_content_passed_to_prompt(self, monkeypatch):
+        # 产物内容应进 prompt
+        captured = {}
+        fake_ok = _fake_run_factory(0, _result_line('{"pass": true}'))
+
+        def _cap(cmd, **kw):
+            captured["prompt"] = cmd
+            return fake_ok(cmd, **kw)
+
+        monkeypatch.setattr(eng.subprocess, "run", _cap)
+        eng.run_judge("rubric", "节点", "模型输出", artifact_content="产物正文")
+        assert "产物正文" in captured["prompt"][-1]
+
+
+# ---------- run_gate（compound 短路）----------
+
+
+class TestRunGate:
+    def test_no_rubric_passes_without_judge(self, monkeypatch):
+        # understand:1 无 rubric -> 不调 judge,机械项 NONE 过 -> pass
+        # 用计数器证明 judge 没被调
+        called = {"n": 0}
+
+        def _spy(cmd, **kw):
+            called["n"] += 1
+            return _fake_run_factory(0, _result_line('{"pass": true}'))(cmd, **kw)
+
+        monkeypatch.setattr(eng.subprocess, "run", _spy)
+        node = eng.get_node("understand", 1)
+        ok, _ = eng.run_gate(node, "输出")
+        assert ok is True
+        assert called["n"] == 0  # judge 没被调
+
+    def test_rubric_calls_judge_pass(self, monkeypatch):
+        # plan:0 有 rubric,机械降级过 -> 跑 judge -> pass
+        monkeypatch.setattr(
+            eng.subprocess, "run", _fake_run_factory(0, _result_line('{"pass": true}'))
+        )
+        node = eng.get_node("plan", 0)
+        ok, _ = eng.run_gate(node, "一份计划")
+        assert ok is True
+
+    def test_rubric_calls_judge_block(self, monkeypatch):
+        monkeypatch.setattr(
+            eng.subprocess,
+            "run",
+            _fake_run_factory(0, _result_line('{"pass": false, "reason": "没步骤"}')),
+        )
+        node = eng.get_node("plan", 0)
+        ok, reason = eng.run_gate(node, "空话")
+        assert ok is False
+        assert "没步骤" in reason
+
+    def test_mech_block_short_circuits_judge(self, monkeypatch):
+        # 机械项不过 -> 短路,不跑 judge。当前机械项未实现文件查找,
+        # 故用 mock 强制 gate_verdict_mech 返回 block 验证短路。
+        called = {"n": 0}
+
+        def _spy(cmd, **kw):
+            called["n"] += 1
+            return _fake_run_factory(0, _result_line('{"pass": true}'))(cmd, **kw)
+
+        monkeypatch.setattr(eng.subprocess, "run", _spy)
+        monkeypatch.setattr(
+            eng, "gate_verdict_mech", lambda n, project_root=None: "产物缺失：plan.md"
+        )
+        node = eng.get_node("plan", 0)
+        ok, reason = eng.run_gate(node, "输出")
+        assert ok is False
+        assert "产物缺失" in reason
+        assert called["n"] == 0  # judge 没被调（短路）
+
+
+# ---------- CLI 冒烟（status/current 输出合法）----------
+
+
+def _init_git(tmp_path: Path) -> Path:
+    """在 tmp_path 建最小 git repo,让 CLI 的 resolve_project_root 能反查到。
+
+    同 test_codegraph_gate.py 做法。engine CLI 走 git rev-parse 反查主 repo 根,
+    故 CLI 测试须有 git repo;直接传 project_root 的库测试（advance_state）不必。
+    """
+    import subprocess
+
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=tmp_path, check=True)
+    return tmp_path
+
+
+class TestCLI:
+    def test_current_outputs_valid_json(self, tmp_path, capsys):
+        _init_git(tmp_path)
+        _write_state(tmp_path, "t", "understand", 2)
+        rc = eng.main(["current", "t", "--cwd", str(tmp_path)])
+        assert rc == 0
+        out = json.loads(capsys.readouterr().out)
+        assert out["node"] == "understand:2"
+        assert out["label"] == "明确目标和价值"
+        assert out["gate_rubric"] is None  # 子阶段无语义审
+
+    def test_status_prints_label(self, tmp_path, capsys):
+        _init_git(tmp_path)
+        _write_state(tmp_path, "t", "plan", 0)
+        rc = eng.main(["status", "t", "--cwd", str(tmp_path)])
+        assert rc == 0
+        assert "生成执行计划" in capsys.readouterr().out
