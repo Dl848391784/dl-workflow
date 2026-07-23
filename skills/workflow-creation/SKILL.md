@@ -7,7 +7,9 @@ version: 2.0
 # workflow-creation
 
 > 建工作流 + 运行诊断手册。自包含。真源 = `~/.dl-workflow/designs/workflow-system-design.md`。
-> **dl-workflow 版本核心事实**：hook / skill / output-style / command 装在**用户级** `~/.claude/`（`install.sh` copy 而来），跨所有项目生效。不再是「项目内 git 快照」——改 hook 后 `install.sh` 一跑即时更新，**无需重建 worktree**（这是与 v1.x 项目内嵌版本的关键差别）。
+> **dl-workflow 版本核心事实**：跨所有项目生效，装在**用户级**。两类 artifacts 装法不同：
+> - **skill / output-style / command**：`install.sh` **copy** 到 `~/.claude/`（Claude Code 硬编码加载路径）。改后跑 `install.sh` 重 copy + 重启会话加载。
+> - **hooks（4 个 .py）**：**不 copy**，`settings.json` 直接引用 `~/.dl-workflow/hooks/*.py` 源（shell 执行时展开 `~`）。改 hook 源后 `git pull` 即生效，**连 `install.sh` 都不用，更无需重建 worktree**——这是与 v1.x 项目内嵌版本的关键差别（v1.x 里 hook 是 worktree 内 git 快照，改后必须 commit + 重建 worktree）。
 
 ## 0. 系统全景（5 秒理解）
 
@@ -46,7 +48,8 @@ dl <name> --done          # 归档（删 worktree+分支+元数据）
 - provider env：launcher 永远 `exec claude`，env 由调用方 shell 继承。`ac-ark --dl` 因 ac-ark 已 export env 而走 ark；`dl` 用当前 shell env。不用 `@provider`（provider 是函数时 launcher 子进程 exec 不到）。
 
 ### 1.2 改工作流脚本/hook/command 后
-- 改 `~/.dl-workflow/hooks/*.py` 或 `output-styles/*.md` 或 `commands/*.md` -> 跑 `~/.dl-workflow/install.sh` copy 到 `~/.claude/`，**下轮 hook 触发即最新版**（无需重建 worktree）。
+- 改 `~/.dl-workflow/hooks/*.py` -> **无需 install.sh**（settings.json 直接引用源），下轮 hook 触发即最新版（无需重建 worktree）。
+- 改 `~/.dl-workflow/output-styles/*.md` 或 `commands/*.md` 或 `skills/` -> 跑 `~/.dl-workflow/install.sh` copy 到 `~/.claude/`，再**重启会话**加载（output-style / slash command 在会话启动时载入）。
 - 改 `~/.dl-workflow/scripts/workflow/*.sh` -> 无需 install（launcher 直接从 dl-workflow 内跑），下次 `dl <name> --resume` 或新建即最新。
 - 改 `phase-rules.md`（append-system-prompt）-> 仅新开会话生效（append-system-prompt 是启动时载入）；已有会话不同步。
 - per-wf `settings.json`（在项目 `.claude/workflows/<name>/`，非快照）改了要重启会话加载。
@@ -122,7 +125,7 @@ tail -5 <项目>/.claude/.wf_advance.log
 
 hook 从 payload.cwd 用 `git rev-parse --git-common-dir` 反查主 repo 根。worktree 内 `--git-common-dir` 返回主 repo `.git` 绝对路径 -> `.parent` = 主 repo 根 -> `state.json` 在 `<主 repo>/.claude/workflows/<name>/`。
 
-- 报错 `state.json` 路径若含 `worktrees/<name>/.claude/workflows/` → 反查逻辑错，正确路径不应含 `worktrees/`。检查 `~/.dl-workflow/hooks/workflow_phase.py` 是否有 `_resolve_project_root` 函数（v2.0 引入）；缺失 -> 旧版遗留，重跑 install.sh 覆盖。
+- 报错 `state.json` 路径若含 `worktrees/<name>/.claude/workflows/` → 反查逻辑错，正确路径不应含 `worktrees/`。检查 `~/.dl-workflow/hooks/workflow_phase.py` 是否有 `_resolve_project_root` 函数（v2.0 引入）；缺失 -> 旧版遗留，在 `~/.dl-workflow` 跑 `git pull` 更新（hooks 不 copy，源即生效；**install.sh 不会更新 hook 脚本**，它只管 settings.json 注册）。
 - worktree 是手工建（不是 `dl`）-> state.json 从未建过。用 launcher 建。
 
 ### 症状 D：模型否认收到注入（说"没有 hook 注入"/"不在工作流中"）
