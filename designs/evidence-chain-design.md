@@ -232,10 +232,15 @@ exit 0（永不阻断，与 workflow_advance.py 一致）
 2. ✅ `evidence_append.py`（Stop hook：解析标记 + 分配 id + 戳 SHA + append）+ 22 例单测（真 git worktree 端到端）。
 3. ✅ `wf-lib.sh` `wf_write_settings` 注册 evidence_append.py 为第二个 Stop hook。冒烟：source wf-lib.sh 生成 settings.json 验 Stop hooks=2 且顺序正确（advance 先 evidence 后）。
 4. ✅ **live smoke 排查（2026-07-23）+ 证据注入修复（方案1）**：
-   - live smoke 在 `dl demo` 真实会话跑通 hook 全链路：`.wf_evidence.log` 留痕两次触发（17:21 `tlen=0`、17:23 `tlen=360`），`_last_assistant_text` 解析真实 transcript 正确（返回 360 字符真实文本），Stop hooks 注册正确（settings.json 含 2 个 hook）。
-   - **根因（非 hook bug）**：两次均 `no_markers` -- 会话里 assistant 回复**从未输出** `### EVIDENCE:{json}` 标记。demo 停在 understand 子阶段 1，其注入规则（`workflow_phase.py`）只提示输出 `### SUB_DONE`/`### PHASE_DONE`，**无任何渠道告诉模型该发证据标记** -> design §4.1 写了格式但未落实到注入机制 = 真实缺口。
-   - **修复（方案1）**：扩展 `workflow_phase.py` `_format_injection` 追加证据标记格式提示块。复用现有 UserPromptSubmit 注入通道，模型每轮看到 `### EVIDENCE:{json}` 格式 + 何时输出。`evidence_append.py` 本体不改（解析逻辑已验证正确）。
-   - understand 阶段也会提示证据格式（其子阶段 3「确定范围与约束」/ 4「定义成功标准」常含可证据化的结论）；非结论性回复模型可不发（与 PHASE_DONE 同「仅当真正达成时输出」语义）。
+   - **第一次排查**（误判）：`.wf_evidence.log` 两次 `no_markers`（17:21 `tlen=0`、17:23 `tlen=360`），初判"模型从未输出标记、无注入渠道"。**误判点**：transcript 在错误目录找（worktree 会话的 transcript 落在独立项目目录 `~/.claude/projects/-...-worktrees-demo/`，非主项目目录）。
+   - **注入修复（方案1，已落地 commit ad70772）**：扩展 `workflow_phase.py` `_format_injection` 追加证据标记格式提示块。复用 UserPromptSubmit 注入通道，5 阶段均注入。
+   - **第二次排查（`ac-ark --dl demo` 真工作流会话，确认正确）**：demo 当前 session `4f5eb724` transcript 在 `...worktrees-demo/`，19 条 assistant 消息。注入提示**已生效**（transcript 第 8 行 attachment 可见证据格式块）。模型在 understand 子阶段 1 讨论工作流元问题，按"非结论性回复可不发"语义**合规地未输出** `### EVIDENCE` -> `.wf_evidence.log` 第三次 `no_markers`（17:31 `tlen=42`）正确。`grep "### EVIDENCE"` 命中 1 处，但那是 hook 注入的 attachment 文本，非模型 assistant 回复。
+   - **结论**：记录骨架全链路验证通过（hook 触发 / 注入生效 / `_last_assistant_text` 解析正确 / Stop hooks 注册正确）。未见 evidence 落地，因 demo 未走到"推导结论"的轮次，非系统故障。要见节点须让工作流走到有具体结论的轮次（execute 实现/review 判定）。
+4b. ✅ **`_last_assistant_text` 轮次边界修复（commit 5b7bf01）**：
+   - **隐患（live smoke 推演发现，非实测触发）**：旧实现取「全局最后一条 assistant 文本」。一条 user 回合后模型可能发多条 assistant 消息（工具调用中断续文本），若标记在较早 assistant 消息、末条无标记 -> 漏证据。
+   - **修复**：`_last_assistant_text_io(stream)` 改扫「当前轮」= 最后一条 user 之后所有 assistant 文本（拼接）。user 出现即重置（不采上一轮，避免重复追加已落库旧标记）；无 user 不重置 -> 全算当前轮。抽出 `_assistant_text_of(msg)` + `_last_assistant_text_io(stream)` 纯函数（可传 StringIO 单测）。
+   - **未改 `workflow_advance.py._last_assistant_text`**：它只检测 `### PHASE_DONE` 单标记且必在末尾，不受此隐患影响。
+   - 测试 +3；全量 42 passed；ruff clean。
 5. ⏳（后议）门控遍历器。
 6. ⏳（后议）审核还原器。
 
@@ -269,6 +274,8 @@ exit 0（永不阻断，与 workflow_advance.py 一致）
 | 4 | evidence.jsonl 进 `wf/<name>` 分支，工作流未合并即删 worktree 会丢证据 | evidence 在 `<项目>/.claude/`（非 worktree 内），worktree 删不影响；但 `wf/<name>` 分支未 merge 即删分支会丢 -> 约定：终结前先 merge 或显式归档（§5 已注不删） |
 | 5 | 两个 Stop hook 执行顺序 / 互相读 state 竞态 | evidence_append.py 只读 state（取 phase）+ 只写 evidence.jsonl；workflow_advance.py 只读写 state.json。写不同文件 -> 无竞态。顺序无依赖 |
 | 6 | `.claude/evidence/` 目录在 worktree 内不存在（首次 append） | hook `mkdir -p`（父母录，仿 `.wf_*.log` 写法） |
+| 7 | worktree 会话 transcript 落在独立项目目录 `~/.claude/projects/-...-worktrees-<name>/`，非主项目目录 | 排查时勿在主项目目录找 transcript（live smoke 第一次排查误判即此）；hook 由 Claude 传 `transcript_path`，路径正确无需自找 |
+| 8 | `_last_assistant_text` 取最后一条会漏同轮较早 assistant 消息的标记 | 已修（§9 step4b）：扫当前轮全 assistant 文本 |
 
 ## 12. 待用户确认项
 
