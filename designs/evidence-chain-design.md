@@ -1,6 +1,10 @@
 # Evidence Chain Design（推导证据链：记录 + 防腐 + 事后回溯）
 
-> 状态：设计中（2026-07-23 起）。本文件为 H8 Design-First 产物，是证据链子系统的真源。
+> ⚠️ **已弃用（2026-07-23，§8.6c）**：本文档描述的"模型每轮自发记 claim/依赖/证据（### EVIDENCE 标记 + evidence_append.py 解析）"推理溯源系统**已删除**。用户决策弃用（transcript 解析脆 + 与 gate 裁决诉求不符）。
+> **替代机制**：`designs/tui-state-machine-design.md` §8.6 的 `engine.write_gate_verdict`——gate-pass 时直接写 `kind=gate` 裁决记录到 `<项目>/.claude/evidence/<name>.jsonl`（不解析 transcript）。evidence.jsonl 落点 + commit_sha 防腐语义仍沿用本文档 §5/§6.1。
+> 本文档保留作历史设计记录，勿据其排查运行问题（运行问题看 workflow-creation skill 症状手册）。
+
+> 状态：~~设计中（2026-07-23 起）。本文件为 H8 Design-First 产物，是证据链子系统的真源。~~ 已弃用，见上。
 > 对应实现（待做）：`~/.dl-workflow/hooks/evidence_append.py`（Stop hook）、
 > `<项目>/.claude/evidence/<name>.jsonl`（运行态真源）、
 > `scripts/workflow/wf-lib.sh`（settings.json 注册新 hook）。

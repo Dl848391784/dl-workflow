@@ -19,8 +19,8 @@
 
 更关键的两处**能力缺口**：
 
-- **无真门控**：现在推进只信模型回复末尾的 `### PHASE_DONE` / `### SUB_DONE` 字符串标记（`workflow_advance.py:294` 检正则）。标记存在 ≠ 节点目标真达成。没有"审模型返回符不符合预期再推进"。
-- **证据链脆**：`evidence_append.py` 从 transcript 解析 `### EVIDENCE:{json}` 标记，SKILL.md 症状 I 花一整节 debug `no_markers`（投递≠模型收到、transcript 目录找错、attachment 文本误判）。本可直接 py 写。
+- **无真门控**：~~现在推进只信模型回复末尾的 `### PHASE_DONE` / `### SUB_DONE` 字符串标记（`workflow_advance.py:294` 检正则）。标记存在 ≠ 节点目标真达成。没有"审模型返回符不符合预期再推进"。~~ **已修（§8.2/§8.3）**：engine.run_gate compound gate（机械 + judge），gate 过才推进。
+- **证据链脆**：~~`evidence_append.py` 从 transcript 解析 `### EVIDENCE:{json}` 标记，SKILL.md 症状 I 花一整节 debug `no_markers`。~~ **已修（§8.6，用户决策弃用旧溯源系统）**：旧"模型每轮自发记 claim/依赖"系统删除，改由 engine.write_gate_verdict 在 gate-pass 写裁决记录（kind=gate 到 evidence/<name>.jsonl），不再解析 transcript 标记。
 
 ### 0.2 用户诉求（原话提炼）
 
@@ -64,7 +64,7 @@
   ├─ run_gate(name, output) -> (pass | block_reason)
   │    机械项短路：不满足直接 block（不跑 judge）
   │    语义项：起 claude -p judge（stateless reviewer）
-  ├─ write_evidence(name, node, output) -> 追加 evidence/<name>.jsonl
+  ├─ write_gate_verdict(name, node, attempts, cwd) -> gate-pass 追加 kind=gate 裁决记录到 evidence/<name>.jsonl
   └─ advance(name) -> 写 state.json 进下一节点（含子节点推进）
 
 hooks/workflow_phase.py   (UserPromptSubmit)  瘦化
@@ -73,7 +73,7 @@ hooks/workflow_phase.py   (UserPromptSubmit)  瘦化
 hooks/workflow_advance.py (Stop)              瘦化 + 真 gate
   ├─ 读 transcript 取本轮输出
   ├─ engine.run_gate(name, output):
-  │     pass  -> engine.write_evidence() + engine.advance()
+  │     pass  -> engine.write_gate_verdict() + engine.advance()
   │     block -> 返 hookSpecificOutput.additionalContext(reason) 续轮（模型自动重试）
   │     撞 cap / 判断型不过 -> banner，退化为用户驱动下一轮
   └─ 子节点 SUB_DONE 同构（gate 过才推进 sub_index）
@@ -221,7 +221,7 @@ gate block(reason)
 | `wf-cmd.sh` | `next`/`back`/`jump`/`gate` 改调 engine CLI | 手动覆盖入口 |
 | `phase-rules.md` | 保留（append-system-prompt 行为约束） | 行为约束文本（与 engine 节点 skill 映射协同） |
 | `output-styles/workflow.md` | 保留 | 横幅 + TaskList 清单 |
-| `evidence_append.py` (Stop 第二个) | **废弃或降级**：engine 直接写 evidence | 证据链收口到 engine |
+| `evidence_append.py` (Stop 第二个) | **已删（§8.6c）**：旧"模型每轮自发记 claim/依赖"推理溯源系统弃用（用户决策），engine.write_gate_verdict 在 gate-pass 写裁决记录替代 | - |
 | `codegraph_gate.py`/`audit.py` | 不动 | H15 门禁照常 |
 | `wf-launch.sh` | 不动 | worktree + state + session 隔离不变 |
 
@@ -229,7 +229,7 @@ gate block(reason)
 
 - engine 先建为**纯库**（无副作用读），hook 瘦化改调它，state.json 加新字段（向后兼容）。
 - 旧工作流（无 node 字段）自动兼容。
-- evidence 收口最后做（先双写观察，再关 evidence_append.py）。
+- ~~evidence 收口最后做（先双写观察，再关 evidence_append.py）。~~ evidence 收口已完成（§8.6c 删 evidence_append.py + §8.6a 加 engine.write_gate_verdict，用户决策弃用旧 ### EVIDENCE 溯源系统，直接替换无双写期）。
 - 分小 commit（守 H9）。
 
 ## 7. 风险与待确认项
@@ -239,10 +239,10 @@ gate block(reason)
 | 1 | skill 路由文本仍散在 phase-rules/output-style/CLAUDE.md §2 | 本文不收口文本合并（独立项）。engine 的 NODES.skill 字段是数据化声明，与文本协同；后续可让 phase-rules 引用 engine 的 skill 映射（去重） |
 | 2 | judge 成本（每节点 +1 模型调用） | 机械短路省；judge 可配置 `gate_rubric=None` 关闭（如 understand 子阶段 1-3 不审） |
 | 3 | judge 自己误判 | 独立会话 stateless；reason 回灌主会话，用户可见可覆盖（手动 /wf gate 强过） |
-| 4 | Stop additionalContext 在 ark-code-latest 是否真续轮 | **待冒烟**：changelog 证实机制存在，但 ark 端点行为未实测。先写探针会话验 block+续轮+reason 进上下文 |
+| 4 | Stop additionalContext 在 ark-code-latest 是否真续轮 | **待验证（用户真会话进行中）**：changelog 证实机制存在 + `_block_continue` 格式已验 + hook 真会话已被调用（.wf_advance.log 留痕）+ 子阶段推进路径实测通过；"模型收到 reason 后自动重试"端到端行为需真交互式 TTY 验（脚本无法验）。若不续轮 -> 回退 §8.3 续轮为 banner 人工兜底 |
 | 5 | transcript 取本轮输出在 ark 下可靠性 | judge 输入优先取声明产物文件（understand.md 等，磁盘读可靠），transcript 作辅 |
 | 6 | 旧 state.json 无 node 字段 | engine 读时按 phase+sub 推导补默认；不一致报错暴露 |
-| 7 | evidence 收口双写期数据一致性 | 先双写（engine + evidence_append.py 各写）对比，一致后关旧 |
+| 7 | ~~evidence 收口双写期数据一致性~~ | **已完成（§8.6c）**：旧 ### EVIDENCE 系统直接删除（用户决策弃用），无双写期；gate-pass 写 kind=gate 裁决记录替代 |
 | 8 | 撞 8 cap 后状态 | engine 记 node_attempts，banner 明示"已达自动重试上限，请人工核"；不静默放行 |
 
 ## 8. 实施步骤（小 commit，守 H9）
@@ -252,8 +252,24 @@ gate block(reason)
 3. `workflow_advance.py` 瘦化：删副本，委托 engine.run_gate + additionalContext 续轮。冒烟验 Stop block 续轮（待确认项 #4）。
 4. `workflow_phase.py` 瘦化：删副本，委托 engine.current_node 注入。
 5. `wf-lib.sh`/`wf-cmd.sh`：删 PHASES/GATED_AFTER/SUBPHASES 副本，改调 engine CLI。
-6. evidence 收口：engine.write_evidence 双写观察 -> 一致后关 evidence_append.py。
-7. state.json 加 node/node_attempts 字段 + 旧 state 兼容。
+6. ~~evidence 收口：engine.write_evidence 双写观察 -> 一致后关 evidence_append.py。~~ **已完成（§8.6）**：a) engine.write_gate_verdict（gate-pass 写裁决记录）；b) workflow_phase 删 ### EVIDENCE 注入块 + wf-lib 删 evidence_append Stop 注册；c) 删 evidence_append.py + 2 测试。用户决策弃用旧溯源系统，直接替换无双写期。
+7. ~~state.json 加 node/node_attempts 字段 + 旧 state 兼容。~~ **已完成（§8.1）**：normalize_state 补 node/node_attempts，旧 state 向后兼容，不一致报错暴露。
+
+## 8.1 实现状态（2026-07-23 完成，待续轮验证）
+
+§8.1-§8.6 全部落地（分支 `feat/dl-flow-engine`，未 push）。78 测试通过。唯一待验 = §7 #4 Stop 续轮端到端（用户真会话进行中）。
+
+### gate 裁决记录 schema（§8.6 新机制，替代旧 ### EVIDENCE 溯源）
+
+gate-pass 时 engine.write_gate_verdict 写一行到 `<项目>/.claude/evidence/<name>.jsonl`：
+
+```json
+{"kind":"gate","node":"understand:4","phase":"understand","sub":4,"label":"定义成功标准和验收方式",
+ "gate":"passed","gate_mech":"artifact_exists","rubric":"<审据或 null>","attempts":1,
+ "skill":null,"via":"auto-stop","ts":"2026-07-23T...","commit_sha":"<HEAD 或空>"}
+```
+
+字段：`kind=gate`（标识新记录类型，与旧 ### EVIDENCE 区分）/ `node` 节点标识 / `gate=passed`（仅 pass 写，block 不写）/ `gate_mech` 机械门类型 / `rubric` 语义审据（None=仅机械过）/ `attempts` 重试次数 / `commit_sha` 防腐锚点（git rev-parse HEAD，非 git 空串）。block 重试计数在 state.node_attempts，pass 时一并记入此条。
 
 ## 9. 已定决策（design 落地前拍板）
 
