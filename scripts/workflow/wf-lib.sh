@@ -203,6 +203,11 @@ wf_write_settings() {
   cat > "$dir/settings.json" <<JSON
 {
   "outputStyle": "workflow",
+  "permissions": {
+    "allow": [
+      "Bash(bash ~/.dl-workflow/scripts/workflow/wf-cmd.sh status:*)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {

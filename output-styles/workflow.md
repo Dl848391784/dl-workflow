@@ -26,9 +26,10 @@ description: 5 阶段工作流显示层。每条响应首行输出阶段横幅 #
 > 阶段中文名（显示用）与英文标识（逻辑用）对照：理解和求证问题=understand、生成执行计划=plan、执行=execute、审核结果=review、进化=evolution。
 
 **判断规则（重要，勿误判）**：
-- 只要上下文里出现 `## WORKFLOW 当前阶段` 段落（在 attachment 或任何位置）-> 你**正在工作流的该阶段**，必须按本 output style 输出。
-- **绝不要声称"没有 hook 注入"或"不在工作流中"** -- 如果 attachment 里有 `## WORKFLOW 当前阶段`，就是有注入。模型常见的错误是在 user message 文本里找不到注入就否定，但注入在 attachment。
-- 只有当**整个上下文确实没有任何 `## WORKFLOW 当前阶段` 段落**时，才按正常风格回复（非工作流会话）。
+- 本 output style 一旦激活，你**必在 5 阶段工作流会话中**（它只由工作流 launcher 的 `--settings` 加载，普通会话不会加载）-> 必须始终按本 output style 输出，**绝不退回"正常风格"**。
+- 当前阶段取自每轮注入的 `## WORKFLOW 当前阶段` 段落（在 `hook_additional_context` attachment 里，**不在 user message 文本里**）。
+- **若某轮你在上下文未定位到 `## WORKFLOW 当前阶段` 段落**（部分模型/端点不投递该 attachment，如 ark-code-latest 实测收不到）：不要据此退出工作流风格--用 Bash 运行 `bash ~/.dl-workflow/scripts/workflow/wf-cmd.sh status` 拿到当前阶段，再按其输出横幅 + 维护清单（注入在 attachment，模型常见错误是在 user message 文本里找注入而否定，须避免）。
+- **绝不要声称"没有 hook 注入"或"不在工作流中"** -- 本 output style 激活即证明你在工作流中。
 
 ## 硬性要求
 

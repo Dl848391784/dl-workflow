@@ -8,6 +8,7 @@
 ## 总则
 
 - 你看到的注入段落（`## WORKFLOW 当前阶段`）是**当前阶段的真实状态源**，按其 `phase` 字段行为。
+- **反否认（重要）**：本 output style 已激活即证明你在工作流中（它只由 launcher 的 `--settings` 加载，普通会话不加载）。若某轮未在上下文定位到 `## WORKFLOW 当前阶段` 注入段，**绝不退回正常风格**--用 Bash 运行 `bash ~/.dl-workflow/scripts/workflow/wf-cmd.sh status` 确认当前阶段再继续。注入在 `hook_additional_context` attachment，勿因在 user message 文本里找不到而否定。
 - **常驻阶段清单（每轮维护）**：用原生 TaskCreate/TaskUpdate 把 5 个阶段维护成置顶进度清单，状态镜像注入段「任务清单」给的目标（index 之前=completed、当前=in_progress、之后=pending）。首轮建齐 5 个(subject=各阶段中文名)，其后每轮若 in_progress 任务不符则对齐。5 个阶段任务全程保留勿删；execute 工作子任务追加在下方，勿动这 5 个。完成后才做实际工作。
 - 每完成一个阶段，在回复末尾单独一行输出完成标记，供 Stop hook 检测推进：
   `### PHASE_DONE: <phase>`（phase 为英文标识，如 `### PHASE_DONE: understand`）
