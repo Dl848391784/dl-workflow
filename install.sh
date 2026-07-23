@@ -157,48 +157,63 @@ install_bashrc() {
 
 # BEGIN dl-workflow  (installed by ~/.dl-workflow/install.sh)
 # 5 阶段工作流入口。真源：~/.dl-workflow/scripts/workflow/wf-launch.sh
+#
+# 三种入口（都拦 --dl/--workflow 参数转交 launcher）：
+#   claude --dl <name>     # install.sh 装的 claude wrapper 拦 --dl（其他用法透传原生 claude）
+#   dl <name>              # 独立 dl 函数
+#   ac-ark --dl <name>     # 你的 provider 函数拦 --dl（需在 ac-ark 里 source dl-shim，见 README）
+#
+# provider env 由调用方 shell 继承：launcher 子进程 exec 原生 claude，
+# 自动带上当前 shell 的 ANTHROPIC_* env。
+#   - ac-ark --dl foo: ac-ark 已 export ark env，launcher 起 claude 带 ark ✓
+#   - claude --dl foo / dl foo: 用当前 shell env（默认或你 export 的）
+#
 # 用法：
-#   dl <name>               新建工作流（停在「理解和求证问题」）
-#   dl @<provider> <name>   用指定 provider 起会话（如 @ac-ark / @ac-mm / @ac-ark1）
-#   dl <name> --resume      续接
-#   dl <name> --phase <p>   跳到某阶段
-#   dl <name> --base <ref>  从指定 ref 建分支
-#   dl <name> --done        归档（删 worktree+分支+元数据）
-#   dl list                 列举所有工作流
-# provider 选择：dl 不硬编码 claude，调 launcher 时 export DL_CLAUDE。
-#   - dl foo          -> DL_CLAUDE 用默认（claude 或你 export 的值）
-#   - dl @ac-ark foo  -> DL_CLAUDE=ac-ark，会话走 ac-ark 的 env
-#   - dl @ac-mm foo   -> DL_CLAUDE=ac-mm
-#   未来加新 provider 命令只需定义该命令，dl @新命令 立即可用，dl-workflow 不用改。
-# 独立于 provider：dl 本身不设任何 ANTHROPIC_* env，由被调的 provider 命令负责。
+#   <入口> <name>              新建工作流（停在「理解和求证问题」）
+#   <入口> <name> --resume     续接
+#   <入口> <name> --phase <p>  跳到某阶段
+#   <入口> <name> --base <ref> 从指定 ref 建分支
+#   <入口> <name> --done       归档（删 worktree+分支+元数据）
+#   <入口> list                列举所有工作流
 
 export DL_WF_HOME="$HOME/.dl-workflow"
 
-dl() {
-  [ $# -ge 1 ] || { echo "用法: dl [@<provider>] <name> [--resume|--phase <p>|--base <ref>|--done] | list" >&2; return 1; }
-  local provider=""
-  # 解析 @provider 前缀（首个参数以 @ 开头且 @ 后非空）
-  if [ "${1#@}" != "$1" ] && [ "${1#@}" != "" ]; then
-    provider="${1#@}"
-    shift
-    [ $# -ge 1 ] || { echo "✗ @provider 后须跟工作流名" >&2; return 1; }
-  fi
-  # 指定了 provider 才 export DL_CLAUDE 覆盖 launcher 默认
-  if [ -n "$provider" ]; then
-    DL_CLAUDE="$provider" "$DL_WF_HOME/scripts/workflow/wf-launch.sh" --workflow "$@"
-  else
-    "$DL_WF_HOME/scripts/workflow/wf-launch.sh" --workflow "$@"
-  fi
+# launcher 调用核心：接受去掉 --dl 后的剩余参数，转交 wf-launch.sh
+_dl_launch() {
+  "$DL_WF_HOME/scripts/workflow/wf-launch.sh" --workflow "$@"
 }
+
+# dl 命令：独立入口
+dl() {
+  [ $# -ge 1 ] || { echo "用法: dl <name> [--resume|--phase <p>|--base <ref>|--done] | list" >&2; return 1; }
+  _dl_launch "$@"
+}
+
+# claude wrapper：拦 --dl 进工作流，其他透传原生 claude
+# 若你已有自定义 claude 函数，install.sh 不会覆盖（见下方检测）；请手工把 --dl 分支并入。
+if ! declare -F claude >/dev/null 2>&1; then
+  claude() {
+    if [ "$1" = "--dl" ]; then
+      shift
+      _dl_launch "$@"
+      return $?
+    fi
+    command claude "$@"
+  }
+fi
 # END dl-workflow
 BASHRC_EOF
 
   if [ "$dl_conflict" = "1" ]; then
-    echo "  ⚠ 检测到 ~/.bashrc 已有 dl 定义（alias/函数）。dl-workflow 的 dl 函数定义在后，会覆盖。"
-    echo "    若不想覆盖，请手工把上面 dl() 改名，或删已有的 dl 定义。"
+    echo "  ⚠ 检测到 ~/.bashrc 已有 dl 定义。dl-workflow 的 dl 函数定义在后，会覆盖。"
   fi
-  echo "✓ ~/.bashrc 已追加 dl-workflow 段落（export DL_WF_HOME + dl 函数）"
-  echo "  用法：dl <name> 建工作流；dl @ac-ark <name> 指定 provider；dl list 列举"
+  if grep -qE '^(function claude|claude\(\))' "$BASHRC" 2>/dev/null; then
+    echo "  ⚠ 检测到已有 claude 函数（可能是你自定义的）。dl-workflow 不覆盖；"
+    echo "    若要让 claude --dl 生效，请在你 claude 函数里加："
+    echo "      [ \"\$1\" = \"--dl\" ] && { shift; _dl_launch \"\$@\"; return \$?; }"
+  fi
+  echo "✓ ~/.bashrc 已追加 dl-workflow 段落（dl 函数 + claude wrapper）"
+  echo "  入口：dl <name> | claude --dl <name> | ac-ark --dl <name>（后者需 source dl-shim，见 README）"
 }
 
 # ---------- 主 ----------

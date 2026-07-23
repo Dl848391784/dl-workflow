@@ -157,13 +157,15 @@ fi
 
 cd "$WORKTREE_PATH"
 
-# provider 命令：默认 claude，可被环境变量 DL_CLAUDE 覆盖（dl 函数解析 @provider 前缀后 export）。
-# 这样 dl @ac-ark foo / dl @ac-mm foo 等可用任意 provider 起会话，launcher 不硬编码 claude。
-DL_CLAUDE="${DL_CLAUDE:-claude}"
+# launcher 始终 exec 原生 claude。provider env 由调用方在交互 shell 里 export
+# （ac-ark --dl 时 ac-ark 函数已 export ark env；claude --dl / dl 时用默认或当前 shell env）。
+# launcher 子进程继承父 shell env，故 claude 自动带上 provider 的 ANTHROPIC_* 配置。
+# 不用 @provider 机制：provider 选择由「用哪个命令调」决定，不是 launcher 去 exec provider
+# （provider 若是 bashrc 函数，launcher 子进程 exec 不到，会 not found）。
 
 # resume：用钉死的 session_id 恢复；否则用 --session-id 钉死
 if [ "$WF_RESUME" = "1" ] && [ -n "${SESSION_ID:-}" ]; then
-  exec "$DL_CLAUDE" --resume "$SESSION_ID" "${SETTINGS_ARGS[@]}" "${SYS_PROMPT_ARGS[@]}" "$@"
+  exec claude --resume "$SESSION_ID" "${SETTINGS_ARGS[@]}" "${SYS_PROMPT_ARGS[@]}" "$@"
 else
-  exec "$DL_CLAUDE" --session-id "$SESSION_ID" "${SETTINGS_ARGS[@]}" "${SYS_PROMPT_ARGS[@]}" "$@"
+  exec claude --session-id "$SESSION_ID" "${SETTINGS_ARGS[@]}" "${SYS_PROMPT_ARGS[@]}" "$@"
 fi

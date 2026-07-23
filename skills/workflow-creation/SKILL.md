@@ -30,17 +30,21 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/wf-launch.sh
 ## 1. 建工作流 / 改工作流
 
 ### 1.1 新建一个工作流（用户侧）
+三种入口（都拦 `--dl` 参数转交 launcher）：
 ```bash
-dl <name>                # 新建（停在 understand），默认 claude
-dl @<provider> <name>    # 用指定 provider 起会话（如 @ac-ark / @ac-mm / @ac-ark1）
-dl <name> --resume       # 续接
-dl @ac-ark <name> --resume  # 指定 provider 续接
-dl list                  # 列举
-dl <name> --done         # 归档（删 worktree+分支+元数据）
+dl <name>                 # 独立 dl 命令
+claude --dl <name>        # claude wrapper（其他用法透传原生 claude）
+ac-ark --dl <name>        # provider 函数（需在 ac-ark 里加 --dl 拦截，见 README）
+# 通用参数
+dl <name> --resume        # 续接
+dl <name> --phase <p>     # 跳阶段
+dl <name> --base <ref>    # 指定基线
+dl list                   # 列举
+dl <name> --done          # 归档（删 worktree+分支+元数据）
 ```
 - `<name>` 仅小写字母/数字/连字符/下划线，≤64（`wf-lib.sh` 校验）。
 - 必须在 git repo 内运行（launcher 用 `git rev-parse` 反查项目根）。
-- `@<provider>`：把该 provider 命令当起会话入口（`DL_CLAUDE` env 传 launcher）。多 provider 机器按需选；不指定用默认 `claude`。dl 本身不设任何 ANTHROPIC_* env，由 provider 命令负责。
+- provider env：launcher 永远 `exec claude`，env 由调用方 shell 继承。`ac-ark --dl` 因 ac-ark 已 export env 而走 ark；`dl`/`claude --dl` 用当前 shell env。不用 `@provider`（provider 是函数时 launcher 子进程 exec 不到）。
 
 ### 1.2 改工作流脚本/hook/command 后
 - 改 `~/.dl-workflow/hooks/*.py` 或 `output-styles/*.md` 或 `commands/*.md` -> 跑 `~/.dl-workflow/install.sh` copy 到 `~/.claude/`，**下轮 hook 触发即最新版**（无需重建 worktree）。

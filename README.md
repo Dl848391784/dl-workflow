@@ -39,17 +39,40 @@ install.sh 做什么：
 
 ## 用
 
+三种入口（都拦 `--dl` 参数转交 launcher）：
+
 ```bash
-dl my-feature                  # 新建工作流（停在「理解和求证问题」）
-dl @ac-ark my-feature          # 用 ac-ark provider 起会话（走 ark env）
-dl @ac-mm my-feature           # 用 ac-mm provider
-dl my-feature --resume         # 续接
-dl @ac-ark my-feature --resume # 指定 provider 续接
-dl list                        # 列举
-dl my-feature --done           # 归档（删 worktree + 分支 + 元数据）
+dl demo                        # 独立 dl 命令
+claude --dl demo               # claude wrapper（其他用法透传原生 claude）
+ac-ark --dl demo               # 你的 provider 函数（需在 ac-ark 里 source dl-shim.sh，见下）
+
+# 通用参数（接在 <入口> <name> 后）
+dl demo --resume               # 续接
+dl demo --phase execute         # 跳阶段
+dl demo --base <ref>            # 指定基线
+dl demo --done                  # 归档（删 worktree + 分支 + 元数据）
+dl list                         # 列举所有工作流
 ```
 
-**provider 选择**：`dl` 不硬编码 `claude`。`dl @<provider> <name>` 把 `<provider>` 当作起会话的命令（通过 `DL_CLAUDE` env 传给 launcher）。这样你的多个 provider 命令（`ac-ark`/`ac-mm`/`ac-ark1`/未来更多）都能用工作流，dl-workflow 不用改。不指定 `@provider` 时用默认 `claude`（或你 `export DL_CLAUDE=...` 的值）。
+**provider env 怎么带上**：launcher 永远 `exec` 原生 `claude`，env 由调用方 shell 继承。
+- `ac-ark --dl demo`：ac-ark 函数已 export ark env，launcher 子进程继承，claude 走 ark ✓
+- `claude --dl demo` / `dl demo`：用当前 shell env（默认或你 `export` 的）
+
+> 为什么不是 `dl @provider`？provider 若是 bashrc 函数，launcher 子进程 `exec` 不到（函数只在交互 shell 存在）。改成「provider 调 launcher」而非「launcher 调 provider」：ac-ark 在交互 shell 里设好 env 再调 launcher，env 天然继承。
+
+**让 `ac-ark --dl` 生效**：在你 ac-ark 函数里加 `--dl` 拦截（见 `dl-shim.sh` 注释模板），或直接：
+```bash
+ac-ark() {
+  export ANTHROPIC_BASE_URL=...
+  # ... 其他 env
+  if [ "$1" = "--dl" ]; then
+    shift
+    "$HOME/.dl-workflow/scripts/workflow/wf-launch.sh" --workflow "$@"
+    return $?
+  fi
+  claude "$@"
+}
+```
 
 # 会话内
 /wf status                            # 看当前阶段
