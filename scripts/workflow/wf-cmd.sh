@@ -51,42 +51,35 @@ shift || true
 cur_phase() { wf_state_get "$NAME" phase; }
 cur_idx()   { wf_state_get "$NAME" index; }
 
-# 进度树（designs/banner-tree-design.md §2）：全 5 阶段遍历 + 当前阶段展开子阶段 + ☑/▶/○。
+# 进度任务清单（designs/banner-tree-design.md §2，checklist 格式）：
+# 全 5 阶段 + 当前阶段展开子阶段。符号：☑=完成 / ▶=进行中 / ◻=待办。缩进 2 空格。
 # 读 state.json 真值（index/sub_index）；阶段名/子阶段标签委托 engine meta。
-# 用法：_print_progress_tree <phase> <index> <sub_index>
-_print_progress_tree() {
+# 用法：_print_progress_checklist <phase> <index> <sub_index>
+_print_progress_checklist() {
   local _p="$1" _i="$2" _si="$3"
-  local _pi _idx _lbl _mark _cur_tag _st _sub_total _j _s _sublbl _smark _arrow
-  _pi="$(wf_phase_index "$_p")"   # 当前阶段的 index（1-based）
+  local _idx _lbl _mark _st _j _sublbl _smark _arrow
   for _idx in "${!WF_PHASES[@]}"; do
     _idx=$((_idx + 1))
     _lbl="$(wf_phase_label "${WF_PHASES[$((_idx - 1))]}")"
     if [ "$_idx" -lt "$_i" ]; then _mark="☑"
     elif [ "$_idx" -eq "$_i" ]; then _mark="▶"
-    else _mark="○"; fi
-    _cur_tag=""
+    else _mark="◻"; fi
+    echo "$_mark $_lbl"
+    # 当前阶段展开子阶段（其它阶段折叠）
     if [ "$_idx" -eq "$_i" ]; then
-      _cur_tag=" [当前]"
       _st="$(wf_sub_total "${WF_PHASES[$((_idx - 1))]}")"
       if [ "${_st:-0}" -gt 0 ]; then
-        echo "$_idx. $_mark $_lbl$_cur_tag"
         for _j in $(seq 1 "$_st"); do
           _sublbl="$(wf_sub_label "${WF_PHASES[$((_idx - 1))]}" "$_j")"
           if [ "$_j" -lt "$_si" ]; then _smark="☑"
           elif [ "$_j" -eq "$_si" ]; then _smark="▶"
-          else _smark="○"; fi
+          else _smark="◻"; fi
           _arrow=""
           [ "$_j" -eq "$_si" ] && _arrow=" ← 进行中"
-          if [ "$_j" -eq "$_st" ]; then
-            echo "   └ $_idx.$_j $_smark $_sublbl$_arrow"
-          else
-            echo "   ├ $_idx.$_j $_smark $_sublbl$_arrow"
-          fi
+          echo "  $_smark $_idx.$_j $_sublbl$_arrow"
         done
-        continue
       fi
     fi
-    echo "$_idx. $_mark $_lbl$_cur_tag"
   done
 }
 
@@ -108,7 +101,7 @@ case "$SUB" in
     echo "  session:  $(wf_state_get "$NAME" session_id)"
     echo "  阶段顺序(英文，供 /wf jump): ${WF_PHASES[*]}"
     echo "  闸门后置: $WF_GATED_AFTER（这些阶段完成需 /wf gate 放行）"
-    # 进度树（banner-tree-design.md §2）：全阶段 + 当前展开子阶段 + ☑/▶/○
+    # 进度任务清单（banner-tree-design.md §2，checklist 格式）：全阶段 + 当前展开子阶段
     SUB_TOTAL="$(wf_sub_total "$P")"
     if [ "$SUB_TOTAL" -gt 0 ]; then
       SUB_IDX="$(wf_state_get "$NAME" sub_index 2>/dev/null || echo 1)"
@@ -116,9 +109,9 @@ case "$SUB" in
       SUB_IDX=0
     fi
     echo ""
-    echo "## WORKFLOW 进度 · $NAME · 阶段 [$I/5] $(wf_phase_label "$P")"
-    _print_progress_tree "$P" "$I" "$SUB_IDX"
-    echo "图例: ☑=完成 ▶=进行中 ○=待办"
+    echo "## WORKFLOW 进度 · $NAME"
+    _print_progress_checklist "$P" "$I" "$SUB_IDX"
+    echo "图例: ☑=完成 ▶=进行中 ◻=待办"
     ;;
 
   next)
