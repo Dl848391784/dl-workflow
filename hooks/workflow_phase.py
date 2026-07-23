@@ -76,6 +76,14 @@ PHASE_RULES = {
 }
 
 
+# 子阶段：phase -> 子阶段标签列表（仅 understand 有 4 个；其他阶段无子阶段）。
+# 与 wf-lib.sh WF_SUBPHASES_UNDERSTAND / workflow_advance.py SUBPHASES 三处各持一份（避免跨语言 source）。
+# 详见 designs/understand-subphases-design.md。
+SUBPHASES = {
+    "understand": ["理解问题和背景", "明确目标和价值", "确定范围与约束", "定义成功标准和验收方式"],
+}
+
+
 def _payload_cwd(payload: dict) -> str:
     """从 hook payload 取 cwd（字段名容错），缺失回退进程 cwd。"""
     for key in ("cwd", "working_dir", "current_dir"):
@@ -182,39 +190,88 @@ def _log_invocation(
 
 
 def _format_injection(state: dict) -> str:
-    """格式化阶段注入文本（当前阶段 + 规则四要素 + 完成标记格式）。"""
+    """格式化阶段注入文本（当前阶段 + 规则四要素 + 子阶段 + 完成标记格式）。"""
     name = state.get("name", "?")
     phase = state.get("phase", "understand")
     idx = state.get("index", 1)
     gate = state.get("gate", "pending")
+    sub_index = state.get("sub_index", 0)
+    sub_total = state.get("sub_total", 0)
     rules = PHASE_RULES.get(phase, {})
     try:
         total = len(PHASES)
     except Exception:
         total = 5
-    # 任务清单目标状态（镜像 state.json 当前 index；供模型同步原生 TaskList）
+
+    subs = SUBPHASES.get(phase, [])
+    has_sub = sub_total > 0 and bool(subs)
+    cur_sub_label = subs[sub_index - 1] if has_sub and 1 <= sub_index <= len(subs) else ""
+
+    # 任务清单目标状态（镜像 state.json 当前 index/sub_index；供模型同步原生 TaskList）
+    # 阶段有子阶段时，紧跟该阶段任务后插入子任务 1.1..1.N（全程保留，已完成的也显示 completed）
     task_rows = []
     for i, p in enumerate(PHASES, 1):
         lbl = PHASE_LABELS.get(p, p)
         st = "completed" if i < idx else ("in_progress" if i == idx else "pending")
         task_rows.append(f"  {i}. {lbl} -> {st}")
+        for j, slabel in enumerate(SUBPHASES.get(p, []), 1):
+            if i < idx:
+                sst = "completed"
+            elif i == idx:
+                sst = "completed" if j < sub_index else ("in_progress" if j == sub_index else "pending")
+            else:
+                sst = "pending"
+            task_rows.append(f"    {i}.{j} {slabel} -> {sst}")
+
+    header = f"工作流: {name} | 阶段: **{PHASE_LABELS.get(phase, phase)}** [{idx}/{total}] | gate: {gate}"
+    if has_sub:
+        header += f" | 子阶段: **{cur_sub_label}** [{sub_index}/{sub_total}]"
 
     lines = [
         "## WORKFLOW 当前阶段",
-        f"工作流: {name} | 阶段: **{PHASE_LABELS.get(phase, phase)}** [{idx}/{total}] | gate: {gate}",
+        header,
         f"- 目标: {rules.get('goal', '')}",
         f"- 允许: {rules.get('allow', '')}",
         f"- 禁止: {rules.get('deny', '')}",
         f"- 阶段产物: {rules.get('artifact', '')}",
         f"- 推进: {rules.get('advance', '')}",
-        "- 任务清单(原生 TaskList, 置顶常驻): 维护 5 个阶段任务作常驻进度清单, 状态须镜像当前 index:",
-        *task_rows,
-        "  首轮或续接后缺失时 TaskCreate 建齐 5 个(subject=各阶段中文名)并按上设状态;",
-        "  其后每轮若 in_progress 任务与当前阶段不符则 TaskUpdate 对齐(旧->completed, 当前->in_progress);",
-        "  5 个阶段任务全程保留勿删; execute 阶段工作子任务可追加在下方, 勿动这 5 个。",
-        "完成本阶段后，回复末尾单独一行输出: `### PHASE_DONE: " + phase + "`",
-        "（仅当阶段目标真正达成时输出；闸门阶段不会自动推进，需 /wf gate 放行）",
     ]
+    # 子阶段块（仅当前阶段有子阶段时注入）
+    if has_sub:
+        lines.append(f"- 子阶段(共 {sub_total} 个, 依次完成, 各自动推进到下一子阶段):")
+        for j, slabel in enumerate(subs, 1):
+            sst = "completed" if j < sub_index else ("in_progress" if j == sub_index else "pending")
+            lines.append(f"  {j}. {slabel} -> {sst}")
+        lines.append(
+            f"  完成子阶段 1..{sub_total - 1} 各输出: `### SUB_DONE: <n>` (Stop hook 自动推进 sub_index);"
+        )
+        lines.append(
+            f"  末子阶段({sub_total})完成 -> 写阶段产物 + 输出 `### PHASE_DONE: {phase}` (触发该阶段闸门/推进);"
+        )
+        lines.append("  未走完子阶段直接输出 PHASE_DONE 会被 Stop hook 守卫阻断(强制依次).")
+
+    lines.extend([
+        "- 任务清单(原生 TaskList, 置顶常驻): 维护阶段任务作常驻进度清单, 状态须镜像当前 index/sub_index:",
+        *task_rows,
+        "  首轮或续接后缺失时 TaskCreate 建齐(阶段任务 subject=各阶段中文名; 有子阶段的阶段后紧跟其 1.1..1.N 子任务)并按上设状态;",
+        "  其后每轮若 in_progress 任务与当前不符则 TaskUpdate 对齐(旧->completed, 当前->in_progress);",
+        "  阶段任务(含子任务)全程保留勿删; execute 阶段工作子任务可追加在下方, 勿动阶段任务与其子任务。",
+    ])
+    # 完成标记：无子阶段->PHASE_DONE；有子阶段->子1..N-1 用 SUB_DONE，末子阶段(N)用 PHASE_DONE
+    if has_sub:
+        if sub_index < sub_total:
+            lines.append(
+                f"当前子阶段 {sub_index}({cur_sub_label})完成时, 回复末尾单独一行输出: `### SUB_DONE: {sub_index}`"
+            )
+        else:
+            lines.append(
+                f"末子阶段({sub_total})完成时(写完阶段产物 {rules.get('artifact', '')}), "
+                f"回复末尾单独一行输出: `### PHASE_DONE: {phase}`"
+            )
+        lines.append("（仅当当前子阶段目标真正达成时输出对应标记；未达成绝不输出）")
+    else:
+        lines.append(f"完成本阶段后，回复末尾单独一行输出: `### PHASE_DONE: {phase}`")
+        lines.append("（仅当阶段目标真正达成时输出；闸门阶段不会自动推进，需 /wf gate 放行）")
     return "\n".join(lines) + "\n"
 
 

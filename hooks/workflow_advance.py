@@ -41,6 +41,26 @@ GATED_AFTER = {"understand", "plan"}
 # 完成标记正则
 DONE_RE = re.compile(r"###\s*PHASE_DONE:\s*(\w+)", re.IGNORECASE)
 
+# 子阶段：phase -> 子阶段标签列表（仅 understand 有 4 个；其他阶段无子阶段）。
+# 与 wf-lib.sh WF_SUBPHASES_UNDERSTAND / workflow_phase.py SUBPHASES 三处各持一份（避免跨语言 source）。
+# 详见 designs/understand-subphases-design.md。
+SUBPHASES = {
+    "understand": ["理解问题和背景", "明确目标和价值", "确定范围与约束", "定义成功标准和验收方式"],
+}
+# 子阶段完成标记正则（子阶段 1..(N-1) 用；末子阶段 N 用 PHASE_DONE 触发闸门）
+SUB_DONE_RE = re.compile(r"###\s*SUB_DONE:\s*(\d+)", re.IGNORECASE)
+
+
+def _sub_total(phase: str) -> int:
+    """阶段 -> 子阶段数（0=无子阶段）。"""
+    return len(SUBPHASES.get(phase, []))
+
+
+def _sub_label(phase: str, n: int) -> str:
+    """阶段 + n -> 第 n 个子阶段标签（越界返回空串）。"""
+    subs = SUBPHASES.get(phase, [])
+    return subs[n - 1] if 1 <= n <= len(subs) else ""
+
 
 def _payload_cwd(payload: dict) -> str:
     """从 hook payload 取 cwd（字段名容错），缺失回退进程 cwd。"""
@@ -192,6 +212,10 @@ def _advance(project_root: Path, state: dict, name: str) -> None:
         # 新阶段的 gate：若新阶段的前置是闸门来源（即 cur in GATED_AFTER），但本推进已是放行后，
         # 故新阶段 gate=passed（已通过）；否则新阶段 gate 取决于其自身是否是闸门目标
         state["gate"] = "passed" if cur in GATED_AFTER else "pending"
+        # 子阶段：进新阶段按其 sub_total 重置（与 wf_state_set_phase 一致；plan 等无子阶段->0）
+        nxt_sub_total = _sub_total(nxt)
+        state["sub_total"] = nxt_sub_total
+        state["sub_index"] = 1 if nxt_sub_total > 0 else 0
     else:
         state["gate"] = "done"  # evolution 完成终结
     state["history"] = hist
@@ -236,6 +260,36 @@ def main() -> int:
             break
     text = _last_assistant_text(transcript_path)
 
+    # 子阶段完成标记优先（子 1..N-1 用 SUB_DONE；末子阶段 N 用 PHASE_DONE 触发闸门）。
+    # 同轮只会有其一：子 1-3 轮出 SUB_DONE，子 4 轮出 PHASE_DONE。
+    sm = SUB_DONE_RE.search(text)
+    if sm:
+        n = int(sm.group(1))
+        sub_total = _sub_total(cur)
+        if sub_total == 0:
+            _log(project_root, "sub_done_no_subphases", wf=name, phase=cur, n=n)
+            return 0  # 该阶段无子阶段，忽略误输出的 SUB_DONE
+        sub_index = state.get("sub_index", 1)
+        if n == sub_total:
+            # 末子阶段不该用 SUB_DONE（规则用 PHASE_DONE 触发闸门）；防御忽略，下轮注入自纠
+            _log(project_root, "sub_done_last_ignored", wf=name, phase=cur, n=n, sub_total=sub_total)
+            return 0
+        if n != sub_index:
+            _log(project_root, "sub_done_mismatch", wf=name, phase=cur, n=n, sub_index=sub_index)
+            return 0  # 子阶段序号与当前不符，不推进（防跳步）
+        # 推进 sub_index（n -> n+1）
+        now = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
+        state["sub_index"] = n + 1
+        state["updated_at"] = now
+        _save_state(project_root, name, state)
+        cur_lbl = PHASE_LABELS.get(cur, cur)
+        _emit(
+            f"\n┌─ WORKFLOW · {name} · {cur_lbl} 子阶段推进\n"
+            f"│ {n}. {_sub_label(cur, n)}  ──►  {n + 1}. {_sub_label(cur, n + 1)}  [{n + 1}/{sub_total}]"
+        )
+        _log(project_root, "sub_advanced", wf=name, phase=cur, frm=n, to=n + 1)
+        return 0
+
     # 检测完成标记
     m = DONE_RE.search(text)
     if not m:
@@ -245,6 +299,21 @@ def main() -> int:
     if done_phase != cur:
         _log(project_root, "done_mismatch", wf=name, phase=cur, done=done_phase)
         return 0  # 标记的阶段与当前不符，不推进（防误）
+
+    # 子阶段守卫：阶段有子阶段且未走完 -> 阻断 PHASE_DONE（强制依次完成子阶段）
+    sub_total = _sub_total(cur)
+    if sub_total > 0:
+        sub_index = state.get("sub_index", 1)
+        if sub_index < sub_total:
+            cur_lbl = PHASE_LABELS.get(cur, cur)
+            _emit(
+                f"\n┌─ WORKFLOW · {name} · {cur_lbl} 子阶段未完成\n"
+                f"│ 检测到 PHASE_DONE: {cur}，但 {cur_lbl} 还有子阶段未完成（{sub_index}/{sub_total}）。\n"
+                f"│ 请先依次完成各子阶段（每完成一个输出 ### SUB_DONE: <n>），\n"
+                f"│ 末子阶段({sub_total})完成后再输出 ### PHASE_DONE: {cur}。"
+            )
+            _log(project_root, "phase_done_subphases_incomplete", wf=name, phase=cur, sub_index=sub_index, sub_total=sub_total)
+            return 0
 
     # 闸门判定
     if cur in GATED_AFTER:

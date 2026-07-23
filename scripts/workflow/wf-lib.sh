@@ -93,6 +93,33 @@ wf_is_gated_after() {
   esac
 }
 
+# ---------- 子阶段定义 ----------
+# understand 拆 4 子阶段（顺序）；仅 understand 有子阶段，其他阶段 sub_total=0。
+# 与 PHASES/PHASE_LABELS 一样在 bash + 两 python hook 各持一份（避免跨语言 source）。
+# 详见 designs/understand-subphases-design.md。
+WF_SUBPHASES_UNDERSTAND=(
+  "理解问题和背景"
+  "明确目标和价值"
+  "确定范围与约束"
+  "定义成功标准和验收方式"
+)
+
+# 阶段 -> 子阶段数（0=无子阶段）
+wf_sub_total() {
+  case "$1" in
+    understand) echo 4;;
+    *) echo 0;;
+  esac
+}
+
+# 阶段 + n -> 第 n 个子阶段标签（n 越界/无子阶段返回空）
+wf_sub_label() {
+  local phase="$1" n="$2"
+  if [ "$phase" = "understand" ]; then
+    echo "${WF_SUBPHASES_UNDERSTAND[$((n-1))]:-}"
+  fi
+}
+
 # ---------- state.json 读写 ----------
 # 用 python3 做 JSON 读写（项目已依赖 python3），避免手撸 JSON 易错。
 
@@ -114,6 +141,7 @@ import time
 now = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
 state = {
   "name": name, "phase": "understand", "index": 1,
+  "sub_index": 1, "sub_total": 4,   # 起于 understand，含 4 子阶段
   "session_id": sid, "base_ref": base, "branch": branch, "worktree_path": wtp,
   "gate": "pending", "created_at": now, "updated_at": now, "history": [],
 }
@@ -136,12 +164,13 @@ except (KeyError, FileNotFoundError, json.JSONDecodeError):
 PY
 }
 
-# 设置当前阶段（写 phase+index+updated_at+history）：wf_state_set_phase <name> <phase> <via>
+# 设置当前阶段（写 phase+index+sub_index+sub_total+updated_at+history）：wf_state_set_phase <name> <phase> <via>
 wf_state_set_phase() {
   local name="$1" phase="$2" via="$3"
-  python3 - "$WF_META_ROOT/$name/state.json" "$phase" "$(wf_phase_index "$phase")" "$via" <<'PY'
+  python3 - "$WF_META_ROOT/$name/state.json" "$phase" "$(wf_phase_index "$phase")" "$via" "$(wf_sub_total "$phase")" <<'PY'
 import json, sys, time
-path, phase, idx, via = sys.argv[1:5]
+path, phase, idx, via, sub_total = sys.argv[1:6]
+sub_total = int(sub_total)
 with open(path, encoding="utf-8") as f:
     state = json.load(f)
 now = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
@@ -153,6 +182,9 @@ if hist and hist[-1].get("exited_at") is None:
 hist.append({"phase": phase, "entered_at": now, "exited_at": None, "via": via})
 state["phase"] = phase
 state["index"] = int(idx)
+# 子阶段：进新阶段按其 sub_total 重置；有子阶段->sub_index=1（从头），无->0
+state["sub_total"] = sub_total
+state["sub_index"] = 1 if sub_total > 0 else 0
 state["updated_at"] = now
 state["history"] = hist
 state["gate"] = "pending"
