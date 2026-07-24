@@ -219,23 +219,34 @@ class TestNormalizeState:
         assert norm["node"] == "plan:0"
 
     def test_sub_step_index_defaults_zero_no_steps(self):
-        # §orchestration v2：无 sub_steps 节点 -> sub_step_index 补 0（understand:1 暂无编排）
-        old = {"phase": "understand", "sub_index": 1}
+        # §orchestration v2：无 sub_steps 节点 -> sub_step_index 补 0
+        old = {"phase": "understand", "sub_index": 2}  # understand:2 无 sub_steps
         norm = eng.normalize_state(dict(old))
         assert norm["sub_step_index"] == 0
         # 整阶段节点同
         norm2 = eng.normalize_state({"phase": "plan", "sub_index": 0})
         assert norm2["sub_step_index"] == 0
 
+    def test_sub_step_index_defaults_one_with_steps(self):
+        # §orchestration v2：understand:1 有 sub_steps -> sub_step_index 缺省补 1（首步起步）
+        norm = eng.normalize_state({"phase": "understand", "sub_index": 1})
+        assert norm["sub_step_index"] == 1
+
     def test_sub_step_index_out_of_range_raises(self):
-        # 显式 sub_step_index 越界（节点无 sub_steps 但给了 >0）-> 报错暴露（no silent fallback）
-        # 注：understand:1 暂无 sub_steps（commit 4 才填），给 sub_step_index=5 不越界（无 sub_steps 时 setdefault 跳过校验）
-        # 此用例真正生效在 commit 4 understand:1 有 sub_steps 后；此处先确保无 sub_steps 节点不报错
-        norm = eng.normalize_state(
-            {"phase": "understand", "sub_index": 1, "sub_step_index": 5}
-        )
-        # 无 sub_steps -> sub_step_index 保留 5（不校验，因无 sub_steps）
-        assert norm["sub_step_index"] == 5
+        # §orchestration v2：understand:1 有 4 子步骤，sub_step_index 越界 -> 报错暴露
+        for bad in (0, 5):
+            with pytest.raises(ValueError, match="越界"):
+                eng.normalize_state(
+                    {"phase": "understand", "sub_index": 1, "sub_step_index": bad}
+                )
+
+    def test_sub_step_index_in_range_ok(self):
+        # 1..4 合法范围不报错
+        for ok in (1, 2, 3, 4):
+            norm = eng.normalize_state(
+                {"phase": "understand", "sub_index": 1, "sub_step_index": ok}
+            )
+            assert norm["sub_step_index"] == ok
 
 
 # ---------- §orchestration v2：Step dataclass + Node.sub_steps schema ----------
@@ -265,12 +276,15 @@ class TestStepDataclass:
 
 class TestNodeSubStepsField:
     def test_default_none(self):
-        # 现有节点未传 sub_steps -> None（向后兼容）
+        # 未编排节点 sub_steps None（向后兼容）；understand:1 除外（commit 4 有 4 子步骤）
         for phase in eng.PHASES:
             total = eng.sub_total(phase)
             first_sub = 1 if total > 0 else 0
             node = eng.get_node(phase, first_sub)
-            assert node.sub_steps is None
+            if node.phase == "understand" and node.sub == 1:
+                assert node.sub_steps is not None  # 编排节点
+            else:
+                assert node.sub_steps is None
 
     def test_sub_steps_can_be_set(self):
         # 构造带 sub_steps 的节点（验证 schema 可用，不落 _NODES）
@@ -298,9 +312,9 @@ class TestNodeSubStepsField:
 class TestSubStepHelpers:
     def test_sub_step_total_no_steps(self):
         assert eng.sub_step_total(eng.get_node("plan", 0)) == 0
-        assert (
-            eng.sub_step_total(eng.get_node("understand", 1)) == 0
-        )  # commit 4 前无编排
+        assert eng.sub_step_total(eng.get_node("understand", 2)) == 0  # 无编排节点
+        # understand:1 有 4 子步骤（commit 4 切换）
+        assert eng.sub_step_total(eng.get_node("understand", 1)) == 4
 
     def test_sub_step_total_with_steps(self):
         s1 = eng.Step(
@@ -538,47 +552,70 @@ class TestWriteGateVerdict:
         assert rec["commit_sha"] == ""
 
 
-# ---------- §define-problem-verify-gate：understand:1 验真门 + skill-trace 证据链 ----------
+# ---------- §orchestration v2：understand:1 子步骤编排（替代过渡「≥3 Q/A」） ----------
 
 
-class TestUnderstand1VerifyGate:
-    """understand:1 的「验真问题是否真实」目的编码进 gate_rubric（单源在 engine）。"""
+class TestUnderstand1Orchestration:
+    """understand:1 纯子步骤门控（删过渡 gate_rubric，4 子步骤逐步 STEP_DONE gate）。"""
 
-    def test_rubric_not_none(self):
-        # understand:1 不再是无语义审的透明子阶段；rubric 编码验真目的
+    def test_gate_rubric_none(self):
+        # 子阶段级 rubric 删除（被 sub_steps 逐步门控取代，Q4=删）
+        assert eng.get_node("understand", 1).gate_rubric is None
+
+    def test_has_4_sub_steps(self):
         node = eng.get_node("understand", 1)
-        assert node.gate_rubric is not None
+        assert node.sub_steps is not None
+        assert len(node.sub_steps) == 4
 
-    def test_rubric_encodes_purpose(self):
-        # rubric 含「验真问题是否真实」+「skill-trace」+「conclusion」关键词
+    def test_sub_steps_kinds(self):
         node = eng.get_node("understand", 1)
-        assert "验真问题是否真实" in node.gate_rubric
-        assert "skill-trace" in node.gate_rubric
-        assert "conclusion" in node.gate_rubric
-        assert "problem_is_real" in node.gate_rubric
+        kinds = [s.kind for s in node.sub_steps]
+        assert kinds == ["skill", "tool", "skill", "skill"]
+
+    def test_last_step_gate_none_autopass(self):
+        # 子步骤4（读回确认）gate=None 自动过（交互步）
+        node = eng.get_node("understand", 1)
+        assert node.sub_steps[3].gate is None
+        assert node.sub_steps[3].record is False  # 噪声步不记
+
+    def test_record_steps(self):
+        # 子步骤1/2/3 record=True（关键步落 evidence），子4 record=False
+        node = eng.get_node("understand", 1)
+        records = [s.record for s in node.sub_steps]
+        assert records == [True, True, True, False]
+
+    def test_first_step_no_input(self):
+        node = eng.get_node("understand", 1)
+        assert node.sub_steps[0].input is None  # 首步无依赖
+
+    def test_step2_input_refs_step1(self):
+        node = eng.get_node("understand", 1)
+        assert node.sub_steps[1].input == "step1.real_problem"
 
     def test_skill_still_define_problem(self):
-        # skill 字段不变（skill-injection-link-design 已设）
         assert eng.get_node("understand", 1).skill == "define-problem"
 
     def test_advance_still_sub(self):
-        # 推进方式不变（子阶段间自动推进）
         assert eng.get_node("understand", 1).advance == "sub"
 
-    def test_other_subphases_still_no_rubric(self):
-        # understand:2-3 仍无 rubric（无语义审，行为不变）
-        assert eng.get_node("understand", 2).gate_rubric is None
-        assert eng.get_node("understand", 3).gate_rubric is None
+    def test_other_subphases_no_steps(self):
+        # understand:2-3 无 sub_steps（行为不变）
+        assert eng.get_node("understand", 2).sub_steps is None
+        assert eng.get_node("understand", 3).sub_steps is None
 
 
 class TestRubricNeedsEvidence:
-    """rubric_needs_evidence：rubric 含 evidence/ 或 skill-trace 即 True。"""
+    """rubric_needs_evidence：节点级 rubric（understand:1 现已 None -> False）。
 
-    def test_understand1_needs_evidence(self):
-        assert eng.rubric_needs_evidence(eng.get_node("understand", 1)) is True
+    注：understand:1 的 evidence 读取改由子步骤级 step_needs_evidence 驱动（commit 3 _step_evidence_artifact）。
+    """
+
+    def test_understand1_rubric_none_false(self):
+        # understand:1 gate_rubric=None -> rubric_needs_evidence=False（节点级不再读 evidence）
+        assert eng.rubric_needs_evidence(eng.get_node("understand", 1)) is False
 
     def test_no_rubric_node_false(self):
-        # understand:2-3 无 rubric -> False（hook 不读文件，行为不变）
+        # understand:2-3 无 rubric -> False
         assert eng.rubric_needs_evidence(eng.get_node("understand", 2)) is False
         assert eng.rubric_needs_evidence(eng.get_node("understand", 3)) is False
 
@@ -586,6 +623,22 @@ class TestRubricNeedsEvidence:
         # plan:0 / understand:4 有 rubric 但不依赖 evidence.jsonl -> False
         assert eng.rubric_needs_evidence(eng.get_node("plan", 0)) is False
         assert eng.rubric_needs_evidence(eng.get_node("understand", 4)) is False
+
+
+class TestStepNeedsEvidenceForU1:
+    """understand:1 子步骤1/2/3 gate 含 evidence/ -> step_needs_evidence=True；子4 gate=None -> False。"""
+
+    def test_record_steps_need_evidence(self):
+        node = eng.get_node("understand", 1)
+        # 子1/2/3 gate 含 "evidence/" -> True
+        assert eng.step_needs_evidence(node.sub_steps[0]) is True
+        assert eng.step_needs_evidence(node.sub_steps[1]) is True
+        assert eng.step_needs_evidence(node.sub_steps[2]) is True
+
+    def test_last_step_no_evidence(self):
+        node = eng.get_node("understand", 1)
+        # 子4 gate=None -> False
+        assert eng.step_needs_evidence(node.sub_steps[3]) is False
 
 
 class TestReadEvidence:

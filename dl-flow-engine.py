@@ -105,17 +105,54 @@ _NODES: dict[str, Node] = {
         skill="define-problem",  # §skill-injection-link:载 define-problem(逼问问题定义/验真/钉约束/搜证据),契合 sub1「验真问题是否真实」
         artifact=None,
         gate_mech=GateMech.NONE,
-        # §define-problem-verify-gate：rubric 即「验真问题是否真实」目的（单源在 engine）。
-        # 模型须把小步 Q/A(step/q/a)+结论(problem_is_real)写进 evidence/<name>.jsonl（B' 模型直写），
-        # Stop hook 读文件喂 judge 按本 rubric 校验。rubric 文本含 "evidence/"/"skill-trace" ->
-        # workflow_advance.rubric_needs_evidence=True 时读文件 + workflow_phase 注入 trace 写法。
-        gate_rubric=(
-            "验真问题是否真实：①evidence/<name>.jsonl 含 ≥3 条 kind=skill-trace 记录，"
-            "每条有 step/q/a 三字段 ②含 1 条 kind=conclusion 记录，"
-            "有 problem_is_real(bool)+reason ③q 覆盖 who/pain/why-now 至少三类。"
-            "缺任一 block。"
+        # §orchestration v2 D6/D7：纯子步骤门控（删过渡「≥3 Q/A」rubric）。
+        # 4 子步骤逐步 STEP_DONE gate；目的 engine 声明，注入 phase-rules + gate 兜底。
+        # skill 内部 Q/A 不门控，record 步落 evidence（step_needs_evidence 读文件喂 judge）。
+        gate_rubric=None,  # 子阶段级 rubric 删除（被 sub_steps 逐步门控取代）
+        advance="sub",  # 末子步骤 STEP_DONE:4 通过即推进 sub_index（_handle_step_done 调 advance_state）
+        sub_steps=(
+            Step(
+                kind="skill",
+                ref="define-problem",
+                purpose="逼问问题定义：who/pain/why-now 至少三类，挖到真实问题非字面",
+                input=None,
+                record=True,
+                gate=(
+                    "evidence/<name>.jsonl 含本子步骤 skill-trace 记录，"
+                    "q 覆盖 who/pain/why-now ≥3 类且各附答案，真实问题已逼出非字面请求。"
+                ),
+            ),
+            Step(
+                kind="tool",
+                ref="codegraph impact {sym} / web search",
+                purpose="搜证据：他人如何定义同问题 + 约束 + 反模式（防 reinvent）",
+                input="step1.real_problem",
+                record=True,
+                gate=(
+                    "evidence/<name>.jsonl 含本子步骤 skill-trace 记录，"
+                    "≥1 外部证据（repo/paper/codegraph 输出）连回本项目，非泛泛建议。"
+                ),
+            ),
+            Step(
+                kind="skill",
+                ref="define-problem",
+                purpose="一句话陈述问题（若放不进一句则未定义完）",
+                input="step1+step2",
+                record=True,
+                gate=(
+                    "evidence/<name>.jsonl 含本子步骤 skill-trace 记录，"
+                    "问题陈述 ≤1 句且含主语+动词+约束。"
+                ),
+            ),
+            Step(
+                kind="skill",
+                ref="define-problem",
+                purpose="读回确认：用户认「这就是问题」",
+                input="step3.statement",
+                record=False,
+                gate=None,  # 交互步，自动过（用户确认即过）
+            ),
         ),
-        advance="sub",  # 子阶段间自动推进;无机械门,rubric 驱动 judge 验真
     ),
     "understand:2": Node(
         label="明确目标和价值",
