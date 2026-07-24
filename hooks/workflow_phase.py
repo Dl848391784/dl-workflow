@@ -41,6 +41,7 @@ def _subphases(phase: str) -> list[str]:
     """phase -> 子阶段标签列表（委托 engine.subphase_labels,单源）。"""
     return engine.subphase_labels(phase)
 
+
 # 各阶段规则（注入给模型的"允许/禁止/产物/推进"四要素）
 # §8.4：goal/allow/deny 是行为约束文本（design §0.4 不收口文本规则）,留此处;
 # PHASES/PHASE_LABELS/SUBPHASES 已委托 engine（上面）,不再各持副本。
@@ -192,8 +193,11 @@ def _log_invocation(
         pass
 
 
-def _format_injection(state: dict) -> str:
-    """格式化阶段注入文本（当前阶段 + 规则四要素 + 子阶段 + 完成标记格式）。"""
+def _format_injection(state: dict, project_root: Path | None) -> str:
+    """格式化阶段注入文本（当前阶段 + 规则四要素 + 子阶段 + 完成标记格式）。
+
+    project_root：主仓库根（main() 已反查），用于拼 evidence.jsonl 绝对路径给模型写。
+    """
     name = state.get("name", "?")
     phase = state.get("phase", "understand")
     idx = state.get("index", 1)
@@ -247,14 +251,72 @@ def _format_injection(state: dict) -> str:
     ]
     # 通用 skill 注入（§7 #1 落地，designs/skill-injection-link-design.md §3）：
     # 节点声明 skill 则提示模型 invoke；engine.NODES.skill 之前是死字段（_format_injection 不读）
-    node_skill = None
+    node = None
     try:
-        node_skill = engine.get_node(phase, sub_index).skill
+        node = engine.get_node(phase, sub_index)
     except (KeyError, Exception):
         pass  # get_node 非法节点 raise（engine 守 no silent fallback）；注入侧降级不阻断
-    if node_skill:
+    if node and node.skill:
         lines.append(
-            f"- 技能: 当前节点应载 skill `{node_skill}`，请用 Skill 工具 invoke 它（已载则继续遵循）"
+            f"- 技能: 当前节点应载 skill `{node.skill}`，请用 Skill 工具 invoke 它（已载则继续遵循）"
+        )
+    # §define-problem-verify-gate：节点 rubric 依赖 evidence.jsonl 时，注入 trace 写法
+    # （understand:1 验真门：模型须把小步 Q/A + 结论写进 evidence.jsonl，gate 读文件校验）
+    if node and engine.rubric_needs_evidence(node) and project_root is not None:
+        ev_path = f"{project_root}/.claude/evidence/{name}.jsonl"
+        lines.append("- 证据链记录（本节点 gate 校验 evidence.jsonl，必写）：")
+        lines.append(f"  向 `{ev_path}` 追加（每行一条 JSON）：")
+        lines.append(
+            "   每完成一个 define-problem 提问 step："
+            '{"kind":"skill-trace","step":<n>,"q":"<问题>","a":"<答案>"}'
+        )
+        lines.append(
+            "   全部 step 完成后追加结论："
+            '{"kind":"conclusion","problem_is_real":<true|false>,"reason":"<为何真实/不真实>"}'
+        )
+        lines.append(
+            "  写法：文件不存在用 Write 创建；已存在先 Read 再拼末尾 Write（勿覆盖已有记录）；"
+            "或 Bash printf '...' >> 路径。evidence.jsonl 非源码，understand 阶段允许写。"
+            "写完再输出 ### SUB_DONE: 1。"
+        )
+        lines.append(
+            "  gate 校验：≥3 条 skill-trace（各含 step/q/a）+ 1 条 conclusion"
+            "（含 problem_is_real+reason）+ q 覆盖 who/pain/why-now 至少三类；缺则 block 重试。"
+        )
+    # §orchestration v2 D6：节点有 sub_steps 时，注入子步骤清单 + 逐步 purpose + STEP_DONE 格式。
+    # 子步骤=门控单位（每步完成输出 ### STEP_DONE:<n> 触发 gate）；skill 内部 Q/A 不门控只 record。
+    # 有 sub_steps 的节点用 STEP_DONE（末步推进子阶段），不再用 SUB_DONE（互斥，design §10 风险8）。
+    if node and node.sub_steps:
+        cur_step = state.get("sub_step_index", 1)
+        total_steps = len(node.sub_steps)
+        lines.append(
+            f"- 子步骤编排（本节点 {total_steps} 子步骤，按序执行，"
+            f"每步完成输出 `### STEP_DONE: <n>` 触发门控）："
+        )
+        for i, stp in enumerate(node.sub_steps, 1):
+            mark = "【当前】" if i == cur_step else ("✓" if i < cur_step else "")
+            rec = "记录：是（落 evidence skill-trace）" if stp.record else "记录：否"
+            inp = f"输入：{stp.input}" if stp.input else "输入：无（首步）"
+            gate_tag = "" if stp.gate else " ｜自动过"
+            lines.append(
+                f"  {i}. [{stp.kind}:{stp.ref}] 目的：{stp.purpose} ｜{inp} ｜{rec}{gate_tag}"
+                + (f" {mark}" if mark else "")
+            )
+        lines.append(
+            "  强制：未达上步 purpose 就进下步=违规（等同未建清单就干活）。"
+            "skill 内部 Q/A 不门控，按需 record 落 evidence 即可。"
+        )
+        if cur_step < total_steps:
+            lines.append(
+                f"  当前子步骤 {cur_step} 完成时，回复末尾单独一行输出：`### STEP_DONE: {cur_step}`"
+            )
+        else:
+            lines.append(
+                f"  末子步骤({total_steps})完成时（gate={'自动过' if not node.sub_steps[-1].gate else '校验'}），"
+                f"回复末尾单独一行输出：`### STEP_DONE: {total_steps}`（通过即推进到下一子阶段，勿输出 SUB_DONE）"
+            )
+        lines.append(
+            "（仅当当前子步骤 purpose 真正达成时输出 STEP_DONE；未达成绝不输出）"
         )
     # 子阶段块（仅当前阶段有子阶段时注入）
     if has_sub:
@@ -266,15 +328,19 @@ def _format_injection(state: dict) -> str:
                 else ("in_progress" if j == sub_index else "pending")
             )
             lines.append(f"  {j}. {slabel} -> {sst}")
-        lines.append(
-            f"  完成子阶段 1..{sub_total - 1} 各输出: `### SUB_DONE: <n>` (Stop hook 自动推进 sub_index);"
-        )
-        lines.append(
-            f"  末子阶段({sub_total})完成 -> 写阶段产物 + 输出 `### PHASE_DONE: {phase}` (触发该阶段闸门/推进);"
-        )
-        lines.append(
-            "  未走完子阶段直接输出 PHASE_DONE 会被 Stop hook 守卫阻断(强制依次)."
-        )
+        # §orchestration v2：节点有 sub_steps 时用 STEP_DONE（子步骤块已给指令），
+        # 不再注入 SUB_DONE/PHASE_DONE 提示（互斥，design §10 风险8）。
+        node_has_steps = bool(node and node.sub_steps)
+        if not node_has_steps:
+            lines.append(
+                f"  完成子阶段 1..{sub_total - 1} 各输出: `### SUB_DONE: <n>` (Stop hook 自动推进 sub_index);"
+            )
+            lines.append(
+                f"  末子阶段({sub_total})完成 -> 写阶段产物 + 输出 `### PHASE_DONE: {phase}` (触发该阶段闸门/推进);"
+            )
+            lines.append(
+                "  未走完子阶段直接输出 PHASE_DONE 会被 Stop hook 守卫阻断(强制依次)."
+            )
 
     lines.extend(
         [
@@ -286,7 +352,8 @@ def _format_injection(state: dict) -> str:
         ]
     )
     # 完成标记：无子阶段->PHASE_DONE；有子阶段->子1..N-1 用 SUB_DONE，末子阶段(N)用 PHASE_DONE
-    if has_sub:
+    # §orchestration v2：有 sub_steps 的节点用 STEP_DONE（子步骤块已给指令），跳过此处。
+    if has_sub and not (node and node.sub_steps):
         if sub_index < sub_total:
             lines.append(
                 f"当前子阶段 {sub_index}({cur_sub_label})完成时, 回复末尾单独一行输出: `### SUB_DONE: {sub_index}`"
@@ -297,7 +364,7 @@ def _format_injection(state: dict) -> str:
                 f"回复末尾单独一行输出: `### PHASE_DONE: {phase}`"
             )
         lines.append("（仅当当前子阶段目标真正达成时输出对应标记；未达成绝不输出）")
-    else:
+    elif not has_sub:
         lines.append(f"完成本阶段后，回复末尾单独一行输出: `### PHASE_DONE: {phase}`")
         lines.append(
             "（仅当阶段目标真正达成时输出；闸门阶段不会自动推进，需 /wf gate 放行）"
@@ -336,7 +403,7 @@ def main() -> int:
         _log_invocation(project_root, "no_state", name=name, prompt_len=len(prompt))
         return 0  # state 缺失 -> 不注入（可能未走 launcher）
 
-    context = _format_injection(state)
+    context = _format_injection(state, project_root)
     out = json.dumps(
         {
             "hookSpecificOutput": {
