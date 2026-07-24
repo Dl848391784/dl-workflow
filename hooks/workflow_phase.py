@@ -288,15 +288,16 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
         if project_root is not None:
             ev_path = f"{project_root}/.claude/evidence/{name}.jsonl"
             lines.append(
-                f"  evidence 记录（record 步必写，向 `{ev_path}` 追加，每行一条 JSON）："
+                f"  evidence 记录（record 步必写，向 **绝对路径** `{ev_path}` 追加，每行一条 JSON）："
             )
             lines.append(
                 '   {"kind":"skill-trace","sub_step":<n>,"purpose":"<该步目的>",'
                 '"q":"<问题/动作>","a":"<答案/产出>"}'
             )
             lines.append(
-                "  写法：Write 创建 / Read+拼末尾Write（勿覆盖已有）/ Bash printf >> 。"
-                "写完当前子步骤 evidence 后输出 `### STEP_DONE: <n>`。"
+                "  写法（**必须用上面的绝对路径，禁用相对路径**--相对路径会写到 worktree，hook 读不到）："
+                "Write 工具（file_path 填上面的绝对路径，存在则先 Read 再拼末尾 Write，勿覆盖）/ "
+                f"Bash `printf '...' >> {ev_path}`。写完当前子步骤 evidence 后输出 `### STEP_DONE: <n>`。"
             )
             lines.append(
                 "  gate 校验（下次你提问时 hook 读 evidence）：当前子步骤需有 sub_step==N 的 "
