@@ -1,7 +1,7 @@
 ---
 name: workflow-creation
-description: 建工作流系统 + 运行诊断。触发：新建/改工作流、dl 命令、阶段不推进、注入没生效、/wf 报错、hook 装错位置、模型否认收到注入、5 阶段不显示、gate 裁决记录(evidence)不落地。
-version: 2.3
+description: 建工作流系统 + 运行诊断。触发：新建/改工作流、dl 命令、阶段不推进、注入没生效、/wf 报错、hook 装错位置、模型否认收到注入、5 阶段不显示、gate 裁决记录(evidence)不落地、子步骤编排(sub_steps/STEP_DONE) 不推进、evidence 写到 worktree。
+version: 2.4
 ---
 
 # workflow-creation
@@ -31,6 +31,8 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/wf-launch.sh
 **5 阶段**：understand 理解和求证问题（禁改源码）-> plan 生成执行计划（禁改源码）-> execute 执行 -> review 审核结果 -> evolution 进化。显示用中文名，逻辑层（state/PHASE_DONE/jump）用英文标识。
 **understand 含 4 子阶段**（依次自动推进，无子阶段闸门）：1.理解问题和背景 / 2.明确目标和价值 / 3.确定范围与约束 / 4.定义成功标准和验收方式。子 1-3 完成各输出 `### SUB_DONE: <n>`（Stop hook 推进 sub_index）；末子阶段(4) 写 understand.md 后输出 `### PHASE_DONE: understand` 触发 understand->plan 闸门。未走完子阶段直接 PHASE_DONE 会被守卫阻断。详见 `designs/understand-subphases-design.md`。
 **推进**：自动 + 闸门。`understand->plan`、`plan->execute` 需 `/wf gate` 放行；其余自动推进。
+
+**子步骤编排（v2.4，§node-step-orchestration + §step-advance-on-submit）**：某些子阶段（当前仅 understand:1）声明 `sub_steps`--有序子步骤序列（调 skill / 调工具，各有 purpose + record + gate）。**门控单位 = 子步骤**（不是子阶段级 rubric）；**skill 内部 Q/A 不门控**只 record。understand:1 = 4 子步骤（子1 逼问定义 / 子2 搜证据 / 子3 一句话陈述 / 子4 读回确认），子1/2/3 gate 校验 evidence 里的 skill-trace，子4 gate=None 自动过。**推进机制特殊**：不走 Stop hook（transcript flush 竞态），走 UserPromptSubmit --用户**下次提问**时 hook 读 `<项目>/.claude/evidence/<name>.jsonl` 找当前子步骤的 `{"kind":"skill-trace","sub_step":N,...}` 记录 -> gate judge -> 过则推进 sub_step_index / block 则注入重做。模型完成一步的协议：**先写 evidence（主仓库绝对路径）-> 输 `### STEP_DONE: <n>` -> end_turn 等用户**。有 sub_steps 节点不用 SUB_DONE（互斥）。
 
 ## 1. 建工作流 / 改工作流
 
@@ -154,6 +156,10 @@ claude --settings <per-wf settings> --append-system-prompt-file phase-rules.md \
 **改 output-style/phase-rules 后生效**：跑 `install.sh` 同步 workflow.md 到 `~/.claude/output-styles/`；**须重启会话**（fresh，非 `--resume`，output-style/append-system-prompt 启动时载入）。旧工作流的 per-wf settings 若缺 allowlist，重新 `dl <name> --resume`（launcher 会用新 `wf_write_settings` 补）或手动加。
 ### 症状 E：管道 `printf | claude` 测试出 `Execution error`
 - "证据链 / evidence / no_markers / evidence.jsonl 不生成 / 证据不落地" -> §2 症状 I
+- "子步骤 / sub_steps / STEP_DONE / 子步骤不推进 / evidence 有但不推进" -> §2 症状 J
+- "模型不写 evidence / 只输 STEP_DONE 不写 skill-trace / 模型跳过写 evidence" -> §2 症状 K
+- "evidence 写到 worktree / evidence 路径错位 / 主仓库无 evidence 但 worktree 有" -> §2 症状 L
+- "改编排 / SUB_DONE STEP_DONE 打架 / phase-rules 与注入矛盾 / 改门控 checklist" -> §2 症状 M
 
 **测试方法伪问题**，非工作流 bug。管道 EOF 触发 claude 异常。真实 TTY 交互不受影响。
 - **别用管道模拟交互会话验证**。用真实 TTY 或 `-p`（注意 -p 下 transcript 不可靠，见症状 B）。
@@ -183,11 +189,15 @@ understand 拆 4 子阶段（1.理解问题和背景 / 2.明确目标和价值 /
 
 **旧 state.json 迁移**：旧 understand 工作流的 state 无 sub_index/sub_total（在本次改造前建的），hook 默认 sub_total=0 -> 走无子阶段路径（可直接 `PHASE_DONE: understand`）。想让旧工作流用上子阶段：手改 state.json 加 `"sub_index":1,"sub_total":4`，或跳过（新建工作流自然生效）。
 
-### 症状 I：~~证据链不落地~~ 已弃用（§8.6c）+ 新 gate 裁决记录机制
+### 症状 I：~~证据链不落地~~ 已弃用（§8.6c）+ 新 gate 裁决记录机制 + 编排 skill-trace 证据
 
 > **旧系统已弃用**（2026-07-23）：`### EVIDENCE:{json}` 推理溯源（模型每轮自发记 claim/依赖/证据 + evidence_append.py 解析）已删除。用户决策弃用，理由：transcript 解析脆（no_markers debug 一整节）+ 与"gate 裁决"诉求不符。下列旧排查内容（transcript 目录 / 注入提示 / no_markers 判定）仅作历史记录，新系统不适用。
 
-**新机制（designs/tui-state-machine-design.md §8.6）**：gate-pass 时 `dl-flow-engine.py` 的 `write_gate_verdict` 直接写一笔 `kind=gate` 裁决记录到 `<项目>/.claude/evidence/<name>.jsonl`（不解析 transcript）。记录字段：node/phase/gate=passed/gate_mech/rubric/attempts/commit_sha。block 不写（重试计数在 state.node_attempts，pass 时一并记入）。
+**新机制（designs/tui-state-machine-design.md §8.6 + §step-advance-on-submit）**：evidence.jsonl 现有两类记录同文件：
+1. **gate 裁决**（engine.write_gate_verdict）：`kind=gate`，字段 node/phase/gate=passed/gate_mech/rubric/attempts/commit_sha。block 不写（重试计数在 state.node_attempts，pass 时一并记入）。
+2. **skill-trace**（模型写，子步骤编排用）：`kind=skill-trace`，字段 `sub_step`/`purpose`/`q`/`a`。UserPromptSubmit 推进时读此找当前 `sub_step==N` 的记录（症状 J/K/L）。
+两类都在主仓库 `<项目>/.claude/evidence/<name>.jsonl`。skill-trace **模型必须用绝对路径写**（相对路径会落 worktree，症状 L）。
+
 
 **验证 gate 裁决记录落地**：跑一轮让模型过 gate（如完成 understand:4 写 understand.md 后输出 `### PHASE_DONE: understand`），看：
 - `.wf_advance.log` 是否 `gate_verdict_written|ev_ok=True`
@@ -195,6 +205,68 @@ understand 拆 4 子阶段（1.理解问题和背景 / 2.明确目标和价值 /
 - 非该节点（无 gate_mech/gate_rubric 的子阶段）不写记录是正常的
 
 **旧系统残留引用**（designs/evidence-chain-design.md 整文档描述旧系统，已 deprecated；本文档顶部全景图已更新为 4 hook + dl-flow-engine）。
+
+### 症状 J：子步骤编排--模型输 STEP_DONE 但没推进（有 sub_steps 节点专属）
+
+有 `sub_steps` 的节点（当前 understand:1）**推进不走 Stop hook，走 UserPromptSubmit**（§step-advance-on-submit 方案 3a）。推进 = 用户**下次提问**触发。
+
+**先确认协议边界**：模型输 STEP_DONE 后本轮 end_turn，state.sub_step_index **本轮不变**。要看到推进，**必须用户再发一条消息**--这是设计（非 bug）。
+
+**日志诊断**（项目根 `.wf_phase.log`，关注 `sub_step_advanced` / `sub_step_block`）：
+```bash
+tail -10 <项目>/.claude/.wf_phase.log
+```
+- `sub_step_advanced|to=<N+1>` → **正常推进**。
+- `sub_step_block|step=<N>|reason=<...>` → gate judge 判 block，模型需重做该子步骤（注入含 block hint）。看 reason 明确差什么。
+- 用户下次提问后**没** `sub_step_advanced` 也**没** `sub_step_block` → 说明 `sub_step_has_trace` 返回 False（evidence 缺当前子步骤 sub_step==N 的 skill-trace 记录）。查 evidence 是否落地 + 路径是否正确（症状 L）。
+
+**验证 evidence 已落地**：
+```bash
+cat <项目>/.claude/evidence/<name>.jsonl | python3 -c "
+import json,sys
+for l in sys.stdin:
+    r=json.loads(l)
+    if r.get('kind')=='skill-trace': print(f\"sub_step={r.get('sub_step')} purpose={r.get('purpose','')[:40]}\")"
+```
+- 应看到 `sub_step=<当前 index>` 的行。
+
+### 症状 K：模型不写 evidence 就输 STEP_DONE（遵从问题，同 attachment 弱遵从教训）
+
+**根因套路**：注入块（attachment）说了强制"写 evidence 再 STEP_DONE"，但模型遵从 attachment 弱于 system-prompt（`phase-rules.md`），跳过写 evidence 直接 STEP_DONE。同 §skill-injection-link §8 教训（"prose 建议被模型当可选"）。
+
+**修复方向（沿用同套路）**：把强制语义从 attachment（注入块）**提升到 phase-rules.md**（system-prompt 通道，遵从强）。当前 phase-rules understand:1 段已含：
+- **evidence 强制**：record 子步骤（子1/2/3）必须写 evidence skill-trace 后才许输 STEP_DONE
+- **输完 STEP_DONE 即 end_turn**：不连续做下步（方案 3a 推进滞后一轮需模型等）
+
+新加编排节点时，同样在 phase-rules 加"写 evidence 是 STEP_DONE 前置"强制，别只在注入里说。
+
+### 症状 L：evidence 写到 worktree 路径错位（模型用相对路径）
+
+**根因**：worktree 内 cwd 是 worktree 根，模型用 Bash 相对路径 `cat >> .claude/evidence/<name>.jsonl` 会写到 worktree 内 `.claude/worktrees/<name>/.claude/evidence/<name>.jsonl`。但 **hook 读主仓库** `<主 repo>/.claude/evidence/<name>.jsonl`（evidence 是持久物，per design 进 repo）-> 读不到 -> 不推进。
+
+**诊断**：
+```bash
+ls -la <主 repo>/.claude/evidence/<name>.jsonl                              # hook 读这里
+ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # 模型易写错处
+```
+- 主仓无 + worktree 有 -> **确诊路径错位**。
+
+**修复**：注入 + phase-rules 双通道强化"必须用主仓库绝对路径，禁用相对路径"。当前 v2.4 已修（commit af69128）：注入块标"绝对路径"+ 写法示例含 `Bash printf >> <绝对路径>`；phase-rules evidence 强制段补"必须写到主仓库绝对路径，禁用相对路径"。
+
+**应急恢复**：把 worktree 的 evidence.jsonl 内容 append 到主仓库对应文件（用户手动或让模型跑 `cat worktree路径 >> 主仓路径`），下次提问就能推进。
+
+### 症状 M：改编排/skill 强制语义，phase-rules 与注入打架
+
+**通用教训**：编排（engine + hook）改了完成信号/门控规则，`phase-rules.md`（system-prompt，模型必看、优先级高于 attachment）**必须同步改**。否则模型遵从 phase-rules 旧语义，无视新注入。
+
+**典型翻车**（session 5c00dde1）：编排改用 STEP_DONE，但 phase-rules 还说用 SUB_DONE -> 模型按 SUB_DONE 走，STEP_DONE 门控失效。
+
+**改编排 checklist**（每次改 engine sub_steps / gate 语义都过一遍）：
+1. `dl-flow-engine.py`：Node.sub_steps / Step.gate / advance 逻辑
+2. `workflow_phase.py`：`_format_injection` 的清单块 + 完成标记格式
+3. `workflow_advance.py`：Stop 检测的完成信号（若变）
+4. **`scripts/workflow/phase-rules.md`**：understand:1 段的完成标记 + 强制语义 -- **最易漏，system-prompt 通道优先级最高，漏改必打架**
+5. 冒烟：拿真 worktree + 真 state 跑 `_format_injection`，看注入内容是否与 phase-rules 一致
 
 ### 症状 G：install.sh 后 hook 没触发
 
@@ -212,7 +284,8 @@ understand 拆 4 子阶段（1.理解问题和背景 / 2.明确目标和价值 /
 4. **install 状态优先怀疑**：任何"改了不生效"，检 `~/.dl-workflow/hooks/` 是否含 _resolve_project_root（git pull 后即最新，无副本同步问题）。
 5. **验证用真实交互，别用管道/-p**：管道有 Execution error（症状 E），-p transcript 不可靠（症状 B）。
 - "证据链 / evidence / no_markers / evidence.jsonl 不生成 / 证据不落地" -> §2 症状 I
-6. **grep 命中 ≠ 模型真输出**：transcript 里 `### PHASE_DONE` / `### SUB_DONE` 命中可能是注入的 attachment 文本，必须按 `role=assistant` 过滤后再判模型是否真发了标记。
+6. **grep 命中 ≠ 模型真输出**：transcript 里 `### PHASE_DONE` / `### SUB_DONE` / `### STEP_DONE` 命中可能是注入的 attachment 文本，必须按 `role=assistant` 过滤后再判模型是否真发了标记。
+7. **有 sub_steps 节点特殊**：不看 `.wf_advance.log`（Stop hook 不管子步骤推进），看 `.wf_phase.log` 的 `sub_step_advanced` / `sub_step_block`；推进需**用户下次提问**触发（方案 3a）。同时看 `<主 repo>/.claude/evidence/<name>.jsonl` 是否有当前 `sub_step==N` 的 skill-trace（症状 J/L）。
 
 ## 4. 不要做的事
 
@@ -223,6 +296,9 @@ understand 拆 4 子阶段（1.理解问题和背景 / 2.明确目标和价值 /
 - ❌ **同时在项目级和用户级注册同一 hook**：会双跑或路径解析错。删项目级注册，只留用户级（install.sh 装的）。
 - ❌ **在主项目目录找 worktree 会话的 transcript**：worktree 会话 transcript 在独立目录 `~/.claude/projects/-...-worktrees-<name>/`，非主项目目录。按 state.json 的 session_id + worktree 路径编码找（症状 I）。
 - ❌ **旧 `no_markers` 系统已弃用**（§8.6c）：新系统 gate 裁决记录看 `.wf_advance.log` 的 `gate_verdict_written`，不看 `.wf_evidence.log`/`no_markers`。
+- ❌ **有 sub_steps 节点用 Bash 相对路径写 evidence**：worktree 内 `cat >> .claude/evidence/...` 会写到 worktree，hook 读主仓库读不到（症状 L）。必须用主仓库绝对路径（注入里给的 `<项目>/.claude/evidence/<name>.jsonl`）。
+- ❌ **改编排只改 engine/hook 不改 phase-rules.md**：phase-rules（system-prompt）优先级高于 attachment 注入，漏改会打架（症状 M）。改编排必过 checklist：engine + workflow_phase 注入 + workflow_advance 检测 + **phase-rules 强制语义**。
+- ❌ **有 sub_steps 节点期待"模型输 STEP_DONE 立即推进"**：方案 3a 推进滞后到用户下次提问（避开 transcript flush 竞态）。要看推进，用户须再发一条消息（症状 J）。
 
 ## 5. 触发关键词速查
 
