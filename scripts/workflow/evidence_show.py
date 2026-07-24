@@ -71,13 +71,15 @@ def _render_skill_trace(rec: dict, phase_labels: dict, minor_map: dict) -> str:
     minor = rec.get("minor_stage", "?")  # 英文标识,如 ProblemContext
     minor_cn = minor_map.get(minor, str(minor))
     sub_step = rec.get("sub_step", "?")
+    skill = rec.get("skill")  # Step.ref(skill 名或工具描述);旧记录无此字段->None
     purpose = rec.get("purpose", "")
     qs = rec.get("q") or []
     As = rec.get("a") or []
 
     lines = ["[%s] %s" % (major, phase_cn)]
     lines.append("  └ %s (%s)" % (minor, minor_cn))
-    lines.append("      sub_step %s: %s" % (sub_step, purpose))
+    skill_part = "  skill: %s  ｜  " % skill if skill else ""
+    lines.append("      %ssub_step %s: %s" % (skill_part, sub_step, purpose))
     for i, q in enumerate(qs):
         a = As[i] if i < len(As) else ""
         lines.append("        Q: %s" % q)

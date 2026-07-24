@@ -33,13 +33,14 @@ class TestRenderSkillTrace:
             tmp_path,
             "t",
             [
-                '{"kind":"skill-trace","major_stage":"Understand","minor_stage":"ProblemContext","sub_step":1,"purpose":"逼问问题定义","q":["who/pain？","why-now？"],"a":["单纯确认","demo 演练"]}',
+                '{"kind":"skill-trace","major_stage":"Understand","minor_stage":"ProblemContext","sub_step":1,"skill":"define-problem","purpose":"逼问问题定义","q":["who/pain？","why-now？"],"a":["单纯确认","demo 演练"]}',
             ],
         )
         out = es.render(tmp_path, "t")
         assert "[Understand] 理解和求证问题" in out
         assert "ProblemContext (理解问题和背景)" in out
         assert "sub_step 1: 逼问问题定义" in out
+        assert "skill: define-problem" in out
         assert "Q: who/pain？" in out
         assert "A: 单纯确认" in out
         assert "A: demo 演练" in out
@@ -50,13 +51,26 @@ class TestRenderSkillTrace:
             tmp_path,
             "t",
             [
-                '{"kind":"skill-trace","major_stage":"Understand","minor_stage":"GoalsAndValue","sub_step":2,"purpose":"p","q":["q1","q2"],"a":["a1","a2"]}',
+                '{"kind":"skill-trace","major_stage":"Understand","minor_stage":"GoalsAndValue","sub_step":2,"skill":"define-problem","purpose":"p","q":["q1","q2"],"a":["a1","a2"]}',
             ],
         )
         out = es.render(tmp_path, "t")
         assert "GoalsAndValue (明确目标和价值)" in out
         assert "Q: q1" in out and "A: a1" in out
         assert "Q: q2" in out and "A: a2" in out
+
+    def test_skill_missing_legacy_record(self, tmp_path):
+        # 旧记录无 skill 字段 -> 不崩,不显示 skill 部分(向后兼容)
+        _write_ev(
+            tmp_path,
+            "t",
+            [
+                '{"kind":"skill-trace","major_stage":"Understand","minor_stage":"ProblemContext","sub_step":1,"purpose":"p","q":["q"],"a":["a"]}',
+            ],
+        )
+        out = es.render(tmp_path, "t")
+        assert "sub_step 1: p" in out
+        assert "skill:" not in out
 
 
 class TestRenderGate:

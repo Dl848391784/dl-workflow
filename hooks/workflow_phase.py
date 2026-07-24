@@ -290,19 +290,21 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
             lines.append(
                 f"  evidence 记录（record 步必写，向 **绝对路径** `{ev_path}` 追加，每行一条 JSON）："
             )
-            # 结构标识(major_stage/minor_stage/sub_step)注入当前实际值,模型照抄;
-            # 内容(purpose/q/a)用占位符,模型填真实交互。
+            # 结构标识(major_stage/minor_stage/sub_step/skill)注入当前实际值,模型照抄;
+            # 内容(purpose/q/a)用占位符,模型填真实交互。skill=当前子步骤 Step.ref
+            # (skill 步=skill 名,tool 步=工具描述,统填 ref 不区分,简单一致)。
             phase_cap = phase.capitalize()  # understand -> Understand
             minor_key = node.minor_key if node.minor_key else "<minor_key>"
+            cur_step_ref = node.sub_steps[cur_step - 1].ref if 1 <= cur_step <= len(node.sub_steps) else "<skill>"
             lines.append(
                 '   {"kind":"skill-trace",'
                 f'"major_stage":"{phase_cap}","minor_stage":"{minor_key}",'
-                f'"sub_step":{cur_step},'
+                f'"sub_step":{cur_step},"skill":"{cur_step_ref}",'
                 '"purpose":"<该步目的>",'
                 '"q":["<q1>","<q2>","..."],"a":["<a1>","<a2>","..."]}'
             )
             lines.append(
-                "   ⚠️ major_stage/minor_stage/sub_step 是结构标识，照抄上面给的当前值；purpose/q/a 是内容，**禁止照抄** `<...>` 占位符字面"
+                "   ⚠️ major_stage/minor_stage/sub_step/skill 是结构标识，照抄上面给的当前值；purpose/q/a 是内容，**禁止照抄** `<...>` 占位符字面"
                 '必须用真实 Q/A 替换——例：`"q":["who/pain=真实动机？"]`。'
                 "gate 检查 sub_step==N 的 skill-trace 内容是否达 purpose；"
                 "照抄 placeholder 必判 block 然后重做。"
@@ -310,6 +312,7 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
             lines.append(
                 "   字段：major_stage=phase 英文首字母大写(Understand/Plan/Execute/Review/Evolution)；"
                 "minor_stage=子阶段英文标识（首字母大写驼峰，当前值见上行，如 ProblemContext）；sub_step=子步骤序号(int)；"
+                "skill=当前子步骤调用的 skill/工具（Step.ref，当前值见上行，如 define-problem）；"
                 "q/a=字符串数组，每对一问一答按序对齐（即 q[0]↔a[0]、q[1]↔a[1]…）；"
                 "单问单答也用数组：q=[\"...\"]、a=[\"...\"]。"
             )
