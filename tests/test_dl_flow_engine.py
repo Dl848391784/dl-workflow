@@ -121,6 +121,25 @@ class TestNodeTable:
         assert len(eng.subphase_labels("understand")) == 4
         assert eng.sub_total("plan") == 0
 
+    def test_minor_key_on_subphases(self):
+        # understand 4 子阶段各持英文标识(首字母大写,evidence minor_stage 值)
+        assert eng._NODES["understand:1"].minor_key == "ProblemContext"
+        assert eng._NODES["understand:2"].minor_key == "GoalsAndValue"
+        assert eng._NODES["understand:3"].minor_key == "ScopeAndConstraints"
+        assert eng._NODES["understand:4"].minor_key == "SuccessCriteria"
+
+    def test_minor_key_none_for_whole_phase(self):
+        # 无子阶段节点(sub=0)无 minor_key
+        assert eng._NODES["plan:0"].minor_key is None
+        assert eng._NODES["execute:0"].minor_key is None
+
+    def test_minor_key_map(self):
+        # minor_key -> 中文 label(single source,viewer 英转中用)
+        m = eng.minor_key_map()
+        assert m["ProblemContext"] == "理解问题和背景"
+        assert m["SuccessCriteria"] == "定义成功标准和验收方式"
+        assert len(m) == 4
+
 
 # ---------- 推进链 ----------
 
@@ -690,7 +709,7 @@ class TestSubStepHasTrace:
             tmp_path,
             "t",
             [
-                '{"kind":"skill-trace","major_stage":"understand","minor_stage":1,"sub_step":1,"purpose":"p","q":["q"],"a":["a"]}',
+                '{"kind":"skill-trace","major_stage":"Understand","minor_stage":"ProblemContext","sub_step":1,"purpose":"p","q":["q"],"a":["a"]}',
             ],
         )
         assert eng.sub_step_has_trace(tmp_path, "t", 1) is True
@@ -701,7 +720,7 @@ class TestSubStepHasTrace:
             tmp_path,
             "t",
             [
-                '{"kind":"skill-trace","major_stage":"understand","minor_stage":1,"sub_step":1,"purpose":"p","q":["q"],"a":["a"]}',
+                '{"kind":"skill-trace","major_stage":"Understand","minor_stage":"ProblemContext","sub_step":1,"purpose":"p","q":["q"],"a":["a"]}',
             ],
         )
         assert eng.sub_step_has_trace(tmp_path, "t", 2) is False
@@ -804,7 +823,7 @@ class TestGateAndAdvanceSubStep:
             tmp_path,
             "t",
             [
-                '{"kind":"skill-trace","major_stage":"understand","minor_stage":1,"sub_step":1,"purpose":"p","q":["q"],"a":["a"]}',
+                '{"kind":"skill-trace","major_stage":"Understand","minor_stage":"ProblemContext","sub_step":1,"purpose":"p","q":["q"],"a":["a"]}',
             ],
         )
         captured = {}

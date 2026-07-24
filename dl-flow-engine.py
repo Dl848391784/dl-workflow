@@ -88,6 +88,7 @@ class Node:
     sub_steps: tuple[Step, ...] | None = (
         None  # §orchestration v2：None=无编排(当前行为);非 None=启用子步骤注入/逐步门控
     )
+    minor_key: str | None = None  # 子阶段英文标识(首字母大写,evidence minor_stage 值;None=无子阶段)
 
 
 # 节点表。<node_id> -> Node。node_id = f"{phase}:{sub}"。
@@ -153,6 +154,7 @@ _NODES: dict[str, Node] = {
                 gate=None,  # 交互步，自动过（用户确认即过）
             ),
         ),
+        minor_key="ProblemContext",  # evidence minor_stage 值（结构标识,模型照抄注入给的当前值）
     ),
     "understand:2": Node(
         label="明确目标和价值",
@@ -163,6 +165,7 @@ _NODES: dict[str, Node] = {
         gate_mech=GateMech.NONE,
         gate_rubric=None,
         advance="sub",
+        minor_key="GoalsAndValue",
     ),
     "understand:3": Node(
         label="确定范围与约束",
@@ -173,6 +176,7 @@ _NODES: dict[str, Node] = {
         gate_mech=GateMech.NONE,
         gate_rubric=None,
         advance="sub",
+        minor_key="ScopeAndConstraints",
     ),
     "understand:4": Node(
         label="定义成功标准和验收方式",
@@ -183,6 +187,7 @@ _NODES: dict[str, Node] = {
         gate_mech=GateMech.ARTIFACT_EXISTS,
         gate_rubric="对照注入的真实问题：①是否重述真实问题(非字面) ②边界 in/out-scope ③可验证成功标准。缺任一 block。",
         advance="phase",  # 末子阶段 -> 推进到 plan（过 understand->plan 闸门）
+        minor_key="SuccessCriteria",
     ),
     # ---------- plan ----------
     "plan:0": Node(
@@ -289,6 +294,15 @@ def subphase_labels(phase: str) -> list[str]:
         labels.append(_NODES[f"{phase}:{i}"].label)
         i += 1
     return labels
+
+
+def minor_key_map() -> dict[str, str]:
+    """minor_key -> 中文 label 映射（viewer 英转中用;single source）。
+
+    遍历 _NODES 收有 minor_key 的节点。evidence 的 minor_stage 值（英文标识,
+    如 ProblemContext）经此映射回中文展示（如 理解问题和背景）。
+    """
+    return {n.minor_key: n.label for n in _NODES.values() if n.minor_key}
 
 
 def phase_index(phase: str) -> int:
