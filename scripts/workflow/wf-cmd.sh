@@ -61,12 +61,20 @@ case "$SUB" in
     G="$(wf_state_get "$NAME" gate)"
     BR="$(wf_state_get "$NAME" branch)"
     echo "═══ 工作流: $NAME ═══"
+    echo "  当前阶段: $(wf_phase_label "$P") [$(cur_idx)/5]"
     echo "  闸门:  $G"
     echo "  分支:  $BR"
     echo "  worktree: $(wf_state_get "$NAME" worktree_path)"
     echo "  session:  $(wf_state_get "$NAME" session_id)"
     echo "  阶段顺序(英文，供 /wf jump): ${WF_PHASES[*]}"
     echo "  闸门后置: $WF_GATED_AFTER（这些阶段完成需 /wf gate 放行）"
+    # §banner-tree-design + §orchestration v2：进度树给模型取阶段真值
+    # （phase-rules 行 13 要求 status 取真值；旧 status 删了阶段显示致模型卡 Bash 循环）。
+    # engine progress 读 state.json（含 sub_step_index + 当前子步骤 purpose），最准。
+    if [ -f "$WF_ENGINE" ]; then
+      echo ""
+      python3 "$WF_ENGINE" progress "$NAME" --cwd "$(pwd)" 2>/dev/null || true
+    fi
     ;;
 
   next)

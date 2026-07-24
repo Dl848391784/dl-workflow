@@ -830,8 +830,87 @@ def _cmd_current(project_root: Path, name: str) -> int:
         "gate_mech": node.gate_mech.value,
         "gate_rubric": node.gate_rubric,
         "advance": node.advance,
+        "sub_step_index": state.get("sub_step_index", 0),  # §orchestration v2
+        "sub_steps": (
+            [
+                {
+                    "n": i,
+                    "kind": s.kind,
+                    "ref": s.ref,
+                    "purpose": s.purpose,
+                    "input": s.input,
+                    "record": s.record,
+                    "gate": s.gate,
+                }
+                for i, s in enumerate(node.sub_steps, 1)
+            ]
+            if node.sub_steps
+            else None
+        ),
     }
     print(json.dumps(out, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _cmd_progress(project_root: Path, name: str) -> int:
+    """输出人类可读进度树（供 wf-cmd.sh status 直接贴给模型取真值）。
+
+    §banner-tree-design + §orchestration v2：status 删了兜底 checklist（选项 A），
+    但模型需 status 取阶段真值（phase-rules 行 13）。本命令补全 5 阶段进度树 +
+    当前子阶段 + 当前子步骤（编排）。
+    """
+    state = load_state(project_root, name)
+    if state is None:
+        print(f"✗ 工作流 {name} 的 state.json 缺失", file=sys.stderr)
+        return 1
+    state = normalize_state(state)
+    cur_phase = state["phase"]
+    cur_idx = phase_index(cur_phase)
+    cur_sub = state["sub_index"]
+    cur_sub_total = sub_total(cur_phase)
+    cur_step = state.get("sub_step_index", 0)
+
+    lines = [f"═══ 工作流: {name} 进度树 ═══"]
+    for i, p in enumerate(PHASES, 1):
+        mark = "▶" if p == cur_phase else ("☑" if i < cur_idx else "○")
+        lbl = PHASE_LABELS.get(p, p)
+        line = f"{mark} {i}. {lbl}"
+        if p == cur_phase:
+            line += f"  [当前 {i}/{len(PHASES)}]"
+        lines.append(line)
+        # 当前阶段展开子阶段
+        if p == cur_phase and cur_sub_total > 0:
+            for j, slabel in enumerate(subphase_labels(p), 1):
+                s_mark = "▶" if j == cur_sub else ("☑" if j < cur_sub else "○")
+                sub_line = f"    {s_mark} {i}.{j} {slabel}"
+                # 当前子阶段展开子步骤（编排）
+                if j == cur_sub:
+                    node = get_node(p, j)
+                    if node.sub_steps:
+                        total_steps = len(node.sub_steps)
+                        for k, stp in enumerate(node.sub_steps, 1):
+                            st_mark = (
+                                "▶" if k == cur_step else ("☑" if k < cur_step else "○")
+                            )
+                            gate_tag = "" if stp.gate else "（自动过）"
+                            sub_line += f"\n        {st_mark} 子步骤{k}/{total_steps} [{stp.kind}:{stp.ref}] {stp.purpose[:40]}{gate_tag}"
+                lines.append(sub_line)
+    lines.append(
+        f"── 当前: {PHASE_LABELS.get(cur_phase, cur_phase)} 子阶段 {cur_sub}/{cur_sub_total}"
+    )
+    if cur_step > 0:
+        node = get_node(cur_phase, cur_sub)
+        if node.sub_steps:
+            stp = (
+                node.sub_steps[cur_step - 1]
+                if 1 <= cur_step <= len(node.sub_steps)
+                else None
+            )
+            if stp:
+                lines.append(
+                    f"── 当前子步骤: {cur_step}/{len(node.sub_steps)} {stp.purpose}"
+                )
+    print("\n".join(lines))
     return 0
 
 
@@ -864,7 +943,9 @@ def main(argv: list[str] | None = None) -> int:
         prog="dl-flow-engine",
         description="工作流编排内核（被 hook 咨询;不当主进程）",
     )
-    parser.add_argument("cmd", choices=["status", "current", "advance", "meta"])
+    parser.add_argument(
+        "cmd", choices=["status", "current", "advance", "progress", "meta"]
+    )
     parser.add_argument("name", nargs="?", help="工作流名（不填则从 cwd 反查）")
     parser.add_argument("--cwd", help="覆盖 cwd（默认进程 cwd）")
     args = parser.parse_args(argv)
@@ -892,6 +973,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_current(project_root, name)
     if args.cmd == "advance":
         return _cmd_advance(project_root, name)
+    if args.cmd == "progress":
+        return _cmd_progress(project_root, name)
     return 1
 
 

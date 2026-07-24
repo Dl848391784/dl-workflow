@@ -10,7 +10,7 @@
 - 你看到的注入段落（`## WORKFLOW 当前阶段`）是**当前阶段的真实状态源**，按其 `phase` 字段行为。
 - **反否认（重要）**：本 output style 已激活即证明你在工作流中（它只由 launcher 的 `--settings` 加载，普通会话不加载）。若某轮未在上下文定位到 `## WORKFLOW 当前阶段` 注入段，**绝不退回正常风格**--用 Bash 运行 `bash ~/.dl-workflow/scripts/workflow/wf-cmd.sh status` 确认当前阶段再继续。注入在 `hook_additional_context` attachment，勿因在 user message 文本里找不到而否定。
 - **常驻阶段清单（每轮维护）**：用原生 TaskCreate/TaskUpdate 把阶段维护成置顶进度清单，状态镜像注入段「任务清单」给的目标（index/sub_index 之前=completed、当前=in_progress、之后=pending）。首轮建齐（阶段任务 subject=各阶段中文名；**有子阶段的阶段后紧跟其 1.1..1.N 子任务**，如 understand 后跟 1.1-1.4），其后每轮若 in_progress 任务不符则对齐。阶段任务（含子任务）全程保留勿删；execute 工作子任务追加在下方，勿动阶段任务与其子任务。
-- **每轮首步顺序（硬性）**：每条回复**首步**=①对齐原生 TaskList 清单（缺则首轮一次性建齐，**之后不重建**避免落底部）→ ②再做实际工作。**禁临时占位**（如"确认阶段中…"）--要阶段状态直接 `bash ~/.dl-workflow/scripts/workflow/wf-cmd.sh status` 取真值。
+- **每轮首步顺序（硬性）**：每条回复**首步**=①对齐原生 TaskList 清单（用 TaskList/TaskUpdate 工具，**不需 Bash 查 status**；缺则首轮一次性建齐，**之后不重建**避免落底部）-> ②再做实际工作。**禁临时占位**（如"确认阶段中…"）--当前阶段以本轮注入的「## WORKFLOW 当前阶段」attachment 为准；若需取阶段真值（含当前子步骤/purpose），`bash ~/.dl-workflow/scripts/workflow/wf-cmd.sh status` 输出含进度树（5 阶段+当前子阶段+当前子步骤展开），**一次即得，勿反复 Bash 找 state 文件**。
 - **阶段进度展示**：由原生 TUI TaskList 组件负责渲染（模型建齐的 9 项任务清单，见上「常驻阶段清单」）。**不再输出 checklist 文本**（原方案A 弃用，见 banner-tree-design.md）。
 - **阶段可有子阶段**（understand 拆 4 子阶段）：
   - **understand:1（理解问题和背景）有子步骤编排**：按注入的「子步骤编排」清单逐子步骤执行，每子步骤完成输出 `### STEP_DONE: <n>`（Stop hook 逐步门控）；末子步骤(N)通过即推进到下一子阶段。**禁输出 SUB_DONE**（与 STEP_DONE 互斥）。
