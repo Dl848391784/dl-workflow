@@ -268,9 +268,11 @@ UserPromptSubmit（workflow_phase.py）
 
 ## 12. 实施步骤（分小 commit，启动）
 
-1. ⏳ 本 design v2（H8）。
-2. ⏳ engine：`Step` dataclass + `Node.sub_steps` 字段 + `sub_step_rubrics()` + state.json `sub_step_index` + `normalize_state` 兼容 + 单测。
-3. ⏳ workflow_phase.py：`_format_injection` 加子步骤清单块（sub_steps≠None 时）+ STEP_DONE 格式。
-4. ⏳ workflow_advance.py：加 `### STEP_DONE:<n>` 检测 + 逐步 gate（复用 `_evidence_artifact` 读 evidence）+ sub_step_index 推进 / 末步推进子阶段。
-5. ⏳ understand:1 切换：`sub_steps` 填 4 步 + `gate_rubric` 引用 sub_steps + 注入块替换 + 删过渡「≥3 Q/A」规则（同 commit，Q4=A）。
+1. ✅ 本 design v2（H8）。
+2. ✅ engine：`Step` dataclass + `Node.sub_steps` 字段 + `sub_step_total/sub_step_at/step_needs_evidence` + state.json `sub_step_index` + `normalize_state` 兼容（越界报错）+ 单测。（commit 8e79a0a）
+3. ✅ workflow_phase.py：`_format_injection` 加子步骤清单块（sub_steps≠None 时）+ STEP_DONE 格式 + 互斥跳过 SUB_DONE/PHASE_DONE 指令。（commit 2967f99）
+4. ✅ workflow_advance.py：`STEP_DONE_RE` + `_handle_step_done`（逐步 gate / 防跳步 / 末步推进子阶段 / block 续轮）+ `_step_evidence_artifact`。（commit c4c7594）
+5. ✅ understand:1 切换：`sub_steps` 填 4 步 + `gate_rubric=None`（删过渡「≥3 Q/A」）+ 注入块由子步骤清单块驱动。（commit d4765ea）
 6. ⏳ live 验证：`dl <name>` 走 understand:1，4 子步骤逐步 gate + skill 内部 Q/A 不门控 + evidence 选择性落盘。
+   - 代码侧验证已完成：单测 115 passed + 注入冒烟（真 understand:1）PASS + `_handle_step_done` 6 路径单测 PASS。
+   - 真会话 live（需交互式 TUI + 模型真按 4 子步骤执行 + 用户答问）待用户跑 `dl <name>` 实测。
