@@ -196,8 +196,10 @@ sub_steps 清单块加 evidence 写法格式（当 record 步存在时）：
 
 ## 9. 实施步骤（分小 commit）
 
-1. ⏳ 本 design（H8）。
-2. ⏳ engine：`sub_step_has_trace` + `gate_and_advance_sub_step` + 单测。
-3. ⏳ workflow_phase.py：UserPromptSubmit 推进逻辑 + trace 写法注入移到清单块 + 删旧 trace 块。
-4. ⏳ workflow_advance.py：删 STEP_DONE 分支 + _handle_step_done。
+1. ✅ 本 design（H8）。
+2. ✅ engine：`sub_step_has_trace` + `gate_and_advance_sub_step` + 单测（+11）。（commit 344ba2a）
+3. ✅ workflow_phase.py：UserPromptSubmit 推进逻辑 + trace 写法注入移到清单块 + 删旧 trace 块。（commit 4c4b420）
+4. ✅ workflow_advance.py：删 STEP_DONE 分支 + _handle_step_done + _step_evidence_artifact；删过时测试。（commit e56543c）
 5. ⏳ live 验证：dl <name> 走 understand:1，验证用户下次提问时推进 + gate + evidence 落盘。
+   - 代码侧：单测 119 passed + 冒烟（末步推进/无evidence不推进/注入含sub_step格式）PASS。
+   - 真会话 live 待用户跑。
