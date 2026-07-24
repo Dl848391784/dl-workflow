@@ -296,6 +296,12 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
                 '"q":["<q1>","<q2>","..."],"a":["<a1>","<a2>","..."]}'
             )
             lines.append(
+                "   ⚠️ 上面是 schema 格式，**禁止照抄** `<phase>`/`<q1>` 等占位符字面。"
+                '必须用真实 Q/A 替换——例：`"q":["who/pain=真实动机？"]`。'
+                "gate 检查 sub_step==N 的 skill-trace 内容是否达 purpose；"
+                "照抄 placeholder 必判 block 然后重做。"
+            )
+            lines.append(
                 "   字段：major_stage=phase 英文名(understand/plan/execute/review/evolution)；"
                 "minor_stage=子阶段序号(state.sub_index，无子阶段填 0)；"
                 "q/a=字符串数组，每对一问一答按序对齐（即 q[0]↔a[0]、q[1]↔a[1]…）；"
