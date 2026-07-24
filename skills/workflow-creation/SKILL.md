@@ -206,6 +206,21 @@ understand 拆 4 子阶段（1.理解问题和背景 / 2.明确目标和价值 /
 
 **旧系统残留引用**（designs/evidence-chain-design.md 整文档描述旧系统，已 deprecated；本文档顶部全景图已更新为 4 hook + dl-flow-engine）。
 
+**扩 evidence schema 时的 6 处同步清单**（每次改字段/新增记录 kind 前对照，漏一处即产生"模型按新写、gate 按旧验"半状态期）：
+
+| # | 文件 | 改什么 |
+|---|---|---|
+| 1 | `hooks/workflow_phase.py` `_format_injection` | 注入模板里的 JSON 示例 + 字段说明行（模型每轮看到的写法契约） |
+| 2 | `scripts/workflow/phase-rules.md` | phase-rules 里 evidence 写法示例（output-style，与注入互为补路径） |
+| 3 | `dl-flow-engine.py` `sub_step_has_trace` / 其它 evidence 校验函数 | 匹配字段 + docstring；**校验松匹配原则**：只匹 `kind + 关键定位字段`（如 sub_step），不校验其它字段结构 -> 加字段/改子结构不 crash（旧数据能读、新数据能验） |
+| 4 | `designs/step-advance-on-submit-design.md` §E4 / 相关设计文档 | 契约文本（H8 真源） |
+| 5 | `skills/workflow-creation/SKILL.md`（本文件）| 症状 I 里的字段清单（问题排查读物） |
+| 6 | `tests/test_dl_flow_engine.py` fixture | 至少一个新格式测例；旧格式测例保留一个作兼容回归（如 `test_old_step_field_ignored`） |
+
+**顺序建议**：先改 3（校验层松匹配对齐）-> 跑 pytest 确认兼容 -> 再改 1+2+4+5+6。反过来（先改注入不改校验）会让模型按新格式写、gate 读不到 -> block 循环。
+
+**验证**：`pytest -x -q` 全绿 + ruff clean + 项目 `.claude/evidence/<name>.jsonl` 手动重写一条新格式样本（`sub_step_has_trace` 能识别）。
+
 ### 症状 J：子步骤编排--模型输 STEP_DONE 但没推进（有 sub_steps 节点专属）
 
 有 `sub_steps` 的节点（当前 understand:1）**推进不走 Stop hook，走 UserPromptSubmit**（§step-advance-on-submit 方案 3a）。推进 = 用户**下次提问**触发。
