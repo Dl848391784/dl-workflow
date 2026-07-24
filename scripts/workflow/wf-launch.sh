@@ -38,6 +38,19 @@ if [ "$WF_NAME" = "list" ]; then
   exit 0
 fi
 
+# evidence 是特殊子命令（不进会话,展示 evidence.jsonl 中文视图）
+# 用法: dl evidence show <name>
+if [ "$WF_NAME" = "evidence" ]; then
+  SUBCMD="${1:-}"
+  EV_NAME="${2:-}"
+  if [ "$SUBCMD" != "show" ] || [ -z "$EV_NAME" ]; then
+    echo "用法: dl evidence show <name>" >&2
+    exit 1
+  fi
+  python3 "$LIB_DIR/evidence_show.py" "$EV_NAME" "$WF_REPO_ROOT"
+  exit 0
+fi
+
 # 校验 name（分支名安全：仅 [a-z0-9_-]）
 if ! echo "$WF_NAME" | grep -qE '^[a-z0-9][a-z0-9_-]{0,63}$'; then
   echo "wf-launch: 非法工作流名 '$WF_NAME'（仅小写字母/数字/连字符/下划线，≤64）" >&2
