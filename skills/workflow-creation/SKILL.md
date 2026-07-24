@@ -195,7 +195,7 @@ understand 拆 4 子阶段（1.理解问题和背景 / 2.明确目标和价值 /
 
 **新机制（designs/tui-state-machine-design.md §8.6 + §step-advance-on-submit）**：evidence.jsonl 现有两类记录同文件：
 1. **gate 裁决**（engine.write_gate_verdict）：`kind=gate`，字段 node/phase/gate=passed/gate_mech/rubric/attempts/commit_sha。block 不写（重试计数在 state.node_attempts，pass 时一并记入）。
-2. **skill-trace**（模型写，子步骤编排用）：`kind=skill-trace`，字段 `major_stage`(phase 英文名) / `minor_stage`(子阶段序号) / `sub_step` / `purpose` / `q`(字符串数组) / `a`(字符串数组，与 q 按序对齐)。UserPromptSubmit 推进时读此找当前 `sub_step==N` 的记录（症状 J/K/L）。
+2. **skill-trace**（模型写，子步骤编排用）：`kind=skill-trace`，字段 `major_stage`(phase 英文首字母大写，如 Understand) / `minor_stage`(子阶段英文标识，首字母大写驼峰，如 ProblemContext) / `sub_step`(数字) / `purpose` / `q`(字符串数组) / `a`(字符串数组，与 q 按序对齐)。UserPromptSubmit 推进时读此找当前 `sub_step==N` 的记录（症状 J/K/L）。展示用 `dl evidence show <name>`（英文标识转中文，映射 single source 在 engine）。
 两类都在主仓库 `<项目>/.claude/evidence/<name>.jsonl`。skill-trace **模型必须用绝对路径写**（相对路径会落 worktree，症状 L）。
 
 

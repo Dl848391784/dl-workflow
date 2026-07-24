@@ -151,8 +151,8 @@ sub_steps 清单块加 evidence 写法格式（当 record 步存在时）：
 - 子步骤编排（本节点 N 子步骤...）：
   ...
   evidence 记录（record 步必写）：向 <abs_path> 追加（每行一条 JSON）：
-   {"kind":"skill-trace","major_stage":"<phase>","minor_stage":<m>,"sub_step":<n>,"purpose":"<该步目的>","q":["<q1>","<q2>",...],"a":["<a1>","<a2>",...]}
-  字段：major_stage=phase 英文名（understand/plan/…）；minor_stage=子阶段序号；q/a=字符串数组按序对齐。
+   {"kind":"skill-trace","major_stage":"<Phase>","minor_stage":"<MinorKey>","sub_step":<n>,"purpose":"<该步目的>","q":["<q1>","<q2>",...],"a":["<a1>","<a2>",...]}
+  字段：major_stage=phase 英文首字母大写（Understand/Plan/…）；minor_stage=子阶段英文标识（首字母大写驼峰，如 ProblemContext）；q/a=字符串数组按序对齐。
   写法：Write 创建 / Read+拼末尾Write / Bash printf >> 。勿覆盖已有。
 ```
 
