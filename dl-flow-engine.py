@@ -853,11 +853,12 @@ def _cmd_current(project_root: Path, name: str) -> int:
 
 
 def _cmd_progress(project_root: Path, name: str) -> int:
-    """输出人类可读进度树（供 wf-cmd.sh status 直接贴给模型取真值）。
+    """输出当前阶段真值（供 wf-cmd.sh status 贴给模型取数据，非展示）。
 
-    §banner-tree-design + §orchestration v2：status 删了兜底 checklist（选项 A），
-    但模型需 status 取阶段真值（phase-rules 行 13）。本命令补全 5 阶段进度树 +
-    当前子阶段 + 当前子步骤（编排）。
+    §orchestration v2：进度树**展示**已弃用（phase-rules 行 14：只靠 TUI TaskList）。
+    但模型需 status 取「现在在第几步」真值（state.json 权威源，TaskList 模型自维可能不准）。
+    故本命令只输出当前阶段/子阶段/子步骤序号 + 当前子步骤 purpose 一行数据，
+    不输出全 5 阶段树（树是展示，归 TaskList）。
     """
     state = load_state(project_root, name)
     if state is None:
@@ -870,47 +871,23 @@ def _cmd_progress(project_root: Path, name: str) -> int:
     cur_sub_total = sub_total(cur_phase)
     cur_step = state.get("sub_step_index", 0)
 
-    lines = [f"═══ 工作流: {name} 进度树 ═══"]
-    for i, p in enumerate(PHASES, 1):
-        mark = "▶" if p == cur_phase else ("☑" if i < cur_idx else "○")
-        lbl = PHASE_LABELS.get(p, p)
-        line = f"{mark} {i}. {lbl}"
-        if p == cur_phase:
-            line += f"  [当前 {i}/{len(PHASES)}]"
-        lines.append(line)
-        # 当前阶段展开子阶段
-        if p == cur_phase and cur_sub_total > 0:
-            for j, slabel in enumerate(subphase_labels(p), 1):
-                s_mark = "▶" if j == cur_sub else ("☑" if j < cur_sub else "○")
-                sub_line = f"    {s_mark} {i}.{j} {slabel}"
-                # 当前子阶段展开子步骤（编排）
-                if j == cur_sub:
-                    node = get_node(p, j)
-                    if node.sub_steps:
-                        total_steps = len(node.sub_steps)
-                        for k, stp in enumerate(node.sub_steps, 1):
-                            st_mark = (
-                                "▶" if k == cur_step else ("☑" if k < cur_step else "○")
-                            )
-                            gate_tag = "" if stp.gate else "（自动过）"
-                            sub_line += f"\n        {st_mark} 子步骤{k}/{total_steps} [{stp.kind}:{stp.ref}] {stp.purpose[:40]}{gate_tag}"
-                lines.append(sub_line)
-    lines.append(
-        f"── 当前: {PHASE_LABELS.get(cur_phase, cur_phase)} 子阶段 {cur_sub}/{cur_sub_total}"
-    )
-    if cur_step > 0:
+    line = f"当前: {PHASE_LABELS.get(cur_phase, cur_phase)} [{cur_idx}/{len(PHASES)}]"
+    if cur_sub_total > 0:
+        slabel = (
+            subphase_labels(cur_phase)[cur_sub - 1]
+            if 1 <= cur_sub <= cur_sub_total
+            else "?"
+        )
+        line += f" | 子阶段: {slabel} [{cur_sub}/{cur_sub_total}]"
         node = get_node(cur_phase, cur_sub)
-        if node.sub_steps:
-            stp = (
-                node.sub_steps[cur_step - 1]
-                if 1 <= cur_step <= len(node.sub_steps)
-                else None
+        if node.sub_steps and 1 <= cur_step <= len(node.sub_steps):
+            stp = node.sub_steps[cur_step - 1]
+            gate_tag = "" if stp.gate else "（自动过）"
+            line += (
+                f" | 子步骤: {cur_step}/{len(node.sub_steps)} "
+                f"[{stp.kind}:{stp.ref}] {stp.purpose}{gate_tag}"
             )
-            if stp:
-                lines.append(
-                    f"── 当前子步骤: {cur_step}/{len(node.sub_steps)} {stp.purpose}"
-                )
-    print("\n".join(lines))
+    print(line)
     return 0
 
 
