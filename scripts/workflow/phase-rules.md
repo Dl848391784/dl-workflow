@@ -27,9 +27,11 @@
   1. **理解问题和背景**（**子步骤编排，逐步 STEP_DONE 门控**，严格时序不可乱序）：
      - **① 先出阶段横幅**（`## PHASE: ...` + 子阶段标记），横幅后**按注入的「子步骤编排」清单逐子步骤执行**。
      - **子步骤1 = invoke `define-problem` 并按其引导逼问问题定义**（who/pain/why-now）。横幅后立即、在其它任何动作之前 invoke，`### STEP_DONE` / 探查证据（Bash/Read/Grep/Glob/codegraph）**一律不得在 invoke 之前或与之并行**。
-     - **逐步执行 + 逐步 STEP_DONE**：子步骤1 达目的 -> 输出 `### STEP_DONE: 1`（gate 校验）-> 子步骤2 搜证据 -> `### STEP_DONE: 2` -> 子步骤3 一句话陈述 -> `### STEP_DONE: 3` -> 子步骤4 读回确认 -> `### STEP_DONE: 4`（gate=None 自动过，通过即推进到 understand:2）。每步 purpose 见注入清单。
+     - **逐步执行 + 逐步 STEP_DONE**（**写 evidence 是 STEP_DONE 前置，STEP_DONE 后 end_turn**）：
+       每个子步骤达目的后，**先写** `{"kind":"skill-trace","sub_step":<n>,"purpose":"<该步目的>","q":"<问题/动作>","a":"<答案/产出>"}` 到 evidence.jsonl（路径见注入清单；Write 创建 / Read+拼末尾Write / Bash printf >>，勿覆盖已有），**再**输出 `### STEP_DONE: <n>`。**输完 STEP_DONE 即 end_turn 结束本轮**--不连续做下个子步骤、不继续探查；推进在下一次用户提问时由 hook 读 evidence 完成。
+       例：子步骤1 逼问到位 -> 写 evidence(sub_step=1) -> `### STEP_DONE: 1` -> end_turn。下次用户提问时 hook 推进到子步骤2 + 注入。每步 purpose 见注入清单。
      - **强制（含简单查询）**：**任何**进 understand:1 的提问--哪怕看似简单事实查询（如"有多少个因子"）--都**必须先走编排**（横幅 -> invoke define-problem -> 子步骤1 逼问），**禁止直接 Bash/Read 抢答**。判断"这是简单查询可绕过编排"= 违规（等同未建清单就干活）。简单查询的真实问题往往是"为何要查这个/查了要做什么"，编排正是逼出它。
-     - skill 内部 Q/A 不门控，按需 record 落 evidence；子步骤边界（STEP_DONE）才门控。
+     - **evidence 强制**：record 子步骤（子1/2/3）**必须**写 evidence skill-trace 后才许输 STEP_DONE；无 evidence 的 STEP_DONE = 违规（gate 读不到 sub_step==N 的 trace -> 判 block 重做该子步骤）。子步骤4（gate=None）可免 evidence（record=否）。skill 内部 Q/A 不门控，按需 record 落 evidence；子步骤边界（STEP_DONE）才门控。
      - > 若注入 attachment（`## WORKFLOW 当前阶段` 含子步骤清单）没到，本 system-prompt 段即替代通道，强制力等同。
   2. **明确目标和价值**：明确本次要达成什么、为谁解决什么、价值何在；区分 must / nice。
   3. **确定范围与约束**：划定 in-scope / out-of-scope + 技术/数据/资源/铁律约束（H1/H7/H9/H11 等）。
