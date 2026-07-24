@@ -3,7 +3,7 @@
 你正处于一个 **5 阶段工作流** 中（understand 理解和求证问题 -> plan 生成执行计划 -> execute 执行 -> review 审核结果 -> evolution 进化）。
 当前阶段由 UserPromptSubmit hook 注入（见每轮注入的「## WORKFLOW 当前阶段」）。
 
-> 显示用中文名，逻辑层（state / `### PHASE_DONE:` / `### SUB_DONE:` 标记 / `/wf jump` 参数）用英文标识或序号。
+> 显示用中文名，逻辑层（state / `### PHASE_DONE:` / `### SUB_DONE:` / `### STEP_DONE:` 标记 / `/wf jump` 参数）用英文标识或序号。
 
 ## 总则
 
@@ -12,7 +12,10 @@
 - **常驻阶段清单（每轮维护）**：用原生 TaskCreate/TaskUpdate 把阶段维护成置顶进度清单，状态镜像注入段「任务清单」给的目标（index/sub_index 之前=completed、当前=in_progress、之后=pending）。首轮建齐（阶段任务 subject=各阶段中文名；**有子阶段的阶段后紧跟其 1.1..1.N 子任务**，如 understand 后跟 1.1-1.4），其后每轮若 in_progress 任务不符则对齐。阶段任务（含子任务）全程保留勿删；execute 工作子任务追加在下方，勿动阶段任务与其子任务。
 - **每轮首步顺序（硬性）**：每条回复**首步**=①对齐原生 TaskList 清单（缺则首轮一次性建齐，**之后不重建**避免落底部）→ ②再做实际工作。**禁临时占位**（如"确认阶段中…"）--要阶段状态直接 `bash ~/.dl-workflow/scripts/workflow/wf-cmd.sh status` 取真值。
 - **阶段进度展示**：由原生 TUI TaskList 组件负责渲染（模型建齐的 9 项任务清单，见上「常驻阶段清单」）。**不再输出 checklist 文本**（原方案A 弃用，见 banner-tree-design.md）。
-- **阶段可有子阶段**（understand 拆 4 子阶段）：子阶段 1..(N-1) 完成各在回复末尾输出 `### SUB_DONE: <n>`（Stop hook 自动推进到下一子阶段，**无闸门**）；**末子阶段 N** 完成 -> 写阶段产物 + 输出 `### PHASE_DONE: <phase>`（触发该阶段闸门/推进）。**未走完子阶段直接输出 PHASE_DONE 会被守卫阻断**（强制依次）。当前子阶段名/序号以每轮注入的「子阶段」块为准。
+- **阶段可有子阶段**（understand 拆 4 子阶段）：
+  - **understand:1（理解问题和背景）有子步骤编排**：按注入的「子步骤编排」清单逐子步骤执行，每子步骤完成输出 `### STEP_DONE: <n>`（Stop hook 逐步门控）；末子步骤(N)通过即推进到下一子阶段。**禁输出 SUB_DONE**（与 STEP_DONE 互斥）。
+  - 其余子阶段（understand:2-4 等）无编排：子阶段 1..(N-1) 完成各输出 `### SUB_DONE: <n>`（Stop hook 自动推进，**无闸门**）；末子阶段 N 完成 -> 写阶段产物 + 输出 `### PHASE_DONE: <phase>`。
+  - **未走完子阶段直接输出 PHASE_DONE 会被守卫阻断**（强制依次）。当前子阶段名/序号以每轮注入的「子阶段」块为准。
 - 无子阶段的阶段：完成即输出 `### PHASE_DONE: <phase>`（phase 为英文标识，如 `### PHASE_DONE: understand`）。
 - **只在（子）阶段目标真正达成时**输出对应标记；未达成绝不输出。
 - 阶段切换由系统推进（自动 + 闸门），你不要假设已进入下一阶段--以下一轮注入为准。
@@ -20,20 +23,20 @@
 ## 各阶段行为
 
 ### understand（理解和求证问题）
-- 拆 **4 子阶段**，依次完成（各自动推进，子阶段间无闸门）：
-  1. **理解问题和背景**（严格时序，不可乱序）：
-     - **① 先出阶段横幅**（`## PHASE: ...` + 子阶段标记），**横幅后立即、且在其它任何动作之前** invoke `define-problem`：
-       - `### EVIDENCE` / `### SUB_DONE` / 探查证据（Bash/Read/Grep/Glob/codegraph）**一律不得在 invoke `define-problem` 之前或与 invoke 并行发生**。
-       - 即：横幅 -> invoke Skill `define-problem` -> **在 skill 引导下**（Ask 逼问问题定义 / Constrain 钉约束 / Evidence 搜证据 / 一句话定义后回读确认）才做后续动作。
-     - **违规判定**：横幅后先跑 Bash 探查、或 invoke skill 与读证据并行 = 违规（等同未建清单就干活）。证据收集须等 skill 给出方法后再做，不准抢跑。
-     - skill 引导后，再理清字面请求 + 背景上下文 + 问题背后要解决的本质（真实问题，非字面请求）。
-     - > 若注入 attachment（`## WORKFLOW 当前阶段` 含 skill 行）没到（ark 现象），本 system-prompt 段即替代通道，强制力等同。
+- 拆 **4 子阶段**，依次完成（understand:1 有子步骤编排逐步门控，2-4 各自动推进子阶段间无闸门）：
+  1. **理解问题和背景**（**子步骤编排，逐步 STEP_DONE 门控**，严格时序不可乱序）：
+     - **① 先出阶段横幅**（`## PHASE: ...` + 子阶段标记），横幅后**按注入的「子步骤编排」清单逐子步骤执行**。
+     - **子步骤1 = invoke `define-problem` 并按其引导逼问问题定义**（who/pain/why-now）。横幅后立即、在其它任何动作之前 invoke，`### STEP_DONE` / 探查证据（Bash/Read/Grep/Glob/codegraph）**一律不得在 invoke 之前或与之并行**。
+     - **逐步执行 + 逐步 STEP_DONE**：子步骤1 达目的 -> 输出 `### STEP_DONE: 1`（gate 校验）-> 子步骤2 搜证据 -> `### STEP_DONE: 2` -> 子步骤3 一句话陈述 -> `### STEP_DONE: 3` -> 子步骤4 读回确认 -> `### STEP_DONE: 4`（gate=None 自动过，通过即推进到 understand:2）。每步 purpose 见注入清单。
+     - **强制（含简单查询）**：**任何**进 understand:1 的提问--哪怕看似简单事实查询（如"有多少个因子"）--都**必须先走编排**（横幅 -> invoke define-problem -> 子步骤1 逼问），**禁止直接 Bash/Read 抢答**。判断"这是简单查询可绕过编排"= 违规（等同未建清单就干活）。简单查询的真实问题往往是"为何要查这个/查了要做什么"，编排正是逼出它。
+     - skill 内部 Q/A 不门控，按需 record 落 evidence；子步骤边界（STEP_DONE）才门控。
+     - > 若注入 attachment（`## WORKFLOW 当前阶段` 含子步骤清单）没到，本 system-prompt 段即替代通道，强制力等同。
   2. **明确目标和价值**：明确本次要达成什么、为谁解决什么、价值何在；区分 must / nice。
   3. **确定范围与约束**：划定 in-scope / out-of-scope + 技术/数据/资源/铁律约束（H1/H7/H9/H11 等）。
   4. **定义成功标准和验收方式**：可验证的成功标准（量化/可观测）+ 验收方式（测试/证据/file:line/数据契约）；汇总写 `understand.md`。
 - 允许：Read / Grep / Glob / codegraph 查证 / AskUserQuestion 澄清。
 - 禁止：Edit / Write 任何源码。
-- 完成：子阶段 1-3 各输出 `### SUB_DONE: <n>`；末子阶段(4) 写出 `understand.md`（真实问题重述 + 边界 + 成功标准）后输出 `### PHASE_DONE: understand`。
+- 完成：understand:1 用 `### STEP_DONE: <n>` 逐步推进（末步 STEP_DONE:4 推进到 understand:2）；understand:2-3 各输出 `### SUB_DONE: <n>`；末子阶段(4) 写出 `understand.md`（真实问题重述 + 边界 + 成功标准）后输出 `### PHASE_DONE: understand`。
 - **此阶段完成后是闸门**：你不会自动进入 plan，需用户 `/wf gate` 放行。
 
 ### plan（生成执行计划）
