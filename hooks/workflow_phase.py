@@ -260,38 +260,16 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
         lines.append(
             f"- 技能: 当前节点应载 skill `{node.skill}`，请用 Skill 工具 invoke 它（已载则继续遵循）"
         )
-    # §define-problem-verify-gate：节点 rubric 依赖 evidence.jsonl 时，注入 trace 写法
-    # （understand:1 验真门：模型须把小步 Q/A + 结论写进 evidence.jsonl，gate 读文件校验）
-    if node and engine.rubric_needs_evidence(node) and project_root is not None:
-        ev_path = f"{project_root}/.claude/evidence/{name}.jsonl"
-        lines.append("- 证据链记录（本节点 gate 校验 evidence.jsonl，必写）：")
-        lines.append(f"  向 `{ev_path}` 追加（每行一条 JSON）：")
-        lines.append(
-            "   每完成一个 define-problem 提问 step："
-            '{"kind":"skill-trace","step":<n>,"q":"<问题>","a":"<答案>"}'
-        )
-        lines.append(
-            "   全部 step 完成后追加结论："
-            '{"kind":"conclusion","problem_is_real":<true|false>,"reason":"<为何真实/不真实>"}'
-        )
-        lines.append(
-            "  写法：文件不存在用 Write 创建；已存在先 Read 再拼末尾 Write（勿覆盖已有记录）；"
-            "或 Bash printf '...' >> 路径。evidence.jsonl 非源码，understand 阶段允许写。"
-            "写完再输出 ### SUB_DONE: 1。"
-        )
-        lines.append(
-            "  gate 校验：≥3 条 skill-trace（各含 step/q/a）+ 1 条 conclusion"
-            "（含 problem_is_real+reason）+ q 覆盖 who/pain/why-now 至少三类；缺则 block 重试。"
-        )
-    # §orchestration v2 D6：节点有 sub_steps 时，注入子步骤清单 + 逐步 purpose + STEP_DONE 格式。
-    # 子步骤=门控单位（每步完成输出 ### STEP_DONE:<n> 触发 gate）；skill 内部 Q/A 不门控只 record。
-    # 有 sub_steps 的节点用 STEP_DONE（末步推进子阶段），不再用 SUB_DONE（互斥，design §10 风险8）。
+    # §orchestration v2 D6 + §step-advance-on-submit：节点有 sub_steps 时，注入子步骤清单 +
+    # 逐步 purpose + STEP_DONE 格式 + evidence 写法（修复 commit4 遗漏：understand:1 现靠
+    # sub_steps 清单块给 evidence 格式，旧 rubric_needs_evidence 触发的 trace 块已删）。
+    # 子步骤=门控单位；推进在 UserPromptSubmit（读 evidence，避开 transcript flush 竞态）。
     if node and node.sub_steps:
         cur_step = state.get("sub_step_index", 1)
         total_steps = len(node.sub_steps)
         lines.append(
             f"- 子步骤编排（本节点 {total_steps} 子步骤，按序执行，"
-            f"每步完成输出 `### STEP_DONE: <n>` 触发门控）："
+            f"每步完成输出 `### STEP_DONE: <n>` 作自声明）："
         )
         for i, stp in enumerate(node.sub_steps, 1):
             mark = "【当前】" if i == cur_step else ("✓" if i < cur_step else "")
@@ -306,6 +284,24 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
             "  强制：未达上步 purpose 就进下步=违规（等同未建清单就干活）。"
             "skill 内部 Q/A 不门控，按需 record 落 evidence 即可。"
         )
+        # evidence 写法格式（§step-advance-on-submit E4：统一 sub_step 字段；推进靠它）
+        if project_root is not None:
+            ev_path = f"{project_root}/.claude/evidence/{name}.jsonl"
+            lines.append(
+                f"  evidence 记录（record 步必写，向 `{ev_path}` 追加，每行一条 JSON）："
+            )
+            lines.append(
+                '   {"kind":"skill-trace","sub_step":<n>,"purpose":"<该步目的>",'
+                '"q":"<问题/动作>","a":"<答案/产出>"}'
+            )
+            lines.append(
+                "  写法：Write 创建 / Read+拼末尾Write（勿覆盖已有）/ Bash printf >> 。"
+                "写完当前子步骤 evidence 后输出 `### STEP_DONE: <n>`。"
+            )
+            lines.append(
+                "  gate 校验（下次你提问时 hook 读 evidence）：当前子步骤需有 sub_step==N 的 "
+                "skill-trace 且内容达 purpose；缺则 block 重做该子步骤。"
+            )
         if cur_step < total_steps:
             lines.append(
                 f"  当前子步骤 {cur_step} 完成时，回复末尾单独一行输出：`### STEP_DONE: {cur_step}`"
@@ -313,10 +309,10 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
         else:
             lines.append(
                 f"  末子步骤({total_steps})完成时（gate={'自动过' if not node.sub_steps[-1].gate else '校验'}），"
-                f"回复末尾单独一行输出：`### STEP_DONE: {total_steps}`（通过即推进到下一子阶段，勿输出 SUB_DONE）"
+                f"回复末尾单独一行输出：`### STEP_DONE: {total_steps}`（下次提问时推进到下一子阶段，勿输出 SUB_DONE）"
             )
         lines.append(
-            "（仅当当前子步骤 purpose 真正达成时输出 STEP_DONE；未达成绝不输出）"
+            "（仅当当前子步骤 purpose 真正达成 + evidence 已写时输出 STEP_DONE；未达成绝不输出）"
         )
     # 子阶段块（仅当前阶段有子阶段时注入）
     if has_sub:
@@ -402,8 +398,51 @@ def main() -> int:
     if not state:
         _log_invocation(project_root, "no_state", name=name, prompt_len=len(prompt))
         return 0  # state 缺失 -> 不注入（可能未走 launcher）
+    state = engine.normalize_state(state)
+
+    # §step-advance-on-submit 3a：有 sub_steps 节点的子步骤 gate+推进在此
+    # （读 evidence.jsonl，避开 Stop hook transcript flush 竞态）。
+    # 当前子步骤 evidence 已写 -> gate + 推进；未写/未过 -> 注入重做。
+    block_hint = ""
+    try:
+        node = engine.get_node(state["phase"], state["sub_index"])
+    except (KeyError, Exception):
+        node = None
+    if node and node.sub_steps and project_root is not None:
+        cur_step = state.get("sub_step_index", 1)
+        if engine.sub_step_has_trace(project_root, name, cur_step):
+            advanced, reason, new_state = engine.gate_and_advance_sub_step(
+                project_root, name, node, cur_step
+            )
+            if advanced:
+                state = new_state
+                _log_invocation(
+                    project_root,
+                    "sub_step_advanced",
+                    name=name,
+                    phase=state.get("phase", ""),
+                    to=state.get("sub_step_index", 0),
+                    prompt_len=len(prompt),
+                )
+            else:
+                block_hint = (
+                    f"## 子步骤 {cur_step} 未通过门控\n{reason}\n"
+                    f"该子步骤目的：{engine.sub_step_at(node, cur_step).purpose}\n"
+                    "请重做该子步骤（补 evidence 后再输出 ### STEP_DONE）。"
+                )
+                _log_invocation(
+                    project_root,
+                    "sub_step_block",
+                    name=name,
+                    phase=state.get("phase", ""),
+                    step=cur_step,
+                    reason=reason[:80],
+                    prompt_len=len(prompt),
+                )
 
     context = _format_injection(state, project_root)
+    if block_hint:
+        context = block_hint + "\n\n" + context
     out = json.dumps(
         {
             "hookSpecificOutput": {
