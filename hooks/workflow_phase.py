@@ -291,8 +291,15 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
                 f"  evidence 记录（record 步必写，向 **绝对路径** `{ev_path}` 追加，每行一条 JSON）："
             )
             lines.append(
-                '   {"kind":"skill-trace","sub_step":<n>,"purpose":"<该步目的>",'
-                '"q":"<问题/动作>","a":"<答案/产出>"}'
+                '   {"kind":"skill-trace","major_stage":"<phase>","minor_stage":<m>,'
+                '"sub_step":<n>,"purpose":"<该步目的>",'
+                '"q":["<q1>","<q2>","..."],"a":["<a1>","<a2>","..."]}'
+            )
+            lines.append(
+                "   字段：major_stage=phase 英文名(understand/plan/execute/review/evolution)；"
+                "minor_stage=子阶段序号(state.sub_index，无子阶段填 0)；"
+                "q/a=字符串数组，每对一问一答按序对齐（即 q[0]↔a[0]、q[1]↔a[1]…）；"
+                "单问单答也用数组：q=[\"...\"]、a=[\"...\"]。"
             )
             lines.append(
                 "  写法（**必须用上面的绝对路径，禁用相对路径**--相对路径会写到 worktree，hook 读不到）："

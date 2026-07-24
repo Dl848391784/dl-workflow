@@ -668,6 +668,9 @@ def sub_step_has_trace(project_root: Path, name: str, sub_step_index: int) -> bo
     §step-advance-on-submit E1：UserPromptSubmit 据此判断当前子步骤是否已写 evidence
     （避开 transcript flush 竞态；evidence 是上轮写、已落盘）。
     缺文件/读失败 -> False（gate 降级判 block，不默认放行）。
+    匹配字段：kind=skill-trace + sub_step == sub_step_index。
+    q/a 从字符串改为字符串数组（新格式兼容旧格式，单值 q/a 也匹配）。
+    缺文件/读失败 -> False（gate 降级判 block，不默认放行）。
     """
     text = read_evidence(project_root, name)
     if not text:

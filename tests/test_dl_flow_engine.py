@@ -690,7 +690,7 @@ class TestSubStepHasTrace:
             tmp_path,
             "t",
             [
-                '{"kind":"skill-trace","sub_step":1,"purpose":"p","q":"q","a":"a"}',
+                '{"kind":"skill-trace","major_stage":"understand","minor_stage":1,"sub_step":1,"purpose":"p","q":["q"],"a":["a"]}',
             ],
         )
         assert eng.sub_step_has_trace(tmp_path, "t", 1) is True
@@ -701,7 +701,7 @@ class TestSubStepHasTrace:
             tmp_path,
             "t",
             [
-                '{"kind":"skill-trace","sub_step":1,"purpose":"p","q":"q","a":"a"}',
+                '{"kind":"skill-trace","major_stage":"understand","minor_stage":1,"sub_step":1,"purpose":"p","q":["q"],"a":["a"]}',
             ],
         )
         assert eng.sub_step_has_trace(tmp_path, "t", 2) is False
@@ -804,7 +804,7 @@ class TestGateAndAdvanceSubStep:
             tmp_path,
             "t",
             [
-                '{"kind":"skill-trace","sub_step":1,"purpose":"p","q":"q","a":"a"}',
+                '{"kind":"skill-trace","major_stage":"understand","minor_stage":1,"sub_step":1,"purpose":"p","q":["q"],"a":["a"]}',
             ],
         )
         captured = {}
