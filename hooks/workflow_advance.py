@@ -45,6 +45,8 @@ _spec.loader.exec_module(engine)  # type: ignore[union-attr]
 # 完成信号标记正则（模型自认做完时输出）。与旧版一致,作为"何时审"的触发。
 DONE_RE = re.compile(r"###\s*PHASE_DONE:\s*(\w+)", re.IGNORECASE)
 SUB_DONE_RE = re.compile(r"###\s*SUB_DONE:\s*(\d+)", re.IGNORECASE)
+# §orchestration v2 D6：子步骤完成信号（逐步门控单位）。
+STEP_DONE_RE = re.compile(r"###\s*STEP_DONE:\s*(\d+)", re.IGNORECASE)
 
 
 # ---------- hook 基础设施（保留;evidence_append.py 范式同构,各持副本）----------
@@ -179,6 +181,147 @@ def _block_continue(reason: str) -> int:
     return 0
 
 
+def _evidence_artifact(
+    project_root: Path | None, name: str, node: "engine.Node"
+) -> str | None:
+    """若节点 rubric 依赖 evidence.jsonl，读其全文作 judge 的 artifact_content；否则 None。
+
+    §define-problem-verify-gate：understand:1 的 rubric 含 "evidence/"/"skill-trace" ->
+    rubric_needs_evidence=True -> 读模型写的 skill-trace/conclusion 记录喂 judge 校验。
+    无 rubric / 不依赖 evidence 的节点返回 None（行为不变）。
+    读失败（None）-> judge 拿不到证据 -> 按 rubric 判 block（no silent fallback，不默认放行）。
+    """
+    if project_root is None:
+        return None
+    if engine.rubric_needs_evidence(node):
+        return engine.read_evidence(project_root, name)
+    return None
+
+
+def _step_evidence_artifact(
+    project_root: Path | None, name: str, step: "engine.Step"
+) -> str | None:
+    """子步骤 gate 依赖 evidence.jsonl 时读其全文；否则 None。§orchestration v2 D6。"""
+    if project_root is None:
+        return None
+    if engine.step_needs_evidence(step):
+        return engine.read_evidence(project_root, name)
+    return None
+
+
+def _handle_step_done(
+    sm,  # re.Match
+    project_root: Path | None,
+    name: str,
+    state: dict,
+    cur_phase: str,
+    cur_sub: int,
+    output: str,
+    cwd: str,
+) -> int:
+    """§orchestration v2 D6：处理 ### STEP_DONE:<n> 逐步门控。
+
+    节点有 sub_steps 才处理（无 sub_steps 节点的 STEP_DONE 忽略，避免污染）。
+    流程：校验 n==sub_step_index（防跳步）-> gate 该子步骤 -> pass 则推进 sub_step_index
+    （末步 -> 推进子阶段）-> block 则续轮重试。
+    返回 0（永不阻断 Stop；block 走 additionalContext 续轮）。
+    """
+    node = engine.get_node(cur_phase, cur_sub)
+    if not node.sub_steps:
+        _log(
+            project_root,
+            "step_done_no_substeps",
+            wf=name,
+            phase=cur_phase,
+            n=sm.group(1),
+        )
+        return 0  # 无编排节点的 STEP_DONE 忽略
+
+    n = int(sm.group(1))
+    cur_step = state.get("sub_step_index", 1)
+    total = len(node.sub_steps)
+    if n != cur_step:
+        _log(
+            project_root,
+            "step_done_mismatch",
+            wf=name,
+            phase=cur_phase,
+            n=n,
+            sub_step_index=cur_step,
+        )
+        return 0  # 序号不符不推进（防跳步，同 SUB_DONE 守卫范式）
+
+    step = engine.sub_step_at(node, n)
+    if step is None:
+        _log(project_root, "step_done_bad_step", wf=name, phase=cur_phase, n=n)
+        return 0
+
+    # gate 该子步骤：gate=None 自动过；否则跑 judge（artifact_content 按需读 evidence）
+    if step.gate is None:
+        ok, reason = True, ""
+    else:
+        # 构造临时 node 传给 _evidence_artifact 范式：直接用 step_needs_evidence 读 evidence
+        artifact = _step_evidence_artifact(project_root, name, step)
+        # run_gate 需 Node + rubric；子步骤单独判，用 step.gate 跑 judge
+        # 复用 run_judge（节点 label 带 step 序号）
+        ok, reason = engine.run_judge(
+            step.gate, f"{node.label} · 子步骤{n}", output, artifact_content=artifact
+        )
+
+    if not ok:
+        attempts = state.get("node_attempts", 0) + 1
+        state["node_attempts"] = attempts
+        state["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
+        engine.save_state(project_root, name, state)
+        _log(
+            project_root,
+            "step_gate_block",
+            wf=name,
+            phase=cur_phase,
+            n=n,
+            attempts=attempts,
+            reason=reason[:120],
+        )
+        return _block_continue(
+            f"子步骤 {n}（{node.label}）未通过门控：{reason}\n"
+            f"该子步骤目的：{step.purpose}"
+        )
+
+    # gate 过：推进 sub_step_index 或（末步）推进子阶段
+    if n < total:
+        state["sub_step_index"] = n + 1
+        state["node_attempts"] = 0
+        state["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
+        engine.save_state(project_root, name, state)
+        _emit(
+            f"\n┌─ WORKFLOW · {name} · {engine.PHASE_LABELS.get(cur_phase, cur_phase)} 子步骤推进\n"
+            f"│ 子步骤 {n} ──► {n + 1}/{total}  · {engine.sub_step_at(node, n + 1).purpose[:30]}"
+        )
+        _log(project_root, "step_advanced", wf=name, phase=cur_phase, frm=n, to=n + 1)
+        return 0
+
+    # 末子步骤：推进子阶段（复用 engine.advance_state 的 sub 推进）
+    _emit(
+        f"\n┌─ WORKFLOW · {name} · {engine.PHASE_LABELS.get(cur_phase, cur_phase)} 末子步骤通过\n"
+        f"│ 子步骤 {n}/{total}（{step.purpose[:30]}）完成 -> 推进子阶段"
+    )
+    _log(project_root, "step_done_last", wf=name, phase=cur_phase, n=n)
+    new_state = engine.advance_state(project_root, name, via="step-done")
+    _emit(
+        f"\n╔═ WORKFLOW · {name} · 子阶段切换\n"
+        f"║ {engine.PHASE_LABELS.get(cur_phase, cur_phase)} · 子阶段 {cur_sub} "
+        f"──► {engine.PHASE_LABELS.get(new_state['phase'], new_state['phase'])}"
+    )
+    _log(
+        project_root,
+        "sub_advanced_via_step",
+        wf=name,
+        frm=cur_sub,
+        to=new_state["sub_index"],
+    )
+    return 0
+
+
 def main() -> int:
     try:
         payload = json.load(sys.stdin)
@@ -219,6 +362,14 @@ def main() -> int:
     output = _last_assistant_text(transcript_path)
 
     # ---- 1. 完成信号检测（标记 = 模型自认做完 -> 触发 gate 审）----
+    # §orchestration v2 D6：STEP_DONE 优先（有 sub_steps 节点用子步骤门控）。
+    # 无 sub_steps 节点 STEP_DONE 被 _handle_step_done 忽略，落回 SUB_DONE/PHASE_DONE。
+    sm_step = STEP_DONE_RE.search(output)
+    if sm_step:
+        return _handle_step_done(
+            sm_step, project_root, name, state, cur_phase, cur_sub, output, cwd
+        )
+
     sm = SUB_DONE_RE.search(output)
     if sm:
         # 子阶段完成信号
@@ -249,8 +400,14 @@ def main() -> int:
             )
             return 0  # 序号不符不推进（防跳步）
 
-        # 子阶段 gate：rubric=None 的（understand 1-3）-> run_gate 只过机械项(NONE)->过 -> 推进
-        ok, reason = engine.run_gate(node, output, project_root=project_root)
+        # 子阶段 gate：understand:1 有验真 rubric -> run_gate 跑 judge（读 evidence.jsonl）；
+        #   understand:2-3 无 rubric -> run_gate 只过机械项(NONE)->过 -> 推进
+        ok, reason = engine.run_gate(
+            node,
+            output,
+            project_root=project_root,
+            artifact_content=_evidence_artifact(project_root, name, node),
+        )
         if not ok:
             _log(
                 project_root,
@@ -263,10 +420,20 @@ def main() -> int:
             return _block_continue(f"子阶段 {n}({node.label})未通过门控：{reason}")
         # 通过：写裁决记录（§8.6）+ 推进 sub_index
         _ev_ok = engine.write_gate_verdict(
-            project_root, name, node,
-            attempts=state.get("node_attempts", 0), cwd=cwd, via="sub-advance",
+            project_root,
+            name,
+            node,
+            attempts=state.get("node_attempts", 0),
+            cwd=cwd,
+            via="sub-advance",
         )
-        _log(project_root, "gate_verdict_written", wf=name, node=engine.node_id(cur_phase, cur_sub), ev_ok=_ev_ok)
+        _log(
+            project_root,
+            "gate_verdict_written",
+            wf=name,
+            node=engine.node_id(cur_phase, cur_sub),
+            ev_ok=_ev_ok,
+        )
         now = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
         state["sub_index"] = n + 1
         state["node"] = engine.node_id(cur_phase, n + 1)
@@ -311,7 +478,12 @@ def main() -> int:
 
     # ---- 2. gate 质量审（compound: 机械 + judge）----
     node = engine.get_node(cur_phase, cur_sub)
-    ok, reason = engine.run_gate(node, output, project_root=project_root)
+    ok, reason = engine.run_gate(
+        node,
+        output,
+        project_root=project_root,
+        artifact_content=_evidence_artifact(project_root, name, node),
+    )
     if not ok:
         # gate 不过 -> block 续轮（模型自动重试）
         attempts = state.get("node_attempts", 0) + 1
@@ -331,10 +503,16 @@ def main() -> int:
 
     # gate 过：写裁决记录（§8.6）
     _ev_ok = engine.write_gate_verdict(
-        project_root, name, node,
-        attempts=state.get("node_attempts", 0), cwd=cwd, via="auto-stop",
+        project_root,
+        name,
+        node,
+        attempts=state.get("node_attempts", 0),
+        cwd=cwd,
+        via="auto-stop",
     )
-    _log(project_root, "gate_verdict_written", wf=name, node=state["node"], ev_ok=_ev_ok)
+    _log(
+        project_root, "gate_verdict_written", wf=name, node=state["node"], ev_ok=_ev_ok
+    )
 
     # ---- 3. gate 过 -> 闸门判定 + 推进 ----
     if engine.is_gated_after(cur_phase):
