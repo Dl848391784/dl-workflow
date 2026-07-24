@@ -218,6 +218,175 @@ class TestNormalizeState:
         norm = eng.normalize_state(dict(ok))
         assert norm["node"] == "plan:0"
 
+    def test_sub_step_index_defaults_zero_no_steps(self):
+        # §orchestration v2：无 sub_steps 节点 -> sub_step_index 补 0（understand:1 暂无编排）
+        old = {"phase": "understand", "sub_index": 1}
+        norm = eng.normalize_state(dict(old))
+        assert norm["sub_step_index"] == 0
+        # 整阶段节点同
+        norm2 = eng.normalize_state({"phase": "plan", "sub_index": 0})
+        assert norm2["sub_step_index"] == 0
+
+    def test_sub_step_index_out_of_range_raises(self):
+        # 显式 sub_step_index 越界（节点无 sub_steps 但给了 >0）-> 报错暴露（no silent fallback）
+        # 注：understand:1 暂无 sub_steps（commit 4 才填），给 sub_step_index=5 不越界（无 sub_steps 时 setdefault 跳过校验）
+        # 此用例真正生效在 commit 4 understand:1 有 sub_steps 后；此处先确保无 sub_steps 节点不报错
+        norm = eng.normalize_state(
+            {"phase": "understand", "sub_index": 1, "sub_step_index": 5}
+        )
+        # 无 sub_steps -> sub_step_index 保留 5（不校验，因无 sub_steps）
+        assert norm["sub_step_index"] == 5
+
+
+# ---------- §orchestration v2：Step dataclass + Node.sub_steps schema ----------
+
+
+class TestStepDataclass:
+    def test_step_construct_frozen(self):
+        s = eng.Step(
+            kind="skill",
+            ref="define-problem",
+            purpose="逼问",
+            input=None,
+            record=True,
+            gate="q 覆盖三类",
+        )
+        assert s.kind == "skill"
+        assert s.record is True
+        assert s.gate == "q 覆盖三类"
+
+    def test_step_frozen_immutable(self):
+        s = eng.Step(
+            kind="skill", ref="x", purpose="p", input=None, record=True, gate=None
+        )
+        with pytest.raises((AttributeError, Exception)):
+            s.kind = "tool"  # frozen -> 不可改
+
+
+class TestNodeSubStepsField:
+    def test_default_none(self):
+        # 现有节点未传 sub_steps -> None（向后兼容）
+        for phase in eng.PHASES:
+            total = eng.sub_total(phase)
+            first_sub = 1 if total > 0 else 0
+            node = eng.get_node(phase, first_sub)
+            assert node.sub_steps is None
+
+    def test_sub_steps_can_be_set(self):
+        # 构造带 sub_steps 的节点（验证 schema 可用，不落 _NODES）
+        s1 = eng.Step(
+            kind="skill", ref="x", purpose="p1", input=None, record=True, gate="g1"
+        )
+        s2 = eng.Step(
+            kind="tool", ref="y", purpose="p2", input="step1", record=False, gate=None
+        )
+        n = eng.Node(
+            label="t",
+            phase="understand",
+            sub=1,
+            skill="x",
+            artifact=None,
+            gate_mech=eng.GateMech.NONE,
+            gate_rubric=None,
+            advance="sub",
+            sub_steps=(s1, s2),
+        )
+        assert n.sub_steps == (s1, s2)
+        assert len(n.sub_steps) == 2
+
+
+class TestSubStepHelpers:
+    def test_sub_step_total_no_steps(self):
+        assert eng.sub_step_total(eng.get_node("plan", 0)) == 0
+        assert (
+            eng.sub_step_total(eng.get_node("understand", 1)) == 0
+        )  # commit 4 前无编排
+
+    def test_sub_step_total_with_steps(self):
+        s1 = eng.Step(
+            kind="skill", ref="x", purpose="p", input=None, record=True, gate=None
+        )
+        n = eng.Node(
+            label="t",
+            phase="understand",
+            sub=1,
+            skill="x",
+            artifact=None,
+            gate_mech=eng.GateMech.NONE,
+            gate_rubric=None,
+            advance="sub",
+            sub_steps=(s1, s1, s1),
+        )
+        assert eng.sub_step_total(n) == 3
+
+    def test_sub_step_at_valid(self):
+        s1 = eng.Step(
+            kind="skill", ref="a", purpose="p1", input=None, record=True, gate=None
+        )
+        s2 = eng.Step(
+            kind="tool", ref="b", purpose="p2", input="step1", record=True, gate=None
+        )
+        n = eng.Node(
+            label="t",
+            phase="understand",
+            sub=1,
+            skill="x",
+            artifact=None,
+            gate_mech=eng.GateMech.NONE,
+            gate_rubric=None,
+            advance="sub",
+            sub_steps=(s1, s2),
+        )
+        assert eng.sub_step_at(n, 1) is s1
+        assert eng.sub_step_at(n, 2) is s2
+
+    def test_sub_step_at_out_of_range_none(self):
+        n = eng.get_node("plan", 0)  # 无 sub_steps
+        assert eng.sub_step_at(n, 1) is None
+        s1 = eng.Step(
+            kind="skill", ref="a", purpose="p", input=None, record=True, gate=None
+        )
+        n2 = eng.Node(
+            label="t",
+            phase="understand",
+            sub=1,
+            skill="x",
+            artifact=None,
+            gate_mech=eng.GateMech.NONE,
+            gate_rubric=None,
+            advance="sub",
+            sub_steps=(s1,),
+        )
+        assert eng.sub_step_at(n2, 0) is None  # 0 非法（1-based）
+        assert eng.sub_step_at(n2, 2) is None  # 越界
+
+    def test_step_needs_evidence(self):
+        # gate 文本含 evidence/ 或 skill-trace -> True
+        se = eng.Step(
+            kind="skill",
+            ref="x",
+            purpose="p",
+            input=None,
+            record=True,
+            gate="evidence/<name>.jsonl 含 skill-trace",
+        )
+        assert eng.step_needs_evidence(se) is True
+        # 不含 -> False
+        sn = eng.Step(
+            kind="tool",
+            ref="x",
+            purpose="p",
+            input=None,
+            record=True,
+            gate="≥1 外部证据连回项目",
+        )
+        assert eng.step_needs_evidence(sn) is False
+        # gate=None -> False
+        snone = eng.Step(
+            kind="skill", ref="x", purpose="p", input=None, record=False, gate=None
+        )
+        assert eng.step_needs_evidence(snone) is False
+
 
 # ---------- advance_state（读写 state.json）----------
 
@@ -315,8 +484,9 @@ class TestWriteGateVerdict:
         assert "ts" in rec
 
     def test_rubric_none_for_mech_only_node(self, tmp_path):
-        # rubric=None 的节点（understand 子 1-3）-> rubric 字段 None（仅机械过）
-        node = eng.get_node("understand", 1)
+        # rubric=None 的节点（understand 子 2-3）-> rubric 字段 None（仅机械过）
+        # 注：understand:1 现有验真 rubric（§define-problem-verify-gate），用 understand:2 测无 rubric
+        node = eng.get_node("understand", 2)
         ok = eng.write_gate_verdict(tmp_path, "t", node, attempts=0, cwd=str(tmp_path))
         assert ok is True
         rec = json.loads(
@@ -366,6 +536,83 @@ class TestWriteGateVerdict:
             eng._evidence_path(tmp_path, "t").read_text(encoding="utf-8").strip()
         )
         assert rec["commit_sha"] == ""
+
+
+# ---------- §define-problem-verify-gate：understand:1 验真门 + skill-trace 证据链 ----------
+
+
+class TestUnderstand1VerifyGate:
+    """understand:1 的「验真问题是否真实」目的编码进 gate_rubric（单源在 engine）。"""
+
+    def test_rubric_not_none(self):
+        # understand:1 不再是无语义审的透明子阶段；rubric 编码验真目的
+        node = eng.get_node("understand", 1)
+        assert node.gate_rubric is not None
+
+    def test_rubric_encodes_purpose(self):
+        # rubric 含「验真问题是否真实」+「skill-trace」+「conclusion」关键词
+        node = eng.get_node("understand", 1)
+        assert "验真问题是否真实" in node.gate_rubric
+        assert "skill-trace" in node.gate_rubric
+        assert "conclusion" in node.gate_rubric
+        assert "problem_is_real" in node.gate_rubric
+
+    def test_skill_still_define_problem(self):
+        # skill 字段不变（skill-injection-link-design 已设）
+        assert eng.get_node("understand", 1).skill == "define-problem"
+
+    def test_advance_still_sub(self):
+        # 推进方式不变（子阶段间自动推进）
+        assert eng.get_node("understand", 1).advance == "sub"
+
+    def test_other_subphases_still_no_rubric(self):
+        # understand:2-3 仍无 rubric（无语义审，行为不变）
+        assert eng.get_node("understand", 2).gate_rubric is None
+        assert eng.get_node("understand", 3).gate_rubric is None
+
+
+class TestRubricNeedsEvidence:
+    """rubric_needs_evidence：rubric 含 evidence/ 或 skill-trace 即 True。"""
+
+    def test_understand1_needs_evidence(self):
+        assert eng.rubric_needs_evidence(eng.get_node("understand", 1)) is True
+
+    def test_no_rubric_node_false(self):
+        # understand:2-3 无 rubric -> False（hook 不读文件，行为不变）
+        assert eng.rubric_needs_evidence(eng.get_node("understand", 2)) is False
+        assert eng.rubric_needs_evidence(eng.get_node("understand", 3)) is False
+
+    def test_rubric_without_evidence_keyword_false(self):
+        # plan:0 / understand:4 有 rubric 但不依赖 evidence.jsonl -> False
+        assert eng.rubric_needs_evidence(eng.get_node("plan", 0)) is False
+        assert eng.rubric_needs_evidence(eng.get_node("understand", 4)) is False
+
+
+class TestReadEvidence:
+    """read_evidence：读 evidence/<name>.jsonl 全文；缺失/失败返回 None。"""
+
+    def test_missing_returns_none(self, tmp_path):
+        # 文件不存在 -> None（judge 降级判 block，不默认放行）
+        assert eng.read_evidence(tmp_path, "nope") is None
+
+    def test_returns_file_content(self, tmp_path):
+        # 文件存在 -> 返回全文（含模型写的 skill-trace/conclusion + gate 记录）
+        p = eng._evidence_path(tmp_path, "t")
+        p.parent.mkdir(parents=True, exist_ok=True)
+        records = (
+            '{"kind":"skill-trace","step":1,"q":"谁有这问题？","a":"..."}\n'
+            '{"kind":"conclusion","problem_is_real":true,"reason":"..."}\n'
+        )
+        p.write_text(records, encoding="utf-8")
+        assert eng.read_evidence(tmp_path, "t") == records
+
+    def test_read_failure_returns_none(self, tmp_path):
+        # 读失败（OSError）-> None（no silent fallback，不抛）
+        # 让 evidence 路径是个目录 -> read_text 抛 IsADirectoryError(OSError 子类)
+        p = eng._evidence_path(tmp_path, "t")
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.mkdir()
+        assert eng.read_evidence(tmp_path, "t") is None
 
 
 # ---------- gate_verdict_mech（骨架阶段;仅 NONE 通过,其他降级）----------
@@ -542,8 +789,9 @@ class TestRunJudge:
 
 class TestRunGate:
     def test_no_rubric_passes_without_judge(self, monkeypatch):
-        # understand:1 无 rubric -> 不调 judge,机械项 NONE 过 -> pass
+        # understand:2 无 rubric -> 不调 judge,机械项 NONE 过 -> pass
         # 用计数器证明 judge 没被调
+        # 注：understand:1 现有验真 rubric 会调 judge，故用 understand:2 测无 rubric 路径
         called = {"n": 0}
 
         def _spy(cmd, **kw):
@@ -551,7 +799,7 @@ class TestRunGate:
             return _fake_run_factory(0, _result_line('{"pass": true}'))(cmd, **kw)
 
         monkeypatch.setattr(eng.subprocess, "run", _spy)
-        node = eng.get_node("understand", 1)
+        node = eng.get_node("understand", 2)
         ok, _ = eng.run_gate(node, "输出")
         assert ok is True
         assert called["n"] == 0  # judge 没被调

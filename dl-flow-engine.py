@@ -51,6 +51,27 @@ class GateMech(enum.Enum):
 
 
 @dataclass(frozen=True)
+class Step:
+    """子阶段内一个有序子步骤（编排单位 + 门控单位）。
+
+    §node-step-orchestration-design v2 D6：子步骤 = 门控单位（### STEP_DONE:<n> 触发 gate）；
+    skill 内部 Q/A 是记录单位（不门控,只 record 落 evidence）。
+    目的（purpose）engine 声明（D7），注入走 phase-rules + gate 兜底校验（D3/D4）。
+    """
+
+    kind: str  # "skill" | "tool"
+    ref: (
+        str  # skill 名（"define-problem"）或 工具+参数模板（"codegraph callers {sym}"）
+    )
+    purpose: str  # 本子步骤目的（注入模型 + gate 校验依据）。声明式,单源在 engine。
+    input: str | None  # 引用上子步骤产出（"step1.real_problem"）；None=无依赖（首步）
+    record: bool  # 是否落 evidence（True=关键步；False=噪声如交互确认）
+    gate: (
+        str | None
+    )  # 子步骤 rubric（judge 校验 purpose 达成否）；None=自动过（仅机械）
+
+
+@dataclass(frozen=True)
 class Node:
     """单个节点定义。"""
 
@@ -64,6 +85,9 @@ class Node:
     gate_mech: GateMech  # 机械门类型
     gate_rubric: str | None  # 语义审据（judge prompt）;None=不跑 judge
     advance: str  # 推进方式："sub"=推进 sub_index, "phase"=推进 phase, "done"=终结
+    sub_steps: tuple[Step, ...] | None = (
+        None  # §orchestration v2：None=无编排(当前行为);非 None=启用子步骤注入/逐步门控
+    )
 
 
 # 节点表。<node_id> -> Node。node_id = f"{phase}:{sub}"。
@@ -81,8 +105,17 @@ _NODES: dict[str, Node] = {
         skill="define-problem",  # §skill-injection-link:载 define-problem(逼问问题定义/验真/钉约束/搜证据),契合 sub1「验真问题是否真实」
         artifact=None,
         gate_mech=GateMech.NONE,
-        gate_rubric=None,
-        advance="sub",  # 子阶段间自动推进,无门无审（快流转）
+        # §define-problem-verify-gate：rubric 即「验真问题是否真实」目的（单源在 engine）。
+        # 模型须把小步 Q/A(step/q/a)+结论(problem_is_real)写进 evidence/<name>.jsonl（B' 模型直写），
+        # Stop hook 读文件喂 judge 按本 rubric 校验。rubric 文本含 "evidence/"/"skill-trace" ->
+        # workflow_advance.rubric_needs_evidence=True 时读文件 + workflow_phase 注入 trace 写法。
+        gate_rubric=(
+            "验真问题是否真实：①evidence/<name>.jsonl 含 ≥3 条 kind=skill-trace 记录，"
+            "每条有 step/q/a 三字段 ②含 1 条 kind=conclusion 记录，"
+            "有 problem_is_real(bool)+reason ③q 覆盖 who/pain/why-now 至少三类。"
+            "缺任一 block。"
+        ),
+        advance="sub",  # 子阶段间自动推进;无机械门,rubric 驱动 judge 验真
     ),
     "understand:2": Node(
         label="明确目标和价值",
@@ -351,10 +384,12 @@ def _now() -> str:
 
 
 def normalize_state(state: dict[str, Any]) -> dict[str, Any]:
-    """补齐新字段（node / node_attempts）,旧 state 向后兼容。
+    """补齐新字段（node / node_attempts / sub_step_index）,旧 state 向后兼容。
 
     守 no silent fallback：node 字段缺失时按 phase+sub 推导补默认,不静默用错值。
     推导值与显式 node 不一致时**报错暴露**（防两者失同步）。
+    §orchestration v2：sub_step_index 缺失按节点有无 sub_steps 补默认（1 / 0）；
+    显式值与 sub_steps 总数不符（超出范围）-> 报错暴露。
     """
     phase = state.get("phase", "understand")
     sub = state.get("sub_index", 1 if sub_total(phase) > 0 else 0)
@@ -367,6 +402,20 @@ def normalize_state(state: dict[str, Any]) -> dict[str, Any]:
             f"state.node={state['node']!r} 与 phase+sub 推导={derived!r} 不一致"
         )
     state.setdefault("node_attempts", 0)
+    # §orchestration v2：sub_step_index 补默认 + 范围校验
+    node = get_node(phase, sub)
+    if node.sub_steps:
+        if "sub_step_index" not in state:
+            state["sub_step_index"] = 1  # 有子步骤 -> 起于首步
+        else:
+            n = state["sub_step_index"]
+            total = len(node.sub_steps)
+            if not (1 <= n <= total):
+                raise ValueError(
+                    f"state.sub_step_index={n} 越界（节点 {derived} 有 {total} 子步骤）"
+                )
+    else:
+        state.setdefault("sub_step_index", 0)  # 无子步骤 -> 0
     return state
 
 
@@ -453,6 +502,20 @@ def _evidence_path(project_root: Path, name: str) -> Path:
     return project_root / ".claude" / "evidence" / (name + ".jsonl")
 
 
+def read_evidence(project_root: Path, name: str) -> str | None:
+    """读 evidence/<name>.jsonl 全文，供 judge 作 artifact_content 校验。
+
+    §define-problem-verify-gate：understand:1 的 rubric 依赖 evidence.jsonl，
+    Stop hook 调本函数取文件文本喂 judge。缺失/读失败返回 None
+    （no silent fallback：judge 拿不到证据 -> 按 rubric 判 block，不默认放行）。
+    """
+    p = _evidence_path(project_root, name)
+    try:
+        return p.read_text(encoding="utf-8") if p.exists() else None
+    except OSError:
+        return None
+
+
 def write_gate_verdict(
     project_root: Path,
     name: str,
@@ -528,6 +591,38 @@ def gate_verdict_mech(node: Node, project_root: Path | None = None) -> str | Non
     if node.gate_mech == GateMech.TEST_PASS:
         return None  # 暂不实现,留 §8.2/§8.3
     return None
+
+
+def rubric_needs_evidence(node: Node) -> bool:
+    """节点的 gate_rubric 是否依赖 evidence.jsonl（决定 hook 要否读文件喂 judge）。
+
+    §define-problem-verify-gate：rubric 文本含 "evidence/" 或 "skill-trace" 即视为依赖
+    （rubric 自带关键词 -> 单源驱动 workflow_advance 读文件 + workflow_phase 注入 trace 写法）。
+    无 rubric / 不含关键词 -> False（understand:2-3 等无语义审节点，行为不变）。
+    """
+    r = node.gate_rubric or ""
+    return "evidence/" in r or "skill-trace" in r
+
+
+def sub_step_total(node: Node) -> int:
+    """节点子步骤数（0=无编排）。§orchestration v2 D2。"""
+    return len(node.sub_steps) if node.sub_steps else 0
+
+
+def sub_step_at(node: Node, n: int) -> Step | None:
+    """取第 n 子步骤（1-based）；越界/无子步骤返回 None。"""
+    if not node.sub_steps or not (1 <= n <= len(node.sub_steps)):
+        return None
+    return node.sub_steps[n - 1]
+
+
+def step_needs_evidence(step: Step) -> bool:
+    """子步骤是否需读 evidence.jsonl 喂 judge（与 rubric_needs_evidence 同关键词判定）。
+
+    §orchestration v2：子步骤 gate 文本含 "evidence/" 或 "skill-trace" 即读 evidence。
+    """
+    r = step.gate or ""
+    return "evidence/" in r or "skill-trace" in r
 
 
 def _strip_json_fence(text: str) -> str:
