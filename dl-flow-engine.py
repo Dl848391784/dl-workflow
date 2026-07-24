@@ -662,6 +662,75 @@ def step_needs_evidence(step: Step) -> bool:
     return "evidence/" in r or "skill-trace" in r
 
 
+def sub_step_has_trace(project_root: Path, name: str, sub_step_index: int) -> bool:
+    """evidence.jsonl 是否含 sub_step == sub_step_index 的 skill-trace 记录。
+
+    §step-advance-on-submit E1：UserPromptSubmit 据此判断当前子步骤是否已写 evidence
+    （避开 transcript flush 竞态；evidence 是上轮写、已落盘）。
+    缺文件/读失败 -> False（gate 降级判 block，不默认放行）。
+    """
+    text = read_evidence(project_root, name)
+    if not text:
+        return False
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if (
+            isinstance(rec, dict)
+            and rec.get("kind") == "skill-trace"
+            and rec.get("sub_step") == sub_step_index
+        ):
+            return True
+    return False
+
+
+def gate_and_advance_sub_step(
+    project_root: Path, name: str, node: Node, sub_step_index: int
+) -> tuple[bool, str, dict[str, Any]]:
+    """gate 当前子步骤 + 推进。返回 (advanced, reason, new_state)。
+
+    §step-advance-on-submit E2（3a）：gate+推进合一，供 UserPromptSubmit 调用。
+    - gate=None 自动过；否则 run_judge（artifact_content = evidence 全文）。
+    - advanced=True：已推进（非末步 sub_step_index++ / 末步 advance_state 推进子阶段）。
+    - advanced=False：block（未推进，返回 reason，模型需重做）。
+    new_state 仅 advanced=True 有意义（推进后的 state，供注入）。
+    """
+    step = sub_step_at(node, sub_step_index)
+    if step is None:
+        return False, f"子步骤 {sub_step_index} 不存在", {}
+    if step.gate is None:
+        ok, reason = True, ""
+    else:
+        artifact = read_evidence(project_root, name)
+        ok, reason = run_judge(
+            step.gate,
+            f"{node.label} · 子步骤{sub_step_index}",
+            "",
+            artifact_content=artifact,
+        )
+    if not ok:
+        return False, reason or "judge 未给出原因", {}
+    # 推进
+    state = load_state(project_root, name)
+    if state is None:
+        return False, f"工作流 {name} 的 state.json 缺失", {}
+    state = normalize_state(state)
+    if sub_step_index < len(node.sub_steps):
+        state["sub_step_index"] = sub_step_index + 1
+        state["node_attempts"] = 0
+        state["updated_at"] = _now()
+        save_state(project_root, name, state)
+        return True, "", state
+    # 末步：推进子阶段（advance_state 含 normalize + save）
+    new_state = advance_state(project_root, name, via="step-submit")
+    return True, "", new_state
+
+
 def _strip_json_fence(text: str) -> str:
     """剥 ```json ... ``` 代码块围栏（冒烟实测 judge 倾向包代码块）。"""
     s = text.strip()

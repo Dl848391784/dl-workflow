@@ -641,6 +641,185 @@ class TestStepNeedsEvidenceForU1:
         assert eng.step_needs_evidence(node.sub_steps[3]) is False
 
 
+# ---------- §step-advance-on-submit：sub_step_has_trace + gate_and_advance_sub_step ----------
+
+
+def _write_state_full(
+    tmp_path: Path, name: str, phase: str, sub: int, sub_step: int = 0
+) -> Path:
+    """建含 sub_step_index 的完整 state（供推进测试）。"""
+    wf_dir = tmp_path / ".claude" / "workflows" / name
+    wf_dir.mkdir(parents=True, exist_ok=True)
+    state = {
+        "name": name,
+        "phase": phase,
+        "index": eng.phase_index(phase),
+        "sub_index": sub,
+        "sub_total": eng.sub_total(phase),
+        "node": eng.current_node_id(phase, sub),
+        "sub_step_index": sub_step,
+        "gate": "pending",
+        "node_attempts": 0,
+        "session_id": "s",
+        "branch": f"wf/{name}",
+        "worktree_path": str(tmp_path),
+        "created_at": "x",
+        "updated_at": "x",
+        "history": [],
+    }
+    (wf_dir / "state.json").write_text(json.dumps(state), encoding="utf-8")
+    return tmp_path
+
+
+def _write_evidence(tmp_path: Path, name: str, records: list[str]) -> Path:
+    """写 evidence.jsonl（每条一行 JSON 字符串）。"""
+    p = eng._evidence_path(tmp_path, name)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("\n".join(records) + "\n", encoding="utf-8")
+    return p
+
+
+class TestSubStepHasTrace:
+    """sub_step_has_trace：evidence 含 sub_step==N 的 skill-trace 即 True。"""
+
+    def test_no_file_false(self, tmp_path):
+        assert eng.sub_step_has_trace(tmp_path, "t", 1) is False
+
+    def test_has_matching_trace(self, tmp_path):
+        _write_evidence(
+            tmp_path,
+            "t",
+            [
+                '{"kind":"skill-trace","sub_step":1,"purpose":"p","q":"q","a":"a"}',
+            ],
+        )
+        assert eng.sub_step_has_trace(tmp_path, "t", 1) is True
+
+    def test_no_matching_sub_step(self, tmp_path):
+        # 有 sub_step=1 的 trace，查 sub_step=2 -> False
+        _write_evidence(
+            tmp_path,
+            "t",
+            [
+                '{"kind":"skill-trace","sub_step":1,"purpose":"p","q":"q","a":"a"}',
+            ],
+        )
+        assert eng.sub_step_has_trace(tmp_path, "t", 2) is False
+
+    def test_ignores_non_skill_trace(self, tmp_path):
+        # kind=gate / kind=conclusion 不算
+        _write_evidence(
+            tmp_path,
+            "t",
+            [
+                '{"kind":"gate","sub_step":1}',
+                '{"kind":"conclusion","sub_step":1}',
+            ],
+        )
+        assert eng.sub_step_has_trace(tmp_path, "t", 1) is False
+
+    def test_old_step_field_ignored(self, tmp_path):
+        # 旧字段 step（非 sub_step）不算（E4 统一 sub_step）
+        _write_evidence(
+            tmp_path,
+            "t",
+            [
+                '{"kind":"skill-trace","step":1,"q":"q","a":"a"}',
+            ],
+        )
+        assert eng.sub_step_has_trace(tmp_path, "t", 1) is False
+
+
+class TestGateAndAdvanceSubStep:
+    """gate_and_advance_sub_step：gate+推进合一（3a）。"""
+
+    def test_gate_pass_advances_sub_step(self, tmp_path, monkeypatch):
+        # 非末步 gate pass -> sub_step_index++
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        monkeypatch.setattr(eng, "run_judge", lambda *a, **k: (True, ""))
+        node = eng.get_node("understand", 1)
+        advanced, reason, new_state = eng.gate_and_advance_sub_step(
+            tmp_path, "t", node, 1
+        )
+        assert advanced is True
+        assert reason == ""
+        reread = eng.load_state(tmp_path, "t")
+        assert reread["sub_step_index"] == 2
+        assert reread["phase"] == "understand"  # 未推进子阶段
+
+    def test_gate_block_no_advance(self, tmp_path, monkeypatch):
+        # gate block -> 不推进，返回 reason
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        monkeypatch.setattr(eng, "run_judge", lambda *a, **k: (False, "没搜到证据"))
+        node = eng.get_node("understand", 1)
+        advanced, reason, new_state = eng.gate_and_advance_sub_step(
+            tmp_path, "t", node, 2
+        )
+        assert advanced is False
+        assert "没搜到证据" in reason
+        reread = eng.load_state(tmp_path, "t")
+        assert reread["sub_step_index"] == 1  # 未变
+
+    def test_gate_none_passes_without_judge(self, tmp_path, monkeypatch):
+        # 子4 gate=None 自动过，不调 judge；末步 -> 推进子阶段
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=4)
+        called = {"n": 0}
+
+        def _spy(*a, **k):
+            called["n"] += 1
+            return (True, "")
+
+        monkeypatch.setattr(eng, "run_judge", _spy)
+        node = eng.get_node("understand", 1)
+        advanced, reason, new_state = eng.gate_and_advance_sub_step(
+            tmp_path, "t", node, 4
+        )
+        assert advanced is True
+        assert called["n"] == 0  # gate=None 没调 judge
+        reread = eng.load_state(tmp_path, "t")
+        assert reread["sub_index"] == 2  # 推进到 understand:2
+        assert reread["node"] == "understand:2"
+
+    def test_no_evidence_blocks(self, tmp_path, monkeypatch):
+        # evidence 缺 -> judge 拿 None artifact -> 判 block（no silent fallback）
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        # run_judge 收到 artifact=None 时应判 block；用真实 run_judge 行为模拟
+        captured = {}
+
+        def _spy(rubric, label, output, artifact_content=None):
+            captured["artifact"] = artifact_content
+            return (False, "evidence 缺失")
+
+        monkeypatch.setattr(eng, "run_judge", _spy)
+        node = eng.get_node("understand", 1)
+        advanced, reason, _ = eng.gate_and_advance_sub_step(tmp_path, "t", node, 1)
+        assert advanced is False
+        assert captured["artifact"] is None  # evidence 缺传 None
+        assert "evidence 缺失" in reason
+
+    def test_passes_evidence_to_judge(self, tmp_path, monkeypatch):
+        # gate 跑 judge 时 artifact_content = evidence 全文
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        _write_evidence(
+            tmp_path,
+            "t",
+            [
+                '{"kind":"skill-trace","sub_step":1,"purpose":"p","q":"q","a":"a"}',
+            ],
+        )
+        captured = {}
+
+        def _spy(rubric, label, output, artifact_content=None):
+            captured["artifact"] = artifact_content
+            return (True, "")
+
+        monkeypatch.setattr(eng, "run_judge", _spy)
+        node = eng.get_node("understand", 1)
+        eng.gate_and_advance_sub_step(tmp_path, "t", node, 1)
+        assert captured["artifact"] is not None
+        assert "skill-trace" in captured["artifact"]
+
+
 class TestReadEvidence:
     """read_evidence：读 evidence/<name>.jsonl 全文；缺失/失败返回 None。"""
 
