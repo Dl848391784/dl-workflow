@@ -112,11 +112,11 @@ class Node:
         Step(kind="skill", ref="define-problem",
              purpose="逼问问题定义：who/pain/why-now 至少三类，挖到真实问题非字面",
              input=None, record=True,
-             gate="真实问题逼出 + who/pain/why-now ≥3 类且各附答案"),
+             gate="trace 存在 + q/a 覆盖 who/pain/why-now ≥3 类且各答案引用用户原话 + 定义可证伪（具体主语+可观察痛点+场景约束）"),
         Step(kind="tool", ref="codegraph impact {sym} / web search",
-             purpose="搜证据：他人如何定义同问题 + 约束 + 反模式（防 reinvent）",
+             purpose="验真问题真实存在：搜外部证据证实或证伪子1的问题陈述 + 约束 + 反模式（防 reinvent）",
              input="step1.real_problem", record=True,
-             gate="≥1 外部证据（repo/paper/codegraph 输出）连回本项目，非泛泛"),
+             gate="≥1 外部证据直接针对子1问题陈述 + 证据与存在性结论间有推理链，非泛泛"),
         Step(kind="skill", ref="define-problem",
              purpose="一句话陈述问题（若放不进一句则未定义完）",
              input="step1+step2", record=True,
@@ -186,7 +186,7 @@ understand:1 有 4 子步骤 = 4 次 judge（每次 STEP_DONE 一次 claude -p�
 - 子步骤编排（本节点 {n} 子步骤，按序执行，每步完成输出 ### STEP_DONE:<n> 触发门控）：
   1. [skill:define-problem] 目的：逼问问题定义：who/pain/why-now 至少三类...
      输入：无（首步）｜记录：是（落 evidence skill-trace，skill 内部 Q/A 不门控）
-  2. [tool:codegraph/web] 目的：搜证据：他人如何定义同问题...
+  2. [tool:codegraph/web] 目的：验真问题真实存在：搜外部证据证实或证伪子1的问题陈述...
      输入：step1.real_problem｜记录：是
   ...
   当前步：{sub_step_index}（高亮）。强制：未达上步 purpose 就进下步=违规。

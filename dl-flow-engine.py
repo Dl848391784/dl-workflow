@@ -118,20 +118,25 @@ _NODES: dict[str, Node] = {
                 purpose="逼问问题定义：who/pain/why-now 至少三类，挖到真实问题非字面",
                 input=None,
                 record=True,
+                # 门控分工：子1 只管「定义质量」（结构可判项），真值判给子2（验真）+ 子4（用户认可）。
                 gate=(
-                    "evidence/<name>.jsonl 含本子步骤 skill-trace 记录，"
-                    "q 覆盖 who/pain/why-now ≥3 类且各附答案，真实问题已逼出非字面请求。"
+                    "evidence/<name>.jsonl 含 kind=skill-trace 且 sub_step==1 的记录；"
+                    "q/a 数组按序对齐，覆盖 who/pain/why-now ≥3 类，"
+                    "各答案非空且引用用户原话或会话事实（非空泛复述）；"
+                    "产出的问题定义可证伪：含具体主语+可观察痛点+场景约束，"
+                    "非模糊叙事（供子步骤2验真）。"
                 ),
             ),
             Step(
                 kind="tool",
                 ref="codegraph impact {sym} / web search",
-                purpose="搜证据：他人如何定义同问题 + 约束 + 反模式（防 reinvent）",
+                purpose="验真问题真实存在：搜外部证据（repo/paper/他人实现）证实或证伪子1的问题陈述 + 约束 + 反模式（防 reinvent）",
                 input="step1.real_problem",
                 record=True,
                 gate=(
-                    "evidence/<name>.jsonl 含本子步骤 skill-trace 记录，"
-                    "≥1 外部证据（repo/paper/codegraph 输出）连回本项目，非泛泛建议。"
+                    "evidence/<name>.jsonl 含 kind=skill-trace 且 sub_step==2 的记录；"
+                    "≥1 外部证据（repo/paper/codegraph 输出）直接针对子步骤1的问题陈述，"
+                    "且证据与「问题真实存在/不存在」结论之间有推理链，非泛泛行业常识。"
                 ),
             ),
             Step(
