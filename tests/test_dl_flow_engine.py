@@ -1107,6 +1107,60 @@ class TestPendingUnjudgedStep:
         assert eng.pending_unjudged_step(tmp_path, "t") is None
 
 
+class TestPhaseWriteDenial:
+    """§S11：phase 写权限围栏（understand/plan/review 禁改源码硬化）。"""
+
+    def _deny(self, tmp_path, phase, sub, path):
+        step = 1 if eng.sub_total(phase) > 0 else 0  # 有子阶段的节点 sub_step_index 须 1-based
+        _write_state_full(tmp_path, "t", phase, sub, sub_step=step)
+        return eng.phase_write_denial(tmp_path, "t", path)
+
+    def test_understand_denies_source(self, tmp_path):
+        r = self._deny(tmp_path, "understand", 1, "/repo/factors/rsi.py")
+        assert r is not None and "rsi.py" in r
+
+    def test_understand_allows_artifact_designs_evidence(self, tmp_path):
+        assert self._deny(tmp_path, "understand", 1, "/repo/understand.md") is None
+        assert self._deny(tmp_path, "understand", 1, "/repo/designs/x.md") is None
+        assert (
+            self._deny(tmp_path, "understand", 1, "/repo/.claude/evidence/t.jsonl")
+            is None
+        )
+
+    def test_plan_allows_plan_md_denies_source(self, tmp_path):
+        assert self._deny(tmp_path, "plan", 0, "/repo/plan.md") is None
+        assert self._deny(tmp_path, "plan", 0, "/repo/main.py") is not None
+
+    def test_execute_unrestricted(self, tmp_path):
+        assert self._deny(tmp_path, "execute", 0, "/repo/main.py") is None
+
+    def test_review_denies_impl_allows_review_md(self, tmp_path):
+        assert self._deny(tmp_path, "review", 0, "/repo/main.py") is not None
+        assert self._deny(tmp_path, "review", 0, "/repo/review.md") is None
+
+    def test_evolution_allows_memory_and_skills(self, tmp_path):
+        assert self._deny(tmp_path, "evolution", 0, "/repo/evolution.md") is None
+        assert (
+            self._deny(
+                tmp_path, "evolution", 0, "/home/u/.claude/projects/p/memory/fact.md"
+            )
+            is None
+        )
+        assert self._deny(tmp_path, "evolution", 0, "/repo/.claude/skills/s/SKILL.md") is None
+        assert self._deny(tmp_path, "evolution", 0, "/repo/main.py") is not None
+
+    def test_fence_off_allows(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        st = eng.normalize_state(eng.load_state(tmp_path, "t"))
+        assert st["enforce_phase_fence"] is True  # normalize 默认开
+        st["enforce_phase_fence"] = False
+        eng.save_state(tmp_path, "t", st)
+        assert eng.phase_write_denial(tmp_path, "t", "/repo/main.py") is None
+
+    def test_no_state_allows(self, tmp_path):
+        assert eng.phase_write_denial(tmp_path, "t", "/repo/main.py") is None
+
+
 class TestReadEvidence:
     """read_evidence：读 evidence/<name>.jsonl 全文；缺失/失败返回 None。"""
 

@@ -472,6 +472,8 @@ def normalize_state(state: dict[str, Any]) -> dict[str, Any]:
     state.setdefault("last_judged_trace", {})
     # §substep-gate-at-stop S10：PreToolUse 步骤围栏开关（/wf fence on|off）。
     state.setdefault("enforce_step_fence", True)
+    # §substep-gate-at-stop S11：phase 写权限围栏开关（/wf fence 统一切换）。
+    state.setdefault("enforce_phase_fence", True)
     # §orchestration v2：sub_step_index 补默认 + 范围校验
     node = get_node(phase, sub)
     if node.sub_steps:
@@ -921,6 +923,66 @@ def gate_sub_step_at_stop(
     return action, reason or "judge 未给出原因", state
 
 
+# ---------- phase 写权限围栏（§substep-gate-at-stop S11）----------
+
+# 各 phase 允许模型用结构化写工具（Edit/Write/MultiEdit/NotebookEdit）落盘的路径。
+# 规则三类：basename 命中 / 路径含 designs 且 .md / 路径含 .claude/evidence。
+# execute=None 表示不限制。真源对齐 phase-rules.md 各阶段「禁止」行。
+_PHASE_WRITE_NAMES: dict[str, frozenset[str] | None] = {
+    "understand": frozenset({"understand.md"}),
+    "plan": frozenset({"plan.md", "understand.md"}),
+    "execute": None,  # 不限制
+    "review": frozenset({"review.md"}),
+    # evolution 额外放行 .claude/(skills 更新) + memory/（沉淀），见 _phase_write_path_ok
+    "evolution": frozenset({"evolution.md"}),
+}
+
+
+def _phase_write_path_ok(phase: str, file_path: str) -> bool:
+    """路径是否命中该 phase 的写白名单（§S11）。"""
+    names = _PHASE_WRITE_NAMES.get(phase)
+    if names is None:
+        return True  # execute（或未配置）不限制
+    p = Path(file_path)
+    if p.name in names:
+        return True
+    parts = p.parts
+    if "designs" in parts and p.suffix == ".md":
+        return True  # H8 design 文档各阶段可起草/补
+    if ".claude" in parts and "evidence" in parts:
+        return True  # evidence 任何阶段可写（子步骤编排/裁决留痕）
+    if phase == "evolution":
+        if ".claude" in parts:
+            return True  # 更新 skill（.claude/skills/）
+        if "memory" in parts and p.suffix == ".md":
+            return True  # 沉淀 memory（~/.claude/projects/*/memory/）
+    return False
+
+
+def phase_write_denial(project_root: Path, name: str, file_path: str) -> str | None:
+    """phase-fence 判定：该 phase 写 file_path 是否被拒。被拒 -> 返回 deny 原因；否则 None。
+
+    §substep-gate-at-stop S11：把「understand/plan 禁改源码、review 禁改实现」
+    从文案约束变硬约束。无 state / execute / 白名单命中 / 围栏关 -> None（放行）。
+    """
+    state = load_state(project_root, name)
+    if state is None:
+        return None
+    state = normalize_state(state)
+    if not state.get("enforce_phase_fence", True):
+        return None
+    phase = state.get("phase", "understand")
+    if _phase_write_path_ok(phase, file_path):
+        return None
+    names = _PHASE_WRITE_NAMES.get(phase) or frozenset()
+    allow = "、".join(sorted(names)) if names else "（无）"
+    return (
+        f"当前阶段「{PHASE_LABELS.get(phase, phase)}」禁止写源码/实现"
+        f"（phase-rules 硬约束）。可写：{allow}、designs/*.md、.claude/evidence/。"
+        f"被拒路径：{file_path}"
+    )
+
+
 def pending_unjudged_step(project_root: Path, name: str) -> int | None:
     """当前子步骤是否有「已写 trace 但未经门控判决」。有 -> 返回子步骤号；否则 None。
 
@@ -1269,8 +1331,11 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         state = normalize_state(state)
         state["enforce_step_fence"] = args.value == "on"
+        state["enforce_phase_fence"] = args.value == "on"  # S10+S11 统一切换
         save_state(project_root, name, state)
-        print(f"✓ 子步骤围栏（PreToolUse 硬约束）已{'开启' if args.value == 'on' else '关闭（回文案约束）'}")
+        print(
+            f"✓ 围栏（S10 子步骤 + S11 阶段写权限）已{'开启' if args.value == 'on' else '关闭（回文案约束）'}"
+        )
         return 0
     return 1
 

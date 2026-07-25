@@ -270,17 +270,22 @@ for l in sys.stdin:
 
 新加编排节点时，同样在 phase-rules 加"写 evidence 是 STEP_DONE 前置"强制，别只在注入里说。
 
-### 症状 O：模型工具调用被围栏拒绝（PreToolUse deny「等待门控判决」）
+### 症状 O：模型工具调用被围栏拒绝（PreToolUse deny）
 
-**这是 S10 步骤围栏的正常触发**（2026-07-25 起），不是 bug：模型写完当前子步骤 evidence 后未 end_turn 就继续调工具（典型：连做下一子步骤探查，demo 会话 3009550c 实录）。围栏与 Stop 门控共用 `last_judged_trace` 游标——judge 判完（pass/block 都记游标）围栏自动开。
+围栏有两种（§substep-gate-at-stop S10/S11，2026-07-25 起），都是**正常触发**不是 bug：
+
+**S10 步骤围栏**（deny 提示「等待门控判决」）：模型写完当前子步骤 evidence 后未 end_turn 就继续调工具（典型：连做下一子步骤探查，demo 会话 3009550c 实录）。围栏与 Stop 门控共用 `last_judged_trace` 游标——judge 判完（pass/block 都记游标）围栏自动开。
+
+**S11 阶段写围栏**（deny 提示「当前阶段禁止写源码/实现」）：understand/plan/review 阶段用 Edit/Write/MultiEdit/NotebookEdit 写白名单外路径（白名单 = 本阶段产物 .md + designs/*.md + .claude/evidence/，单源在 engine `_PHASE_WRITE_NAMES`）。已知限制：Bash 写（重定向/sed -i）不可拦。
 
 **诊断**：
 ```bash
-tail -5 <项目>/.claude/.wf_fence.log   # fence_deny|step=N|tool=X
+tail -5 <项目>/.claude/.wf_fence.log   # fence_deny（S10）/ phase_fence_deny（S11）
 ```
-- 模型被拒后应输出 `### STEP_DONE: N` + end_turn -> Stop 判定 -> 放行/返工。
-- **误伤排查**（模型确实在做当前子步骤的事却被拒）：说明它提前写了 evidence（trace 落盘即被视为完成信号）。纠正：让它继续输出 STEP_DONE 把这一轮判掉（judge block 后游标更新、围栏开、可返工），或 `/wf fence off` 临时关闭。
-- **确认围栏状态**：`python3 ~/.dl-workflow/dl-flow-engine.py status <name>` 或看 state.json `enforce_step_fence`（默认 true）。
+- S10 被拒后模型应输出 `### STEP_DONE: N` + end_turn -> Stop 判定 -> 放行/返工。
+- **S10 误伤排查**（模型确实在做当前子步骤的事却被拒）：说明它提前写了 evidence（trace 落盘即被视为完成信号）。纠正：让它输出 STEP_DONE 把这轮判掉（judge block 后游标更新、围栏开、可返工），或 `/wf fence off` 临时关闭。
+- **S11 误伤排查**（该写的产物被拒）：查白名单是否漏路径模式（如产物约定改了）-> 改 engine `_PHASE_WRITE_NAMES`（单源），别关围栏迁就。
+- **确认围栏状态**：state.json `enforce_step_fence` / `enforce_phase_fence`（默认均 true，`/wf fence on|off` 统一切换）。
 
 **旧工作流（fence 前建的）无围栏**：per-wf settings.json 是 launcher 写的模板，旧 settings 缺 workflow_step_fence.py 注册。`dl <name> --resume` 重起 launcher 会补写 settings（或手加）。
 
