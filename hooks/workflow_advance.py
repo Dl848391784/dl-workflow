@@ -160,25 +160,30 @@ def _emit(msg: str) -> None:
     sys.stdout.flush()
 
 
-def _block_continue(reason: str) -> int:
-    """返 Stop hook 的 additionalContext 续轮（changelog:1000 机制）。
+def _stop_continue(body: str) -> int:
+    """返 Stop hook 的 additionalContext 续轮（changelog:1000 机制）通用底座。
 
-    模型收到 reason -> 自动再来一轮修正,无用户介入。撞 cap(默认 8)
+    模型收到 body -> 自动再来一轮,无用户介入。撞 cap(默认 8)
     -> claude 自动告警终结本轮（changelog:1435）。
     """
     out = {
         "hookSpecificOutput": {
             "hookEventName": "Stop",
-            "additionalContext": (
-                "## WORKFLOW GATE 未通过\n"
-                f"{reason}\n\n"
-                "请按上述原因修正后,重新完成当前节点（再次输出完成标记）。"
-            ),
+            "additionalContext": body,
         }
     }
     sys.stdout.write(json.dumps(out, ensure_ascii=False) + "\n")
     sys.stdout.flush()
     return 0
+
+
+def _block_continue(reason: str) -> int:
+    """门控未通过续轮：模型当轮返工。"""
+    return _stop_continue(
+        "## WORKFLOW GATE 未通过\n"
+        f"{reason}\n\n"
+        "请按上述原因修正后,重新完成当前节点（再次输出完成标记）。"
+    )
 
 
 def _evidence_artifact(
@@ -292,10 +297,33 @@ def main() -> int:
                 to=nxt,
             )
             if (st or {}).get("sub_index", cur_sub) != cur_sub:
+                # 末步通过 -> 子阶段边界：停轮作天然检查点（用户可介入/redirect），
+                # 不自动续轮进下一子阶段。
                 _emit(f"✓ 子步骤 {judged_step} 通过门控 -> 子阶段推进")
+                return 0
+            # ⚠ stdout 必须是纯 JSON（harness 整体解析）——✓ 行走 stderr，
+            # 混一行非 JSON 文本会让 additionalContext 被整段丢弃（demo 2026-07-25 实测：
+            # pass 续轮未投递，模型停轮；block 路径纯 JSON 所以一直正常）。
+            sys.stderr.write(f"✓ 子步骤 {judged_step} 通过门控 -> 子步骤 {nxt}（自动续轮）\n")
+            # pass 自动续轮（2026-07-25 决议）：非末步 pass 也返 additionalContext，
+            # 模型当轮直接开做下一子步骤，免去用户每步发一次「继续」。
+            # 中途需用户输入模型会走 AskUserQuestion；用户可随时 Esc 打断。
+            nxt_step = engine.sub_step_at(cur_node0, nxt)
+            total = len(cur_node0.sub_steps)
+            if nxt_step is None:
+                return 0  # 防御：索引异常时停轮（下轮注入自纠）
+            if nxt_step.kind == "skill":
+                how = f"先用 Skill 工具 invoke `{nxt_step.ref}`，再按其引导执行"
             else:
-                _emit(f"✓ 子步骤 {judged_step} 通过门控 -> 子步骤 {nxt}")
-            return 0
+                how = f"用工具 {nxt_step.ref} 执行"
+            return _stop_continue(
+                f"## WORKFLOW 子步骤 {judged_step} 已通过门控\n"
+                f"现在立即执行子步骤 {nxt}/{total}（{nxt_step.kind}: {nxt_step.ref}）：\n"
+                f"目的：{nxt_step.purpose}\n\n"
+                f"{how}；完成后写/append evidence skill-trace（sub_step={nxt}），"
+                f"再输出 ### STEP_DONE: {nxt} 并结束本轮。\n"
+                "如需用户输入：用 AskUserQuestion 工具（回合内完成）。"
+            )
         # block / escalate：同轮返工（S4/S7）
         attempts = (st or state).get("node_attempts", 0)
         _log(
@@ -315,9 +343,9 @@ def main() -> int:
                 "停止盲目重做，用 AskUserQuestion 请用户裁决：\n"
                 "1. 用户补充信息/澄清后，你重做该子步骤\n"
                 "2. 用户同意强制放行后，你运行 "
-                "bash ~/.dl-workflow/scripts/workflow/wf-cmd.sh step-pass"
+                "bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh step-pass"
                 "（裁决记录落 evidence）\n"
-                "3. 用户要求回退 /wf back\n"
+                "3. 用户要求回退 /dl back\n"
                 "门控判据不可自行变通；出口只有用户裁决。"
             )
         return _block_continue(
@@ -492,7 +520,7 @@ def main() -> int:
             _emit(
                 f"\n┌─ WORKFLOW · {name} · {engine.PHASE_LABELS.get(cur_phase, cur_phase)} 完成，闸门待放行\n"
                 f"│ 已完成（gate 通过），但进 {engine.PHASE_LABELS.get(nxt, nxt)} 需闸门放行。\n"
-                f"│ 输入 /wf gate 放行，或 /wf next 强制推进。"
+                f"│ 输入 /dl gate 放行，或 /dl next 强制推进。"
             )
             _log(project_root, "gated_block", wf=name, phase=cur_phase, gate=gate)
             return 0
