@@ -1,5 +1,5 @@
 ---
-description: 工作流阶段控制 - 用法 /wf next|back|jump <phase>|status|gate|done
+description: 工作流阶段控制 - 用法 /wf next|back|jump <phase>|status|gate|step-pass|done
 ---
 
 运行工作流控制脚本。参数透传给 `$ARGUMENTS`。

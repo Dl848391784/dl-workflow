@@ -34,6 +34,7 @@ understand:1 commit 4 切换为 sub_steps 后：
 | E4 | **evidence skill-trace 统一用 `sub_step` 字段**（非 `step`） | UserPromptSubmit 据此判断"当前子步骤的 trace 是否已写"。对齐模型写法与 hook 读取 |
 | E5 | **Stop hook 删 STEP_DONE 分支** | 子步骤推进移走；Stop 只保留无 sub_steps 节点的 SUB_DONE/PHASE_DONE（行为不变） |
 | E6 | **trace 写法注入移到 sub_steps 清单块**（修复 0.2 遗漏） | understand:1 有 sub_steps 时，清单块带上 evidence 写法格式（绝对路径 + JSON 格式）；删旧的 rubric_needs_evidence 触发的 trace 块（已失效） |
+| E7 | **子步骤 block 计 `node_attempts` + 连续 3 次升级为用户裁决**（2026-07-25 增补） | 原设计 block 不计数、无上限，judge 误 block 时死循环且无信号。block 时 engine 累加 `node_attempts`；达 `SUB_STEP_BLOCK_ESCALATE`(=3) 后注入改为「停止重做，AskUserQuestion 请用户裁决」：①补充信息重做 ②`/wf step-pass` 强制放行（engine `force_pass_sub_step` 写 `via=manual-step-pass` 裁决记录后按 pass 路径推进）③`/wf back` 回退。**出口是用户裁决而非放宽 rubric**（rubric 对用户是黑盒） |
 
 ## 2. 数据流（方案 3a）
 

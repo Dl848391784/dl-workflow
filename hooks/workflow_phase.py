@@ -449,17 +449,32 @@ def main() -> int:
                     prompt_len=len(prompt),
                 )
             else:
-                block_hint = (
-                    f"## 子步骤 {cur_step} 未通过门控\n{reason}\n"
-                    f"该子步骤目的：{engine.sub_step_at(node, cur_step).purpose}\n"
-                    "请重做该子步骤（补 evidence 后再输出 ### STEP_DONE）。"
-                )
+                attempts = (new_state or state).get("node_attempts", 0)
+                if attempts >= engine.SUB_STEP_BLOCK_ESCALATE:
+                    # 连续 block 达阈值：停止盲目重做，升级为用户裁决。
+                    # rubric 对用户是黑盒，出口是用户决策而非放宽判据。
+                    block_hint = (
+                        f"## 子步骤 {cur_step} 已连续 {attempts} 次未通过门控（达升级阈值）\n"
+                        f"最近一次原因：{reason}\n"
+                        "停止盲目重做。请用 AskUserQuestion 请用户裁决，选项：\n"
+                        "1. 补充信息/澄清：用户给出缺失的背景或答案后，你重做该子步骤\n"
+                        "2. 强制放行：用户确认此子步骤已够，运行 `/wf step-pass`（裁决记录落 evidence）\n"
+                        "3. 回退：用户运行 `/wf back` 回上一阶段重新理解\n"
+                        "在用户给出裁决前，不要再输出 ### STEP_DONE。"
+                    )
+                else:
+                    block_hint = (
+                        f"## 子步骤 {cur_step} 未通过门控（第 {attempts} 次）\n{reason}\n"
+                        f"该子步骤目的：{engine.sub_step_at(node, cur_step).purpose}\n"
+                        "请重做该子步骤（补 evidence 后再输出 ### STEP_DONE）。"
+                    )
                 _log_invocation(
                     project_root,
                     "sub_step_block",
                     name=name,
                     phase=state.get("phase", ""),
                     step=cur_step,
+                    attempts=attempts,
                     reason=reason[:80],
                     prompt_len=len(prompt),
                 )

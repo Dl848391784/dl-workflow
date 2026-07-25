@@ -839,6 +839,65 @@ class TestGateAndAdvanceSubStep:
         assert "skill-trace" in captured["artifact"]
 
 
+class TestSubStepBlockEscalation:
+    """§E7：sub_step block 计 node_attempts；连续 block 达阈值升级用户裁决。"""
+
+    def test_block_increments_node_attempts(self, tmp_path, monkeypatch):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        monkeypatch.setattr(eng, "run_judge", lambda *a, **k: (False, "不达标"))
+        node = eng.get_node("understand", 1)
+        for expected in (1, 2, 3):
+            advanced, reason, new_state = eng.gate_and_advance_sub_step(
+                tmp_path, "t", node, 1
+            )
+            assert advanced is False
+            assert new_state["node_attempts"] == expected  # 返回计数后 state
+            assert eng.load_state(tmp_path, "t")["node_attempts"] == expected  # 已落盘
+        assert expected == eng.SUB_STEP_BLOCK_ESCALATE  # 阈值语义锚定
+
+    def test_pass_resets_node_attempts(self, tmp_path, monkeypatch):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        monkeypatch.setattr(eng, "run_judge", lambda *a, **k: (False, "x"))
+        node = eng.get_node("understand", 1)
+        eng.gate_and_advance_sub_step(tmp_path, "t", node, 1)
+        monkeypatch.setattr(eng, "run_judge", lambda *a, **k: (True, ""))
+        eng.gate_and_advance_sub_step(tmp_path, "t", node, 1)
+        assert eng.load_state(tmp_path, "t")["node_attempts"] == 0
+
+    def test_force_pass_advances_and_records(self, tmp_path):
+        # /wf step-pass：写 manual-step-pass 裁决记录 + 按 pass 路径推进 + 计数归零
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        st = eng.load_state(tmp_path, "t")
+        st["node_attempts"] = 3
+        eng.save_state(tmp_path, "t", st)
+        ok, msg = eng.force_pass_sub_step(tmp_path, "t", str(tmp_path))
+        assert ok is True
+        reread = eng.load_state(tmp_path, "t")
+        assert reread["sub_step_index"] == 2
+        assert reread["node_attempts"] == 0
+        # 裁决记录落 evidence（via + sub_step + attempts 留痕）
+        text = eng.read_evidence(tmp_path, "t")
+        rec = json.loads(text.strip().splitlines()[-1])
+        assert rec["kind"] == "gate"
+        assert rec["via"] == "manual-step-pass"
+        assert rec["sub_step"] == 1
+        assert rec["attempts"] == 3
+
+    def test_force_pass_last_step_advances_subphase(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=4)
+        ok, msg = eng.force_pass_sub_step(tmp_path, "t", str(tmp_path))
+        assert ok is True
+        reread = eng.load_state(tmp_path, "t")
+        assert reread["sub_index"] == 2
+        assert reread["node"] == "understand:2"
+
+    def test_force_pass_rejects_node_without_sub_steps(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 2)  # understand:2 无 sub_steps
+        ok, msg = eng.force_pass_sub_step(tmp_path, "t", str(tmp_path))
+        assert ok is False
+        assert "无子步骤" in msg
+
+
 class TestReadEvidence:
     """read_evidence：读 evidence/<name>.jsonl 全文；缺失/失败返回 None。"""
 

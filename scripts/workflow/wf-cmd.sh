@@ -8,6 +8,7 @@
 #   wf-cmd.sh back                   回退到上一阶段
 #   wf-cmd.sh jump <phase>           跳转到指定阶段
 #   wf-cmd.sh gate                   闸门放行（understand->plan / plan->execute）
+#   wf-cmd.sh step-pass              用户裁决：强制放行当前子步骤（连续 block 达阈值后的出口）
 #   wf-cmd.sh done                   归档工作流（删 worktree，保留元数据）
 
 set -euo pipefail
@@ -136,6 +137,11 @@ case "$SUB" in
     echo "  下一步: /wf next 推进（或模型输出 PHASE_DONE 后 Stop hook 自动推进）。"
     ;;
 
+  step-pass)
+    # 子步骤级用户裁决（engine force_pass_sub_step：写 manual-step-pass 裁决记录后推进）
+    python3 "$WF_ENGINE" step-pass "$NAME" --cwd "$(pwd)"
+    ;;
+
   done)
     WT="$(wf_state_get "$NAME" worktree_path)"
     BR="$(wf_state_get "$NAME" branch)"
@@ -147,7 +153,7 @@ case "$SUB" in
     ;;
 
   *)
-    echo "✗ 未知子命令 '$SUB'。可用: status next back jump gate done" >&2
+    echo "✗ 未知子命令 '$SUB'。可用: status next back jump gate step-pass done" >&2
     exit 1
     ;;
 esac

@@ -97,6 +97,11 @@ class Node:
 #   用 tuple 保序（显示用自然顺序 understand,plan）;is_gated_after 成员判定 O(n) 可接受（5 阶段）。
 GATED_AFTER: tuple[str, ...] = ("understand", "plan")
 
+# 子步骤门控连续 block 升级阈值：达到后不再让模型盲目重做，
+# 注入提示请用户裁决（补充信息 / /wf step-pass 强制放行 / /wf back 回退）。
+# rubric 对用户是黑盒，升级出口是「用户裁决」而非「放宽判据」。
+SUB_STEP_BLOCK_ESCALATE = 3
+
 _NODES: dict[str, Node] = {
     # ---------- understand（含 4 子阶段;design §3 / workflow_advance.py:47 SUBPHASES 同源）----------
     "understand:1": Node(
@@ -579,11 +584,14 @@ def write_gate_verdict(
     attempts: int,
     cwd: str,
     via: str = "auto-stop",
+    sub_step: int | None = None,
 ) -> bool:
     """gate pass 时写一笔裁决记录到 evidence/<name>.jsonl。
 
     记录：节点 + gate=passed + rubric（审据;None=仅机械过）+ attempts（重试次数）+
     gate_mech（机械类型）+ ts + commit_sha（防腐锚点）。
+    sub_step 非 None 时记入（子步骤级裁决，如 /wf step-pass 手动放行，
+    此时 via 标识裁决来源）。
     返回 True=写入成功;False=写失败（no silent fallback：失败留痕由调用方 log,不阻断）。
     """
     record = {
@@ -601,6 +609,8 @@ def write_gate_verdict(
         "ts": _now(),
         "commit_sha": stamp_commit_sha(cwd),
     }
+    if sub_step is not None:
+        record["sub_step"] = sub_step
     path = _evidence_path(project_root, name)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -720,7 +730,10 @@ def gate_and_advance_sub_step(
     - gate=None 自动过；否则 run_judge（artifact_content = evidence 全文）。
     - advanced=True：已推进（非末步 sub_step_index++ / 末步 advance_state 推进子阶段）。
     - advanced=False：block（未推进，返回 reason，模型需重做）。
-    new_state 仅 advanced=True 有意义（推进后的 state，供注入）。
+      block 时累加 state.node_attempts 并落盘（sub_step 路径的重试计数，
+      连续 block 达 SUB_STEP_BLOCK_ESCALATE 后 hook 升级为用户裁决）。
+    new_state：推进后/计数后的 state（供注入取 sub_step_index/node_attempts）；
+    前置校验失败（步骤不存在/state 缺失）时为 {}。
     """
     step = sub_step_at(node, sub_step_index)
     if step is None:
@@ -736,6 +749,13 @@ def gate_and_advance_sub_step(
             artifact_content=artifact,
         )
     if not ok:
+        state = load_state(project_root, name)
+        if state is not None:
+            state = normalize_state(state)
+            state["node_attempts"] = state.get("node_attempts", 0) + 1
+            state["updated_at"] = _now()
+            save_state(project_root, name, state)
+            return False, reason or "judge 未给出原因", state
         return False, reason or "judge 未给出原因", {}
     # 推进
     state = load_state(project_root, name)
@@ -751,6 +771,44 @@ def gate_and_advance_sub_step(
     # 末步：推进子阶段（advance_state 含 normalize + save）
     new_state = advance_state(project_root, name, via="step-submit")
     return True, "", new_state
+
+
+def force_pass_sub_step(project_root: Path, name: str, cwd: str) -> tuple[bool, str]:
+    """用户裁决强制放行当前子步骤（/wf step-pass；连续 block 达阈值后的升级出口）。
+
+    与 judge pass 同路径推进（非末步 sub_step_index++ / 末步推进子阶段），
+    但先写 kind=gate 裁决记录（via=manual-step-pass + sub_step + attempts）——
+    手动放行必须留痕，否则 evidence 里该子步骤无任何通过记录。
+    返回 (ok, 消息)。rubric 是黑盒：此命令是用户裁决，不修改任何判据。
+    """
+    state = load_state(project_root, name)
+    if state is None:
+        return False, f"工作流 {name} 的 state.json 缺失"
+    state = normalize_state(state)
+    try:
+        node = get_node(state["phase"], state["sub_index"])
+    except KeyError:
+        return False, f"节点 {state['phase']}:{state['sub_index']} 不存在"
+    if not node.sub_steps:
+        return False, f"节点 {node_id(node.phase, node.sub)} 无子步骤编排，step-pass 不适用"
+    cur = state.get("sub_step_index", 1)
+    step = sub_step_at(node, cur)
+    if step is None:
+        return False, f"子步骤 {cur} 不存在"
+    attempts = state.get("node_attempts", 0)
+    ok = write_gate_verdict(
+        project_root, name, node, attempts, cwd, via="manual-step-pass", sub_step=cur
+    )
+    if not ok:
+        return False, "裁决记录写 evidence 失败（未推进；见权限/磁盘）"
+    if cur < len(node.sub_steps):
+        state["sub_step_index"] = cur + 1
+        state["node_attempts"] = 0
+        state["updated_at"] = _now()
+        save_state(project_root, name, state)
+        return True, f"子步骤 {cur} 已手动放行 -> 子步骤 {cur + 1}"
+    advance_state(project_root, name, via="manual-step-pass")
+    return True, f"末子步骤 {cur} 已手动放行 -> 子阶段推进"
 
 
 def _strip_json_fence(text: str) -> str:
@@ -1012,7 +1070,7 @@ def main(argv: list[str] | None = None) -> int:
         description="工作流编排内核（被 hook 咨询;不当主进程）",
     )
     parser.add_argument(
-        "cmd", choices=["status", "current", "advance", "progress", "meta"]
+        "cmd", choices=["status", "current", "advance", "progress", "meta", "step-pass"]
     )
     parser.add_argument("name", nargs="?", help="工作流名（不填则从 cwd 反查）")
     parser.add_argument("--cwd", help="覆盖 cwd（默认进程 cwd）")
@@ -1043,6 +1101,10 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_advance(project_root, name)
     if args.cmd == "progress":
         return _cmd_progress(project_root, name)
+    if args.cmd == "step-pass":
+        ok, msg = force_pass_sub_step(project_root, name, cwd)
+        print(("✓ " if ok else "✗ ") + msg, file=sys.stdout if ok else sys.stderr)
+        return 0 if ok else 1
     return 1
 
 
