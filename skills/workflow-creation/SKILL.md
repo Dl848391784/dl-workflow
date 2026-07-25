@@ -172,6 +172,18 @@ claude --settings <per-wf settings> --append-system-prompt-file phase-rules.md \
 - **清单状态与当前阶段/子阶段不符**：读注入段「任务清单」看 hook 给的目标状态，与实际 TaskList 对比。目标错 -> hook bug（查 state.json 的 index/sub_index）；目标对但清单错 -> 模型漏 TaskUpdate，用 `/wf status` 促模型下一轮对齐。
 - **execute 工作子任务把阶段任务顶掉**：模型违规改了阶段任务(含 1.1-1.4)的 subject/顺序。规则：工作子任务追加在下方，阶段任务及其子任务全程保留。
 - **1.1-1.4 顺序错乱**：首轮 TaskCreate 建齐顺序必须是 1, 1.1, 1.2, 1.3, 1.4, 2, 3, 4, 5（靠创建顺序）。旧工作流续接首次建子任务会落底部（边角，已知，用 `/wf jump understand` 触发重建注入无法修，需模型意识到）。
+- **显示细节时有时无（如 subject 编号有的会话带、有的不带）**：根因套路 = **subject 契约歧义**——注入（attachment）与 output-style（system-prompt）对 subject 写法措辞不一致时，模型各按各的解读，表现随会话漂移（2026-07-25 实例：注入写 `subject=各阶段中文名`、output-style 枚举却带 `1./1.1` 编号 -> 编号时有时无；修复 commit 5215b63 两通道统一为"编号是 subject 一部分"）。**诊断法（实证模型实际建了什么，别猜）**：
+  ```bash
+  # 1. 模型实际建的 subject（session jsonl 在 ~/.claude/projects/-...-worktrees-<name>/）
+  grep -o '"subject":"[^"]*"' <session>.jsonl | sort -u
+  # 2. 注入 attachment 里任务清单块原文（对比契约 vs 实际）
+  python3 -c "import json
+  for l in open('<session>.jsonl'):
+      ev=json.loads(l)
+      if ev.get('type')=='attachment' and '任务清单' in str(ev.get('attachment',{}).get('content','')):
+          c=str(ev['attachment']['content']); i=c.find('任务清单'); print(c[i:i+600]); break"
+  ```
+  契约要改时两通道同步改（症状 M checklist），subject 编号纯展示前缀、不动状态镜像逻辑。
 
 ### 症状 H：understand 子阶段不推进 / SUB_DONE 无效 / 提前 PHASE_DONE 被阻断
 
@@ -281,7 +293,8 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 2. `workflow_phase.py`：`_format_injection` 的清单块 + 完成标记格式
 3. `workflow_advance.py`：Stop 检测的完成信号（若变）
 4. **`scripts/workflow/phase-rules.md`**：understand:1 段的完成标记 + 强制语义 -- **最易漏，system-prompt 通道优先级最高，漏改必打架**
-5. 冒烟：拿真 worktree + 真 state 跑 `_format_injection`，看注入内容是否与 phase-rules 一致
+5. **`output-styles/workflow.md`**：显示层契约（清单 subject 写法/横幅格式/建齐规则）-- 同为模型强遵从通道；改注入里 TaskList/横幅相关文案时漏改它，会出现"两通道措辞歧义 -> 模型解读随会话漂移"（症状 F 编号实例，commit 5215b63）
+6. 冒烟：拿真 worktree + 真 state 跑 `_format_injection`，看注入内容是否与 phase-rules 一致
 
 ### 症状 G：install.sh 后 hook 没触发
 
@@ -323,7 +336,7 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 - "/wf 报错 / state 缺失 / state.json not found" → §2 症状 C
 - "install.sh 后没生效 / hook 没触发" → §2 症状 G
 - "模型否认注入 / 不输出横幅 / 5 阶段不显示" -> §2 症状 D（ark 收不到 attachment）
-- "阶段清单不显示 / TaskList 状态错 / 1.1-1.4 顺序错" → §2 症状 F
+- "阶段清单不显示 / TaskList 状态错 / 1.1-1.4 顺序错 / 编号时有时无 / subject 不对" → §2 症状 F
 - "子阶段 / SUB_DONE / understand 子阶段不推进 / 提前 PHASE_DONE 被阻断" → §2 症状 H
 - "Execution error / 管道测试" → §2 症状 E
 - "证据链 / evidence / no_markers / evidence.jsonl 不生成 / 证据不落地" -> §2 症状 I
