@@ -1,0 +1,89 @@
+# 子步骤门控收回 Stop Hook Design（evidence 新 trace 作触发）
+
+> 状态：设计中（2026-07-25）。H8 Design-First 产物，先于实现。
+> 父系统：`designs/node-step-orchestration-design.md` v2（编排）。
+> 取代：`designs/step-advance-on-submit-design.md` 方案 3a 的「gate+推进在 UserPromptSubmit」（E2/E5 废止；
+> 该 doc 的 E1「信号源=evidence 非 transcript」、E3/E4/E6/E7 仍然有效，本设计全部继承）。
+
+## 0. 背景
+
+### 0.1 3a 的历史约束（已不存在）
+
+3a 把 gate+推进移到 UserPromptSubmit，根因是 **transcript flush 竞态**（§step-advance-on-submit §0.1 实测）：
+Stop hook 在末条 assistant 事件后 ~136ms 触发，transcript 未 flush，读不到 `### STEP_DONE` → gate 不跑。
+当时的修法 = 信号源换 evidence（E1）+ 检测点移 UserPromptSubmit（E2）打包。
+
+**事后认识**：竞态是 transcript 的，不是 evidence 的。evidence 由模型用 Write/Bash 工具在回合中途**同步落盘**，
+Stop 触发时必然可读。检测点移走是当时最省事的规避，不是必须。
+
+### 0.2 3a 的割裂（用户反馈，2026-07-25）
+
+3a 下 block 发生在**下一子步骤入口**：模型本轮开始做子2，hook 注入却说"子1 未过门控，回去重做"。
+门控单位是「子步骤完成」事件本身，判决定应在完成时（Stop），不应滞后到下次提问。
+
+### 0.3 核心难点：Stop 每次 end_turn 都触发，如何区分「子步骤完成」vs「暂停等用户」
+
+模型在子步骤中途 end_turn 是合法的（如 AskUserQuestion 后等用户补充）。此时**不能** block 强迫继续
+（会自说自话/死循环）。不能用 transcript 区分（竞态）。
+解法：**以 evidence 里当前子步骤的 trace 是否有新增为触发**——模型只在自认完成时写 trace（E4 协议），
+中途暂停不写。新增判定的鲁棒性见 S1。
+
+## 1. 设计决策
+
+| # | 决策 | 理由 |
+|---|---|---|
+| S1 | **触发 = 当前子步骤最新 trace 行的 sha1 与 state.last_judged_trace[key] 不同**（key=`<node>#<sub_step>`） | 行数比对会被「违规覆盖写」骗过（覆盖后行数不变 → 漏判）；hash 比对下覆盖/追加都会产生新 hash → 必判。state 只存 40 字符 hex，不存行原文（trace 可达 KB 级） |
+| S2 | **Stop hook 分支顺序：node 有 sub_steps → 走本分支并返回；否则走原 SUB_DONE/PHASE_DONE transcript 分支** | 两路径互斥（有 sub_steps 节点不用 SUB_DONE，§编排 v2），原路径行为不变 |
+| S3 | **pass → 推进（非末步 sub_step_index++/末步 advance_state）+ last_judged 更新 + node_attempts 归零 + 放行 stop** | 推进后下轮 UserPromptSubmit 注入自然显示新子步骤（注入链不变）。放行时输出 systemMessage 通知用户「子N 过门控 → 子N+1」（Stop hook JSON 的 systemMessage 字段只显不续轮） |
+| S4 | **block → node_attempts++ + last_judged 更新 + `_block_continue(reason)` 同轮返工** | last_judged 更新是**天然防 loop**：返工后若模型没写新 trace 就 end_turn → hash 未变 → 放行 stop（不打扰）；写了新 trace → hash 变 → 重判。不依赖 stop_hook_active 标志 |
+| S5 | **重做协议 = append 新 trace 行，不覆盖旧行** | phase-rules 已有「勿覆盖已有」；judge 读 evidence 全文，自然以最新一次为准；旧行留痕（多次尝试可见） |
+| S6 | **无新 trace → 放行 stop（静默）** | 中途暂停等用户是合法行为；这也是防 loop 的另一半 |
+| S7 | **E7 升级机制平移到 Stop**：连续 block 达 SUB_STEP_BLOCK_ESCALATE(=3) → block 文案改为「停止重做，AskUserQuestion 请用户裁决」 | 在 Stop 续轮里 AskUserQuestion 可用（工具调用，用户实时答）。选项②强制放行 = 用户同意后**模型自己跑** `bash wf-cmd.sh step-pass`（续轮中模型有 Bash 能力，比 3a 下"等用户自己敲命令"更顺） |
+| S8 | **UserPromptSubmit 的 gate 分支撤除**，workflow_phase.py 只留注入 | 门控收口到 Stop 单点；`sub_step_has_trace` 保留（engine 内部复用其读 trace 逻辑） |
+| S9 | **force_pass_sub_step 不改** | step-pass 推进 sub_step_index 后，旧 key 的 last_judged 不再被查；新子步骤无 trace → S6 放行。天然兼容 |
+
+## 2. 数据流
+
+```
+模型执行子步骤N -> 写/append evidence(sub_step=N) -> ### STEP_DONE: N（自声明，E3 不变）-> end_turn
+      ▼
+Stop hook（workflow_advance.py）
+  ├ node 有 sub_steps -> 本分支：
+  │   ├ 读 evidence，取 sub_step==N 最新 trace 行 sha1
+  │   ├ hash == state.last_judged_trace[key]（或无 trace）-> 放行 stop（S6，静默）
+  │   ├ hash 不同 -> engine.run_judge(Step.gate, artifact=evidence 全文)
+  │   │   ├ pass  -> 推进 + last_judged 更新 + attempts 归零 + systemMessage 通知 + 放行（S3）
+  │   │   └ block -> attempts++ + last_judged 更新
+  │   │       ├ attempts < 3 -> _block_continue("子N 未过门控(第X次)：reason，返工并 append 新 trace")（S4）
+  │   │       └ attempts >=3 -> _block_continue(升级文案：AskUserQuestion 请用户裁决)（S7）
+  │   └ judge 调用失败 -> 按 block 处理（no silent fallback，继承现状）
+  └ node 无 sub_steps -> 原 SUB_DONE/PHASE_DONE 分支（不变）
+      ▼
+下轮 UserPromptSubmit：纯注入（当前子步骤/purpose/evidence 写法），无 gate
+```
+
+## 3. 改动清单（症状 M checklist 适配）
+
+| # | 文件 | 改动 |
+|---|---|---|
+| 1 | `dl-flow-engine.py` | `normalize_state` 补 `last_judged_trace: dict` 默认；新增 `latest_trace_sha1(project_root, name, sub_step)` + `gate_sub_step_at_stop(project_root, name, cwd) -> (action, reason)`，action ∈ none/advanced/block/escalate；`gate_and_advance_sub_step` 保留（step-pass 与测试复用其推进段）但 UserPromptSubmit 不再调 |
+| 2 | `hooks/workflow_advance.py` | main 里 marker 检测前加 sub_steps 分支（调 1 的函数；block/escalate -> _block_continue；advanced -> systemMessage + 放行） |
+| 3 | `hooks/workflow_phase.py` | 撤 UserPromptSubmit gate 分支（sub_step_has_trace/gate_and_advance_sub_step 调用 + block_hint），只留注入；注入文案「gate 校验（下次你提问时 hook 读 evidence）」改为「你 end_turn 时 Stop hook 校验」 |
+| 4 | `scripts/workflow/phase-rules.md` | 「输完 STEP_DONE 即 end_turn；推进在下一次用户提问时」改为「STEP_DONE 后 end_turn；Stop hook 立即门控：过则下轮进下一子步骤，block 则当轮返工（返工 append 新 trace 行）」；门控升级段改为「block 达 3 次后 hook 给出升级提示」 |
+| 5 | `tests/test_dl_flow_engine.py` | 新函数测例：新 trace->judge pass->推进+hash 记录；无新 trace->none；block->attempts++/hash 更新/同 trace 不重判；覆盖写（hash 变）-> 重判；escalate 阈值 |
+| 6 | `designs/step-advance-on-submit-design.md` | 文首标记 E2/E5 被本 doc 取代 |
+| 7 | `skills/workflow-creation/SKILL.md` | 症状 J（推进不走 Stop hook 走 UserPromptSubmit）改写为新机制；§0 全景图同步 |
+
+## 4. 风险
+
+- R1 **judge 延迟感知位移**：从「下次提问多等几秒」变为「回合结束后多几秒才真正停」。用户感知为 STEP_DONE 后停顿。可接受（judge 秒级，E2 已接受同等延迟）。
+- R2 **block 后模型不再写 trace 直接 end_turn** → S6 放行 stop，子步骤卡在 block 态。下轮注入仍显示当前子步骤 purpose（注入链兜底），state.node_attempts>0 可查。不新增机制。
+- R3 **evidence 写到 worktree（相对路径违规）** → Stop 读主仓无 trace → S6 放行，步骤卡住。与 3a 行为一致（症状 L 防御不变：注入+phase-rules 双通道绝对路径）。
+- R4 **block 时用户失去子步骤间插话机会**（3a 下 STEP_DONE 后用户可说"这步跳过"再让 hook 判）。补偿：S7 升级通道（用户可让模型跑 step-pass）；且 Stop 放行后用户随时可插话，只是 block 续轮那一轮不行。接受。
+
+## 5. 实施步骤（分小 commit）
+
+1. engine：normalize_state + latest_trace_sha1 + gate_sub_step_at_stop + 测试（commit 1）
+2. workflow_advance.py：sub_steps 分支（commit 2，此时双门控并存——UserPromptSubmit 分支还在，hash 防重判使两路径幂等不冲突）
+3. workflow_phase.py 撤 gate 分支 + 注入文案 + phase-rules + 设计文档标记 + SKILL.md 症状 J（commit 3）
+4. 真实 worktree 冒烟：跑 demo 会话子1，看 .wf_advance.log 的 sub_step_gate_pass/block 与新 trace hash 判定
