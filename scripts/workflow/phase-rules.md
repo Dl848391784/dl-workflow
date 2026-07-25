@@ -28,6 +28,7 @@
   1. **理解问题和背景**（**子步骤编排，逐步 STEP_DONE 门控**，严格时序不可乱序）：
      - **① 先出阶段横幅**（`## PHASE: ...` + 子阶段标记），横幅后**按注入的「子步骤编排」清单逐子步骤执行**。
      - **子步骤1 = invoke `define-problem` 并按其引导逼问问题定义**（who/pain/why-now）。横幅后立即、在其它任何动作之前 invoke，`### STEP_DONE` / 探查证据（Bash/Read/Grep/Glob/codegraph）**一律不得在 invoke 之前或与之并行**。
+     - **取证方式（子1）**：优先引用上下文已有的用户原话（会话事实可作佐证），**禁止为凑字段重问用户已答过的内容**；真缺的维度才用 AskUserQuestion 补问（问实质问题，不要只让用户「确认」推断）。①/② 结论由事实答案推导，**禁止直接问用户「这是否构成真实问题」**；事实是「只是想知道/临时起意/无后续动作」→ 按②（问题不成立+原话佐证）申报，禁止为凑①回填痛点（「无法判断X」=复述提问本身）。
      - **逐步执行 + 逐步 STEP_DONE**（**写 evidence 是 STEP_DONE 前置，STEP_DONE 后 end_turn**）：
        每个子步骤达目的后，**先写** `{"kind":"skill-trace","major_stage":"<Phase>","minor_stage":"<MinorKey>","sub_step":<n>,"skill":"<skill>","purpose":"<该步目的>","q":["<q1>","<q2>",...],"a":["<a1>","<a2>",...]}` 到 evidence.jsonl（路径见注入清单；Write 创建 / Read+拼末尾Write / Bash printf >>，勿覆盖已有），**再**输出 `### STEP_DONE: <n>`。字段：`major_stage`=phase 英文首字母大写（Understand/Plan/…）；`minor_stage`=子阶段英文标识（首字母大写驼峰，当前值见注入清单，如 ProblemContext）；`skill`=当前子步骤调用的 skill/工具（Step.ref，当前值见注入清单，如 define-problem）；`q`/`a` 为**字符串数组**，一问一答按序对齐（`q[i]` ↔ `a[i]`），单问单答亦用数组包一层。**输完 STEP_DONE 即 end_turn 结束本轮**--不连续做下个子步骤、不继续探查；**end_turn 时 Stop hook 立即门控**（读 evidence 新 trace 判定）：过则推进，block 则当轮收到原因并返工（**返工须 append 新 trace 行，勿覆盖**——hook 以新 trace 为返工信号）。
        例：子步骤1 逼问到位 -> 写 evidence(sub_step=1) -> `### STEP_DONE: 1` -> end_turn -> Stop hook 判：过则下轮注入显示子步骤2；block 则当轮返工子步骤1。每步 purpose 见注入清单。

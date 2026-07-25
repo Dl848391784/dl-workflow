@@ -308,9 +308,10 @@ def main() -> int:
             )
         return _block_continue(
             f"子步骤 {judged_step}（{purpose}）未通过门控（第 {attempts} 次）：{reason}\n"
-            "返工方式：judge 指出缺哪类，就用 AskUserQuestion 向用户问哪类实质问题"
-            "（who/pain/why-now），把用户【原话】写进 a；"
-            "不要只让用户「确认」你的推断——确认不等于原话佐证，会再被 block。\n"
+            "返工方式：先查对话上下文——用户已答过的内容直接引用原话写进 a"
+            "（会话事实可作佐证，禁止重问已答内容）；只有真缺的维度才用 "
+            "AskUserQuestion 补问（问实质问题：who/pain/why-now），"
+            "不要只让用户「确认」你的推断（确认≠原话佐证，会再被 block）。\n"
             "写 evidence 用 append（printf >> 或 Read 后拼末尾 Write），勿覆盖已有行。"
         )
 

@@ -114,6 +114,19 @@ _STEP1_FORM_REQUIREMENTS = (
     "②问题不成立=用户声明无真实痛点+原话佐证，记「字面请求即全部」"
 )
 
+# 子1 取证方法论（2026-07-25，demo bf2516ac/e84aee6d 教训）：
+# ①模型返工时重问用户已答过的内容（「一直被要求重新确认」）——上下文已有原话可直接引用；
+# ②模型把①/② 抛给用户投票，用户随手选①与事实答案矛盾 -> 硬造痛点被抓。
+# 方法论指引只进 purpose（怎么取证），不进 gate（判什么）——不泄质量判据，防应试。
+_STEP1_METHOD_GUIDANCE = (
+    "取证方式：优先引用上下文已有的用户原话（会话事实可作佐证），"
+    "禁止为凑字段重问用户已答过的内容；真正缺失的维度才用 AskUserQuestion 补问。"
+    "①/② 由事实答案推导（触发/痛点/后续动作），"
+    "禁止直接问用户「这是否构成真实问题」（投票与事实矛盾时以事实为准）；"
+    "事实是「只是想知道/临时起意/无后续动作」→ 按②申报，"
+    "禁止为凑①回填痛点（「无法判断X」=复述提问本身，必 block）"
+)
+
 _NODES: dict[str, Node] = {
     # ---------- understand（含 4 子阶段;design §3 / workflow_advance.py:47 SUBPHASES 同源）----------
     "understand:1": Node(
@@ -134,7 +147,10 @@ _NODES: dict[str, Node] = {
                 ref="define-problem",
                 # purpose 含形式要件（模型可见，降形式性返工）；
                 # 质量判据不进 purpose（防应试填表），只在下方 gate 给 judge。
-                purpose=f"逼问问题定义：{_STEP1_FORM_REQUIREMENTS}",
+                purpose=(
+                    f"逼问问题定义：{_STEP1_FORM_REQUIREMENTS}。"
+                    f"{_STEP1_METHOD_GUIDANCE}"
+                ),
                 input=None,
                 record=True,
                 # 门控分工：子1 只管「定义质量」（结构可判项），真值判给子2（验真）+ 子4（用户认可）。
