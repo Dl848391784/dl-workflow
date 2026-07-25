@@ -80,6 +80,7 @@ Stop hook（workflow_advance.py）
 - R2 **block 后模型不再写 trace 直接 end_turn** → S6 放行 stop，子步骤卡在 block 态。下轮注入仍显示当前子步骤 purpose（注入链兜底），state.node_attempts>0 可查。不新增机制。
 - R3 **evidence 写到 worktree（相对路径违规）** → Stop 读主仓无 trace → S6 放行，步骤卡住。与 3a 行为一致（症状 L 防御不变：注入+phase-rules 双通道绝对路径）。
 - R4 **block 时用户失去子步骤间插话机会**（3a 下 STEP_DONE 后用户可说"这步跳过"再让 hook 判）。补偿：S7 升级通道（用户可让模型跑 step-pass）；且 Stop 放行后用户随时可插话，只是 block 续轮那一轮不行。接受。
+- R5 **judge 会话递归门控**（2026-07-25 demo 实测爆炸，已修）：`run_judge` 的 `claude -p` 继承 worktree cwd 时，judge 会话自身的 hooks 会再触发本门控 -> 链式生 judge -> 全员 TimeoutExpired。修复：`run_judge` subprocess `cwd=tempfile.gettempdir()`（非 git 目录，hooks 静默退出）。教训：**任何从 hook 里 spawn 的 claude 子进程都必须显式脱离工作流 cwd**。
 
 ## 5. 实施步骤（分小 commit）
 

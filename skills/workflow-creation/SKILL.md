@@ -268,6 +268,16 @@ for l in sys.stdin:
 
 新加编排节点时，同样在 phase-rules 加"写 evidence 是 STEP_DONE 前置"强制，别只在注入里说。
 
+### 症状 N：judge 递归爆炸（claude -p 进程堆积 / 连环 TimeoutExpired）
+
+**症状**：`ps aux | grep "claude -p"` 一堆 judge 进程；`.wf_advance.log` 连环 `gate_block|reason=judge 调用失败（TimeoutExpired）`；evidence 被返工连写多行。
+
+**根因**（2026-07-25 demo 实测）：`run_judge` 的 `claude -p` 子进程继承主会话 cwd（worktree），judge 会话启动加载用户级 hooks -> 它的 Stop 又触发 `gate_sub_step_at_stop` -> 游标未落盘期间看到「新 hash」-> 再生 judge -> 链式爆炸；每个 judge 等子 judge，全员 120s `JUDGE_TIMEOUT` 超时判 block -> 主会话返工写新 trace -> 更多 judge。
+
+**修复**（commit 见 git log「judge cwd」）：`run_judge` subprocess 加 `cwd=tempfile.gettempdir()`——非 git 目录下 hooks 反查不到项目根，静默退出。防回归测试 `TestRunJudgeIsolation::test_judge_cwd_cwd_outside_git_repo`。
+
+**急诊**：先 `pkill -f "claude -p --output-format json 你是工作流节点门控"` 止血，再修 cwd。judge 超时的 block 会计 node_attempts，事故后可用 `/wf step-pass` 或手改 state.json `node_attempts` 归零恢复。
+
 ### 症状 L：evidence 写到 worktree 路径错位（模型用相对路径）
 
 **根因**：worktree 内 cwd 是 worktree 根，模型用 Bash 相对路径 `cat >> .claude/evidence/<name>.jsonl` 会写到 worktree 内 `.claude/worktrees/<name>/.claude/evidence/<name>.jsonl`。但 **hook 读主仓库** `<主 repo>/.claude/evidence/<name>.jsonl`（evidence 是持久物，per design 进 repo）-> 读不到 -> 不推进。

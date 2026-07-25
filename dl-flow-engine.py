@@ -29,6 +29,7 @@ import hashlib
 import json
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -988,6 +989,11 @@ def run_judge(
             capture_output=True,
             text=True,
             timeout=JUDGE_TIMEOUT,
+            # judge 会话必须落在非 git 目录：继承 worktree cwd 时，judge 会话自身的
+            # UserPromptSubmit/Stop 会触发 workflow hooks（用户级注册）-> 递归门控
+            # （judge 的 Stop 又生 judge，2026-07-25 demo 实测链式爆炸 + 全员超时）。
+            # 非 git 目录下 hooks 反查不到项目根，自然静默退出。
+            cwd=tempfile.gettempdir(),
         )
     except (subprocess.TimeoutExpired, OSError) as e:
         return False, f"judge 调用失败（{type(e).__name__}）"

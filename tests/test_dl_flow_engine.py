@@ -1028,6 +1028,28 @@ class TestGateSubStepAtStop:
         assert "understand:1#4" in st["last_judged_trace"]
 
 
+class TestRunJudgeIsolation:
+    """judge 子进程环境隔离（2026-07-25 demo 递归爆炸事故防回归）。"""
+
+    def test_judge_cwd_outside_git_repo(self, monkeypatch):
+        # judge 会话继承 worktree cwd 时其 Stop/UserPromptSubmit 会触发 workflow
+        # hooks -> 递归门控。cwd 必须是非 git 目录（tempdir），hooks 反查不到项目根。
+        captured = {}
+
+        class _Res:
+            returncode = 0
+            stdout = '{"is_error":false,"result":"{\\"pass\\": true, \\"reason\\": \\"\\"}"}\n'
+
+        def _run(cmd, **kw):
+            captured.update(kw)
+            return _Res()
+
+        monkeypatch.setattr(eng.subprocess, "run", _run)
+        ok, _reason = eng.run_judge("rubric", "label", "out")
+        assert ok is True
+        assert captured.get("cwd") == eng.tempfile.gettempdir()
+
+
 class TestReadEvidence:
     """read_evidence：读 evidence/<name>.jsonl 全文；缺失/失败返回 None。"""
 
