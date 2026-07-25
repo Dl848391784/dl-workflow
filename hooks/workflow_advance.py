@@ -246,6 +246,22 @@ def main() -> int:
         if engine.latest_trace_sha1(project_root, name, judged_step) is None:
             step0 = engine.sub_step_at(cur_node0, judged_step)
             purpose0 = step0.purpose if step0 else ""
+            # 分诊：真无 trace（拒执，强制参与）vs 有内容但 JSON 损坏（指引修复格式）
+            if engine.evidence_mentions_sub_step(project_root, name, judged_step):
+                _log(
+                    project_root,
+                    "sub_step_malformed_trace",
+                    wf=name,
+                    phase=cur_phase,
+                    step=judged_step,
+                )
+                return _block_continue(
+                    f"evidence 里 sub_step=={judged_step} 的内容存在但 JSON 无法解析"
+                    "（可能被合并到上一行/截断/引号转义错）。\n"
+                    "请 append 一条**单行完整**的合法 JSON skill-trace"
+                    "（Bash `printf '%s\\n' '<json>' >> <evidence 绝对路径>`），"
+                    "不要覆盖、不要在行内拼接多条。"
+                )
             _log(
                 project_root,
                 "sub_step_engage_block",

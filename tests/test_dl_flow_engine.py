@@ -934,6 +934,42 @@ class TestLatestTraceSha1:
             _trace_line(1, "new").encode("utf-8")
         ).hexdigest()
 
+    def test_merged_line_tolerated(self, tmp_path):
+        # 合并行（Write 无尾换行 + printf 追加）：两个 JSON 粘一行，
+        # raw_decode 循环须两个都看到，latest 取后者
+        merged = _trace_line(1, "v1") + _trace_line(1, "v2")
+        _write_evidence(tmp_path, "t", [merged])
+        assert eng.sub_step_has_trace(tmp_path, "t", 1) is True
+        assert eng.latest_trace_sha1(tmp_path, "t", 1) == eng.hashlib.sha1(
+            _trace_line(1, "v2").encode("utf-8")
+        ).hexdigest()
+
+    def test_merged_line_hash_changes_on_append(self, tmp_path):
+        # 合并行存在时 append 第三条 -> latest 指向第三条（重判可触发）
+        merged = _trace_line(1, "v1") + _trace_line(1, "v2")
+        _write_evidence(tmp_path, "t", [merged, _trace_line(1, "v3")])
+        assert eng.latest_trace_sha1(tmp_path, "t", 1) == eng.hashlib.sha1(
+            _trace_line(1, "v3").encode("utf-8")
+        ).hexdigest()
+
+
+class TestEvidenceMentionsSubStep:
+    """§S13 分诊：真无 trace vs 有内容但 JSON 损坏。"""
+
+    def test_no_file_false(self, tmp_path):
+        assert eng.evidence_mentions_sub_step(tmp_path, "t", 1) is False
+
+    def test_mentions_broken_json(self, tmp_path):
+        # 损坏行（截断）含 sub_step 字样 -> True（走「修复格式」分支）
+        _write_evidence(tmp_path, "t", ['{"kind":"skill-trace","sub_step":1,"q":["未完成'])
+        assert eng.evidence_mentions_sub_step(tmp_path, "t", 1) is True
+        # 但 latest_trace_sha1 解析不出 -> None（与 mentions 配合分诊）
+        assert eng.latest_trace_sha1(tmp_path, "t", 1) is None
+
+    def test_other_step_false(self, tmp_path):
+        _write_evidence(tmp_path, "t", [_trace_line(2)])
+        assert eng.evidence_mentions_sub_step(tmp_path, "t", 1) is False
+
 
 class TestGateSubStepAtStop:
     def test_none_without_sub_steps(self, tmp_path):

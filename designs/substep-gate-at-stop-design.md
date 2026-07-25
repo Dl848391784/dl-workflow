@@ -86,6 +86,7 @@ Stop hook（workflow_advance.py）
 - R3 **evidence 写到 worktree（相对路径违规）** → Stop 读主仓无 trace → S6 放行，步骤卡住。与 3a 行为一致（症状 L 防御不变：注入+phase-rules 双通道绝对路径）。
 - R4 **block 时用户失去子步骤间插话机会**（3a 下 STEP_DONE 后用户可说"这步跳过"再让 hook 判）。补偿：S7 升级通道（用户可让模型跑 step-pass）；且 Stop 放行后用户随时可插话，只是 block 续轮那一轮不行。接受。
 - R5 **judge 会话递归门控**（2026-07-25 demo 实测爆炸，已修）：`run_judge` 的 `claude -p` 继承 worktree cwd 时，judge 会话自身的 hooks 会再触发本门控 -> 链式生 judge -> 全员 TimeoutExpired。修复：`run_judge` subprocess `cwd=tempfile.gettempdir()`（非 git 目录，hooks 静默退出）。教训：**任何从 hook 里 spawn 的 claude 子进程都必须显式脱离工作流 cwd**。
+- R6 **evidence 合并行**（2026-07-25 demo 74f82d93 实测，已修）：Write 无尾换行 + printf 追加会把两个 JSON 粘在一行，按行解析整行跳过 -> trace「隐形」、S13 误判「无 trace」。修复：`_iter_trace_segments` 用 `raw_decode` 循环扫一行内多对象；S13 分诊「真无 trace」（`sub_step_engage_block`）vs「有内容但 JSON 损坏」（`sub_step_malformed_trace`，指引 append 单行完整 JSON）。
 
 ## 5. 实施步骤（分小 commit）
 

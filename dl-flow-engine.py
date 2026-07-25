@@ -735,6 +735,36 @@ def step_needs_evidence(step: Step) -> bool:
     return "evidence/" in r or "skill-trace" in r
 
 
+def _iter_trace_segments(text: str, sub_step_index: int):
+    """逐行扫描 evidence 文本，产出匹配 trace 的 (raw_segment, rec)。
+
+    容错（2026-07-25，demo 74f82d93）：Write 无尾换行 + printf 追加会让两个
+    JSON 对象粘在一行，按行 json.loads 会整行跳过 -> trace「隐形」
+    （S13 误判无 trace 强制参与）。用 raw_decode 循环扫一行内多个 JSON 对象。
+    匹配：kind=skill-trace + sub_step == sub_step_index。
+    """
+    decoder = json.JSONDecoder()
+    for line in text.splitlines():
+        s = line.strip()
+        idx = 0
+        while idx < len(s):
+            nxt = s.find("{", idx)
+            if nxt == -1:
+                break
+            idx = nxt
+            try:
+                rec, end = decoder.raw_decode(s, idx)
+            except json.JSONDecodeError:
+                break  # 此行剩余部分不是合法 JSON（截断/损坏）-> 下一行
+            if (
+                isinstance(rec, dict)
+                and rec.get("kind") == "skill-trace"
+                and rec.get("sub_step") == sub_step_index
+            ):
+                yield s[idx:end], rec
+            idx = end
+
+
 def sub_step_has_trace(project_root: Path, name: str, sub_step_index: int) -> bool:
     """evidence.jsonl 是否含 sub_step == sub_step_index 的 skill-trace 记录。
 
@@ -743,26 +773,12 @@ def sub_step_has_trace(project_root: Path, name: str, sub_step_index: int) -> bo
     缺文件/读失败 -> False（gate 降级判 block，不默认放行）。
     匹配字段：kind=skill-trace + sub_step == sub_step_index。
     q/a 从字符串改为字符串数组（新格式兼容旧格式，单值 q/a 也匹配）。
-    缺文件/读失败 -> False（gate 降级判 block，不默认放行）。
+    容一行多 JSON 对象（raw_decode 循环，见 _iter_trace_segments）。
     """
     text = read_evidence(project_root, name)
     if not text:
         return False
-    for line in text.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            rec = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if (
-            isinstance(rec, dict)
-            and rec.get("kind") == "skill-trace"
-            and rec.get("sub_step") == sub_step_index
-        ):
-            return True
-    return False
+    return any(True for _ in _iter_trace_segments(text, sub_step_index))
 
 
 def _advance_sub_step(
@@ -866,32 +882,35 @@ def force_pass_sub_step(project_root: Path, name: str, cwd: str) -> tuple[bool, 
 
 
 def latest_trace_sha1(project_root: Path, name: str, sub_step_index: int) -> str | None:
-    """evidence.jsonl 里 sub_step == sub_step_index 的**最后一条** skill-trace 行的 sha1。
+    """evidence.jsonl 里 sub_step == sub_step_index 的**最后一条** skill-trace 的 sha1。
 
     §substep-gate-at-stop S1：Stop hook 以此与 state.last_judged_trace 比对判定「有新产出」。
-    用 hash 不用行数：模型违规覆盖写也产生新 hash -> 必判。无匹配行/文件缺 -> None。
+    用 hash 不用行数：模型违规覆盖写也产生新 hash -> 必判。无匹配/文件缺 -> None。
+    容一行多 JSON 对象（raw_decode，取最后一个匹配段的 hash）。
     """
     text = read_evidence(project_root, name)
     if not text:
         return None
     latest: str | None = None
-    for line in text.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            rec = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if (
-            isinstance(rec, dict)
-            and rec.get("kind") == "skill-trace"
-            and rec.get("sub_step") == sub_step_index
-        ):
-            latest = line
+    for seg, _rec in _iter_trace_segments(text, sub_step_index):
+        latest = seg
     if latest is None:
         return None
     return hashlib.sha1(latest.encode("utf-8")).hexdigest()
+
+
+def evidence_mentions_sub_step(
+    project_root: Path, name: str, sub_step_index: int
+) -> bool:
+    """evidence 原文是否提及 sub_step==N（raw 子串探测，不解析 JSON）。
+
+    §S13 分诊用：latest_trace_sha1 为 None 时区分「真无 trace」（强制参与）
+    vs「有内容但 JSON 损坏/被合并后仍无法解析」（提示修复格式）。
+    """
+    text = read_evidence(project_root, name)
+    if not text:
+        return False
+    return f'"sub_step":{sub_step_index}' in text or f'"sub_step": {sub_step_index}' in text
 
 
 def gate_sub_step_at_stop(
