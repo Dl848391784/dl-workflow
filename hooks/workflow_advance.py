@@ -238,6 +238,30 @@ def main() -> int:
         cur_node0 = None
     if cur_node0 is not None and cur_node0.sub_steps:
         judged_step = state.get("sub_step_index", 1)
+        # ---- S13 参与围栏：当前子步骤从未写过 trace -> 模型没参与编排 ----
+        # （demo 8c51c318：模型明示「简单查询不走工作流」直接抢答）。
+        # 协议遵从的模型不需要在子步骤中途结束回合（问用户走 AskUserQuestion
+        # 回合内完成）；无 trace 结束回合 = 拒绝参与 -> 强制继续。
+        # 有 trace 的情况走下方门控（新 hash 判 / 同 hash 已判过放行，R2 保留）。
+        if engine.latest_trace_sha1(project_root, name, judged_step) is None:
+            step0 = engine.sub_step_at(cur_node0, judged_step)
+            purpose0 = step0.purpose if step0 else ""
+            _log(
+                project_root,
+                "sub_step_engage_block",
+                wf=name,
+                phase=cur_phase,
+                step=judged_step,
+            )
+            return _block_continue(
+                f"子步骤 {judged_step}（{purpose0}）尚未执行：当前子步骤没有任何 "
+                "evidence skill-trace 记录。\n"
+                "直接回答用户/跳过编排 = 违规。立即按注入的子步骤清单执行当前子步骤"
+                "（invoke 对应 skill / 用 AskUserQuestion 逼问 / 探查），"
+                "完成后写 evidence 再输出 ### STEP_DONE。\n"
+                "如需用户输入：用 AskUserQuestion 工具（回合内完成），"
+                "不要文本提问后结束回合。"
+            )
         action, reason, st = engine.gate_sub_step_at_stop(project_root, name, cwd)
         if action == "none":
             return 0  # 无新 trace / 同 trace 已判 -> 静默放行（S6/防 loop）

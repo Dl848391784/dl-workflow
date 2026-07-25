@@ -239,7 +239,9 @@ understand 拆 4 子阶段（1.理解问题和背景 / 2.明确目标和价值 /
 
 有 `sub_steps` 的节点（当前 understand:1）**推进走 Stop hook**（§substep-gate-at-stop，2026-07-25 起；旧 3a「走 UserPromptSubmit」已废止）。触发 = evidence 里当前子步骤**最新 trace 行 hash 有变化**（state.last_judged_trace 游标比对），不是 transcript。
 
-**先确认协议边界**：模型输 STEP_DONE -> end_turn -> Stop hook 立即判：过则推进（本轮结束即生效），block 则模型**当轮**收到原因返工。**无需用户再发消息**（这是与旧 3a 的核心差别）。例外：模型 STEP_DONE 后 end_turn 但 evidence 没写/没新行 -> Stop 判「无新 trace」静默放行 -> 不推进（此时看症状 K/L）。
+**先确认协议边界**：模型输 STEP_DONE -> end_turn -> Stop hook 立即判：过则推进（本轮结束即生效），block 则模型**当轮**收到原因返工。**无需用户再发消息**（这是与旧 3a 的核心差别）。两个相关强制：
+- **S13 参与围栏**（2026-07-25 起）：当前子步骤**从未写过 trace** 就结束回合 -> `sub_step_engage_block` 强制续轮（「简单查询不走编排」之类的拒执被机械封堵；问用户必须走 AskUserQuestion 回合内完成）。
+- 模型 STEP_DONE 后 end_turn 但 evidence 没写/没新行 -> Stop 判「无新 trace」静默放行 -> 不推进（此时看症状 K/L）。
 
 **日志诊断**（项目根 `.wf_advance.log`，关注 `sub_step_gate_pass` / `sub_step_gate_block`）：
 ```bash
