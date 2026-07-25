@@ -104,6 +104,16 @@ GATED_AFTER: tuple[str, ...] = ("understand", "plan")
 # rubric 对用户是黑盒，升级出口是「用户裁决」而非「放宽判据」。
 SUB_STEP_BLOCK_ESCALATE = 3
 
+# understand:1 子1 的形式要件（单源：purpose 模型侧与 gate judge 侧都引用）。
+# 对齐原则（2026-07-25）：形式要件（覆盖度/对齐/原话/结论形式）提前告诉模型，
+# 降形式性返工；质量判据（可观察/非编造/非空泛）只留在 gate 给 judge 裁量，
+# 不进 purpose——防应试教育/Goodhart（模型照 checklist 填表，judge 分辨力丧失）。
+_STEP1_FORM_REQUIREMENTS = (
+    "覆盖 who/pain/why-now ≥3 类，q/a 按序对齐，答案引用用户原话或会话事实；"
+    "结论二选一：①问题成立=可证伪定义（具体主语+可观察痛点+场景约束）；"
+    "②问题不成立=用户声明无真实痛点+原话佐证，记「字面请求即全部」"
+)
+
 _NODES: dict[str, Node] = {
     # ---------- understand（含 4 子阶段;design §3 / workflow_advance.py:47 SUBPHASES 同源）----------
     "understand:1": Node(
@@ -122,7 +132,9 @@ _NODES: dict[str, Node] = {
             Step(
                 kind="skill",
                 ref="define-problem",
-                purpose="逼问问题定义：who/pain/why-now 至少三类，挖到真实问题非字面",
+                # purpose 含形式要件（模型可见，降形式性返工）；
+                # 质量判据不进 purpose（防应试填表），只在下方 gate 给 judge。
+                purpose=f"逼问问题定义：{_STEP1_FORM_REQUIREMENTS}",
                 input=None,
                 record=True,
                 # 门控分工：子1 只管「定义质量」（结构可判项），真值判给子2（验真）+ 子4（用户认可）。
@@ -130,15 +142,10 @@ _NODES: dict[str, Node] = {
                 # 否则诚实回答「没有痛点」永远过不了，逼模型编造痛点（行2「好奇心缺口」被 judge 识破）。
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace 且 sub_step==1 的记录；"
-                    "q/a 数组按序对齐，覆盖 who/pain/why-now ≥3 类，"
-                    "各答案非空且引用用户原话或会话事实（非空泛复述）；"
-                    "且满足以下任一："
-                    "①问题成立：产出可证伪的问题定义（具体主语+可观察痛点+场景约束，"
-                    "非模糊叙事，供子步骤2验真）；"
-                    "②问题不成立：用户明确声明无真实痛点（纯查询/纯好奇），"
-                    "trace 引用用户原话佐证（非模型偷懒省略），"
-                    "结论记「字面请求即全部」——这也是合法的问题定义。"
-                    "偷懒判 block：无痛点声明若无原话佐证，或逼问不足 3 类。"
+                    f"形式要件：{_STEP1_FORM_REQUIREMENTS}。"
+                    "质量判据（从严裁量）：各答案非空泛复述；①的痛点须可观察、"
+                    "非编造包装（「好奇心缺口」式伪痛点判 block）；②的无痛点声明"
+                    "须以原话为证，无佐证=偷懒判 block；逼问不足 3 类判 block。"
                 ),
             ),
             Step(

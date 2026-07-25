@@ -112,7 +112,7 @@ class Node:
         Step(kind="skill", ref="define-problem",
              purpose="逼问问题定义：who/pain/why-now 至少三类，挖到真实问题非字面",
              input=None, record=True,
-             gate="trace 存在 + q/a 覆盖 who/pain/why-now ≥3 类且各答案引用用户原话 + 双合法结论：①问题成立=可证伪定义（具体主语+可观察痛点+场景约束）②问题不成立=用户声明无痛点+原话佐证（字面请求即全部）；无佐证的无痛点声明=偷懒 block"),
+             gate="形式要件（单源 _STEP1_FORM_REQUIREMENTS：覆盖 ≥3 类/对齐/原话/结论二选一）+ 质量判据（judge 裁量不进 purpose：非空泛、痛点可观察非编造、无佐证的无痛点声明=偷懒）"),
         Step(kind="tool", ref="codegraph impact {sym} / web search",
              purpose="验真问题真实存在：搜外部证据证实或证伪子1的问题陈述 + 约束 + 反模式（防 reinvent）",
              input="step1.real_problem", record=True,
