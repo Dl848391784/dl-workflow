@@ -424,6 +424,19 @@ def main() -> int:
         _log_invocation(None, "no_project_root", name=name, prompt_len=len(prompt))
         return 0  # 非 git 项目 -> 不注入
 
+    # plan mode 互斥：拒掉提问本身（exit 2，stderr 给用户看）。
+    # 用户是唯一能切模式的人；放进会话只会让模型在 plan mode 里被围栏连环 deny
+    # 空转（demo 61482dbe 实录）。fence hook 的 pm=plan 硬拦作 mid-turn 兜底。
+    if payload.get("permission_mode") == "plan":
+        _log_invocation(
+            project_root, "plan_mode_block", name=name, prompt_len=len(prompt)
+        )
+        sys.stderr.write(
+            f"⚠️ 工作流 '{name}' 与 plan mode 互斥（编排协议会被只读探查语义挤掉）。\n"
+            "请 shift+tab 切回 default 模式后重新提问。\n"
+        )
+        return 2
+
     state = _load_state(project_root, name)
     if not state:
         _log_invocation(project_root, "no_state", name=name, prompt_len=len(prompt))
@@ -434,14 +447,15 @@ def main() -> int:
     # 本 hook 只注入当前状态（含推进后的最新 sub_step_index），不再跑 gate。
 
     # plan mode 互斥警告（demo bf91ca0f：plan mode 只读探查语义挤掉编排协议）。
+    # 主防线是上方 exit 2 拒提问；本警告兜底 mid-turn 切换的场景。
     # payload 无 permission_mode 字段 -> None -> 不加警告（防御：不误报）。
     plan_warn = ""
     if payload.get("permission_mode") == "plan":
         plan_warn = (
             "## ⚠️ 当前处于 plan mode\n"
-            "plan mode 与工作流编排互斥（只读探查语义会挤掉横幅/TaskList/define-problem"
-            "/子步骤编排）。请 ExitPlanMode 退出（或请用户 shift+tab 切回 default）后"
-            "再开始编排；plan mode 下工具调用会被围栏拒绝。\n\n"
+            "plan mode 与工作流编排互斥。不要调用任何工具（会被围栏拒绝）；"
+            "直接用文本告知用户：请 shift+tab 切回 default 模式后重新提问，"
+            "然后 end_turn 等待。\n\n"
         )
 
     context = _format_injection(state, project_root)
