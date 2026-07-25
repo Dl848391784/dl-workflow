@@ -15,7 +15,7 @@ dl-flow-engine - 工作流编排内核（唯一真源）。
 本阶段（§8.1）= 纯库骨架：节点树 + current_node + run_gate(机械项) + advance + CLI。
 judge（语义 gate）在 §8.2 接入；hook 接入在 §8.3。
 
-CLI（供 wf-cmd.sh / 手动覆盖调用）：
+CLI（供 dl-cmd.sh / 手动覆盖调用）：
   python3 dl-flow-engine.py status  <name>   查当前节点
   python3 dl-flow-engine.py current <name>   输出当前节点定义（json）
   python3 dl-flow-engine.py advance <name>    推进到下一节点（写 state.json）
@@ -94,13 +94,13 @@ class Node:
 
 
 # 节点表。<node_id> -> Node。node_id = f"{phase}:{sub}"。
-# 闸门 GATED_AFTER：这些 phase 的末节点完成需用户 /wf gate 放行才进下一 phase。
+# 闸门 GATED_AFTER：这些 phase 的末节点完成需用户 /dl gate 放行才进下一 phase。
 #   继承现有 workflow_advance.py:39 GATED_AFTER 语义,收口到 engine 一份。
 #   用 tuple 保序（显示用自然顺序 understand,plan）;is_gated_after 成员判定 O(n) 可接受（5 阶段）。
 GATED_AFTER: tuple[str, ...] = ("understand", "plan")
 
 # 子步骤门控连续 block 升级阈值：达到后不再让模型盲目重做，
-# 注入提示请用户裁决（补充信息 / /wf step-pass 强制放行 / /wf back 回退）。
+# 注入提示请用户裁决（补充信息 / /dl step-pass 强制放行 / /dl back 回退）。
 # rubric 对用户是黑盒，升级出口是「用户裁决」而非「放宽判据」。
 SUB_STEP_BLOCK_ESCALATE = 3
 
@@ -121,6 +121,9 @@ _STEP1_FORM_REQUIREMENTS = (
 _STEP1_METHOD_GUIDANCE = (
     "取证方式：优先引用上下文已有的用户原话（会话事实可作佐证），"
     "禁止为凑字段重问用户已答过的内容；真正缺失的维度才用 AskUserQuestion 补问。"
+    "材料不足以判①/②时，必须先 AskUserQuestion 事实性补问"
+    "（问触发/痛点/后续动作等事实，如「这背后有没有要解决的实际问题？查了要做什么？」），"
+    "禁止先推断凑数再被 block；补问的回答原话是②的合法佐证。"
     "who 类出处只认【用户自述】（会话中用户明确声明身份，如「唯一维护者」）；"
     "仓库事实（CLAUDE.md/git config 等）只证明「仓库由谁维护」，"
     "不能证明「当前提问者就是那个人」——无用户自述时显式问一句，"
@@ -141,10 +144,10 @@ _NODES: dict[str, Node] = {
         artifact=None,
         gate_mech=GateMech.NONE,
         # §orchestration v2 D6/D7：纯子步骤门控（删过渡「≥3 Q/A」rubric）。
-        # 4 子步骤逐步 STEP_DONE gate；目的 engine 声明，注入 phase-rules + gate 兜底。
+        # 5 子步骤逐步 STEP_DONE gate；目的 engine 声明，注入 phase-rules + gate 兜底。
         # skill 内部 Q/A 不门控，record 步落 evidence（step_needs_evidence 读文件喂 judge）。
         gate_rubric=None,  # 子阶段级 rubric 删除（被 sub_steps 逐步门控取代）
-        advance="sub",  # 末子步骤 STEP_DONE:4 通过即推进 sub_index（_handle_step_done 调 advance_state）
+        advance="sub",  # 末子步骤 STEP_DONE:5 通过即推进 sub_index（_handle_step_done 调 advance_state）
         sub_steps=(
             Step(
                 kind="skill",
@@ -157,7 +160,7 @@ _NODES: dict[str, Node] = {
                 ),
                 input=None,
                 record=True,
-                # 门控分工：子1 只管「定义质量」（结构可判项），真值判给子2（验真）+ 子4（用户认可）。
+                # 门控分工：子1 只管「定义质量」（结构可判项），真值判给子3（验真）+ 子5（用户认可）。
                 # 双合法结论（demo 2026-07-25 行3）：问题成立要可证伪；问题不成立要原话佐证——
                 # 否则诚实回答「没有痛点」永远过不了，逼模型编造痛点（行2「好奇心缺口」被 judge 识破）。
                 gate=(
@@ -165,40 +168,86 @@ _NODES: dict[str, Node] = {
                     f"形式要件：{_STEP1_FORM_REQUIREMENTS}。"
                     "质量判据（从严裁量）：各答案非空泛复述；①的痛点须可观察、"
                     "非编造包装（「好奇心缺口」式伪痛点判 block）；②的无痛点声明"
-                    "须以原话为证，无佐证=偷懒判 block；逼问不足 3 类判 block。"
+                    "须以原话为证——本步 AskUserQuestion 事实性补问的回答原话"
+                    "（含用户否认有痛点）是合法佐证；用户从未被问及时的「未提及」"
+                    "不算佐证（须先问再引），无佐证=偷懒判 block；逼问不足 3 类判 block。"
                     "who 类出处只认用户自述（会话中用户明确声明身份）；"
                     "仓库事实（CLAUDE.md/git config 等）不能证明当前提问者身份，"
                     "作出处=无出处推断，判 block；「未自述身份」的如实标注可接受。"
                 ),
             ),
             Step(
-                kind="tool",
-                ref="codegraph impact {sym} / web search",
-                purpose="验真问题真实存在：搜外部证据（repo/paper/他人实现）证实或证伪子1的问题陈述 + 约束 + 反模式（防 reinvent）",
+                kind="skill",
+                ref="causal-inference-root-cause",
+                # 拆解深挖（2026-07-25 设计决议）：逼问出的是「用户声称的问题」，
+                # 须先横向拆（复合痛点 MECE 切分，防一捆问题混进后续）再纵向挖（因果链到根因，
+                # 防拿症状当问题）。拆解必须在验真之前——拿一捆问题/症状去搜证据 = 白搜。
+                # 复合问题的其余项不丢弃：带已验证陈述落 evidence，供后续 dl 实例接续。
+                purpose=(
+                    "拆解深挖：①单一/复合判定——复合痛点按 MECE 拆成原子问题清单"
+                    "（互不重叠、合起来覆盖全部痛点；单一则声明「无复合」理由）；"
+                    "②每个原子问题沿因果链挖到根因（invoke causal-inference-root-cause，"
+                    "5 Whys/鱼骨/时序分析），每环必须有可观察证据"
+                    "（用户原话/日志/codegraph 输出/数据），禁纯叙事；"
+                    "③每个问题 ≥1 个竞争假设 + 排除理由（或当前假设为何最可能）；"
+                    "④区分近因与根因，标注置信度。"
+                    "输出走 evidence skill-trace（q/a 数组），不建单独 md。"
+                ),
                 input="step1.real_problem",
                 record=True,
+                # 门控分工：judge 只判结构完整性（清单/链/竞争假设/出处），
+                # 根因对不对归子3验真 + 子5用户认可（§3.5 三层分工）。
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace 且 sub_step==2 的记录；"
-                    "≥1 外部证据（repo/paper/codegraph 输出）直接针对子步骤1的问题陈述，"
+                    "形式要件：①原子问题清单（≥1 个；单问题须附「无复合」理由）；"
+                    "②每个问题 ≥2 环因果链到根因，每环标注证据出处（原话/日志/codegraph/数据）；"
+                    "③每个问题 ≥1 竞争假设 + 排除/保留理由；④近因与根因区分明确。"
+                    "质量判据（从严裁量）：证据非编造、非循环复述提问；"
+                    "根因非症状换说法（「X 慢因为 X 运行慢」式同义反复判 block）；"
+                    "竞争假设非稻草人（明显不成立拿来凑数判 block）。"
+                ),
+            ),
+            Step(
+                kind="tool",
+                ref="tavily_search / tavily_research / codegraph impact {sym}",
+                purpose=(
+                    "验真问题真实存在：对子2拆出的每个原子问题逐个验真（允许「部分成立」），"
+                    "用 Tavily（tavily_search 快搜 / tavily_research 深度调研）"
+                    "搜外部证据（repo/paper/他人实现/反模式）证实或证伪其子2陈述+约束（防 reinvent）；"
+                    "并用 codegraph 查本仓库是否已有解法。证伪也是合法结论——证据须直接针对问题陈述，"
+                    "证据与结论之间要有推理链，禁泛泛行业常识。"
+                ),
+                input="step2.problem_list",
+                record=True,
+                gate=(
+                    "evidence/<name>.jsonl 含 kind=skill-trace 且 sub_step==3 的记录；"
+                    "每个原子问题 ≥1 外部证据（repo/paper/codegraph 输出）直接针对该问题陈述，"
                     "且证据与「问题真实存在/不存在」结论之间有推理链，非泛泛行业常识。"
                 ),
             ),
             Step(
                 kind="skill",
                 ref="define-problem",
-                purpose="一句话陈述问题（若放不进一句则未定义完）",
-                input="step1+step2",
+                purpose=(
+                    "每个原子问题各一句话陈述（若放不进一句则未定义完）；"
+                    "发现某陈述须用「和/以及/同时」连接多个独立痛点 = 复合未拆净，回子2重拆"
+                ),
+                input="step2+step3",
                 record=True,
                 gate=(
                     "evidence/<name>.jsonl 含本子步骤 skill-trace 记录，"
-                    "问题陈述 ≤1 句且含主语+动词+约束。"
+                    "每个原子问题各 ≤1 句且含主语+动词+约束；"
+                    "单句含多目标并列（「和/以及/同时」连接多个独立痛点）= 复合问题未拆解，判 block。"
                 ),
             ),
             Step(
                 kind="skill",
                 ref="define-problem",
-                purpose="读回确认：用户认「这就是问题」",
-                input="step3.statement",
+                purpose=(
+                    "读回确认：用户认「这就是问题（集）」；多个问题时用户选定本实例处理哪一个，"
+                    "其余带已验证陈述落 evidence + understand.md（供后续 dl 实例接续，不丢弃）"
+                ),
+                input="step4.statements",
                 # §substep-gate-at-stop：record=True——Stop 门控以「新 trace」为唯一
                 # 完成触发，record=False 的末步永无触发信号、子阶段永远卡住（3a 潜在洞）。
                 # 确认内容本身也是裁决留痕（用户认可了问题陈述）。
@@ -288,7 +337,7 @@ _NODES: dict[str, Node] = {
 }
 
 
-# 大阶段顺序（英文标识;与 wf-lib.sh:37 WF_PHASES 同源,收口到 engine 一份）。
+# 大阶段顺序（英文标识;与 dl-lib.sh:37 WF_PHASES 同源,收口到 engine 一份）。
 PHASES = ("understand", "plan", "execute", "review", "evolution")
 
 # 大阶段中文显示名（仅显示;逻辑层用英文标识）。
@@ -373,7 +422,7 @@ def next_phase(phase: str) -> str | None:
 
 
 def is_gated_after(phase: str) -> bool:
-    """该 phase 完成后进下一 phase 需用户 /wf gate 放行。"""
+    """该 phase 完成后进下一 phase 需用户 /dl gate 放行。"""
     return phase in GATED_AFTER
 
 
@@ -402,7 +451,7 @@ def next_node_id(cur_phase: str, cur_sub: int) -> tuple[str, int] | None:
 
 # ---------- state.json 读写（design §4 schema 演进）----------
 #
-# schema：沿用现有 wf-lib.sh:142 结构 + 新增 node / node_attempts 字段。
+# schema：沿用现有 dl-lib.sh:142 结构 + 新增 node / node_attempts 字段。
 # 旧 state（无新字段）向后兼容：读时缺则按 phase+sub 推导补默认。
 # 主 repo 根反查沿用 workflow_phase.py:101 范式（git rev-parse --git-common-dir）。
 
@@ -507,7 +556,7 @@ def normalize_state(state: dict[str, Any]) -> dict[str, Any]:
     state.setdefault("node_attempts", 0)
     # §substep-gate-at-stop S1：子步骤门控判定游标（key=<node>#<sub_step> -> 最新已判 trace 行 sha1）。
     state.setdefault("last_judged_trace", {})
-    # §substep-gate-at-stop S10：PreToolUse 步骤围栏开关（/wf fence on|off）。
+    # §substep-gate-at-stop S10：PreToolUse 步骤围栏开关（/dl fence on|off）。
     state.setdefault("enforce_step_fence", True)
     # §orchestration v2：sub_step_index 补默认 + 范围校验
     node = get_node(phase, sub)
@@ -636,7 +685,7 @@ def write_gate_verdict(
 
     记录：节点 + gate=passed + rubric（审据;None=仅机械过）+ attempts（重试次数）+
     gate_mech（机械类型）+ ts + commit_sha（防腐锚点）。
-    sub_step 非 None 时记入（子步骤级裁决，如 /wf step-pass 手动放行，
+    sub_step 非 None 时记入（子步骤级裁决，如 /dl step-pass 手动放行，
     此时 via 标识裁决来源）。
     返回 True=写入成功;False=写失败（no silent fallback：失败留痕由调用方 log,不阻断）。
     """
@@ -858,7 +907,7 @@ def gate_and_advance_sub_step(
 
 
 def force_pass_sub_step(project_root: Path, name: str, cwd: str) -> tuple[bool, str]:
-    """用户裁决强制放行当前子步骤（/wf step-pass；连续 block 达阈值后的升级出口）。
+    """用户裁决强制放行当前子步骤（/dl step-pass；连续 block 达阈值后的升级出口）。
 
     与 judge pass 同路径推进（非末步 sub_step_index++ / 末步推进子阶段），
     但先写 kind=gate 裁决记录（via=manual-step-pass + sub_step + attempts）——
@@ -889,6 +938,77 @@ def force_pass_sub_step(project_root: Path, name: str, cwd: str) -> tuple[bool, 
     if cur < len(node.sub_steps):
         return True, f"子步骤 {cur} 已手动放行 -> 子步骤 {cur + 1}"
     return True, f"末子步骤 {cur} 已手动放行 -> 子阶段推进"
+
+
+def reset_sub_step(
+    project_root: Path, name: str, step: int
+) -> tuple[bool, str]:
+    """回退到子步骤 step 重测（/dl step-reset <n>；反复测试某子步骤的出口）。
+
+    三件事（都落盘才算完成，无 silent fallback）：
+    1. evidence：删 sub_step >= step 的 skill-trace 行 + gate 裁决行（保留前序步骤留痕；
+       无 sub_step 字段的 gate 行=节点级裁决，保留）。
+    2. state：sub_step_index=step、node_attempts=0、last_judged_trace 清掉
+       「<node>#<k>」(k>=step) 游标（不清会让同内容 trace 被判「无新产出」静默跳过）。
+    3. 不改 phase/sub_index（只在本节点子步骤内回退，跨子阶段用 /dl back）。
+    """
+    state = load_state(project_root, name)
+    if state is None:
+        return False, f"工作流 {name} 的 state.json 缺失"
+    state = normalize_state(state)
+    try:
+        node = get_node(state["phase"], state["sub_index"])
+    except KeyError:
+        return False, f"节点 {state['phase']}:{state['sub_index']} 不存在"
+    if not node.sub_steps:
+        return False, f"节点 {node_id(node.phase, node.sub)} 无子步骤编排，step-reset 不适用"
+    total = len(node.sub_steps)
+    if not (1 <= step <= total):
+        return False, f"子步骤 {step} 越界（本节点 1..{total}）"
+
+    # 1. evidence 过滤（删 sub_step >= step 的 trace/gate 行；坏行原样保留不吞）
+    removed = 0
+    path = _evidence_path(project_root, name)
+    if path.exists():
+        kept: list[str] = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                kept.append(line)  # 坏行不属于任何子步骤，保留（暴露而非吞掉）
+                continue
+            if (
+                rec.get("kind") in ("skill-trace", "gate")
+                and isinstance(rec.get("sub_step"), int)
+                and rec["sub_step"] >= step
+            ):
+                removed += 1
+                continue
+            kept.append(line)
+        path.write_text("".join(line + "\n" for line in kept), encoding="utf-8")
+
+    # 2. state 回退
+    state["sub_step_index"] = step
+    state["node_attempts"] = 0
+    judged = state.get("last_judged_trace", {})
+    nid = node_id(node.phase, node.sub)
+    for k in list(judged):
+        if not k.startswith(f"{nid}#"):
+            continue
+        try:
+            n = int(k.rsplit("#", 1)[1])
+        except ValueError:
+            continue  # 畸形 key 不属于本节点子步骤游标，保留（暴露而非吞掉）
+        if n >= step:
+            del judged[k]
+    state["updated_at"] = _now()
+    save_state(project_root, name, state)
+    return (
+        True,
+        f"已回退到子步骤 {step}/{total}（删 evidence 行 {removed} 条，游标/重试计数已清）",
+    )
 
 
 # ---------- 子步骤 Stop 门控（§substep-gate-at-stop）----------
@@ -1029,7 +1149,7 @@ def phase_write_denial(project_root: Path, name: str, file_path: str) -> str | N
 
     §substep-gate-at-stop S11：把「understand/plan 禁改源码、review 禁改实现」
     从文案约束变硬约束。无 state / execute / 白名单命中 -> None（放行）。
-    本围栏是系统级硬约束（同 rubric，对用户黑盒），无开关——/wf fence 只管 S10。
+    本围栏是系统级硬约束（同 rubric，对用户黑盒），无开关——/dl fence 只管 S10。
     """
     state = load_state(project_root, name)
     if state is None:
@@ -1052,7 +1172,7 @@ def pending_unjudged_step(project_root: Path, name: str) -> int | None:
 
     §substep-gate-at-stop S10：PreToolUse 围栏（workflow_step_fence.py）的关闭条件。
     围栏与门控共用 last_judged_trace 游标——判完（pass/block 都记游标）即开。
-    state.enforce_step_fence=False（/wf fence off）-> None（围栏停用，回文案约束）。
+    state.enforce_step_fence=False（/dl fence off）-> None（围栏停用，回文案约束）。
     """
     state = load_state(project_root, name)
     if state is None:
@@ -1227,7 +1347,7 @@ def run_gate(
     return True, ""
 
 
-# ---------- CLI（design §8.1;供 wf-cmd.sh / 手动覆盖调用）----------
+# ---------- CLI（design §8.1;供 dl-cmd.sh / 手动覆盖调用）----------
 
 
 def _cmd_status(project_root: Path, name: str) -> int:
@@ -1294,7 +1414,7 @@ def _cmd_current(project_root: Path, name: str) -> int:
 
 
 def _cmd_progress(project_root: Path, name: str) -> int:
-    """输出当前阶段真值（供 wf-cmd.sh status 贴给模型取数据，非展示）。
+    """输出当前阶段真值（供 dl-cmd.sh status 贴给模型取数据，非展示）。
 
     §orchestration v2：进度树**展示**已弃用（phase-rules 行 14：只靠 TUI TaskList）。
     但模型需 status 取「现在在第几步」真值（state.json 权威源，TaskList 模型自维可能不准）。
@@ -1341,7 +1461,7 @@ def _cmd_advance(project_root: Path, name: str) -> int:
 
 
 def _cmd_meta() -> int:
-    """输出全部静态常量 JSON（供 wf-lib.sh 启动时缓存,删 bash 侧副本）。
+    """输出全部静态常量 JSON（供 dl-lib.sh 启动时缓存,删 bash 侧副本）。
 
     bash 侧不再各持 PHASES/GATED_AFTER/SUBPHASES 副本,source 本输出一次缓存。
     """
@@ -1363,10 +1483,19 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "cmd",
-        choices=["status", "current", "advance", "progress", "meta", "step-pass", "fence"],
+        choices=[
+            "status",
+            "current",
+            "advance",
+            "progress",
+            "meta",
+            "step-pass",
+            "step-reset",
+            "fence",
+        ],
     )
     parser.add_argument("name", nargs="?", help="工作流名（不填则从 cwd 反查）")
-    parser.add_argument("value", nargs="?", help="fence 的值（on|off）")
+    parser.add_argument("value", nargs="?", help="fence 的值（on|off）/ step-reset 的子步骤号")
     parser.add_argument("--cwd", help="覆盖 cwd（默认进程 cwd）")
     args = parser.parse_args(argv)
 
@@ -1397,6 +1526,15 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_progress(project_root, name)
     if args.cmd == "step-pass":
         ok, msg = force_pass_sub_step(project_root, name, cwd)
+        print(("✓ " if ok else "✗ ") + msg, file=sys.stdout if ok else sys.stderr)
+        return 0 if ok else 1
+    if args.cmd == "step-reset":
+        try:
+            n = int(args.value or "")
+        except ValueError:
+            print("✗ 用法: step-reset <name> <n>（n=回退到的子步骤号）", file=sys.stderr)
+            return 1
+        ok, msg = reset_sub_step(project_root, name, n)
         print(("✓ " if ok else "✗ ") + msg, file=sys.stdout if ok else sys.stderr)
         return 0 if ok else 1
     if args.cmd == "fence":

@@ -252,16 +252,16 @@ class TestNormalizeState:
         assert norm["sub_step_index"] == 1
 
     def test_sub_step_index_out_of_range_raises(self):
-        # §orchestration v2：understand:1 有 4 子步骤，sub_step_index 越界 -> 报错暴露
-        for bad in (0, 5):
+        # §orchestration v2：understand:1 有 5 子步骤，sub_step_index 越界 -> 报错暴露
+        for bad in (0, 6):
             with pytest.raises(ValueError, match="越界"):
                 eng.normalize_state(
                     {"phase": "understand", "sub_index": 1, "sub_step_index": bad}
                 )
 
     def test_sub_step_index_in_range_ok(self):
-        # 1..4 合法范围不报错
-        for ok in (1, 2, 3, 4):
+        # 1..5 合法范围不报错
+        for ok in (1, 2, 3, 4, 5):
             norm = eng.normalize_state(
                 {"phase": "understand", "sub_index": 1, "sub_step_index": ok}
             )
@@ -295,7 +295,7 @@ class TestStepDataclass:
 
 class TestNodeSubStepsField:
     def test_default_none(self):
-        # 未编排节点 sub_steps None（向后兼容）；understand:1 除外（commit 4 有 4 子步骤）
+        # 未编排节点 sub_steps None（向后兼容）；understand:1 除外（有 5 子步骤）
         for phase in eng.PHASES:
             total = eng.sub_total(phase)
             first_sub = 1 if total > 0 else 0
@@ -332,8 +332,8 @@ class TestSubStepHelpers:
     def test_sub_step_total_no_steps(self):
         assert eng.sub_step_total(eng.get_node("plan", 0)) == 0
         assert eng.sub_step_total(eng.get_node("understand", 2)) == 0  # 无编排节点
-        # understand:1 有 4 子步骤（commit 4 切换）
-        assert eng.sub_step_total(eng.get_node("understand", 1)) == 4
+        # understand:1 有 5 子步骤
+        assert eng.sub_step_total(eng.get_node("understand", 1)) == 5
 
     def test_sub_step_total_with_steps(self):
         s1 = eng.Step(
@@ -575,35 +575,40 @@ class TestWriteGateVerdict:
 
 
 class TestUnderstand1Orchestration:
-    """understand:1 纯子步骤门控（删过渡 gate_rubric，4 子步骤逐步 STEP_DONE gate）。"""
+    """understand:1 纯子步骤门控（删过渡 gate_rubric，5 子步骤逐步 STEP_DONE gate）。"""
 
     def test_gate_rubric_none(self):
         # 子阶段级 rubric 删除（被 sub_steps 逐步门控取代，Q4=删）
         assert eng.get_node("understand", 1).gate_rubric is None
 
-    def test_has_4_sub_steps(self):
+    def test_has_5_sub_steps(self):
         node = eng.get_node("understand", 1)
         assert node.sub_steps is not None
-        assert len(node.sub_steps) == 4
+        assert len(node.sub_steps) == 5
 
     def test_sub_steps_kinds(self):
         node = eng.get_node("understand", 1)
         kinds = [s.kind for s in node.sub_steps]
-        assert kinds == ["skill", "tool", "skill", "skill"]
+        assert kinds == ["skill", "skill", "tool", "skill", "skill"]
+
+    def test_step2_refs_causal_inference(self):
+        # 子步骤2（拆解深挖）invoke causal-inference-root-cause（2026-07-25 设计决议）
+        node = eng.get_node("understand", 1)
+        assert node.sub_steps[1].ref == "causal-inference-root-cause"
 
     def test_last_step_gate_none_autopass(self):
-        # 子步骤4（读回确认）gate=None 自动过（trace 存在即过，不跑 judge）
+        # 子步骤5（读回确认）gate=None 自动过（trace 存在即过，不跑 judge）
         node = eng.get_node("understand", 1)
-        assert node.sub_steps[3].gate is None
+        assert node.sub_steps[4].gate is None
         # §substep-gate-at-stop：record=True——Stop 门控以新 trace 为唯一完成触发，
         # record=False 的末步永无触发信号、子阶段卡死（3a 潜在洞）
-        assert node.sub_steps[3].record is True
+        assert node.sub_steps[4].record is True
 
     def test_record_steps(self):
-        # 子步骤1-4 全 record=True（子4 记用户确认，作完成触发 + 裁决留痕）
+        # 子步骤1-5 全 record=True（子5 记用户确认，作完成触发 + 裁决留痕）
         node = eng.get_node("understand", 1)
         records = [s.record for s in node.sub_steps]
-        assert records == [True, True, True, True]
+        assert records == [True, True, True, True, True]
 
     def test_first_step_no_input(self):
         node = eng.get_node("understand", 1)
@@ -612,6 +617,11 @@ class TestUnderstand1Orchestration:
     def test_step2_input_refs_step1(self):
         node = eng.get_node("understand", 1)
         assert node.sub_steps[1].input == "step1.real_problem"
+
+    def test_step3_input_refs_step2(self):
+        # 验真针对子2 拆出的原子问题清单
+        node = eng.get_node("understand", 1)
+        assert node.sub_steps[2].input == "step2.problem_list"
 
     def test_skill_still_define_problem(self):
         assert eng.get_node("understand", 1).skill == "define-problem"
@@ -647,19 +657,20 @@ class TestRubricNeedsEvidence:
 
 
 class TestStepNeedsEvidenceForU1:
-    """understand:1 子步骤1/2/3 gate 含 evidence/ -> step_needs_evidence=True；子4 gate=None -> False。"""
+    """understand:1 子步骤1-4 gate 含 evidence/ -> step_needs_evidence=True；子5 gate=None -> False。"""
 
     def test_record_steps_need_evidence(self):
         node = eng.get_node("understand", 1)
-        # 子1/2/3 gate 含 "evidence/" -> True
+        # 子1/2/3/4 gate 含 "evidence/" -> True
         assert eng.step_needs_evidence(node.sub_steps[0]) is True
         assert eng.step_needs_evidence(node.sub_steps[1]) is True
         assert eng.step_needs_evidence(node.sub_steps[2]) is True
+        assert eng.step_needs_evidence(node.sub_steps[3]) is True
 
     def test_last_step_no_evidence(self):
         node = eng.get_node("understand", 1)
-        # 子4 gate=None -> False
-        assert eng.step_needs_evidence(node.sub_steps[3]) is False
+        # 子5 gate=None -> False
+        assert eng.step_needs_evidence(node.sub_steps[4]) is False
 
 
 # ---------- §step-advance-on-submit：sub_step_has_trace + gate_and_advance_sub_step ----------
@@ -782,8 +793,8 @@ class TestGateAndAdvanceSubStep:
         assert reread["sub_step_index"] == 1  # 未变
 
     def test_gate_none_passes_without_judge(self, tmp_path, monkeypatch):
-        # 子4 gate=None 自动过，不调 judge；末步 -> 推进子阶段
-        _write_state_full(tmp_path, "t", "understand", 1, sub_step=4)
+        # 子5 gate=None 自动过，不调 judge；末步 -> 推进子阶段
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=5)
         called = {"n": 0}
 
         def _spy(*a, **k):
@@ -793,7 +804,7 @@ class TestGateAndAdvanceSubStep:
         monkeypatch.setattr(eng, "run_judge", _spy)
         node = eng.get_node("understand", 1)
         advanced, reason, new_state = eng.gate_and_advance_sub_step(
-            tmp_path, "t", node, 4
+            tmp_path, "t", node, 5
         )
         assert advanced is True
         assert called["n"] == 0  # gate=None 没调 judge
@@ -867,7 +878,7 @@ class TestSubStepBlockEscalation:
         assert eng.load_state(tmp_path, "t")["node_attempts"] == 0
 
     def test_force_pass_advances_and_records(self, tmp_path):
-        # /wf step-pass：写 manual-step-pass 裁决记录 + 按 pass 路径推进 + 计数归零
+        # /dl step-pass：写 manual-step-pass 裁决记录 + 按 pass 路径推进 + 计数归零
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
         st = eng.load_state(tmp_path, "t")
         st["node_attempts"] = 3
@@ -886,7 +897,7 @@ class TestSubStepBlockEscalation:
         assert rec["attempts"] == 3
 
     def test_force_pass_last_step_advances_subphase(self, tmp_path):
-        _write_state_full(tmp_path, "t", "understand", 1, sub_step=4)
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=5)
         ok, msg = eng.force_pass_sub_step(tmp_path, "t", str(tmp_path))
         assert ok is True
         reread = eng.load_state(tmp_path, "t")
@@ -898,6 +909,78 @@ class TestSubStepBlockEscalation:
         ok, msg = eng.force_pass_sub_step(tmp_path, "t", str(tmp_path))
         assert ok is False
         assert "无子步骤" in msg
+
+
+class TestResetSubStep:
+    """reset_sub_step（/dl step-reset <n>）：回退到子步骤 n 反复重测。"""
+
+    def test_reset_to_step2_clears_state_and_evidence(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=3)
+        st = eng.load_state(tmp_path, "t")
+        st["node_attempts"] = 2
+        # 游标 #1 是前序留痕须保留，#2/#3 须清
+        st["last_judged_trace"] = {
+            "understand:1#1": "a",
+            "understand:1#2": "b",
+            "understand:1#3": "c",
+        }
+        eng.save_state(tmp_path, "t", st)
+        _write_evidence(
+            tmp_path,
+            "t",
+            [
+                _trace_line(1),
+                _trace_line(2, "old"),
+                _trace_line(3),
+                '{"kind":"gate","node":"understand:1","gate":"passed","via":"manual-step-pass","sub_step":2}',
+                '{"kind":"gate","node":"understand:1","gate":"passed"}',  # 节点级无 sub_step -> 保留
+            ],
+        )
+        ok, msg = eng.reset_sub_step(tmp_path, "t", 2)
+        assert ok is True
+        st = eng.load_state(tmp_path, "t")
+        assert st["sub_step_index"] == 2
+        assert st["node_attempts"] == 0
+        assert st["last_judged_trace"] == {"understand:1#1": "a"}
+        # evidence：sub_step>=2 的 trace/gate 行被删，前序与节点级裁决保留
+        lines = [
+            json.loads(line)
+            for line in eng.read_evidence(tmp_path, "t").strip().splitlines()
+        ]
+        assert [r.get("sub_step") for r in lines if r["kind"] == "skill-trace"] == [1]
+        gates = [r for r in lines if r["kind"] == "gate"]
+        assert len(gates) == 1 and "sub_step" not in gates[0]
+
+    def test_reset_clears_cursor_so_new_trace_retriggers(self, tmp_path):
+        # 回退后游标已清：模型再写同内容 trace 也会被判「有新产出」，不静默跳过
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=2)
+        st = eng.load_state(tmp_path, "t")
+        st["last_judged_trace"] = {"understand:1#2": "old-hash"}
+        eng.save_state(tmp_path, "t", st)
+        ok, _ = eng.reset_sub_step(tmp_path, "t", 2)
+        assert ok is True
+        assert eng.load_state(tmp_path, "t")["last_judged_trace"] == {}
+
+    def test_reset_rejects_node_without_sub_steps(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 2)
+        ok, msg = eng.reset_sub_step(tmp_path, "t", 2)
+        assert ok is False
+        assert "无子步骤" in msg
+
+    def test_reset_rejects_out_of_range(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        for bad in (0, 6):
+            ok, msg = eng.reset_sub_step(tmp_path, "t", bad)
+            assert ok is False
+            assert "越界" in msg
+
+    def test_reset_bad_line_preserved(self, tmp_path):
+        # 坏行不属于任何子步骤，原样保留（暴露而非吞掉）
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=2)
+        _write_evidence(tmp_path, "t", [_trace_line(1), "not-json{bad", _trace_line(2)])
+        ok, _ = eng.reset_sub_step(tmp_path, "t", 2)
+        assert ok is True
+        assert "not-json{bad" in eng.read_evidence(tmp_path, "t")
 
 
 # ---------- §substep-gate-at-stop：latest_trace_sha1 + gate_sub_step_at_stop ----------
@@ -1055,13 +1138,13 @@ class TestGateSubStepAtStop:
 
     def test_last_step_cursor_persisted(self, tmp_path):
         # 末步（gate=None 自动过）：advance_state 从磁盘重 load，游标须先落盘
-        _write_state_full(tmp_path, "t", "understand", 1, sub_step=4)
-        _write_evidence(tmp_path, "t", [_trace_line(4)])
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=5)
+        _write_evidence(tmp_path, "t", [_trace_line(5)])
         action, _, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
         assert action == "advanced"
         st = eng.load_state(tmp_path, "t")
         assert st["sub_index"] == 2  # 推进到 understand:2
-        assert "understand:1#4" in st["last_judged_trace"]
+        assert "understand:1#5" in st["last_judged_trace"]
 
 
 class TestRunJudgeIsolation:
@@ -1180,7 +1263,7 @@ class TestPendingUnjudgedStep:
         assert eng.pending_unjudged_step(tmp_path, "t") is None
 
     def test_fence_off_none(self, tmp_path):
-        # /wf fence off -> 围栏停用（回文案约束）
+        # /dl fence off -> 围栏停用（回文案约束）
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
         _write_evidence(tmp_path, "t", [_trace_line(1)])
         st = eng.normalize_state(eng.load_state(tmp_path, "t"))
@@ -1538,7 +1621,7 @@ class TestCLI:
         assert "生成执行计划" in capsys.readouterr().out
 
     def test_meta_outputs_constants_json(self, capsys):
-        # meta 不需 git repo/name（静态常量）;供 wf-lib.sh 缓存删 bash 副本
+        # meta 不需 git repo/name（静态常量）;供 dl-lib.sh 缓存删 bash 副本
         rc = eng.main(["meta"])
         assert rc == 0
         out = json.loads(capsys.readouterr().out)

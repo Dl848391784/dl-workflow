@@ -2,6 +2,7 @@
 
 > 状态：设计中（2026-07-24，v2）。H8 Design-First 产物，先于实现。
 > v2 变更：采纳用户 Q1=**逐步门控**（v1 D6 是末尾一次校验，已推翻）+ 引入**三级层次**（phase/子阶段/子步骤）+ 明确 **skill 内部 Q/A 不门控**。Q2/Q3/Q4 = engine 声明目的 / 4 子步骤 / 同 commit 切换。
+> **v3 变更（2026-07-25，已实现）**：4→5 子步骤，在原子1（逼问）后插入**子2 拆解深挖**（invoke causal-inference-root-cause；原 2/3/4 顺移为 3/4/5）。动因（第一性原理）：①横向——复合痛点（如「pipeline 慢 + selection_date 断层」是两个独立问题）不能塞一个陈述也不能丢弃，须 MECE 拆成原子问题清单全验真全陈述，未被用户选定的问题带已验证陈述落 evidence + understand.md 供后续 `dl` 实例接续（一实例=一 worktree=一问题的架构约束不变）；②纵向——why 链若不要求环环有可观察证据 + 竞争假设排除，模型会编叙事式深挖（症状 P 已有实测），causal-inference-root-cause 的竞争假设/反事实检验/置信度把「挖根因」变成 judge 可判的结构。拆解必须排在验真之前（拿一捆问题/症状去搜证据 = 白搜）。子2 gate 判结构（清单/≥2 环链/每环出处/≥1 竞争假设），根因真值归子3 验真 + 子5 用户认可（§3.5 三层分工）。
 > 父系统：`designs/tui-state-machine-design.md`（节点树 / gate）、`designs/skill-injection-link-design.md`（skill 注入链）、`designs/define-problem-verify-gate-design.md`（understand:1 验真门，本文的过渡形态）。
 > 范围：让 engine 节点（子阶段）可声明**有序子步骤序列**（子步骤1 调 skill 达目的X -> 产出喂子步骤2 调工具达目的Y -> ...），**每个子步骤完成即门控**，skill 内部 Q/A 不门控只记录。pilot = understand:1。
 
@@ -147,7 +148,7 @@ class Node:
 
 | 层级 | 标记 | 何时输出 | gate |
 |---|---|---|---|
-| phase | (无，靠子阶段聚合) | - | /wf gate（understand->plan 等闸门） |
+| phase | (无，靠子阶段聚合) | - | /dl gate（understand->plan 等闸门） |
 | 子阶段 sub-phase | `### SUB_DONE:<n>` / `### PHASE_DONE:<phase>` | 子阶段目标达成 | 节点 gate_rubric |
 | 子步骤 sub-step（新） | `### STEP_DONE:<n>` | 子步骤执行完 | 子步骤 Step.gate |
 
