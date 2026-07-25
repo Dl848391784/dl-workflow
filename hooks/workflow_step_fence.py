@@ -113,6 +113,15 @@ def main() -> int:
         return 0
     tool = str(payload.get("tool_name", "?"))
 
+    # 观测（验证期）：payload 是否真带 permission_mode（S12 硬拦的前提）。
+    # 确认字段稳定存在后可删此行。
+    _log_deny(
+        project_root,
+        name,
+        "fence_seen",
+        f"tool={tool}|pm={payload.get('permission_mode')}",
+    )
+
     # ---- plan mode 互斥硬拦：plan mode 与工作流编排冲突（只读探查语义挤掉编排协议，
     # demo 会话 bf91ca0f 实录）。plan mode 下 deny 一切工具调用（仅放行 ExitPlanMode），
     # 让 plan mode 在工作流会话里物理上没法干活 -> 模型只能退出。payload 无

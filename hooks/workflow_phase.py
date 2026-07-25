@@ -176,10 +176,13 @@ def _log_invocation(
     name: str = "",
     phase: str = "",
     prompt_len: int = 0,
+    **fields: object,
 ) -> None:
     """留痕 UserPromptSubmit 触发（观测性）。失败静默。
 
     project_root 缺失时不留痕（无处写；此时 hook 也已 return，无害）。
+    **fields 追加 k=v 到行尾（如 pm=default）；调用方传未知 kwarg 不得 crash
+    （2026-07-25 事故：pm= 撞上固定签名 -> TypeError -> 注入已发但日志缺失）。
     """
     if project_root is None:
         return
@@ -187,8 +190,11 @@ def _log_invocation(
     try:
         log.parent.mkdir(parents=True, exist_ok=True)
         ts = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
+        extra = "".join(f"|{k}={v}" for k, v in sorted(fields.items()))
         with open(log, "a", encoding="utf-8") as f:
-            f.write(f"{ts}|{status}|wf={name}|phase={phase}|prompt_len={prompt_len}\n")
+            f.write(
+                f"{ts}|{status}|wf={name}|phase={phase}|prompt_len={prompt_len}{extra}\n"
+            )
     except OSError:
         pass
 
