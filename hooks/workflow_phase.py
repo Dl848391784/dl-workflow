@@ -365,7 +365,8 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
         [
             "- 任务清单(原生 TaskList, 置顶常驻): 维护阶段任务作常驻进度清单, 状态须镜像当前 index/sub_index:",
             *task_rows,
-            "  首轮或续接后缺失时 TaskCreate 建齐(阶段任务 subject=各阶段中文名; 有子阶段的阶段后紧跟其 1.1..1.N 子任务)并按上设状态;",
+            "  首轮或续接后缺失时 TaskCreate 建齐并按上设状态; subject 带编号(纯展示前缀, 与上面镜像行的编号一致):",
+            "  阶段任务如 `1. 理解和求证问题`, 有子阶段的阶段后紧跟其子任务如 `1.1 理解问题和背景`;",
             "  其后每轮若 in_progress 任务与当前不符则 TaskUpdate 对齐(旧->completed, 当前->in_progress);",
             "  阶段任务(含子任务)全程保留勿删; execute 阶段工作子任务可追加在下方, 勿动阶段任务与其子任务。",
         ]
