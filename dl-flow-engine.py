@@ -680,6 +680,17 @@ JUDGE_TIMEOUT = 120
 # judge 调用失败（API 错/超时/解析失败）时的策略：
 #   design §5.1 降级 = 不推进 + 返回 block（no silent fallback：失败必暴露,不默认放行）。
 
+# judge 专属 system prompt（--system-prompt 全量替换默认 coding 助手人设）。
+# 2026-07-25 demo 实测：judge 单次 ~20.7k 输入里 ~95% 是 harness 开销（全套工具
+# schema + 默认 system prompt + skill 列表），判决载荷（判据+trace+输出）仅 ~0.7k。
+# --tools "" + --system-prompt 只裁 harness、判决 prompt 逐字不动，settings/认证
+# 链零触碰（ac-ark env 继承与 settings.json env 用户都照常）。实证：同一真实
+# pass 案例重放，输入 20728 -> 3590（-83%），判决一致。
+JUDGE_SYSTEM_PROMPT = (
+    "你是工作流节点门控的评审 judge。"
+    "严格按用户消息里的判据判定，只输出一个 JSON,不要多余文本。"
+)
+
 
 def gate_verdict_mech(node: Node, project_root: Path | None = None) -> str | None:
     """机械门判定。返回 None=通过,返回字符串=block 原因。
@@ -1139,7 +1150,21 @@ def run_judge(
 
     try:
         res = subprocess.run(
-            ["claude", "-p", "--output-format", "json", prompt],
+            # --tools ""：judge 明确不调工具，裁掉全套工具 schema（harness 开销大头）。
+            # --system-prompt：judge 人设替换 coding 助手人设，减人设冲突干扰。
+            # 两者都是命令行 flag：settings.json 加载链不动,认证（env 继承或
+            # settings env 块）在任何机器上照常。
+            [
+                "claude",
+                "-p",
+                "--output-format",
+                "json",
+                "--tools",
+                "",
+                "--system-prompt",
+                JUDGE_SYSTEM_PROMPT,
+                prompt,
+            ],
             capture_output=True,
             text=True,
             timeout=JUDGE_TIMEOUT,

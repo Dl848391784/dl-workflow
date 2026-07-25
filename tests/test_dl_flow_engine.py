@@ -1105,6 +1105,53 @@ class TestRunJudgeIsolation:
         assert "返工历史" in prompt
 
 
+class TestRunJudgeHarnessTrim:
+    """judge 调用裁剪 harness（2026-07-25 demo 实测：~20.7k 输入里 ~95% 是
+    工具 schema/默认 system prompt 等 harness 开销，判决载荷仅 ~0.7k）。
+    --tools "" + --system-prompt 只裁 harness、不动判决 prompt，
+    settings/认证链零触碰（ac-ark env 与 settings.json env 用户都照常）。
+    实证：同一真实 pass 案例重放，输入 20728 -> 3590（-83%），判决一致。
+    """
+
+    def _capture(self, monkeypatch):
+        captured = {}
+
+        class _Res:
+            returncode = 0
+            stdout = '{"is_error":false,"result":"{\\"pass\\": true, \\"reason\\": \\"\\"}"}\n'
+
+        def _run(cmd, **kw):
+            captured["cmd"] = cmd
+            return _Res()
+
+        monkeypatch.setattr(eng.subprocess, "run", _run)
+        return captured
+
+    def test_judge_invocation_disables_tools(self, monkeypatch):
+        captured = self._capture(monkeypatch)
+        eng.run_judge("rubric", "label", "out")
+        cmd = captured["cmd"]
+        assert "--tools" in cmd
+        assert cmd[cmd.index("--tools") + 1] == ""
+
+    def test_judge_invocation_replaces_system_prompt(self, monkeypatch):
+        captured = self._capture(monkeypatch)
+        eng.run_judge("rubric", "label", "out")
+        cmd = captured["cmd"]
+        assert "--system-prompt" in cmd
+        sys_prompt = cmd[cmd.index("--system-prompt") + 1]
+        assert "judge" in sys_prompt
+        assert "JSON" in sys_prompt
+
+    def test_judge_payload_prompt_unchanged_and_last(self, monkeypatch):
+        # 判决载荷（判据+输出+产物）必须原样保留在最后一个参数——准确性靠它
+        captured = self._capture(monkeypatch)
+        eng.run_judge("RUBRIC_X", "LABEL_Y", "OUTPUT_Z", artifact_content="ART_W")
+        prompt = captured["cmd"][-1]
+        for needle in ("RUBRIC_X", "LABEL_Y", "OUTPUT_Z", "ART_W"):
+            assert needle in prompt
+
+
 class TestPendingUnjudgedStep:
     """§S10：PreToolUse 围栏的关闭条件（与门控共用 last_judged_trace 游标）。"""
 
