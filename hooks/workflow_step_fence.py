@@ -145,6 +145,44 @@ def main() -> int:
             "然后 end_turn 等待用户切换。"
         )
 
+    # ---- S14 evidence 覆盖守卫：Write 目标为本工作流 evidence 文件时，
+    # 新内容必须原样包含全部已有行（append 协议的机械 enforcement）。
+    # demo e84aee6d 教训：模型连续 Write 覆盖，前几轮的用户原话佐证被销毁，
+    # judge 只能看到最后一行 -> 连环 block + 用户被反复要求「重新确认」。
+    if tool == "Write":
+        ti = payload.get("tool_input") or {}
+        fp = str(ti.get("file_path") or "")
+        ev_file = project_root / ".claude" / "evidence" / f"{name}.jsonl"
+        try:
+            same = Path(fp).resolve() == ev_file.resolve()
+        except OSError:
+            same = False
+        if same and ev_file.exists():
+            try:
+                existing = [
+                    ln
+                    for ln in ev_file.read_text(encoding="utf-8").splitlines()
+                    if ln.strip()
+                ]
+            except OSError:
+                existing = []
+            if existing:
+                new_content = str(ti.get("content") or "")
+                missing = [ln for ln in existing if ln not in new_content]
+                if missing:
+                    _log_deny(
+                        project_root,
+                        name,
+                        "evidence_overwrite_deny",
+                        f"missing={len(missing)}/{len(existing)}",
+                    )
+                    return _deny(
+                        f"此次 Write 会覆盖 evidence 丢失 {len(missing)} 行历史记录"
+                        "（含此前轮次的用户原话佐证——judge 需要完整历史判定）。\n"
+                        "evidence 只许 append：用 Bash `printf '%s\\n' '<json>' >> "
+                        f"{ev_file}`，或先 Read 全文把已有行原样拼在新内容前面再 Write。"
+                    )
+
     # ---- S11 phase 写权限围栏：写工具目标路径须在该 phase 白名单内 ----
     if tool in _WRITE_TOOLS:
         ti = payload.get("tool_input") or {}

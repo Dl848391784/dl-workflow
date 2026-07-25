@@ -308,8 +308,10 @@ def main() -> int:
             )
         return _block_continue(
             f"子步骤 {judged_step}（{purpose}）未通过门控（第 {attempts} 次）：{reason}\n"
-            "请返工该子步骤：修正后 append 一条新的 skill-trace（sub_step 不变）"
-            "到 evidence（勿覆盖已有行）。"
+            "返工方式：judge 指出缺哪类，就用 AskUserQuestion 向用户问哪类实质问题"
+            "（who/pain/why-now），把用户【原话】写进 a；"
+            "不要只让用户「确认」你的推断——确认不等于原话佐证，会再被 block。\n"
+            "写 evidence 用 append（printf >> 或 Read 后拼末尾 Write），勿覆盖已有行。"
         )
 
     # 读 transcript 取本轮输出

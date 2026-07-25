@@ -280,6 +280,8 @@ for l in sys.stdin:
 
 **S11 阶段写围栏**（deny 提示「当前阶段禁止写源码/实现」）：understand/plan/review 阶段用 Edit/Write/MultiEdit/NotebookEdit 写白名单外路径（白名单 = 本阶段产物 .md + designs/*.md + .claude/evidence/，单源在 engine `_PHASE_WRITE_NAMES`）。已知限制：Bash 写（重定向/sed -i）不可拦。
 
+**S14 evidence 覆盖守卫**（deny 提示「会覆盖 evidence 丢失 N 行历史记录」）：模型用 Write 覆盖 evidence 而非 append（丢历史行 -> judge 看不到前几轮原话佐证 -> 连环 block + 用户被反复要求重新确认，demo e84aee6d 实录）。Write 目标的 content 必须原样包含全部已有行；正确做法：Bash `printf >>` 或 Read 后拼末尾 Write。
+
 **plan mode 互斥拦**（§S12）：三层防线——①per-wf settings 锁 `defaultMode=acceptEdits`（启动不进 plan；选 acceptEdits 而非 default 是兼顾摩擦——default 下每次 evidence 写/Bash 都弹审批，acceptEdits 写文件静默且 hook deny 优先于 auto-accept，S11 拦得住）②UserPromptSubmit 检测 `permission_mode=="plan"` -> **exit 2 拒掉提问**，stderr 提示用户 shift+tab 切回（用户是唯一能干净退出的人）③fence hook：plan mode 下 deny 一切工具（含 EnterPlanMode 入口本身；仅放行 ExitPlanMode）作 mid-turn 切换兜底。deny 文案引导模型**停止调工具、文本告知用户切模式后 end_turn**——不说「模型 ExitPlanMode」（它被拦得无法探查拿不出计划，会死锁连环拒，demo 61482dbe 实录「改走 plan mode Phase 1」）。
 
 **诊断**：
