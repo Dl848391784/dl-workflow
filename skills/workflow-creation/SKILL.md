@@ -381,6 +381,7 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 6. **grep 命中 ≠ 模型真输出**：transcript 里 `### PHASE_DONE` / `### SUB_DONE` / `### STEP_DONE` 命中可能是注入的 attachment 文本，必须按 `role=assistant` 过滤后再判模型是否真发了标记。
 7. **有 sub_steps 节点特殊**：看 `.wf_advance.log` 的 `sub_step_gate_pass` / `sub_step_gate_block`（Stop hook 判，与无 sub_steps 节点同日志）；推进在模型 end_turn 时即判，**无需用户再发消息**。同时看 `<主 repo>/.claude/evidence/<name>.jsonl` 是否有当前 `sub_step==N` 的新 skill-trace（症状 J/L）+ state.json 的 `last_judged_trace` 游标。
 8. **量 token / 审计模型消耗**：主会话 transcript 在 `~/.claude/projects/-...-worktrees-<name>/<session_id>.jsonl`；judge 会话在 `~/.claude/projects/-tmp/`（run_judge cwd=tempdir 的直接证据），按 `.wf_advance.log` 的 `sub_step_gate_block|...|ts` / `sub_step_gate_pass|...|ts` 时间戳找相邻 `-tmp/*.jsonl` 配对。**usage 必须按 message.id 去重**：同一响应的 thinking/text 分块各记一行 assistant、usage 整份重复，按行求和会虚增一倍；`queue-operation` 不是 API 调用。口径：`input_tokens`=新鲜输入（cache_read 单列），模型归属看每条 assistant 的 `model` 字段（judge 继承主会话 provider env，正常必与主会话同模型）。
+9. **测 hook 用真 git worktree，别用普通子目录**（2026-07-25 冒烟实测）：`git rev-parse --git-common-dir` 在 repo 内普通子目录返**相对路径**（`../../../.git`）→ state 解析错位、hook 静默退出（无日志、无输出，极像「hook 没跑」）；只有 `git worktree add` 的真 worktree 返绝对路径。模板：`tests/test_workflow_advance.py`（in-process importlib 加载 hook + monkeypatch engine.run_judge 避免真起 judge 子进程 + tmp_path 真 worktree）。
 
 ## 3.5 门控判据（rubric）设计方法论（改判据/写新 gate 前必读）
 
@@ -393,6 +394,7 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 5. **判词要指路**：block reason 不只说缺什么，还要指明返工方向（建议哪条分支/补哪类）——模型按判词一次修好，零提问返工是健康标杆。
 6. **一过率不是目标，健康返工才是**：健康 = 返工 ≤1 个定向问题或零提问、绝不重问已答内容。block 有信号价值（实测一次 block 把「随便查查」逼成真问题）——门控从不 block 时要怀疑它失效，而不是庆幸。
 7. **判据要求的佐证形式必须存在低成本合法获取路径**（2026-07-25 子1 校准）：要求「用户否认痛点的原话」但用户几乎不会主动声明 → 模型不敢问/没想到问就只剩编造一条路，block 循环。修法不是松判据，是**打通「问→引」路径**：purpose 强制「材料不足先 AskUserQuestion 事实性补问」+ gate 明示「补问的回答原话是合法佐证、从未被问及的『未提及』不算」。审查新判据时多问一句：模型拿到这个要求的合法证据，最便宜的正确动作是什么？如果答案是「没有」，判据本身就是在逼编造。
+8. **校准看 block 性质，不看频率**（2026-07-25 子1 四连 block 案例）：高频 block 不是松绑信号，先逐条分类——形式缺失/覆盖不足/编造自述 = **该抓**（门控在工作，说明模型在试图绕过）；「要求的佐证没有合法获取路径」= **判据缺陷**（见 #7）。只有后者改判据。n=1 的 block 率不构成校准依据；step2 一过而 step1 四连 block 的不对称，正确读法是「两次判得都对」，不是「一个太严一个太松」。
 
 ## 4. 不要做的事
 
@@ -405,6 +407,7 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 - ❌ **旧 `no_markers` 系统已弃用**（§8.6c）：新系统 gate 裁决记录看 `.wf_advance.log` 的 `gate_verdict_written`，不看 `.wf_evidence.log`/`no_markers`。
 - ❌ **有 sub_steps 节点用 Bash 相对路径写 evidence**：worktree 内 `cat >> .claude/evidence/...` 会写到 worktree，hook 读主仓库读不到（症状 L）。必须用主仓库绝对路径（注入里给的 `<项目>/.claude/evidence/<name>.jsonl`）。
 - ❌ **改编排只改 engine/hook 不改 phase-rules.md**：phase-rules（system-prompt）优先级高于 attachment 注入，漏改会打架（症状 M）。改编排必过 checklist：engine + workflow_phase 注入 + workflow_advance 检测 + **phase-rules 强制语义**。
+- ❌ **批量重命名直接 sed 词边界**（2026-07-25 /wf→/dl 实测翻车）：`\>`/`\b` 的边界**包括连字符**——`s|/wf\>|/dl|g` 把 `wf-cmd.sh` 路径引用一起改成 `dl-cmd.sh`，被迫连脚本文件也改名（索性统一品牌才没回滚）。先 `grep -rn` 预览命中面，再决定「只改文案」还是「文案 + 文件名一起改」。改用户可见命令名的 checklist：`commands/*.md` git mv / 全仓文案（hooks 提示 + phase-rules + output-style + SKILL + designs）/ install + uninstall.sh / **.bashrc（install.sh 对已有段落跳过，必须手动改；当前 shell 还要 `exec bash` 清函数缓存）** / 旧 per-wf settings（`dl <name> --resume` 补写）/ 删 `~/.claude/commands/` 旧文件 / 重启会话注册新命令。
 - ❌ **有 sub_steps 节点重做时覆盖写 evidence**：Stop 门控以「最新 trace 行 hash 变化」为返工信号；覆盖写虽也会触发（hash 变），但丢失尝试历史。协议是 **append 新行，勿覆盖**。也别期待"模型输 STEP_DONE 就无条件推进"——无新 trace（没写/内容一字不差）时 Stop 静默放行不推进（症状 J）。
 
 ## 5. 触发关键词速查
