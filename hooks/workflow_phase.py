@@ -427,7 +427,20 @@ def main() -> int:
     # §substep-gate-at-stop：子步骤 gate+推进已收口到 Stop hook（evidence hash 触发），
     # 本 hook 只注入当前状态（含推进后的最新 sub_step_index），不再跑 gate。
 
+    # plan mode 互斥警告（demo bf91ca0f：plan mode 只读探查语义挤掉编排协议）。
+    # payload 无 permission_mode 字段 -> None -> 不加警告（防御：不误报）。
+    plan_warn = ""
+    if payload.get("permission_mode") == "plan":
+        plan_warn = (
+            "## ⚠️ 当前处于 plan mode\n"
+            "plan mode 与工作流编排互斥（只读探查语义会挤掉横幅/TaskList/define-problem"
+            "/子步骤编排）。请 ExitPlanMode 退出（或请用户 shift+tab 切回 default）后"
+            "再开始编排；plan mode 下工具调用会被围栏拒绝。\n\n"
+        )
+
     context = _format_injection(state, project_root)
+    if plan_warn:
+        context = plan_warn + context
     out = json.dumps(
         {
             "hookSpecificOutput": {
@@ -443,6 +456,7 @@ def main() -> int:
         "injected",
         name=name,
         phase=state.get("phase", ""),
+        pm=str(payload.get("permission_mode")),  # 观测：payload 是否带 permission_mode
         prompt_len=len(prompt),
     )
     return 0

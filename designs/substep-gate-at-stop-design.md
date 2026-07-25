@@ -43,6 +43,7 @@ Stop 触发时必然可读。检测点移走是当时最省事的规避，不是
 | S9 | **force_pass_sub_step 不改** | step-pass 推进 sub_step_index 后，旧 key 的 last_judged 不再被查；新子步骤无 trace → S6 放行。天然兼容 |
 | S10 | **「STEP_DONE 后 end_turn」硬化为 PreToolUse 围栏**（2026-07-25 增补；demo 会话 3009550c 实证模型写 evidence 后不 end_turn、连做子2 探查——文案约束是概率遵从） | 违规通道是工具调用，故围栏架 PreToolUse（新 hook `workflow_step_fence.py`）：当前子步骤有「已写 trace 但未经判决」（latest_trace_sha1 ≠ last_judged 游标）→ permissionDecision=deny 一切工具调用，模型唯一出路是输出 STEP_DONE + end_turn。围栏与门控**共用游标**天然一致：判完（pass/block 都记游标）即开。**可开关**：state.enforce_step_fence（默认 true），`/wf fence on|off` 随时切，hook 实时读 state 无需重启。文案约束保留（双通道），围栏是兜底 |
 | S11 | **阶段写权限硬化为 phase-fence**（2026-07-25 增补；understand「禁改源码」等阶段禁令原为纯文案） | 与 S10 同 hook（`workflow_step_fence.py` 一个注册两处检查）：工具 ∈ Edit/Write/MultiEdit/NotebookEdit 且目标路径不在该 phase 白名单 → deny。白名单单源在 engine `phase_write_denial`：understand={understand.md, designs/*.md, .claude/evidence/}；plan={+plan.md}；review={review.md, designs, evidence}；evolution={evolution.md, designs, .claude/(skills), memory/}；execute=不限。**已知限制**：Bash 写（重定向/sed -i）无法可靠判定写意图，不在围栏内（phase-rules 文案仍禁；结构化写工具是模型改文件的主通道）。**无开关**：S11 是系统级硬约束（同 rubric，对用户黑盒）；`/wf fence on|off` 只切 S10 子步骤围栏 |
+| S12 | **plan mode 互斥硬拦**（2026-07-25 增补；demo 会话 bf91ca0f 实录 plan mode 只读探查语义挤掉全部编排协议） | 四层：①per-wf settings `permissions.defaultMode="default"` 锁启动模式 ②fence hook：payload.permission_mode=="plan" 时 deny 一切工具调用（仅放行 ExitPlanMode；payload 无该字段则不拦，防误判）③workflow_phase 注入头部加 plan mode 警告 ④phase-rules 文案声明互斥。效果：plan mode 在工作流会话里物理上没法干活，只能退出 |
 
 ## 2. 数据流
 

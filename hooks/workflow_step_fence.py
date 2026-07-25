@@ -113,6 +113,19 @@ def main() -> int:
         return 0
     tool = str(payload.get("tool_name", "?"))
 
+    # ---- plan mode 互斥硬拦：plan mode 与工作流编排冲突（只读探查语义挤掉编排协议，
+    # demo 会话 bf91ca0f 实录）。plan mode 下 deny 一切工具调用（仅放行 ExitPlanMode），
+    # 让 plan mode 在工作流会话里物理上没法干活 -> 模型只能退出。payload 无
+    # permission_mode 字段时 get 返回 None -> 不拦（防御：字段缺失不误判）。
+    if payload.get("permission_mode") == "plan" and tool != "ExitPlanMode":
+        _log_deny(project_root, name, "plan_mode_deny", f"tool={tool}")
+        return _deny(
+            "当前处于 plan mode，与工作流编排互斥（plan mode 的只读探查语义会挤掉"
+            "编排协议：横幅/TaskList/define-problem/子步骤）。\n"
+            "唯一正确动作：调用 ExitPlanMode 退出 plan mode（或请用户 shift+tab "
+            "切回 default），退出后按注入的子步骤清单重新开始编排。"
+        )
+
     # ---- S11 phase 写权限围栏：写工具目标路径须在该 phase 白名单内 ----
     if tool in _WRITE_TOOLS:
         ti = payload.get("tool_input") or {}

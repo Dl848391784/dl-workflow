@@ -278,6 +278,8 @@ for l in sys.stdin:
 
 **S11 阶段写围栏**（deny 提示「当前阶段禁止写源码/实现」）：understand/plan/review 阶段用 Edit/Write/MultiEdit/NotebookEdit 写白名单外路径（白名单 = 本阶段产物 .md + designs/*.md + .claude/evidence/，单源在 engine `_PHASE_WRITE_NAMES`）。已知限制：Bash 写（重定向/sed -i）不可拦。
 
+**plan mode 互斥拦**（deny 提示「plan mode 与工作流编排互斥」，§S12）：会话处于 plan mode 时 deny 一切工具调用（仅放行 ExitPlanMode）——plan mode 的只读探查语义会挤掉全部编排协议（demo 会话 bf91ca0f 实录：无横幅/无清单/直接抢答）。配套：per-wf settings 锁 `defaultMode=default` + 注入警告 + phase-rules 声明。模型应 ExitPlanMode 后重开编排；用户侧 shift+tab 确认在 default。
+
 **诊断**：
 ```bash
 tail -5 <项目>/.claude/.wf_fence.log   # fence_deny（S10）/ phase_fence_deny（S11）

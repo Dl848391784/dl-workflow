@@ -228,6 +228,7 @@ wf_write_settings() {
 {
   "outputStyle": "workflow",
   "permissions": {
+    "defaultMode": "default",
     "allow": [
       "Bash(bash ~/.dl-workflow/scripts/workflow/wf-cmd.sh status:*)"
     ]

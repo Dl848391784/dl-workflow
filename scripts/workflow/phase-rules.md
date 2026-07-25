@@ -19,6 +19,7 @@
 - 无子阶段的阶段：完成即输出 `### PHASE_DONE: <phase>`（phase 为英文标识，如 `### PHASE_DONE: understand`）。
 - **只在（子）阶段目标真正达成时**输出对应标记；未达成绝不输出。
 - 阶段切换由系统推进（自动 + 闸门），你不要假设已进入下一阶段--以下一轮注入为准。
+- **plan mode 互斥**：plan mode 的只读探查语义与本编排冲突。发现自己处于 plan mode 时，**不要**在 plan mode 里执行编排（探查/出计划都禁止）——ExitPlanMode 退出（或请用户 shift+tab 切回 default）后再按注入清单开始；plan mode 下工具调用会被围栏硬拒。
 
 ## 各阶段行为
 
