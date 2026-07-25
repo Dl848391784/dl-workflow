@@ -981,6 +981,12 @@ def run_judge(
     )
     if artifact_content:
         prompt += f"\n【声明产物内容】\n{artifact_content}\n"
+        # 返工是 append 协议（§substep-gate-at-stop S5）：同一 sub_step 会积累多条
+        # skill-trace。不指认最新行，judge 可能拿返工前的旧行判 block（误报）。
+        prompt += (
+            "\n（产物内容中同一 sub_step 若有多条 skill-trace 记录，"
+            "以最后一条为准；此前同号记录是返工历史，仅作参考。）"
+        )
     prompt += "\n只回上面的 JSON。"
 
     try:

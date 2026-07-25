@@ -36,7 +36,7 @@ Stop 触发时必然可读。检测点移走是当时最省事的规避，不是
 | S2 | **Stop hook 分支顺序：node 有 sub_steps → 走本分支并返回；否则走原 SUB_DONE/PHASE_DONE transcript 分支** | 两路径互斥（有 sub_steps 节点不用 SUB_DONE，§编排 v2），原路径行为不变 |
 | S3 | **pass → 推进（非末步 sub_step_index++/末步 advance_state）+ last_judged 更新 + node_attempts 归零 + 放行 stop** | 推进后下轮 UserPromptSubmit 注入自然显示新子步骤（注入链不变）。放行时输出 systemMessage 通知用户「子N 过门控 → 子N+1」（Stop hook JSON 的 systemMessage 字段只显不续轮） |
 | S4 | **block → node_attempts++ + last_judged 更新 + `_block_continue(reason)` 同轮返工** | last_judged 更新是**天然防 loop**：返工后若模型没写新 trace 就 end_turn → hash 未变 → 放行 stop（不打扰）；写了新 trace → hash 变 → 重判。不依赖 stop_hook_active 标志 |
-| S5 | **重做协议 = append 新 trace 行，不覆盖旧行** | phase-rules 已有「勿覆盖已有」；judge 读 evidence 全文，自然以最新一次为准；旧行留痕（多次尝试可见） |
+| S5 | **重做协议 = append 新 trace 行，不覆盖旧行** | phase-rules 已有「勿覆盖已有」；judge 读 evidence 全文，自然以最新一次为准；旧行留痕（多次尝试可见）。配套：`run_judge` prompt 显式指示「同一 sub_step 多条记录以最后一条为准」，防 judge 拿返工前旧行误判 block |
 | S6 | **无新 trace → 放行 stop（静默）** | 中途暂停等用户是合法行为；这也是防 loop 的另一半 |
 | S7 | **E7 升级机制平移到 Stop**：连续 block 达 SUB_STEP_BLOCK_ESCALATE(=3) → block 文案改为「停止重做，AskUserQuestion 请用户裁决」 | 在 Stop 续轮里 AskUserQuestion 可用（工具调用，用户实时答）。选项②强制放行 = 用户同意后**模型自己跑** `bash wf-cmd.sh step-pass`（续轮中模型有 Bash 能力，比 3a 下"等用户自己敲命令"更顺） |
 | S8 | **UserPromptSubmit 的 gate 分支撤除**，workflow_phase.py 只留注入 | 门控收口到 Stop 单点；`sub_step_has_trace` 保留（engine 内部复用其读 trace 逻辑） |

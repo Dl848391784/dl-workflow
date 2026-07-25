@@ -1049,6 +1049,25 @@ class TestRunJudgeIsolation:
         assert ok is True
         assert captured.get("cwd") == eng.tempfile.gettempdir()
 
+    def test_judge_prompt_marks_latest_trace_authoritative(self, monkeypatch):
+        # append 返工协议下同一 sub_step 有多条 trace：prompt 须指示以最后一条为准，
+        # 防 judge 拿返工前的旧行判 block（误报）
+        captured = {}
+
+        class _Res:
+            returncode = 0
+            stdout = '{"is_error":false,"result":"{\\"pass\\": true, \\"reason\\": \\"\\"}"}\n'
+
+        def _run(cmd, **kw):
+            captured["cmd"] = cmd
+            return _Res()
+
+        monkeypatch.setattr(eng.subprocess, "run", _run)
+        eng.run_judge("rubric", "label", "out", artifact_content='{"sub_step":1}')
+        prompt = captured["cmd"][-1]
+        assert "以最后一条为准" in prompt
+        assert "返工历史" in prompt
+
 
 class TestReadEvidence:
     """read_evidence：读 evidence/<name>.jsonl 全文；缺失/失败返回 None。"""
