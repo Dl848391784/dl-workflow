@@ -298,8 +298,6 @@ def main() -> int:
             return 0
         # block / escalate：同轮返工（S4/S7）
         attempts = (st or state).get("node_attempts", 0)
-        step = engine.sub_step_at(cur_node0, judged_step)
-        purpose = step.purpose if step else ""
         _log(
             project_root,
             "sub_step_gate_block",
@@ -323,12 +321,10 @@ def main() -> int:
                 "门控判据不可自行变通；出口只有用户裁决。"
             )
         return _block_continue(
-            f"子步骤 {judged_step}（{purpose}）未通过门控（第 {attempts} 次）：{reason}\n"
-            "返工方式：先查对话上下文——用户已答过的内容直接引用原话写进 a"
-            "（会话事实可作佐证，禁止重问已答内容）；只有真缺的维度才用 "
-            "AskUserQuestion 补问（问实质问题：who/pain/why-now），"
-            "不要只让用户「确认」你的推断（确认≠原话佐证，会再被 block）。\n"
-            "写 evidence 用 append（printf >> 或 Read 后拼末尾 Write），勿覆盖已有行。"
+            f"子步骤 {judged_step} 未通过门控（第 {attempts} 次）：{reason}\n"
+            "返工：按判词补缺——上下文已有的原话直接引用（无需问用户），"
+            "真缺的维度才用 AskUserQuestion 补问；"
+            "完成后 append 新 trace 再 STEP_DONE。"
         )
 
     # 读 transcript 取本轮输出
