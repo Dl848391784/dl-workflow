@@ -179,6 +179,8 @@ def main() -> int:
                     return _deny(
                         f"此次 Write 会覆盖 evidence 丢失 {len(missing)} 行历史记录"
                         "（含此前轮次的用户原话佐证——judge 需要完整历史判定）。\n"
+                        "修正旧记录的方式是 **append 新行**（judge 以最后一条为准），"
+                        "不是改写旧行。\n"
                         "evidence 只许 append：用 Bash `printf '%s\\n' '<json>' >> "
                         f"{ev_file}`，或先 Read 全文把已有行原样拼在新内容前面再 Write。"
                     )
