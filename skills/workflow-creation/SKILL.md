@@ -32,7 +32,7 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/wf-launch.sh
 **understand 含 4 子阶段**（依次自动推进，无子阶段闸门）：1.理解问题和背景 / 2.明确目标和价值 / 3.确定范围与约束 / 4.定义成功标准和验收方式。子 1-3 完成各输出 `### SUB_DONE: <n>`（Stop hook 推进 sub_index）；末子阶段(4) 写 understand.md 后输出 `### PHASE_DONE: understand` 触发 understand->plan 闸门。未走完子阶段直接 PHASE_DONE 会被守卫阻断。详见 `designs/understand-subphases-design.md`。
 **推进**：自动 + 闸门。`understand->plan`、`plan->execute` 需 `/wf gate` 放行；其余自动推进。
 
-**子步骤编排（v2.4，§node-step-orchestration + §step-advance-on-submit）**：某些子阶段（当前仅 understand:1）声明 `sub_steps`--有序子步骤序列（调 skill / 调工具，各有 purpose + record + gate）。**门控单位 = 子步骤**（不是子阶段级 rubric）；**skill 内部 Q/A 不门控**只 record。understand:1 = 4 子步骤（子1 逼问定义 / 子2 搜证据 / 子3 一句话陈述 / 子4 读回确认），子1/2/3 gate 校验 evidence 里的 skill-trace，子4 gate=None 自动过。**推进机制特殊**：不走 Stop hook（transcript flush 竞态），走 UserPromptSubmit --用户**下次提问**时 hook 读 `<项目>/.claude/evidence/<name>.jsonl` 找当前子步骤的 `{"kind":"skill-trace","sub_step":N,...}` 记录 -> gate judge -> 过则推进 sub_step_index / block 则注入重做。模型完成一步的协议：**先写 evidence（主仓库绝对路径）-> 输 `### STEP_DONE: <n>` -> end_turn 等用户**。有 sub_steps 节点不用 SUB_DONE（互斥）。
+**子步骤编排（v2.5，§node-step-orchestration + §substep-gate-at-stop）**：某些子阶段（当前仅 understand:1）声明 `sub_steps`--有序子步骤序列（调 skill / 调工具，各有 purpose + record + gate）。**门控单位 = 子步骤**（不是子阶段级 rubric）；**skill 内部 Q/A 不门控**只 record。understand:1 = 4 子步骤（子1 逼问定义 / 子2 验真 / 子3 一句话陈述 / 子4 读回确认），子1/2/3 gate 跑 judge 校验 evidence 里的 skill-trace，子4 gate=None（trace 存在即过）。**推进走 Stop hook**：模型完成一步 **先写/append evidence（主仓库绝对路径）-> 输 `### STEP_DONE: <n>` -> end_turn**；Stop hook 比对 evidence 当前子步骤最新 trace 行 hash 与 state.last_judged_trace 游标--有变化才判（区分「完成」vs「中途暂停等用户」，也防覆盖写漏判）：pass 推进 / block 当轮 `_block_continue` 返工（返工须 append 新 trace 行）/ 连续 block 3 次升级为 AskUserQuestion 用户裁决。有 sub_steps 节点不用 SUB_DONE（互斥）。
 
 ## 1. 建工作流 / 改工作流
 
@@ -207,7 +207,7 @@ understand 拆 4 子阶段（1.理解问题和背景 / 2.明确目标和价值 /
 
 **新机制（designs/tui-state-machine-design.md §8.6 + §step-advance-on-submit）**：evidence.jsonl 现有两类记录同文件：
 1. **gate 裁决**（engine.write_gate_verdict）：`kind=gate`，字段 node/phase/gate=passed/gate_mech/rubric/attempts/commit_sha。block 不写（重试计数在 state.node_attempts，pass 时一并记入）。
-2. **skill-trace**（模型写，子步骤编排用）：`kind=skill-trace`，字段 `major_stage`(phase 英文首字母大写，如 Understand) / `minor_stage`(子阶段英文标识，首字母大写驼峰，如 ProblemContext) / `sub_step`(数字) / `skill`(子步骤调用的 skill/工具，Step.ref，模型照抄注入给的当前值) / `purpose` / `q`(字符串数组) / `a`(字符串数组，与 q 按序对齐)。UserPromptSubmit 推进时读此找当前 `sub_step==N` 的记录（症状 J/K/L）。展示用 `dl evidence show <name>`（英文标识转中文，映射 single source 在 engine）。
+2. **skill-trace**（模型写，子步骤编排用）：`kind=skill-trace`，字段 `major_stage`(phase 英文首字母大写，如 Understand) / `minor_stage`(子阶段英文标识，首字母大写驼峰，如 ProblemContext) / `sub_step`(数字) / `skill`(子步骤调用的 skill/工具，Step.ref，模型照抄注入给的当前值) / `purpose` / `q`(字符串数组) / `a`(字符串数组，与 q 按序对齐)。Stop hook 门控时读此找当前 `sub_step==N` 的最新记录（hash 比对触发，症状 J/K/L）。展示用 `dl evidence show <name>`（英文标识转中文，映射 single source 在 engine）。
 两类都在主仓库 `<项目>/.claude/evidence/<name>.jsonl`。skill-trace **模型必须用绝对路径写**（相对路径会落 worktree，症状 L）。
 
 
@@ -235,17 +235,18 @@ understand 拆 4 子阶段（1.理解问题和背景 / 2.明确目标和价值 /
 
 ### 症状 J：子步骤编排--模型输 STEP_DONE 但没推进（有 sub_steps 节点专属）
 
-有 `sub_steps` 的节点（当前 understand:1）**推进不走 Stop hook，走 UserPromptSubmit**（§step-advance-on-submit 方案 3a）。推进 = 用户**下次提问**触发。
+有 `sub_steps` 的节点（当前 understand:1）**推进走 Stop hook**（§substep-gate-at-stop，2026-07-25 起；旧 3a「走 UserPromptSubmit」已废止）。触发 = evidence 里当前子步骤**最新 trace 行 hash 有变化**（state.last_judged_trace 游标比对），不是 transcript。
 
-**先确认协议边界**：模型输 STEP_DONE 后本轮 end_turn，state.sub_step_index **本轮不变**。要看到推进，**必须用户再发一条消息**--这是设计（非 bug）。
+**先确认协议边界**：模型输 STEP_DONE -> end_turn -> Stop hook 立即判：过则推进（本轮结束即生效），block 则模型**当轮**收到原因返工。**无需用户再发消息**（这是与旧 3a 的核心差别）。例外：模型 STEP_DONE 后 end_turn 但 evidence 没写/没新行 -> Stop 判「无新 trace」静默放行 -> 不推进（此时看症状 K/L）。
 
-**日志诊断**（项目根 `.wf_phase.log`，关注 `sub_step_advanced` / `sub_step_block`）：
+**日志诊断**（项目根 `.wf_advance.log`，关注 `sub_step_gate_pass` / `sub_step_gate_block`）：
 ```bash
-tail -10 <项目>/.claude/.wf_phase.log
+tail -10 <项目>/.claude/.wf_advance.log
 ```
-- `sub_step_advanced|to=<N+1>` → **正常推进**。
-- `sub_step_block|step=<N>|reason=<...>` → gate judge 判 block，模型需重做该子步骤（注入含 block hint）。看 reason 明确差什么。
-- 用户下次提问后**没** `sub_step_advanced` 也**没** `sub_step_block` → 说明 `sub_step_has_trace` 返回 False（evidence 缺当前子步骤 sub_step==N 的 skill-trace 记录）。查 evidence 是否落地 + 路径是否正确（症状 L）。
+- `sub_step_gate_pass|step=<N>|to=<N+1>` → **正常推进**。
+- `sub_step_gate_block|step=<N>|attempts=<X>|action=block` → judge 判 block，模型当轮返工。看 reason 明确差什么。
+- `sub_step_gate_block|...|action=escalate` → 连续 block 达 3 次，模型被指示 AskUserQuestion 请用户裁决（补充信息 / `wf-cmd.sh step-pass` / `/wf back`）。
+- 模型 STEP_DONE 后**没有任何** `sub_step_gate_*` 行 → Stop hook 判「无新 trace」：evidence 缺当前子步骤 sub_step==N 的 skill-trace 记录，或新行与已判 hash 相同（模型重写了一遍一字不差的内容）。查 evidence 是否落地 + 路径（症状 L）+ state.json 的 `last_judged_trace` 游标。
 
 **验证 evidence 已落地**：
 ```bash
@@ -255,7 +256,7 @@ for l in sys.stdin:
     r=json.loads(l)
     if r.get('kind')=='skill-trace': print(f\"sub_step={r.get('sub_step')} purpose={r.get('purpose','')[:40]}\")"
 ```
-- 应看到 `sub_step=<当前 index>` 的行。
+- 应看到 `sub_step=<当前 index>` 的行；返工后应看到**多行**同 sub_step（append 协议）。
 
 ### 症状 K：模型不写 evidence 就输 STEP_DONE（遵从问题，同 attachment 弱遵从教训）
 
@@ -263,7 +264,7 @@ for l in sys.stdin:
 
 **修复方向（沿用同套路）**：把强制语义从 attachment（注入块）**提升到 phase-rules.md**（system-prompt 通道，遵从强）。当前 phase-rules understand:1 段已含：
 - **evidence 强制**：record 子步骤（子1/2/3）必须写 evidence skill-trace 后才许输 STEP_DONE
-- **输完 STEP_DONE 即 end_turn**：不连续做下步（方案 3a 推进滞后一轮需模型等）
+- **输完 STEP_DONE 即 end_turn**：不连续做下步（Stop hook 在 end_turn 时门控，模型须等判定结果：过则下轮进下步，block 则当轮返工）
 
 新加编排节点时，同样在 phase-rules 加"写 evidence 是 STEP_DONE 前置"强制，别只在注入里说。
 
@@ -280,7 +281,7 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 
 **修复**：注入 + phase-rules 双通道强化"必须用主仓库绝对路径，禁用相对路径"。当前 v2.4 已修（commit af69128）：注入块标"绝对路径"+ 写法示例含 `Bash printf >> <绝对路径>`；phase-rules evidence 强制段补"必须写到主仓库绝对路径，禁用相对路径"。
 
-**应急恢复**：把 worktree 的 evidence.jsonl 内容 append 到主仓库对应文件（用户手动或让模型跑 `cat worktree路径 >> 主仓路径`），下次提问就能推进。
+**应急恢复**：把 worktree 的 evidence.jsonl 内容 append 到主仓库对应文件（用户手动或让模型跑 `cat worktree路径 >> 主仓路径`），模型下一轮 end_turn 时 Stop hook 即判到新 trace。
 
 ### 症状 M：改编排/skill 强制语义，phase-rules 与注入打架
 
@@ -313,7 +314,7 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 5. **验证用真实交互，别用管道/-p**：管道有 Execution error（症状 E），-p transcript 不可靠（症状 B）。
 - "证据链 / evidence / no_markers / evidence.jsonl 不生成 / 证据不落地" -> §2 症状 I
 6. **grep 命中 ≠ 模型真输出**：transcript 里 `### PHASE_DONE` / `### SUB_DONE` / `### STEP_DONE` 命中可能是注入的 attachment 文本，必须按 `role=assistant` 过滤后再判模型是否真发了标记。
-7. **有 sub_steps 节点特殊**：不看 `.wf_advance.log`（Stop hook 不管子步骤推进），看 `.wf_phase.log` 的 `sub_step_advanced` / `sub_step_block`；推进需**用户下次提问**触发（方案 3a）。同时看 `<主 repo>/.claude/evidence/<name>.jsonl` 是否有当前 `sub_step==N` 的 skill-trace（症状 J/L）。
+7. **有 sub_steps 节点特殊**：看 `.wf_advance.log` 的 `sub_step_gate_pass` / `sub_step_gate_block`（Stop hook 判，与无 sub_steps 节点同日志）；推进在模型 end_turn 时即判，**无需用户再发消息**。同时看 `<主 repo>/.claude/evidence/<name>.jsonl` 是否有当前 `sub_step==N` 的新 skill-trace（症状 J/L）+ state.json 的 `last_judged_trace` 游标。
 
 ## 4. 不要做的事
 
@@ -326,7 +327,7 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 - ❌ **旧 `no_markers` 系统已弃用**（§8.6c）：新系统 gate 裁决记录看 `.wf_advance.log` 的 `gate_verdict_written`，不看 `.wf_evidence.log`/`no_markers`。
 - ❌ **有 sub_steps 节点用 Bash 相对路径写 evidence**：worktree 内 `cat >> .claude/evidence/...` 会写到 worktree，hook 读主仓库读不到（症状 L）。必须用主仓库绝对路径（注入里给的 `<项目>/.claude/evidence/<name>.jsonl`）。
 - ❌ **改编排只改 engine/hook 不改 phase-rules.md**：phase-rules（system-prompt）优先级高于 attachment 注入，漏改会打架（症状 M）。改编排必过 checklist：engine + workflow_phase 注入 + workflow_advance 检测 + **phase-rules 强制语义**。
-- ❌ **有 sub_steps 节点期待"模型输 STEP_DONE 立即推进"**：方案 3a 推进滞后到用户下次提问（避开 transcript flush 竞态）。要看推进，用户须再发一条消息（症状 J）。
+- ❌ **有 sub_steps 节点重做时覆盖写 evidence**：Stop 门控以「最新 trace 行 hash 变化」为返工信号；覆盖写虽也会触发（hash 变），但丢失尝试历史。协议是 **append 新行，勿覆盖**。也别期待"模型输 STEP_DONE 就无条件推进"——无新 trace（没写/内容一字不差）时 Stop 静默放行不推进（症状 J）。
 
 ## 5. 触发关键词速查
 

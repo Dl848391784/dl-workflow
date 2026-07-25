@@ -123,15 +123,15 @@ class Node:
              gate="问题陈述 ≤1 句且含主语+动词+约束"),
         Step(kind="skill", ref="define-problem",
              purpose="读回确认：用户认「这就是问题」",
-             input="step3.statement", record=False,
-             gate=None),  # 交互步，自动过（用户确认即过）
+             input="step3.statement", record=True,  # §substep-gate-at-stop：Stop 门控以新 trace 为完成触发，末步 record=False 会卡死（原 record=False 已改）
+             gate=None),  # 交互步，不跑 judge（trace 存在即过）
     ),
 ),
 ```
 
 - 4 子步骤对应 define-problem SKILL.md 的 Interview(子1) / Research(子2) / State(子3) / Validate(子4)；Surface constraints 并入子1 purpose。
 - **子1 调 skill**：define-problem 内部跑 Interview+Constrain（很多 Q/A，**不门控**，record 落 evidence）。模型信号子1 完成 -> `### STEP_DONE: 1` -> 门控子1 purpose。
-- `record`：子1/2/3 落 evidence（关键），子4 不落（交互确认，噪声）。
+- `record`：子1/2/3 落 evidence（关键）；子4 原设计不落（交互确认，噪声），**§substep-gate-at-stop 已改为落**（Stop 门控以新 trace 为唯一完成触发，末步不落会卡死；确认内容兼作裁决留痕）。
 - `gate=None`（子4）：自动过，不跑 judge。
 - `input`：声明数据流，注入层用（模型按提示衔接）；engine 不自动管道传输（守 D1 非进程驱动）。
 

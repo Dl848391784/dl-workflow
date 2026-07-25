@@ -3,6 +3,10 @@
 > 状态：设计中（2026-07-24）。H8 Design-First 产物，先于实现。
 > 父系统：`designs/node-step-orchestration-design.md` v2（编排）。
 > 范围：STEP_DONE 完成信号检测从 Stop hook（读 transcript，遇 flush 竞态）移到 UserPromptSubmit（读已落盘 evidence.jsonl）。gate+推进合一在 UserPromptSubmit（3a）。
+> **⚠ 部分废止（2026-07-25）**：E2（gate 在 UserPromptSubmit）与 E5（Stop 删 STEP_DONE 分支）被
+> `designs/substep-gate-at-stop-design.md` 取代——门控收回 Stop hook，触发 = evidence 新 trace hash。
+> E1（信号源=evidence）、E3（STEP_DONE 仅自声明）、E4（sub_step 字段）、E6（trace 写法注入）、E7（升级机制）仍然有效。
+> 本文保留作历史决策记录。
 
 ## 0. 背景
 
