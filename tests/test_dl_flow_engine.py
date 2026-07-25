@@ -592,16 +592,18 @@ class TestUnderstand1Orchestration:
         assert kinds == ["skill", "tool", "skill", "skill"]
 
     def test_last_step_gate_none_autopass(self):
-        # 子步骤4（读回确认）gate=None 自动过（交互步）
+        # 子步骤4（读回确认）gate=None 自动过（trace 存在即过，不跑 judge）
         node = eng.get_node("understand", 1)
         assert node.sub_steps[3].gate is None
-        assert node.sub_steps[3].record is False  # 噪声步不记
+        # §substep-gate-at-stop：record=True——Stop 门控以新 trace 为唯一完成触发，
+        # record=False 的末步永无触发信号、子阶段卡死（3a 潜在洞）
+        assert node.sub_steps[3].record is True
 
     def test_record_steps(self):
-        # 子步骤1/2/3 record=True（关键步落 evidence），子4 record=False
+        # 子步骤1-4 全 record=True（子4 记用户确认，作完成触发 + 裁决留痕）
         node = eng.get_node("understand", 1)
         records = [s.record for s in node.sub_steps]
-        assert records == [True, True, True, False]
+        assert records == [True, True, True, True]
 
     def test_first_step_no_input(self):
         node = eng.get_node("understand", 1)
@@ -896,6 +898,134 @@ class TestSubStepBlockEscalation:
         ok, msg = eng.force_pass_sub_step(tmp_path, "t", str(tmp_path))
         assert ok is False
         assert "无子步骤" in msg
+
+
+# ---------- §substep-gate-at-stop：latest_trace_sha1 + gate_sub_step_at_stop ----------
+
+
+def _trace_line(sub_step: int, marker: str = "m") -> str:
+    return json.dumps(
+        {
+            "kind": "skill-trace",
+            "major_stage": "Understand",
+            "minor_stage": "ProblemContext",
+            "sub_step": sub_step,
+            "skill": "define-problem",
+            "purpose": "p",
+            "q": [f"q-{marker}"],
+            "a": [f"a-{marker}"],
+        },
+        ensure_ascii=False,
+    )
+
+
+class TestLatestTraceSha1:
+    def test_no_file_none(self, tmp_path):
+        assert eng.latest_trace_sha1(tmp_path, "t", 1) is None
+
+    def test_no_matching_step_none(self, tmp_path):
+        _write_evidence(tmp_path, "t", [_trace_line(1)])
+        assert eng.latest_trace_sha1(tmp_path, "t", 2) is None
+
+    def test_latest_line_wins(self, tmp_path):
+        _write_evidence(tmp_path, "t", [_trace_line(1, "old"), _trace_line(1, "new")])
+        sha = eng.latest_trace_sha1(tmp_path, "t", 1)
+        assert sha == eng.hashlib.sha1(
+            _trace_line(1, "new").encode("utf-8")
+        ).hexdigest()
+
+
+class TestGateSubStepAtStop:
+    def test_none_without_sub_steps(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 2)
+        action, _, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
+        assert action == "none"
+
+    def test_none_without_trace(self, tmp_path):
+        # 中途暂停（无 evidence）-> 静默放行
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        action, _, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
+        assert action == "none"
+
+    def test_pass_advances_and_records_cursor(self, tmp_path, monkeypatch):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        _write_evidence(tmp_path, "t", [_trace_line(1)])
+        monkeypatch.setattr(eng, "run_judge", lambda *a, **k: (True, ""))
+        action, _, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
+        assert action == "advanced"
+        st = eng.load_state(tmp_path, "t")
+        assert st["sub_step_index"] == 2
+        assert st["node_attempts"] == 0
+        assert st["last_judged_trace"]["understand:1#1"] == eng.latest_trace_sha1(
+            tmp_path, "t", 1
+        )
+
+    def test_same_trace_not_rejudged(self, tmp_path, monkeypatch):
+        # block 后模型未写新 trace 就 end_turn -> 不重判（防 loop）
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        _write_evidence(tmp_path, "t", [_trace_line(1)])
+        calls = {"n": 0}
+
+        def _spy(*a, **k):
+            calls["n"] += 1
+            return (False, "不达标")
+
+        monkeypatch.setattr(eng, "run_judge", _spy)
+        a1, r1, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
+        assert a1 == "block" and calls["n"] == 1
+        a2, _, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
+        assert a2 == "none" and calls["n"] == 1  # 同 trace 不重判
+        assert eng.load_state(tmp_path, "t")["node_attempts"] == 1
+
+    def test_new_trace_rejudged(self, tmp_path, monkeypatch):
+        # block 后 append 新 trace -> 重判（返工有效）
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        _write_evidence(tmp_path, "t", [_trace_line(1, "v1")])
+        monkeypatch.setattr(eng, "run_judge", lambda *a, **k: (False, "x"))
+        eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
+        _write_evidence(tmp_path, "t", [_trace_line(1, "v1"), _trace_line(1, "v2")])
+        monkeypatch.setattr(eng, "run_judge", lambda *a, **k: (True, ""))
+        action, _, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
+        assert action == "advanced"
+        assert eng.load_state(tmp_path, "t")["node_attempts"] == 0
+
+    def test_overwrite_retriggers(self, tmp_path, monkeypatch):
+        # 违规覆盖写也产生新 hash -> 必判（hash 比对 vs 行数比对）
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        _write_evidence(tmp_path, "t", [_trace_line(1, "v1")])
+        monkeypatch.setattr(eng, "run_judge", lambda *a, **k: (False, "x"))
+        eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
+        _write_evidence(tmp_path, "t", [_trace_line(1, "v2")])  # 覆盖，行数不变
+        calls = {"n": 0}
+
+        def _spy(*a, **k):
+            calls["n"] += 1
+            return (True, "")
+
+        monkeypatch.setattr(eng, "run_judge", _spy)
+        action, _, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
+        assert action == "advanced" and calls["n"] == 1
+
+    def test_escalate_at_threshold(self, tmp_path, monkeypatch):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        monkeypatch.setattr(eng, "run_judge", lambda *a, **k: (False, "x"))
+        for i in range(1, eng.SUB_STEP_BLOCK_ESCALATE + 1):
+            _write_evidence(tmp_path, "t", [_trace_line(1, f"v{i}")])
+            action, _, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
+        assert action == "escalate"
+        assert (
+            eng.load_state(tmp_path, "t")["node_attempts"] == eng.SUB_STEP_BLOCK_ESCALATE
+        )
+
+    def test_last_step_cursor_persisted(self, tmp_path):
+        # 末步（gate=None 自动过）：advance_state 从磁盘重 load，游标须先落盘
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=4)
+        _write_evidence(tmp_path, "t", [_trace_line(4)])
+        action, _, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
+        assert action == "advanced"
+        st = eng.load_state(tmp_path, "t")
+        assert st["sub_index"] == 2  # 推进到 understand:2
+        assert "understand:1#4" in st["last_judged_trace"]
 
 
 class TestReadEvidence:

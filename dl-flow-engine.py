@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import enum
+import hashlib
 import json
 import subprocess
 import sys
@@ -160,8 +161,11 @@ _NODES: dict[str, Node] = {
                 ref="define-problem",
                 purpose="读回确认：用户认「这就是问题」",
                 input="step3.statement",
-                record=False,
-                gate=None,  # 交互步，自动过（用户确认即过）
+                # §substep-gate-at-stop：record=True——Stop 门控以「新 trace」为唯一
+                # 完成触发，record=False 的末步永无触发信号、子阶段永远卡住（3a 潜在洞）。
+                # 确认内容本身也是裁决留痕（用户认可了问题陈述）。
+                record=True,
+                gate=None,  # 交互步，gate 不跑 judge（trace 存在即过）
             ),
         ),
         minor_key="ProblemContext",  # evidence minor_stage 值（结构标识,模型照抄注入给的当前值）
@@ -463,6 +467,8 @@ def normalize_state(state: dict[str, Any]) -> dict[str, Any]:
             f"state.node={state['node']!r} 与 phase+sub 推导={derived!r} 不一致"
         )
     state.setdefault("node_attempts", 0)
+    # §substep-gate-at-stop S1：子步骤门控判定游标（key=<node>#<sub_step> -> 最新已判 trace 行 sha1）。
+    state.setdefault("last_judged_trace", {})
     # §orchestration v2：sub_step_index 补默认 + 范围校验
     node = get_node(phase, sub)
     if node.sub_steps:
@@ -721,6 +727,23 @@ def sub_step_has_trace(project_root: Path, name: str, sub_step_index: int) -> bo
     return False
 
 
+def _advance_sub_step(
+    project_root: Path, name: str, state: dict[str, Any], node: Node, cur: int, via: str
+) -> dict[str, Any]:
+    """子步骤推进共用段：非末步 sub_step_index++（attempts 归零）；末步 advance_state 推进子阶段。
+
+    state 须已 normalize。返回推进后的 state。
+    """
+    if cur < len(node.sub_steps):
+        state["sub_step_index"] = cur + 1
+        state["node_attempts"] = 0
+        state["updated_at"] = _now()
+        save_state(project_root, name, state)
+        return state
+    # 末步：推进子阶段（advance_state 含 normalize + save）
+    return advance_state(project_root, name, via=via)
+
+
 def gate_and_advance_sub_step(
     project_root: Path, name: str, node: Node, sub_step_index: int
 ) -> tuple[bool, str, dict[str, Any]]:
@@ -762,15 +785,9 @@ def gate_and_advance_sub_step(
     if state is None:
         return False, f"工作流 {name} 的 state.json 缺失", {}
     state = normalize_state(state)
-    if sub_step_index < len(node.sub_steps):
-        state["sub_step_index"] = sub_step_index + 1
-        state["node_attempts"] = 0
-        state["updated_at"] = _now()
-        save_state(project_root, name, state)
-        return True, "", state
-    # 末步：推进子阶段（advance_state 含 normalize + save）
-    new_state = advance_state(project_root, name, via="step-submit")
-    return True, "", new_state
+    return True, "", _advance_sub_step(
+        project_root, name, state, node, sub_step_index, via="step-submit"
+    )
 
 
 def force_pass_sub_step(project_root: Path, name: str, cwd: str) -> tuple[bool, str]:
@@ -801,14 +818,104 @@ def force_pass_sub_step(project_root: Path, name: str, cwd: str) -> tuple[bool, 
     )
     if not ok:
         return False, "裁决记录写 evidence 失败（未推进；见权限/磁盘）"
+    _advance_sub_step(project_root, name, state, node, cur, via="manual-step-pass")
     if cur < len(node.sub_steps):
-        state["sub_step_index"] = cur + 1
-        state["node_attempts"] = 0
-        state["updated_at"] = _now()
-        save_state(project_root, name, state)
         return True, f"子步骤 {cur} 已手动放行 -> 子步骤 {cur + 1}"
-    advance_state(project_root, name, via="manual-step-pass")
     return True, f"末子步骤 {cur} 已手动放行 -> 子阶段推进"
+
+
+# ---------- 子步骤 Stop 门控（§substep-gate-at-stop）----------
+
+
+def latest_trace_sha1(project_root: Path, name: str, sub_step_index: int) -> str | None:
+    """evidence.jsonl 里 sub_step == sub_step_index 的**最后一条** skill-trace 行的 sha1。
+
+    §substep-gate-at-stop S1：Stop hook 以此与 state.last_judged_trace 比对判定「有新产出」。
+    用 hash 不用行数：模型违规覆盖写也产生新 hash -> 必判。无匹配行/文件缺 -> None。
+    """
+    text = read_evidence(project_root, name)
+    if not text:
+        return None
+    latest: str | None = None
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if (
+            isinstance(rec, dict)
+            and rec.get("kind") == "skill-trace"
+            and rec.get("sub_step") == sub_step_index
+        ):
+            latest = line
+    if latest is None:
+        return None
+    return hashlib.sha1(latest.encode("utf-8")).hexdigest()
+
+
+def gate_sub_step_at_stop(
+    project_root: Path, name: str, cwd: str
+) -> tuple[str, str, dict[str, Any]]:
+    """Stop 时刻的子步骤门控。返回 (action, reason, state)。
+
+    §substep-gate-at-stop：触发 = 当前子步骤最新 trace hash 有变化（S1），
+    区分「子步骤完成」与「中途暂停等用户」（无新 trace -> none 静默放行，S6）。
+    action：
+    - "none"     ：无 sub_steps / 无新 trace / state 缺失 -> hook 放行 stop
+    - "advanced" ：gate pass（含 gate=None 自动过），已推进 + last_judged 已记（S3）
+    - "block"    ：gate 未过（attempts < SUB_STEP_BLOCK_ESCALATE），hook 应 _block_continue 同轮返工（S4）
+    - "escalate" ：连续 block 达阈值，hook 应给用户裁决文案（S7）
+    block/escalate 时 last_judged 同样更新（防同一 trace 重复判 -> 天然防 loop）。
+    """
+    none = ("none", "", {})
+    state = load_state(project_root, name)
+    if state is None:
+        return none
+    state = normalize_state(state)
+    try:
+        node = get_node(state["phase"], state["sub_index"])
+    except KeyError:
+        return none
+    if not node.sub_steps:
+        return none
+    cur = state.get("sub_step_index", 1)
+    step = sub_step_at(node, cur)
+    if step is None:
+        return none
+    sha = latest_trace_sha1(project_root, name, cur)
+    if sha is None:
+        return none  # 无 trace：中途暂停（或 evidence 路径错位,症状 L）-> 静默放行
+    key = f"{node_id(node.phase, node.sub)}#{cur}"
+    judged = state.setdefault("last_judged_trace", {})
+    if judged.get(key) == sha:
+        return none  # 已判过同一产出（上轮 block 后模型未写新 trace）-> 放行防 loop
+    judged[key] = sha  # 判前即记：pass/block 都防重判
+    if step.gate is None:
+        ok, reason = True, ""
+    else:
+        artifact = read_evidence(project_root, name)
+        ok, reason = run_judge(
+            step.gate,
+            f"{node.label} · 子步骤{cur}",
+            "",
+            artifact_content=artifact,
+        )
+    if ok:
+        # 先落盘（含 last_judged[key]）：末步路径 advance_state 从磁盘重 load，
+        # 不落盘会丢判定游标 -> 下次 Stop 重判同一 trace。
+        save_state(project_root, name, state)
+        new_state = _advance_sub_step(project_root, name, state, node, cur, via="step-stop")
+        return "advanced", "", new_state
+    state["node_attempts"] = state.get("node_attempts", 0) + 1
+    state["updated_at"] = _now()
+    save_state(project_root, name, state)
+    action = (
+        "escalate" if state["node_attempts"] >= SUB_STEP_BLOCK_ESCALATE else "block"
+    )
+    return action, reason or "judge 未给出原因", state
 
 
 def _strip_json_fence(text: str) -> str:
