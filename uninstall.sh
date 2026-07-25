@@ -17,7 +17,7 @@ echo "═══ dl-workflow uninstall ═══"
 echo "▸ 删除 skill / output-style / command"
 rm -rf "$CLAUDE_HOME/skills/workflow-creation" && echo "  - $CLAUDE_HOME/skills/workflow-creation/"
 rm -f "$CLAUDE_HOME/output-styles/workflow.md" && echo "  - $CLAUDE_HOME/output-styles/workflow.md"
-rm -f "$CLAUDE_HOME/commands/wf.md" && echo "  - $CLAUDE_HOME/commands/wf.md"
+rm -f "$CLAUDE_HOME/commands/dl.md" && echo "  - $CLAUDE_HOME/commands/dl.md"
 
 # ---------- 摘 settings.json 里 dl-workflow 注册的 hooks ----------
 SETTINGS="$CLAUDE_HOME/settings.json"

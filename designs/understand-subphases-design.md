@@ -55,7 +55,7 @@ sub2 工作 -> ### SUB_DONE: 2  (Stop: sub_index 2->3)
 sub3 工作 -> ### SUB_DONE: 3  (Stop: sub_index 3->4)
 sub4 工作 + 写 understand.md -> ### PHASE_DONE: understand
   (Stop: 守卫 sub_index==4==sub_total 通过 -> 闸门 understand->plan 待放行)
-用户 /wf gate -> /wf next -> plan
+用户 /dl gate -> /dl next -> plan
 ```
 
 ### 守卫阻断（模型提前 PHASE_DONE）
@@ -77,30 +77,30 @@ sub4 工作 + 写 understand.md -> ### PHASE_DONE: understand
 
 | 文件 | 改动 | 生效方式 |
 |---|---|---|
-| `scripts/workflow/wf-lib.sh` | `WF_SUBPHASES_UNDERSTAND` 数组 + `wf_sub_total()`/`wf_sub_label()`；`wf_state_init` 加 sub_index/sub_total=1/4；`wf_state_set_phase` 按阶段重置二字段 | 下次 `dl`/`/wf` 即最新（直接跑源） |
+| `scripts/workflow/dl-lib.sh` | `WF_SUBPHASES_UNDERSTAND` 数组 + `wf_sub_total()`/`wf_sub_label()`；`wf_state_init` 加 sub_index/sub_total=1/4；`wf_state_set_phase` 按阶段重置二字段 | 下次 `dl`/`/dl` 即最新（直接跑源） |
 | `hooks/workflow_advance.py` | `SUBPHASES` dict + `SUB_DONE_RE`；main() 先查 SUB_DONE->推进 sub_index+横幅；PHASE_DONE 后插子阶段守卫 | 下轮 hook 触发即最新（settings.json 引用源，无需 install） |
 | `hooks/workflow_phase.py` | `SUBPHASES` dict；`_format_injection` 加子阶段行+目标状态块+末子阶段标记指引；任务清单块扩展 | 同上，无需 install |
-| `scripts/workflow/wf-cmd.sh` | `status` 增 `子阶段: <label> [sub_idx/sub_total]` 行（sub_total>0 时） | 直接跑源，无需 install |
+| `scripts/workflow/dl-cmd.sh` | `status` 增 `子阶段: <label> [sub_idx/sub_total]` 行（sub_total>0 时） | 直接跑源，无需 install |
 | `scripts/workflow/phase-rules.md` | understand 段重写为 4 子阶段（各 goal+标记）；加通用「阶段可有子阶段」规则 | install.sh + 重启会话 |
 | `output-styles/workflow.md` | `## PHASE:` 头加 `· 子阶段 [n/N] <名>`；TaskList 规则扩展（understand 首轮建 1+1.1-1.4+2-5）；PHASE_DONE 规则区分末子阶段 | install.sh + 重启会话 |
 | `skills/workflow-creation/SKILL.md` | 同步「understand 含 4 子阶段」一句 | install.sh + 重启 |
 
-> 子阶段定义按现有「每运行时一份」范式在 bash（`wf-lib.sh`）+ python（两个 hook）三处各持一份（与 `PHASES`/`PHASE_LABELS` 重复持有一致，避免跨语言 source，见 chinese-labels 设计 §4）。
+> 子阶段定义按现有「每运行时一份」范式在 bash（`dl-lib.sh`）+ python（两个 hook）三处各持一份（与 `PHASES`/`PHASE_LABELS` 重复持有一致，避免跨语言 source，见 chinese-labels 设计 §4）。
 
 ## 6. 实施步骤（6 个小 commit，每 ≤3 文件）
 
 1. `designs/understand-subphases-design.md`（本文档，H8）
-2. `scripts/workflow/wf-lib.sh`（子阶段定义 + state schema）
+2. `scripts/workflow/dl-lib.sh`（子阶段定义 + state schema）
 3. `hooks/workflow_advance.py`（SUB_DONE 推进 + 守卫）← 改前先 `codegraph affected` 留痕解锁 H15
 4. `hooks/workflow_phase.py`（子阶段注入）← 同上解锁
-5. `scripts/workflow/wf-cmd.sh` + `phase-rules.md` + `output-styles/workflow.md`（显示/规则层）
+5. `scripts/workflow/dl-cmd.sh` + `phase-rules.md` + `output-styles/workflow.md`（显示/规则层）
 6. `skills/workflow-creation/SKILL.md` 同步 + `install.sh` + 重启会话 + smoke test
 
 ## 7. 风险与缓解
 
 | # | 风险 | 缓解 |
 |---|---|---|
-| 1 | Stop hook transcript 读取脆弱性（-p transcript 空、ark 收不到 attachment） | 与现有 PHASE_DONE 同路径，无新增脆弱类；沿用既有兜底（交互 TTY + 模型 `wf-cmd.sh status` 自取）。验证禁 -p/管道 |
+| 1 | Stop hook transcript 读取脆弱性（-p transcript 空、ark 收不到 attachment） | 与现有 PHASE_DONE 同路径，无新增脆弱类；沿用既有兜底（交互 TTY + 模型 `dl-cmd.sh status` 自取）。验证禁 -p/管道 |
 | 2 | TaskList 顺序：1.1-1.4 须紧跟任务 1 | 靠创建顺序（首轮建 1,1.1-1.4,2-5）；旧工作流续接建子任务落底部（边角，已知） |
 | 3 | 模型合规：子 1-3 须出 SUB_DONE、子 4 出 PHASE_DONE | 注入 + phase-rules 明示；守卫兜底（早出 PHASE_DONE 被阻） |
 | 4 | H15 跨 repo：编辑 dl-workflow 两个 .py 触发本项目门禁 | 先跑一次 `codegraph affected <file>` 留痕解锁（弱门禁：挡零查询，不挡查错 symbol） |

@@ -1,17 +1,17 @@
 #!/bin/bash
-# wf-lib.sh - workflow 共享库：state 读写 / worktree 管理 / 阶段定义
+# dl-lib.sh - workflow 共享库：state 读写 / worktree 管理 / 阶段定义
 # 真源：designs/workflow-system-design.md
-# 被 wf-launch.sh + .claude/commands/wf*.md 共用。
+# 被 dl-launch.sh + .claude/commands/dl*.md 共用。
 
 # 防止被直接执行（应被 source）
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
-  echo "wf-lib.sh: 应被 source，勿直接执行。" >&2
+  echo "dl-lib.sh: 应被 source，勿直接执行。" >&2
   exit 1
 fi
 
 # ---------- 路径 ----------
 
-# wf-lib.sh 自身目录（绝对）
+# dl-lib.sh 自身目录（绝对）
 WF_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # repo 根：优先 git 反查（worktree 内 __file__.parents[2] 会指向 worktree 根而非主仓库根，
@@ -230,7 +230,7 @@ wf_write_settings() {
   "permissions": {
     "defaultMode": "acceptEdits",
     "allow": [
-      "Bash(bash ~/.dl-workflow/scripts/workflow/wf-cmd.sh status:*)"
+      "Bash(bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh status:*)"
     ]
   },
   "hooks": {

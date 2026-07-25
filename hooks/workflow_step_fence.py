@@ -13,7 +13,7 @@ Edit/Write/MultiEdit/NotebookEdit 目标路径不在该 phase 白名单
 sed -i）无法可靠判定写意图，不在围栏内（phase-rules 文案仍禁）。
 
 开关：state.enforce_step_fence / enforce_phase_fence（默认 true；
-/wf fence on|off 统一切换，hook 实时读 state 无需重启）。
+/dl fence on|off 统一切换，hook 实时读 state 无需重启）。
 
 容错：非 worktree / 无 state -> exit 0 静默放行。
 deny 留痕 <project>/.claude/.wf_fence.log（观测性）。
@@ -195,19 +195,19 @@ def main() -> int:
             reason = engine.phase_write_denial(project_root, name, fp)
             if reason:
                 _log_deny(project_root, name, "phase_fence_deny", f"tool={tool}|path={fp}")
-                return _deny(reason + "\n（此硬约束可用 /wf fence off 关闭，回文案约束）")
+                return _deny(reason + "\n（此硬约束可用 /dl fence off 关闭，回文案约束）")
 
     # ---- S10 子步骤围栏：有未判决 trace -> 禁一切工具调用，逼 STEP_DONE+end_turn ----
     step = engine.pending_unjudged_step(project_root, name)
     if step is None:
-        return 0  # 无未判决 trace（或围栏已 /wf fence off）-> 放行
+        return 0  # 无未判决 trace（或围栏已 /dl fence off）-> 放行
     _log_deny(project_root, name, "fence_deny", f"step={step}|tool={tool}")
     return _deny(
         f"子步骤 {step} 已写 evidence，正等待 Stop 门控判决。\n"
         "禁止继续工具调用（含为下一子步骤探查）。\n"
         f"唯一正确动作：输出 ### STEP_DONE: {step} 并 end_turn；"
         "门控判定后（过→进下一步 / block→当轮返工）再继续。\n"
-        "（此硬约束可用 /wf fence off 关闭，回文案约束）"
+        "（此硬约束可用 /dl fence off 关闭，回文案约束）"
     )
 
 

@@ -15,10 +15,10 @@
 |---|---|
 | `state.json` 的 `phase` 字段 | 已存在工作流的 state 兼容性 |
 | `### PHASE_DONE: <phase>` 标记 | `workflow_advance.py` 的 `DONE_RE` 正则匹配 |
-| `/wf jump <phase>` 参数 | `wf_phase_index` 按英文匹配 |
-| `wf-lib.sh` `WF_PHASES` 数组 | 阶段顺序/闸门判定 |
+| `/dl jump <phase>` 参数 | `wf_phase_index` 按英文匹配 |
+| `dl-lib.sh` `WF_PHASES` 数组 | 阶段顺序/闸门判定 |
 
-中文名**仅用于给人看的显示**（横幅 / status / 注入段 / launcher / list / 阶段切换框）。英文标识仍可在 `/wf status` 的「阶段顺序」行查到（供 `/wf jump`）。
+中文名**仅用于给人看的显示**（横幅 / status / 注入段 / launcher / list / 阶段切换框）。英文标识仍可在 `/dl status` 的「阶段顺序」行查到（供 `/dl jump`）。
 
 ## 2. 阶段名映射（canonical）
 
@@ -32,11 +32,11 @@
 
 ## 3. 显示格式决策
 
-经用户确认：**仅中文名**。横幅 `## PHASE: 理解和求证问题 [1/5]`，不并列英文。`/wf status` 的 `阶段顺序:` 行仍列英文标识（`/wf jump` 可用）。
+经用户确认：**仅中文名**。横幅 `## PHASE: 理解和求证问题 [1/5]`，不并列英文。`/dl status` 的 `阶段顺序:` 行仍列英文标识（`/dl jump` 可用）。
 
 ## 4. 映射定义点（每运行时一份，沿用现有 PHASES 重复持有范式）
 
-- **bash**：`scripts/workflow/wf-lib.sh` 定义 `WF_PHASE_LABELS`（assoc array）+ `wf_phase_label()`，`wf-cmd.sh`/`wf-launch.sh` source 后调用（单一定义点）。
+- **bash**：`scripts/workflow/dl-lib.sh` 定义 `WF_PHASE_LABELS`（assoc array）+ `wf_phase_label()`，`dl-cmd.sh`/`dl-launch.sh` source 后调用（单一定义点）。
 - **python**：`.claude/hooks/workflow_phase.py` 与 `workflow_advance.py` 各持一份 `PHASE_LABELS` dict（与各自 `PHASES` 一致，避免跨语言 source）。
 
 ## 5. 受影响文件
@@ -46,9 +46,9 @@
 | `.claude/hooks/workflow_phase.py` | `PHASE_LABELS` + 注入 `阶段:` 行用标签 + 注入「任务清单目标状态」块 |
 | `.claude/hooks/workflow_advance.py` | `PHASE_LABELS` + 三处 `_emit` 横幅用标签；框简化为左侧边框（中文等宽对齐） |
 | `.claude/output-styles/workflow.md` | 横幅格式中文 + 新增「常驻阶段任务清单」首要规则（TaskCreate/TaskUpdate 同步） |
-| `scripts/workflow/wf-lib.sh` | `WF_PHASE_LABELS` + `wf_phase_label()` + `wf_list` |
-| `scripts/workflow/wf-cmd.sh` | status/next/back/jump/gate 回显用标签 |
-| `scripts/workflow/wf-launch.sh` | launcher 当前阶段/跳转回显用标签 |
+| `scripts/workflow/dl-lib.sh` | `WF_PHASE_LABELS` + `wf_phase_label()` + `wf_list` |
+| `scripts/workflow/dl-cmd.sh` | status/next/back/jump/gate 回显用标签 |
+| `scripts/workflow/dl-launch.sh` | launcher 当前阶段/跳转回显用标签 |
 | `scripts/workflow/phase-rules.md` | 5 阶段标题中文 + 总则加「常驻阶段清单」维护规则 |
 | `.claude/skills/workflow-creation/SKILL.md` | 阶段描述中文同步 |
 
@@ -79,5 +79,5 @@
 ## 8. 验证
 
 - `python3 -c "...import workflow_phase; print(_format_injection({'phase':'execute','index':3,...}))"` -> 注入含「任务清单」块，5 行目标状态正确，PHASE_DONE 行仍英文。
-- `source scripts/workflow/wf-lib.sh; wf_phase_label understand` -> `理解和求证问题`。
+- `source scripts/workflow/dl-lib.sh; wf_phase_label understand` -> `理解和求证问题`。
 - 实跑验证：`dl test` 新建工作流，确认首轮模型 TaskCreate 出 5 阶段任务（understand=in_progress），推进后清单逐个打勾。

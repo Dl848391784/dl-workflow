@@ -18,9 +18,9 @@ BASHRC="$HOME/.bashrc"
 check_deps() {
   command -v python3 >/dev/null || { echo "✗ 缺 python3" >&2; exit 1; }
   command -v git >/dev/null || { echo "✗ 缺 git" >&2; exit 1; }
-  # wf-lib.sh 用 declare -A（bash ≥ 4）
+  # dl-lib.sh 用 declare -A（bash ≥ 4）
   if [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
-    echo "✗ 需要 bash ≥ 4（当前 $BASH_VERSION，wf-lib.sh 用 declare -A）" >&2
+    echo "✗ 需要 bash ≥ 4（当前 $BASH_VERSION，dl-lib.sh 用 declare -A）" >&2
     exit 1
   fi
   echo "✓ 依赖检查通过（python3, git, bash $BASH_VERSION）"
@@ -54,7 +54,7 @@ install_files() {
   # output-style
   copy_with_backup "$SRC_DIR/output-styles/workflow.md" "$CLAUDE_HOME/output-styles/workflow.md"
   # command
-  copy_with_backup "$SRC_DIR/commands/wf.md" "$CLAUDE_HOME/commands/wf.md"
+  copy_with_backup "$SRC_DIR/commands/dl.md" "$CLAUDE_HOME/commands/dl.md"
   echo "✓ 文件复制完成（hooks 不 copy，settings.json 直接引用 ~/.dl-workflow/hooks/）"
 }
 
@@ -156,7 +156,7 @@ install_bashrc() {
   cat >> "$BASHRC" <<'BASHRC_EOF'
 
 # BEGIN dl-workflow  (installed by ~/.dl-workflow/install.sh)
-# 5 阶段工作流入口。真源：~/.dl-workflow/scripts/workflow/wf-launch.sh
+# 5 阶段工作流入口。真源：~/.dl-workflow/scripts/workflow/dl-launch.sh
 #
 # 两种入口（都拦 --dl 参数转交 launcher）：
 #   dl <name>              # 独立 dl 函数（install.sh 装）
@@ -177,9 +177,9 @@ install_bashrc() {
 
 export DL_WF_HOME="$HOME/.dl-workflow"
 
-# launcher 调用核心：转交 wf-launch.sh（加 --workflow 前缀）
+# launcher 调用核心：转交 dl-launch.sh（加 --workflow 前缀）
 _dl_launch() {
-  "$DL_WF_HOME/scripts/workflow/wf-launch.sh" --workflow "$@"
+  "$DL_WF_HOME/scripts/workflow/dl-launch.sh" --workflow "$@"
 }
 
 # dl 命令：独立入口

@@ -32,7 +32,7 @@
 _dl_dispatch() {
   if [ "$1" = "--dl" ]; then
     shift
-    "$HOME/.dl-workflow/scripts/workflow/wf-launch.sh" --workflow "$@"
+    "$HOME/.dl-workflow/scripts/workflow/dl-launch.sh" --workflow "$@"
     return $?
   fi
   return 1   # 非 --dl，调用方继续走自己的 claude 逻辑

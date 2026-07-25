@@ -1,22 +1,23 @@
 #!/bin/bash
-# wf-cmd.sh - 工作流控制命令（被 /wf slash 命令调用）
-# 真源：designs/workflow-system-design.md §3 / scripts/workflow/wf-lib.sh
+# dl-cmd.sh - 工作流控制命令（被 /dl slash 命令调用）
+# 真源：designs/workflow-system-design.md §3 / scripts/workflow/dl-lib.sh
 #
 # 用法：
-#   wf-cmd.sh status                 查看当前阶段
-#   wf-cmd.sh next                   推进到下一阶段（闸门阶段需先 gate）
-#   wf-cmd.sh back                   回退到上一阶段
-#   wf-cmd.sh jump <phase>           跳转到指定阶段
-#   wf-cmd.sh gate                   闸门放行（understand->plan / plan->execute）
-#   wf-cmd.sh step-pass              用户裁决：强制放行当前子步骤（连续 block 达阈值后的出口）
-#   wf-cmd.sh fence on|off           子步骤围栏(S10)开关（阶段写围栏 S11 是系统硬约束，无开关）
-#   wf-cmd.sh done                   归档工作流（删 worktree，保留元数据）
+#   dl-cmd.sh status                 查看当前阶段
+#   dl-cmd.sh next                   推进到下一阶段（闸门阶段需先 gate）
+#   dl-cmd.sh back                   回退到上一阶段
+#   dl-cmd.sh jump <phase>           跳转到指定阶段
+#   dl-cmd.sh gate                   闸门放行（understand->plan / plan->execute）
+#   dl-cmd.sh step-pass              用户裁决：强制放行当前子步骤（连续 block 达阈值后的出口）
+#   dl-cmd.sh step-reset <n>         回退到子步骤 n 重测（删该步及之后 evidence + 清游标/重试计数）
+#   dl-cmd.sh fence on|off           子步骤围栏(S10)开关（阶段写围栏 S11 是系统硬约束，无开关）
+#   dl-cmd.sh done                   归档工作流（删 worktree，保留元数据）
 
 set -euo pipefail
 
 LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=./wf-lib.sh
-. "$LIB_DIR/wf-lib.sh"
+# shellcheck source=./dl-lib.sh
+. "$LIB_DIR/dl-lib.sh"
 
 # 从 cwd 推断当前工作流名（worktree 路径含 name）
 resolve_name() {
@@ -37,7 +38,7 @@ resolve_name() {
 NAME="$(resolve_name || true)"
 if [ -z "$NAME" ]; then
   echo "✗ 当前不在工作流 worktree 内（cwd 不含 .claude/worktrees/<name>）。" >&2
-  echo "  请在 dl <name> 启动的会话中使用 /wf。" >&2
+  echo "  请在 dl <name> 启动的会话中使用 /dl。" >&2
   exit 1
 fi
 
@@ -54,7 +55,7 @@ cur_phase() { wf_state_get "$NAME" phase; }
 cur_idx()   { wf_state_get "$NAME" index; }
 
 # 进度展示由原生 TUI TaskList 组件负责（模型用 TaskCreate/TaskUpdate 建齐 9 项清单，
-# 见 output-style 硬性要求 1）。wf-cmd.sh status 只输出元数据（阶段/闸门/分支/session/顺序）。
+# 见 output-style 硬性要求 1）。dl-cmd.sh status 只输出元数据（阶段/闸门/分支/session/顺序）。
 # banner-tree-design.md 记录了 checklist 兜底展示的历史设计（选项A：删兜底，只留 TUI）。
 
 case "$SUB" in
@@ -68,8 +69,8 @@ case "$SUB" in
     echo "  分支:  $BR"
     echo "  worktree: $(wf_state_get "$NAME" worktree_path)"
     echo "  session:  $(wf_state_get "$NAME" session_id)"
-    echo "  阶段顺序(英文，供 /wf jump): ${WF_PHASES[*]}"
-    echo "  闸门后置: $WF_GATED_AFTER（这些阶段完成需 /wf gate 放行）"
+    echo "  阶段顺序(英文，供 /dl jump): ${WF_PHASES[*]}"
+    echo "  闸门后置: $WF_GATED_AFTER（这些阶段完成需 /dl gate 放行）"
     # §banner-tree-design + §orchestration v2：进度树给模型取阶段真值
     # （phase-rules 行 13 要求 status 取真值；旧 status 删了阶段显示致模型卡 Bash 循环）。
     # engine progress 读 state.json（含 sub_step_index + 当前子步骤 purpose），最准。
@@ -82,7 +83,7 @@ case "$SUB" in
   next)
     P="$(cur_phase)"
     if [ "$P" = "evolution" ]; then
-      echo "✗ 已在终末阶段（进化），无下一阶段。用 /wf done 归档。" >&2
+      echo "✗ 已在终末阶段（进化），无下一阶段。用 /dl done 归档。" >&2
       exit 1
     fi
     # 闸门检查
@@ -90,7 +91,7 @@ case "$SUB" in
       G="$(wf_state_get "$NAME" gate)"
       if [ "$G" != "passed" ]; then
         echo "⚠ 阶段 $(wf_phase_label "$P") 完成后是闸门阶段。当前 gate=$G。" >&2
-        echo "  先 /wf gate 放行，或再次 /wf next 强制推进（跳过闸门）。" >&2
+        echo "  先 /dl gate 放行，或再次 /dl next 强制推进（跳过闸门）。" >&2
         # 允许二次 next 强制（用户明确意图）
         exit 1
       fi
@@ -114,7 +115,7 @@ case "$SUB" in
     ;;
 
   jump)
-    [ $# -ge 1 ] || { echo "用法: /wf jump <phase>（英文标识，见 /wf status 阶段顺序）" >&2; exit 1; }
+    [ $# -ge 1 ] || { echo "用法: /dl jump <phase>（英文标识，见 /dl status 阶段顺序）" >&2; exit 1; }
     T="$1"
     if ! wf_phase_index "$T" >/dev/null; then
       echo "✗ 非法阶段 '$T'。可选: ${WF_PHASES[*]}" >&2
@@ -135,7 +136,7 @@ case "$SUB" in
     N="$(wf_next_phase "$P")"
     echo "✓ 闸门放行: gate=passed"
     echo "  阶段 $(wf_phase_label "$P") 已批准，可进入 $(wf_phase_label "$N")。"
-    echo "  下一步: /wf next 推进（或模型输出 PHASE_DONE 后 Stop hook 自动推进）。"
+    echo "  下一步: /dl next 推进（或模型输出 PHASE_DONE 后 Stop hook 自动推进）。"
     ;;
 
   step-pass)
@@ -143,11 +144,17 @@ case "$SUB" in
     python3 "$WF_ENGINE" step-pass "$NAME" --cwd "$(pwd)"
     ;;
 
+  step-reset)
+    # 回退到子步骤 n 反复重测（engine reset_sub_step：删 sub_step>=n 的 trace/gate 行 + 清游标）
+    V="${1:-}"
+    python3 "$WF_ENGINE" step-reset "$NAME" "$V" --cwd "$(pwd)"
+    ;;
+
   fence)
     # 子步骤围栏开关（§substep-gate-at-stop S10；实时生效无需重启）
     V="${1:-}"
     if [ "$V" != "on" ] && [ "$V" != "off" ]; then
-      echo "用法: /wf fence on|off（当前: $(wf_state_get "$NAME" enforce_step_fence 2>/dev/null || echo on)）" >&2
+      echo "用法: /dl fence on|off（当前: $(wf_state_get "$NAME" enforce_step_fence 2>/dev/null || echo on)）" >&2
       exit 1
     fi
     python3 "$WF_ENGINE" fence "$NAME" "$V" --cwd "$(pwd)"
@@ -164,7 +171,7 @@ case "$SUB" in
     ;;
 
   *)
-    echo "✗ 未知子命令 '$SUB'。可用: status next back jump gate step-pass fence done" >&2
+    echo "✗ 未知子命令 '$SUB'。可用: status next back jump gate step-pass step-reset fence done" >&2
     exit 1
     ;;
 esac

@@ -7,7 +7,7 @@
 > 状态：~~设计中（2026-07-23 起）。本文件为 H8 Design-First 产物，是证据链子系统的真源。~~ 已弃用，见上。
 > 对应实现（待做）：`~/.dl-workflow/hooks/evidence_append.py`（Stop hook）、
 > `<项目>/.claude/evidence/<name>.jsonl`（运行态真源）、
-> `scripts/workflow/wf-lib.sh`（settings.json 注册新 hook）。
+> `scripts/workflow/dl-lib.sh`（settings.json 注册新 hook）。
 > 父系统：`designs/workflow-system-design.md`（5 阶段状态机）。
 > 范围：本轮只定**地基 + 脚本设计**；**门控（执行完备检查）与审核（结论回溯）机制留占位，后议**（§10）。
 
@@ -58,7 +58,7 @@ ev_003  claim="5×100=500"  depends_on=[ev_002]   ← 结论
 | 4 | 现有 hook 读 transcript 解析标记的范式已验证可用 | `workflow_advance.py:_last_assistant_text` + `DONE_RE`/`SUB_DONE_RE` 解析 `### PHASE_DONE`/`### SUB_DONE` | 新 hook 复用此范式解析 `### EVIDENCE:{json}`，机制低风险 |
 | 5 | hook 装在 `~/.dl-workflow/hooks/`，settings.json 用 `~` 引用源（shell 展开） | `workflows/demo/settings.json` hook command = `python3 ~/.dl-workflow/hooks/workflow_advance.py` | 新 hook 同法注册；改源 `git pull` 即生效，无需重建 worktree |
 | 6 | hook 从 cwd 反查主 repo 根已解决（worktree 内 `--git-common-dir`） | `workflow_advance.py:_resolve_project_root` | 新 hook 复用此函数定位 `<项目>/.claude/evidence/<name>.jsonl` |
-| 7 | PHASES/PHASE_LABELS/SUBPHASES 在 wf-lib.sh + 两 hook **三处各持一份** | `workflow_advance.py:46` 注释自述 | schema 常量若跨语言复用需注意同样的"避免跨语言 source"取舍 |
+| 7 | PHASES/PHASE_LABELS/SUBPHASES 在 dl-lib.sh + 两 hook **三处各持一份** | `workflow_advance.py:46` 注释自述 | schema 常量若跨语言复用需注意同样的"避免跨语言 source"取舍 |
 | 8 | 多分支各自 append 同一全局文件会 merge 冲突 | git 合并语义：两边同加行 -> 冲突 | **per-workflow 一个文件**（`<name>.jsonl`），不同分支写不同文件，合并零冲突 |
 
 ## 2. 架构总览
@@ -214,19 +214,19 @@ exit 0（永不阻断，与 workflow_advance.py 一致）
 ```
 ~/.dl-workflow/designs/evidence-chain-design.md   本设计文档(H8)          [本 commit]
 ~/.dl-workflow/hooks/evidence_append.py           新：Stop hook 追加证据    [commit 2]
-~/.dl-workflow/scripts/workflow/wf-lib.sh         改：wf_write_settings 注册新 hook  [commit 3]
-~/.dl-workflow/scripts/workflow/wf-launch.sh      可能改：建 .claude/evidence/ 目录占位  [commit 3 或并入]
+~/.dl-workflow/scripts/workflow/dl-lib.sh         改：wf_write_settings 注册新 hook  [commit 3]
+~/.dl-workflow/scripts/workflow/dl-launch.sh      可能改：建 .claude/evidence/ 目录占位  [commit 3 或并入]
 <项目>/.gitignore                                  可能改：确认 .claude/evidence/ 不被忽略(tracked)  [commit 4，项目侧]
 <项目>/.claude/evidence/<name>.jsonl              运行态真源(tracked)       [运行期生成]
 ```
 
 ## 8. 与项目铁律的关系
 
-- **H8**（2+文件先 design.md）：本设计即 design，先落本文档。实现跨多文件（hook + wf-lib.sh + 项目 gitignore），须先有本文档。
+- **H8**（2+文件先 design.md）：本设计即 design，先落本文档。实现跨多文件（hook + dl-lib.sh + 项目 gitignore），须先有本文档。
 - **H9**（单次 ≤3 文件 AND ≤200 行）：分 commit 增量实现（§7）。本 commit 仅 design.md 一文件。
 - **H11**（日志 `%` 惰性格式化，禁 f-string / `exc_info=True`）：`evidence_append.py` 留痕日志守此。
 - **H12**（退出码语义，main 内禁 sys.exit）：hook 统一 `return 0`，exit 0 only（与现有两 hook 一致，永不阻断）。
-- **H15**（codegraph 门禁）：`evidence_append.py` 是**新建 .py**（gate 白名单跳过新建）；改 `wf-lib.sh` 非 .py 跳过。若后续改已有 .py 则先 `codegraph impact`。
+- **H15**（codegraph 门禁）：`evidence_append.py` 是**新建 .py**（gate 白名单跳过新建）；改 `dl-lib.sh` 非 .py 跳过。若后续改已有 .py 则先 `codegraph impact`。
 - **no silent fallback**：标记解析失败 / transcript 缺失 / 文件写失败 -> 留痕 `.wf_evidence.log` + exit 0（不阻断工作流，但留证据可查）。与 `workflow_advance.py` 防御式降级一致。
 - **Read before write / verify before claiming done**：实现后须真实跑 `dl demo` 验证追加落地，附 `.wf_evidence.log` + 文件内容证据。
 
@@ -234,7 +234,7 @@ exit 0（永不阻断，与 workflow_advance.py 一致）
 
 1. ✅ `evidence-chain-design.md`（本文档，H8 产物）。
 2. ✅ `evidence_append.py`（Stop hook：解析标记 + 分配 id + 戳 SHA + append）+ 22 例单测（真 git worktree 端到端）。
-3. ✅ `wf-lib.sh` `wf_write_settings` 注册 evidence_append.py 为第二个 Stop hook。冒烟：source wf-lib.sh 生成 settings.json 验 Stop hooks=2 且顺序正确（advance 先 evidence 后）。
+3. ✅ `dl-lib.sh` `wf_write_settings` 注册 evidence_append.py 为第二个 Stop hook。冒烟：source dl-lib.sh 生成 settings.json 验 Stop hooks=2 且顺序正确（advance 先 evidence 后）。
 4. ✅ **live smoke 排查（2026-07-23）+ 证据注入修复（方案1）**：
    - **第一次排查**（误判）：`.wf_evidence.log` 两次 `no_markers`（17:21 `tlen=0`、17:23 `tlen=360`），初判"模型从未输出标记、无注入渠道"。**误判点**：transcript 在错误目录找（worktree 会话的 transcript 落在独立项目目录 `~/.claude/projects/-...-worktrees-demo/`，非主项目目录）。
    - **注入修复（方案1，已落地 commit ad70772）**：扩展 `workflow_phase.py` `_format_injection` 追加证据标记格式提示块。复用 UserPromptSubmit 注入通道，5 阶段均注入。
@@ -254,7 +254,7 @@ exit 0（永不阻断，与 workflow_advance.py 一致）
 
 ### 10.1 门控（执行完备检查）- 占位
 
-- **触发时机**：候选 = execute->review 推进前 / `/wf gate` 放行时 / 手动 `/evidence check`。
+- **触发时机**：候选 = execute->review 推进前 / `/dl gate` 放行时 / 手动 `/evidence check`。
 - **判定规则**（草稿，待定）：
   - 每个 `status=active` 的 `claim_type=conclusion` 节点须有 ≥1 条非 reasoning 证据？（或允许纯 reasoning？）
   - `depends_on` 引用的 id 须存在且非 superseded？（superseded 链如何处理待定）

@@ -1,5 +1,5 @@
 #!/bin/bash
-# wf-launch.sh - 工作流 launcher：建/续 worktree + state + session，起 claude TUI
+# dl-launch.sh - 工作流 launcher：建/续 worktree + state + session，起 claude TUI
 # 真源：designs/workflow-system-design.md
 # 被 ~/.bashrc 的 dl 调用（不设 provider env，继承当前 shell env）。
 #
@@ -14,8 +14,8 @@
 set -euo pipefail
 
 LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=./wf-lib.sh
-. "$LIB_DIR/wf-lib.sh"
+# shellcheck source=./dl-lib.sh
+. "$LIB_DIR/dl-lib.sh"
 
 usage() {
   sed -n '3,12p' "$0" | sed 's/^# \{0,1\}//'
@@ -147,7 +147,7 @@ CUR_PHASE=$(wf_state_get "$WF_NAME" phase)
 CUR_IDX=$(wf_state_get "$WF_NAME" index)
 echo "  当前阶段: $(wf_phase_label "$CUR_PHASE") [$CUR_IDX/5]"
 echo "──────────────────────────────────────────────────────────"
-echo "进入工作流（隔离 worktree）。/wf status 查看阶段，/wf next 推进。"
+echo "进入工作流（隔离 worktree）。/dl status 查看阶段，/dl next 推进。"
 echo "──────────────────────────────────────────────────────────"
 
 # ---------- 起 claude ----------
@@ -160,7 +160,7 @@ if [ -f "$WF_SETTINGS" ]; then
 fi
 
 # 阶段规则 append-system-prompt-file（若存在）
-# dl-workflow 版本：phase-rules.md 与 wf-launch.sh 同目录（LIB_DIR = <dl-workflow>/scripts/workflow/），
+# dl-workflow 版本：phase-rules.md 与 dl-launch.sh 同目录（LIB_DIR = <dl-workflow>/scripts/workflow/），
 # 不再从当前项目 $WF_REPO_ROOT/scripts/workflow/ 取（那里没有）。
 PHASE_RULES_FILE="$LIB_DIR/phase-rules.md"
 SYS_PROMPT_ARGS=()

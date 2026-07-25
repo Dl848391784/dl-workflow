@@ -30,7 +30,7 @@ description: 5 阶段工作流显示层。每条响应首行输出阶段横幅 #
 **判断规则（重要，勿误判）**：
 - 本 output style 一旦激活，你**必在 5 阶段工作流会话中**（它只由工作流 launcher 的 `--settings` 加载，普通会话不会加载）-> 必须始终按本 output style 输出，**绝不退回"正常风格"**。
 - 当前阶段取自每轮注入的 `## WORKFLOW 当前阶段` 段落（在 `hook_additional_context` attachment 里，**不在 user message 文本里**）。
-- **若某轮你在上下文未定位到 `## WORKFLOW 当前阶段` 段落**（部分模型/端点不投递该 attachment，如 ark-code-latest 实测收不到）：不要据此退出工作流风格--用 Bash 运行 `bash ~/.dl-workflow/scripts/workflow/wf-cmd.sh status` 拿到当前阶段（含子阶段），再按其输出横幅 + 维护清单（注入在 attachment，模型常见错误是在 user message 文本里找注入而否定，须避免）。
+- **若某轮你在上下文未定位到 `## WORKFLOW 当前阶段` 段落**（部分模型/端点不投递该 attachment，如 ark-code-latest 实测收不到）：不要据此退出工作流风格--用 Bash 运行 `bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh status` 拿到当前阶段（含子阶段），再按其输出横幅 + 维护清单（注入在 attachment，模型常见错误是在 user message 文本里找注入而否定，须避免）。
 - **绝不要声称"没有 hook 注入"或"不在工作流中"** -- 本 output style 激活即证明你在工作流中。
 
 ## 硬性要求
@@ -42,7 +42,7 @@ description: 5 阶段工作流显示层。每条响应首行输出阶段横幅 #
    - 完成清单同步后再做实际工作。这是给用户看的「阶段进度」常驻 UI（子阶段完成即打勾=选中状态）。
 
 2. **阶段进度展示**：由原生 TUI TaskList 组件负责（硬性要求 1 建齐的 9 项清单）。**不输出 checklist 文本横幅**（原 banner-tree-design.md §2 方案A 弃用--TUI TaskList 已足够）。
-   - **首步顺序**：先对齐 TaskList（首轮一次性建齐，之后不重建）-> 再做实际工作。**禁临时占位**（如"确认阶段中…"），要阶段状态直接 `bash ~/.dl-workflow/scripts/workflow/wf-cmd.sh status` 取真值。
+   - **首步顺序**：先对齐 TaskList（首轮一次性建齐，之后不重建）-> 再做实际工作。**禁临时占位**（如"确认阶段中…"），要阶段状态直接 `bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh status` 取真值。
 
 3. **保持精炼**：可见文本只放结论与动作，不写冗长推理过程。
    - 推理归思考块管（TUI 独立渲染）；可见文本是给用户读的结论。

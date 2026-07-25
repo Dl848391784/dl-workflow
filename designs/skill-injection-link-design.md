@@ -65,7 +65,7 @@ if node_skill:
 
 | # | 风险 | 缓解 |
 |---|---|---|
-| 1 | ark-code-latest 收不到 `additionalContext` attachment（症状 D）-> skill invoke 指令进不了上下文 -> 模型不 invoke | 验证时 canary `-p` 测；若不生效，在 `phase-rules.md` / `output-style` 也加 skill 路由文本（双通道，同 `wf-cmd.sh status` 兜底思路） |
+| 1 | ark-code-latest 收不到 `additionalContext` attachment（症状 D）-> skill invoke 指令进不了上下文 -> 模型不 invoke | 验证时 canary `-p` 测；若不生效，在 `phase-rules.md` / `output-style` 也加 skill 路由文本（双通道，同 `dl-cmd.sh status` 兜底思路） |
 | 2 | 独立 skill invoke 名格式不确定 | 装后重启会话 `/help` 或 Skill 工具实测 invoke 名 |
 | 3 | skill 启动期加载，旧会话不生效 | 新建工作流验证（非 `--resume` 旧会话） |
 
@@ -73,7 +73,7 @@ if node_skill:
 
 `dl verify-skill-load`：
 - understand:1：`.wf_phase.log` 见 `injected` + 注入文本含"载 skill `define-problem`"；模型真 invoke Skill 工具。
-- `/wf jump plan`：验 `using-superpowers` 也注入（修活确认）。
+- `/dl jump plan`：验 `using-superpowers` 也注入（修活确认）。
 - canary `-p`：问模型能否复述注入里的 skill 名（判 attachment 是否到模型上下文）。
 
 ## 7. 实测记录（2026-07-23）

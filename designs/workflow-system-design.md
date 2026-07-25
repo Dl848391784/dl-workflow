@@ -1,7 +1,7 @@
 # Workflow System Design（understand -> plan -> execute -> review -> evolution）
 
 > 状态：设计中（2026-07-22 起）。本文件为 H8 Design-First 产物，也是工作流子系统的真源。
-> 对应实现：`scripts/workflow/`、`.claude/hooks/workflow_*.py`、`.claude/output-styles/workflow.md`、`.claude/commands/wf*.md`、`~/.bashrc` ac-ark。
+> 对应实现：`scripts/workflow/`、`.claude/hooks/workflow_*.py`、`.claude/output-styles/workflow.md`、`.claude/commands/dl*.md`、`~/.bashrc` ac-ark。
 
 ## 0. 背景与目标
 
@@ -37,7 +37,7 @@
 ## 2. 架构总览
 
 ```
-dl <name>  ──►  scripts/workflow/wf-launch.sh  (repo 内, 版本化)
+dl <name>  ──►  scripts/workflow/dl-launch.sh  (repo 内, 版本化)
                                   │  1. resolve repo root (git rev-parse --show-toplevel)
                                   │  2. git worktree add .claude/worktrees/<name> -b wf/<name>
                                   │  3. 写 .claude/workflows/<name>/{state.json, settings.json}
@@ -50,16 +50,16 @@ dl <name>  ──►  scripts/workflow/wf-launch.sh  (repo 内, 版本化)
      ├─ UserPromptSubmit hook  workflow_phase.py    -> 每轮注入「当前阶段 + 规则 + 完成标记格式」
      ├─ output style          workflow.md           -> 渲染阶段横幅 + 压制推理叙述 + 路由 skill
      ├─ Stop hook             workflow_advance.py  -> 检测 ###PHASE_DONE 标记 -> 推进 state + 闸门判定 + 打印阶段切换
-     └─ slash commands        /wf next|back|jump|status|gate|done  -> 手动覆盖 + 闸门放行
+     └─ slash commands        /dl next|back|jump|status|gate|done  -> 手动覆盖 + 闸门放行
 ```
 
 ### 三需求 -> 落地映射
 
 | 需求 | 落地组件 | 文件 |
 |---|---|---|
-| ① ac-ark 参数进工作流 | bashrc 瘦分支 + repo launcher | `~/.bashrc`、`scripts/workflow/wf-launch.sh` |
-| ② 显示阶段、不显示思考 | output style + 双 hook + slash | `.claude/output-styles/workflow.md`、`workflow_phase.py`、`workflow_advance.py`、`/wf*` |
-| ③ 文件隔离 + 分支隔离 | git worktree + 独立元数据目录 + 钉 session | `wf-launch.sh`、`.claude/workflows/<name>/`、`.claude/worktrees/<name>/` |
+| ① ac-ark 参数进工作流 | bashrc 瘦分支 + repo launcher | `~/.bashrc`、`scripts/workflow/dl-launch.sh` |
+| ② 显示阶段、不显示思考 | output style + 双 hook + slash | `.claude/output-styles/workflow.md`、`workflow_phase.py`、`workflow_advance.py`、`/dl*` |
+| ③ 文件隔离 + 分支隔离 | git worktree + 独立元数据目录 + 钉 session | `dl-launch.sh`、`.claude/workflows/<name>/`、`.claude/worktrees/<name>/` |
 
 ## 3. Feature 2 - 显示层（原生 TUI + output style + 双 hook + slash）
 
@@ -69,15 +69,15 @@ dl <name>  ──►  scripts/workflow/wf-launch.sh  (repo 内, 版本化)
 |---|---|---|
 | output style | `.claude/output-styles/workflow.md` | 每条响应首行输出 `## PHASE: <phase> [n/5]`；保持简洁；不在可见文本写推理叙述；按阶段路由到现有 skill |
 | 注入 hook | `.claude/hooks/workflow_phase.py` (UserPromptSubmit) | 读 state.json -> 注入当前阶段名 + 该阶段允许/禁止动作 + 完成标记格式；**仿 `codegraph_inject.py`**：exit 0 永不阻断 |
-| 推进 hook | `.claude/hooks/workflow_advance.py` (Stop) | 读 `transcript_path` JSONL -> 取上一条 assistant 文本 -> 检 `### PHASE_DONE: <phase>` -> 闸门判定 -> 写 state.json -> 打印阶段切换横幅；**防御式**：拿不到 transcript 则降级为提示用户敲 `/wf next` |
-| slash 命令 | `.claude/commands/wf*.md` | `/wf next` `/wf back` `/wf jump <p>` `/wf status` `/wf gate`(闸门放行) `/wf done`；命令体跑 bash 读写 state.json |
+| 推进 hook | `.claude/hooks/workflow_advance.py` (Stop) | 读 `transcript_path` JSONL -> 取上一条 assistant 文本 -> 检 `### PHASE_DONE: <phase>` -> 闸门判定 -> 写 state.json -> 打印阶段切换横幅；**防御式**：拿不到 transcript 则降级为提示用户敲 `/dl next` |
+| slash 命令 | `.claude/commands/dl*.md` | `/dl next` `/dl back` `/dl jump <p>` `/dl status` `/dl gate`(闸门放行) `/dl done`；命令体跑 bash 读写 state.json |
 
 ### 闸门机制（用户选择：自动 + 闸门）
 
-- **闸门位置**：`understand->plan`、`plan->execute` 两处必须用户 `/wf gate` 放行才进。
+- **闸门位置**：`understand->plan`、`plan->execute` 两处必须用户 `/dl gate` 放行才进。
   - 理由：理解清楚才设计、设计批准才动手——这两步是"认知/决策"关口，不应自动跳过。
 - **自动推进**：`execute->review`、`review->evolution` 检到 `### PHASE_DONE` 标记即自动推进。
-- **手动覆盖**：用户随时可 `/wf jump <phase>` 强制跳转到任意阶段（含回退）。
+- **手动覆盖**：用户随时可 `/dl jump <phase>` 强制跳转到任意阶段（含回退）。
 
 ### ⚠️ 思考隐藏 caveat（用户已知悉并选择）
 
@@ -142,12 +142,12 @@ dl <name>  ──►  scripts/workflow/wf-launch.sh  (repo 内, 版本化)
 ~/.bashrc                              改：ac-ark 加 --workflow 瘦分支            [dotfile, 非仓库]
 designs/workflow-system-design.md     新：本设计文档 (H8)                          [repo]
 .gitignore                            改：加 .claude/workflows/  .claude/worktrees/ [repo]
-scripts/workflow/wf-launch.sh         新：launcher（建/续 worktree + state + session）
-scripts/workflow/wf-lib.sh            新：state 读写 / worktree / 阶段定义
+scripts/workflow/dl-launch.sh         新：launcher（建/续 worktree + state + session）
+scripts/workflow/dl-lib.sh            新：state 读写 / worktree / 阶段定义
 .claude/hooks/workflow_phase.py       新：UserPromptSubmit 注入（仿 codegraph_inject）
 .claude/hooks/workflow_advance.py     新：Stop 推进 + 闸门（防御式读 transcript）
 .claude/output-styles/workflow.md     新：output style
-.claude/commands/wf.md (+wf-*.md)     新：slash 命令
+.claude/commands/dl.md (+wf-*.md)     新：slash 命令
 .claude/workflows/<name>/             运行态：state.json / settings.json / 阶段产物  [gitignored]
 .claude/worktrees/<name>/             运行态：隔离工作树                          [gitignored]
 ```
@@ -163,16 +163,16 @@ scripts/workflow/wf-lib.sh            新：state 读写 / worktree / 阶段定�
 ## 8. 实施步骤（5 个小 commit）
 
 1. `designs/workflow-system-design.md`（本文档）+ `.gitignore` 条目
-2. `scripts/workflow/wf-launch.sh` + `wf-lib.sh` + bashrc shim（隔离 + state + session）
+2. `scripts/workflow/dl-launch.sh` + `dl-lib.sh` + bashrc shim（隔离 + state + session）
 3. `workflow_phase.py`（注入）+ `workflow.md`（output style）
-4. `workflow_advance.py`（Stop 推进 + 闸门）+ `/wf*` slash 命令
+4. `workflow_advance.py`（Stop 推进 + 闸门）+ `/dl*` slash 命令
 5. per-workflow `settings.json` 模板 + `resume`/`list` + 冒烟（`ac-ark --workflow demo` 跑一遍 5 阶段）
 
 ## 9. 风险与待验证（实现时处理）
 
 | # | 风险 | 缓解 |
 |---|---|---|
-| 1 | Stop hook 的 `transcript_path` 字段名/格式不确定（二进制无法 grep） | 防御式读取（试多个字段）；缺失则降级为手动 `/wf next`，绝不阻断。**实测**：交互式 transcript 格式为 `{type:assistant,message:{role:assistant,content:[{type:text,text}]}}`，`_last_assistant_text` 能正确解析；`-p` 模式 transcript 可能空（-p 特性），交互式正常 |
+| 1 | Stop hook 的 `transcript_path` 字段名/格式不确定（二进制无法 grep） | 防御式读取（试多个字段）；缺失则降级为手动 `/dl next`，绝不阻断。**实测**：交互式 transcript 格式为 `{type:assistant,message:{role:assistant,content:[{type:text,text}]}}`，`_last_assistant_text` 能正确解析；`-p` 模式 transcript 可能空（-p 特性），交互式正常 |
 | 2 | `--settings` 与 `settings.local.json` 的 merge 优先级 | `--settings` 在 worktree 内实测可加载（Stop 探针触发）；per-wf settings 自含全部 hook，不依赖 project settings 叠加 |
 | 3 | worktree 内 `.codegraph/codegraph.db` + `codegraph_gate.py`/`codegraph_audit.py` 缺失（gitignored / 未跟踪） | **已修复**：per-wf settings hook command 用主仓库绝对路径，引用主仓库内存在的文件（见 §10 根因修复） |
 | 4 | 思考块在原生 TUI 仍显示 | §3 caveat，已留 stream 渲染器替换路径（用户已知悉） |
@@ -184,7 +184,7 @@ scripts/workflow/wf-lib.sh            新：state 读写 / worktree / 阶段定�
 
 **根因（systematic-debugging 定位）**：worktree 内的 hook 文件是 `git worktree add` 从 HEAD checkout 的**快照**。hook 脚本用 `PROJECT_ROOT = Path(__file__).resolve().parents[2]`，而 worktree 内 hook 文件路径是 `<repo>/.claude/worktrees/<name>/.claude/hooks/x.py`，`parents[2]` = **worktree 根**（非主仓库根）。state.json 在主仓库 `.claude/workflows/<name>/`，hook 在 worktree 根下找不到 -> `_load_state` 返回 None -> 走 `no_state` 分支不注入、不推进。日志写在 worktree 内（误导主仓库日志无新增）。
 
-**修复**：per-wf settings.json 的 hook command 改用**主仓库绝对路径**（`$WF_REPO_ROOT/.claude/hooks/x.py`），在 `wf_write_settings`（`scripts/workflow/wf-lib.sh`）生成。三重收益：
+**修复**：per-wf settings.json 的 hook command 改用**主仓库绝对路径**（`$WF_REPO_ROOT/.claude/hooks/x.py`），在 `wf_write_settings`（`scripts/workflow/dl-lib.sh`）生成。三重收益：
 1. hook 永远是主仓库最新版（改完即生效，无需 commit + 重建 worktree）。
 2. `parents[2]` = 主仓库根，正确读到 state.json。
 3. 引用主仓库内存在的 `codegraph_gate.py`/`codegraph_audit.py`（worktree 内缺，未跟踪）。

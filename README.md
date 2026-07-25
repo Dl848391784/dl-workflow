@@ -9,7 +9,7 @@ Claude Code 5 阶段工作流 + codegraph H15 查证门禁的独立仓库。**�
 1. **5 阶段工作流**（`dl <name>`）
    - 阶段：理解和求证问题 -> 生成执行计划 -> 执行 -> 审核结果 -> 进化
    - 每个工作流独立 git worktree + 分支 + session，可恢复
-   - 阶段自动推进 + 闸门（`/wf gate`），原生 TaskList 常驻进度清单
+   - 阶段自动推进 + 闸门（`/dl gate`），原生 TaskList 常驻进度清单
 
 2. **codegraph H15 查证门禁**
    - PreToolUse hook：改已有 `.py` 源码前必须先跑 codegraph 查证
@@ -29,7 +29,7 @@ install.sh 做什么：
 - **hooks 不 copy**：`~/.claude/settings.json` 里直接注册 `python3 ~/.dl-workflow/hooks/*.py`（shell 执行时 `~` 展开）。改 hook 后 `git pull` 即生效，无同步副本。
 - copy `skills/workflow-creation/` -> `~/.claude/skills/`（Claude Code 硬编码只从这里加载 skill）
 - copy `output-styles/workflow.md` -> `~/.claude/output-styles/`（同上）
-- copy `commands/wf.md` -> `~/.claude/commands/`（同上）
+- copy `commands/dl.md` -> `~/.claude/commands/`（同上）
 - 合并 `~/.claude/settings.json` 的 hooks 注册（幂等，已存在跳过）
 - 追写 `~/.bashrc`：`export DL_WF_HOME` + `dl` 函数（工作流入口，独立于 ac-ark/claude）
 
@@ -66,7 +66,7 @@ ac-ark() {
   # ... 其他 env
   if [ "$1" = "--dl" ]; then
     shift
-    "$HOME/.dl-workflow/scripts/workflow/wf-launch.sh" --workflow "$@"
+    "$HOME/.dl-workflow/scripts/workflow/dl-launch.sh" --workflow "$@"
     return $?
   fi
   claude "$@"
@@ -74,11 +74,11 @@ ac-ark() {
 ```
 
 # 会话内
-/wf status                            # 看当前阶段
-/wf next                              # 推进（闸门阶段先 /wf gate）
-/wf back                              # 回退
-/wf jump <phase>                      # 跳（phase 为英文标识：understand/plan/execute/review/evolution）
-/wf gate                              # 放行闸门
+/dl status                            # 看当前阶段
+/dl next                              # 推进（闸门阶段先 /dl gate）
+/dl back                              # 回退
+/dl jump <phase>                      # 跳（phase 为英文标识：understand/plan/execute/review/evolution）
+/dl gate                              # 放行闸门
 ```
 
 codegraph H15 门禁**自动生效**——项目内有 `.codegraph/codegraph.db` 时才起作用。装 codegraph CLI：
@@ -117,9 +117,9 @@ cd ~/.dl-workflow && ./uninstall.sh
 │   └── codegraph_audit.py    (PostToolUse 留痕)
 ├── skills/workflow-creation/ -> copy 到 ~/.claude/skills/
 ├── output-styles/workflow.md -> copy 到 ~/.claude/output-styles/
-├── commands/wf.md            -> copy 到 ~/.claude/commands/
+├── commands/dl.md            -> copy 到 ~/.claude/commands/
 ├── scripts/workflow/         (LIB_DIR 自定位，不 copy)
-│   ├── wf-launch.sh / wf-lib.sh / wf-cmd.sh / phase-rules.md
+│   ├── dl-launch.sh / dl-lib.sh / dl-cmd.sh / phase-rules.md
 ├── designs/                  (真源设计文档)
 └── tests/test_codegraph_gate.py
 ```

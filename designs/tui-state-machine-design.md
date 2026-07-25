@@ -12,10 +12,10 @@
 
 | 常量/逻辑 | 现状副本数 | 散在哪 |
 |---|---|---|
-| `PHASES` 阶段表 | 3 份 | `wf-lib.sh:37` / `workflow_phase.py:28` / `workflow_advance.py:29` |
-| `GATED_AFTER` 闸门集 | 2 份 | `wf-lib.sh:41` / `workflow_advance.py:39` |
-| `SUBPHASES` 子阶段 | 3 份 | `wf-lib.sh:100` / `workflow_phase.py:82` / `workflow_advance.py:47` |
-| 推进 state 逻辑 | 2 份 | `workflow_advance.py:_advance` / `wf-lib.sh:wf_state_set_phase` |
+| `PHASES` 阶段表 | 3 份 | `dl-lib.sh:37` / `workflow_phase.py:28` / `workflow_advance.py:29` |
+| `GATED_AFTER` 闸门集 | 2 份 | `dl-lib.sh:41` / `workflow_advance.py:39` |
+| `SUBPHASES` 子阶段 | 3 份 | `dl-lib.sh:100` / `workflow_phase.py:82` / `workflow_advance.py:47` |
+| 推进 state 逻辑 | 2 份 | `workflow_advance.py:_advance` / `dl-lib.sh:wf_state_set_phase` |
 
 更关键的两处**能力缺口**：
 
@@ -51,7 +51,7 @@
 | 现有推进只检 `### PHASE_DONE` 正则，无真判据 | `workflow_advance.py:294` | engine.run_gate 是净新增能力 |
 | hook 现已用 `git rev-parse --git-common-dir` 反查主 repo 根（v2.0 修过 §10 根因） | `workflow_phase.py:101` | engine 复用此范式读 state.json；worktree 隔离不破 |
 | skill 由模型自主 invoke Skill 工具载入（部分跑 subagent） | CLAUDE.md §2 路由表 | engine "载技能"=声明该节点应载哪个 skill -> hook 注入成 prompt 指令 -> 模型 invoke；engine 不直接塞 skill 进上下文 |
-| `state.json` 当前字段：phase/index/sub_index/sub_total/gate/session_id/branch/worktree_path/history | `wf-lib.sh:142` | engine 沿用 schema，加 `current_node` 颗粒度（见 §4） |
+| `state.json` 当前字段：phase/index/sub_index/sub_total/gate/session_id/branch/worktree_path/history | `dl-lib.sh:142` | engine 沿用 schema，加 `current_node` 颗粒度（见 §4） |
 | `transcript_path` 在 `-p` 下不可靠，交互式正常 | SKILL.md 症状 B | gate 读 transcript 取输出仅交互式可靠；judge 输入优先取声明产物文件，transcript 作辅 |
 
 ## 2. 架构总览
@@ -146,7 +146,7 @@ NODES = {
 }
 
 # 闸门（继承现有 GATED_AFTER 语义，收口到 engine 一份）
-GATED_AFTER = {"understand", "plan"}  # 这些 phase 末节点完成需用户 /wf gate 放行才进下一 phase
+GATED_AFTER = {"understand", "plan"}  # 这些 phase 末节点完成需用户 /dl gate 放行才进下一 phase
 ```
 
 **维护性兑现**：加节点 = 在 NODES 加一条；加机械门 = `gate_mech` 加枚举 + 实现；加语义审据 = 改 `gate_rubric` 字符串。无需碰 hook 逻辑。
@@ -217,13 +217,13 @@ gate block(reason)
 |---|---|---|
 | `workflow_advance.py` (Stop) | **瘦化**：删 PHASES/GATED_AFTER/SUBPHASES 副本 + `_advance` 逻辑，委托 engine | 事件检测（读 transcript 取输出）-> `engine.run_gate()` -> pass 推进/block 续轮 |
 | `workflow_phase.py` (UserPromptSubmit) | **瘦化**：删副本，委托 engine.current_node | 注入当前节点 skill + 规则 + 完成判定 |
-| `wf-lib.sh` | **保留 state 读写**（bash 侧 wf-cmd 手动覆盖仍需），但**删 PHASES/GATED_AFTER/SUBPHASES 副本**，改调 `python3 dl-flow-engine.py <cmd>` | 手动 `/wf` 覆盖 + worktree/settings 管理 |
-| `wf-cmd.sh` | `next`/`back`/`jump`/`gate` 改调 engine CLI | 手动覆盖入口 |
+| `dl-lib.sh` | **保留 state 读写**（bash 侧 wf-cmd 手动覆盖仍需），但**删 PHASES/GATED_AFTER/SUBPHASES 副本**，改调 `python3 dl-flow-engine.py <cmd>` | 手动 `/dl` 覆盖 + worktree/settings 管理 |
+| `dl-cmd.sh` | `next`/`back`/`jump`/`gate` 改调 engine CLI | 手动覆盖入口 |
 | `phase-rules.md` | 保留（append-system-prompt 行为约束） | 行为约束文本（与 engine 节点 skill 映射协同） |
 | `output-styles/workflow.md` | 保留 | 横幅 + TaskList 清单 |
 | `evidence_append.py` (Stop 第二个) | **已删（§8.6c）**：旧"模型每轮自发记 claim/依赖"推理溯源系统弃用（用户决策），engine.write_gate_verdict 在 gate-pass 写裁决记录替代 | - |
 | `codegraph_gate.py`/`audit.py` | 不动 | H15 门禁照常 |
-| `wf-launch.sh` | 不动 | worktree + state + session 隔离不变 |
+| `dl-launch.sh` | 不动 | worktree + state + session 隔离不变 |
 
 ### 迁移策略
 
@@ -238,7 +238,7 @@ gate block(reason)
 |---|---|---|
 | 1 | skill 路由文本仍散在 phase-rules/output-style/CLAUDE.md §2 | 本文不收口文本合并（独立项）。engine 的 NODES.skill 字段是数据化声明，与文本协同；后续可让 phase-rules 引用 engine 的 skill 映射（去重） |
 | 2 | judge 成本（每节点 +1 模型调用） | 机械短路省；judge 可配置 `gate_rubric=None` 关闭（如 understand 子阶段 1-3 不审） |
-| 3 | judge 自己误判 | 独立会话 stateless；reason 回灌主会话，用户可见可覆盖（手动 /wf gate 强过） |
+| 3 | judge 自己误判 | 独立会话 stateless；reason 回灌主会话，用户可见可覆盖（手动 /dl gate 强过） |
 | 4 | Stop additionalContext 在 ark-code-latest 是否真续轮 | **待验证（用户真会话进行中）**：changelog 证实机制存在 + `_block_continue` 格式已验 + hook 真会话已被调用（.wf_advance.log 留痕）+ 子阶段推进路径实测通过；"模型收到 reason 后自动重试"端到端行为需真交互式 TTY 验（脚本无法验）。若不续轮 -> 回退 §8.3 续轮为 banner 人工兜底 |
 | 5 | transcript 取本轮输出在 ark 下可靠性 | judge 输入优先取声明产物文件（understand.md 等，磁盘读可靠），transcript 作辅 |
 | 6 | 旧 state.json 无 node 字段 | engine 读时按 phase+sub 推导补默认；不一致报错暴露 |
@@ -251,7 +251,7 @@ gate block(reason)
 2. judge 接入：`run_judge`（stateless claude -p + JSON 输出）+ compound gate 短路。
 3. `workflow_advance.py` 瘦化：删副本，委托 engine.run_gate + additionalContext 续轮。冒烟验 Stop block 续轮（待确认项 #4）。
 4. `workflow_phase.py` 瘦化：删副本，委托 engine.current_node 注入。
-5. `wf-lib.sh`/`wf-cmd.sh`：删 PHASES/GATED_AFTER/SUBPHASES 副本，改调 engine CLI。
+5. `dl-lib.sh`/`dl-cmd.sh`：删 PHASES/GATED_AFTER/SUBPHASES 副本，改调 engine CLI。
 6. ~~evidence 收口：engine.write_evidence 双写观察 -> 一致后关 evidence_append.py。~~ **已完成（§8.6）**：a) engine.write_gate_verdict（gate-pass 写裁决记录）；b) workflow_phase 删 ### EVIDENCE 注入块 + wf-lib 删 evidence_append Stop 注册；c) 删 evidence_append.py + 2 测试。用户决策弃用旧溯源系统，直接替换无双写期。
 7. ~~state.json 加 node/node_attempts 字段 + 旧 state 兼容。~~ **已完成（§8.1）**：normalize_state 补 node/node_attempts，旧 state 向后兼容，不一致报错暴露。
 
@@ -273,7 +273,7 @@ gate-pass 时 engine.write_gate_verdict 写一行到 `<项目>/.claude/evidence/
 
 ## 9. 已定决策（design 落地前拍板）
 
-1. **入口 = claude TUI**（不跑 py 脚本）：`dl <name>` → `wf-launch.sh` → `exec claude`（`wf-launch.sh:170` 不变）。engine 是被 hook 咨询的内核,不当主进程、不开 `while` 循环调模型。用户侧 `dl` 命令 / worktree 隔离 / `/wf` 手动覆盖全不变;变只在会话内 hook 瘦化委托 engine。
+1. **入口 = claude TUI**（不跑 py 脚本）：`dl <name>` → `dl-launch.sh` → `exec claude`（`dl-launch.sh:170` 不变）。engine 是被 hook 咨询的内核,不当主进程、不开 `while` 循环调模型。用户侧 `dl` 命令 / worktree 隔离 / `/dl` 手动覆盖全不变;变只在会话内 hook 瘦化委托 engine。
 2. **judge model = 继承主会话 env**：judge 的 `claude -p` 子进程继承 launcher env（即 `dl <name>` 当前用的 provider/model），不另指定。judge 是 gate 用的工具,跑在主会话已起的 provider 上,配置天然可得。省省钱/换轻量后续加 `JUDGE_MODEL` 常量可配。
 3. **gate 严格度 = 只 pass/block 两档**：先简单。缺任一机械项或缺语义 rubric 任何一条 -> block。不预设"警告但放行"档,后续按需加。
 

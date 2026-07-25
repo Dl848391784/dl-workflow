@@ -51,14 +51,14 @@ PHASE_RULES = {
         "allow": "Read/Grep/Glob/codegraph 查证/AskUserQuestion 澄清",
         "deny": "Edit/Write 任何源码",
         "artifact": "understand.md（真实问题重述 + 边界 + 成功标准）",
-        "advance": "闸门：完成后需用户 /wf gate 放行才进 plan",
+        "advance": "闸门：完成后需用户 /dl gate 放行才进 plan",
     },
     "plan": {
         "goal": "针对真实问题设计实现方案",
         "allow": "understand 的工具 + 起草 design.md(H8)",
         "deny": "改源码",
         "artifact": "plan.md（方案 + 步骤 + 验证方法）",
-        "advance": "闸门：完成后需用户 /wf gate 放行才进 execute",
+        "advance": "闸门：完成后需用户 /dl gate 放行才进 execute",
     },
     "execute": {
         "goal": "按计划改代码（守 H9/H11/H15/no silent fallback）",
@@ -393,7 +393,7 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
     elif not has_sub:
         lines.append(f"完成本阶段后，回复末尾单独一行输出: `### PHASE_DONE: {phase}`")
         lines.append(
-            "（仅当阶段目标真正达成时输出；闸门阶段不会自动推进，需 /wf gate 放行）"
+            "（仅当阶段目标真正达成时输出；闸门阶段不会自动推进，需 /dl gate 放行）"
         )
 
     # §8.6b：旧的 ### EVIDENCE 推理溯源注入块已移除（用户决策：弃用模型自发记 claim/依赖的溯源系统,
