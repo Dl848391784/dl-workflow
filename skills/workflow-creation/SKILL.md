@@ -23,7 +23,8 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/wf-launch.sh
      ├─ ~/.dl-workflow/hooks/workflow_phase.py   (UserPromptSubmit) → 注入「## WORKFLOW 当前阶段」到 hook_additional_context attachment
      ├─ ~/.claude/output-styles/workflow.md  → 引导模型输出 ## PHASE: <中文名> [n/5] + 维护 TaskList 常驻清单
      │     ⚠ 注入走 attachment，部分模型（ark-code-latest）收不到；output-style 已加 fallback：看不到注入时模型用 Bash 跑 wf-cmd.sh status 自取阶段（allowlist 免提示）。见症状 D
-     ├─ ~/.dl-workflow/hooks/workflow_advance.py (Stop) -> 委托 dl-flow-engine.run_gate（机械+judge）；检完成信号(### PHASE_DONE/SUB_DONE) -> pass 推进 / block 返 additionalContext 续轮(模型自动重试)
+     ├─ ~/.dl-workflow/hooks/workflow_advance.py (Stop) -> 委托 dl-flow-engine.run_gate（机械+judge）；检完成信号(### PHASE_DONE/SUB_DONE) -> pass 推进 / block 返 additionalContext 续轮(模型自动重试)；有 sub_steps 节点走 gate_sub_step_at_stop（evidence hash 触发，症状 J）
+     ├─ ~/.dl-workflow/hooks/workflow_step_fence.py (PreToolUse) -> S10 步骤围栏：当前子步骤有未判决 trace 时 deny 一切工具调用（逼模型 STEP_DONE+end_turn）；开关 state.enforce_step_fence（/wf fence on|off，实时生效），症状 O
      ├─ ~/.dl-workflow/dl-flow-engine.py (编排内核,被 hook 咨询) -> 节点树+gate判据+推进 唯一真源；gate-pass 时 write_gate_verdict 写 kind=gate 裁决记录到 evidence/<name>.jsonl（替代旧 ### EVIDENCE 溯源，§8.6c）
      └─ /wf status|next|back|jump|gate|done  → ~/.dl-workflow/scripts/workflow/wf-cmd.sh
 ```
@@ -69,7 +70,8 @@ dl <name> --done          # 归档（删 worktree+分支+元数据）
 | ↑ | `wf-cmd.sh` | `/wf` 子命令逻辑 |
 | ↑ | `phase-rules.md` | append-system-prompt，各阶段行为规则 |
 | `~/.dl-workflow/hooks/`            | `workflow_phase.py` | UserPromptSubmit 注入当前阶段 |
-| ↑ | `workflow_advance.py` | Stop 检 PHASE_DONE 推进 |
+| ↑ | `workflow_advance.py` | Stop 检 PHASE_DONE 推进 + sub_steps 门控（evidence hash 触发） |
+| ↑ | `workflow_step_fence.py` | PreToolUse S10 步骤围栏（未判决 trace 时 deny 工具调用） |
 | ↑ | `codegraph_gate.py` | PreToolUse H15 门禁（改已有 .py 前先查 codegraph） |
 | ↑ | `codegraph_audit.py` | PostToolUse 记 codegraph 查询 |
 | `~/.claude/output-styles/` | `workflow.md` | 横幅 + 常驻 TaskList 首要规则 |
@@ -267,6 +269,20 @@ for l in sys.stdin:
 - **输完 STEP_DONE 即 end_turn**：不连续做下步（Stop hook 在 end_turn 时门控，模型须等判定结果：过则下轮进下步，block 则当轮返工）
 
 新加编排节点时，同样在 phase-rules 加"写 evidence 是 STEP_DONE 前置"强制，别只在注入里说。
+
+### 症状 O：模型工具调用被围栏拒绝（PreToolUse deny「等待门控判决」）
+
+**这是 S10 步骤围栏的正常触发**（2026-07-25 起），不是 bug：模型写完当前子步骤 evidence 后未 end_turn 就继续调工具（典型：连做下一子步骤探查，demo 会话 3009550c 实录）。围栏与 Stop 门控共用 `last_judged_trace` 游标——judge 判完（pass/block 都记游标）围栏自动开。
+
+**诊断**：
+```bash
+tail -5 <项目>/.claude/.wf_fence.log   # fence_deny|step=N|tool=X
+```
+- 模型被拒后应输出 `### STEP_DONE: N` + end_turn -> Stop 判定 -> 放行/返工。
+- **误伤排查**（模型确实在做当前子步骤的事却被拒）：说明它提前写了 evidence（trace 落盘即被视为完成信号）。纠正：让它继续输出 STEP_DONE 把这一轮判掉（judge block 后游标更新、围栏开、可返工），或 `/wf fence off` 临时关闭。
+- **确认围栏状态**：`python3 ~/.dl-workflow/dl-flow-engine.py status <name>` 或看 state.json `enforce_step_fence`（默认 true）。
+
+**旧工作流（fence 前建的）无围栏**：per-wf settings.json 是 launcher 写的模板，旧 settings 缺 workflow_step_fence.py 注册。`dl <name> --resume` 重起 launcher 会补写 settings（或手加）。
 
 ### 症状 N：judge 递归爆炸（claude -p 进程堆积 / 连环 TimeoutExpired）
 

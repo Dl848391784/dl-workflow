@@ -239,6 +239,11 @@ wf_write_settings() {
         "hooks": [
           { "type": "command", "command": "python3 $hk/codegraph_gate.py" }
         ]
+      },
+      {
+        "hooks": [
+          { "type": "command", "command": "python3 $hk/workflow_step_fence.py" }
+        ]
       }
     ],
     "PostToolUse": [

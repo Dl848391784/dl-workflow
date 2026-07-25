@@ -41,6 +41,7 @@ Stop 触发时必然可读。检测点移走是当时最省事的规避，不是
 | S7 | **E7 升级机制平移到 Stop**：连续 block 达 SUB_STEP_BLOCK_ESCALATE(=3) → block 文案改为「停止重做，AskUserQuestion 请用户裁决」 | 在 Stop 续轮里 AskUserQuestion 可用（工具调用，用户实时答）。选项②强制放行 = 用户同意后**模型自己跑** `bash wf-cmd.sh step-pass`（续轮中模型有 Bash 能力，比 3a 下"等用户自己敲命令"更顺） |
 | S8 | **UserPromptSubmit 的 gate 分支撤除**，workflow_phase.py 只留注入 | 门控收口到 Stop 单点；`sub_step_has_trace` 保留（engine 内部复用其读 trace 逻辑） |
 | S9 | **force_pass_sub_step 不改** | step-pass 推进 sub_step_index 后，旧 key 的 last_judged 不再被查；新子步骤无 trace → S6 放行。天然兼容 |
+| S10 | **「STEP_DONE 后 end_turn」硬化为 PreToolUse 围栏**（2026-07-25 增补；demo 会话 3009550c 实证模型写 evidence 后不 end_turn、连做子2 探查——文案约束是概率遵从） | 违规通道是工具调用，故围栏架 PreToolUse（新 hook `workflow_step_fence.py`）：当前子步骤有「已写 trace 但未经判决」（latest_trace_sha1 ≠ last_judged 游标）→ permissionDecision=deny 一切工具调用，模型唯一出路是输出 STEP_DONE + end_turn。围栏与门控**共用游标**天然一致：判完（pass/block 都记游标）即开。**可开关**：state.enforce_step_fence（默认 true），`/wf fence on|off` 随时切，hook 实时读 state 无需重启。文案约束保留（双通道），围栏是兜底 |
 
 ## 2. 数据流
 

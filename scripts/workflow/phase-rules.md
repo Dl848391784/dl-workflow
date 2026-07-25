@@ -33,6 +33,7 @@
      - **强制（含简单查询）**：**任何**进 understand:1 的提问--哪怕看似简单事实查询（如"有多少个因子"）--都**必须先走编排**（横幅 -> invoke define-problem -> 子步骤1 逼问），**禁止直接 Bash/Read 抢答**。判断"这是简单查询可绕过编排"= 违规（等同未建清单就干活）。简单查询的真实问题往往是"为何要查这个/查了要做什么"，编排正是逼出它。
      - **evidence 强制**：record 子步骤（子1/2/3/4）**必须**写 evidence skill-trace 后才许输 STEP_DONE；无 evidence 的 STEP_DONE = 违规（Stop hook 读不到新 trace -> 不推进，子步骤卡住）。子4（gate=None）也要写--记用户确认内容（确认本身是裁决留痕，且是 Stop 门控的完成触发信号）。**evidence 必须写到注入清单给的主仓库绝对路径**（`<repo>/.claude/evidence/<name>.jsonl`），**禁用相对路径**--worktree 内相对路径会写到 worktree（hook 读主仓库读不到）。skill 内部 Q/A 不门控，按需 record 落 evidence；子步骤边界（STEP_DONE）才门控。
      - **门控升级（连续 block 达阈值）**：子步骤被 Stop 门控连续 block 3 次后，你会收到「已达升级阈值」的续轮提示--此时**停止盲目重做**，用 AskUserQuestion 请用户裁决：①用户补充信息/澄清后你重做 ②用户同意强制放行后，你运行 `bash ~/.dl-workflow/scripts/workflow/wf-cmd.sh step-pass`（裁决记录落 evidence）③用户要求回退 `/wf back`。门控判据（rubric）是编排内部定义，**禁止**自行变通判据或伪造 evidence 求过；出口只有用户裁决。
+     - **硬围栏（PreToolUse）**：写完当前子步骤 evidence 后、Stop 门控判决前，**一切工具调用会被围栏拒绝**（deny 提示「等待门控判决」）--这是硬约束不是建议。被拒后唯一正确动作：输出 `### STEP_DONE: <n>` 并 end_turn。**禁止**绕过（换工具/换说法重试=违规）。用户可随时 `/wf fence off` 关闭此围栏（回文案约束）、`/wf fence on` 重新开启。
      - > 若注入 attachment（`## WORKFLOW 当前阶段` 含子步骤清单）没到，本 system-prompt 段即替代通道，强制力等同。
   2. **明确目标和价值**：明确本次要达成什么、为谁解决什么、价值何在；区分 must / nice。
   3. **确定范围与约束**：划定 in-scope / out-of-scope + 技术/数据/资源/铁律约束（H1/H7/H9/H11 等）。

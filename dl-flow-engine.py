@@ -470,6 +470,8 @@ def normalize_state(state: dict[str, Any]) -> dict[str, Any]:
     state.setdefault("node_attempts", 0)
     # §substep-gate-at-stop S1：子步骤门控判定游标（key=<node>#<sub_step> -> 最新已判 trace 行 sha1）。
     state.setdefault("last_judged_trace", {})
+    # §substep-gate-at-stop S10：PreToolUse 步骤围栏开关（/wf fence on|off）。
+    state.setdefault("enforce_step_fence", True)
     # §orchestration v2：sub_step_index 补默认 + 范围校验
     node = get_node(phase, sub)
     if node.sub_steps:
@@ -919,6 +921,37 @@ def gate_sub_step_at_stop(
     return action, reason or "judge 未给出原因", state
 
 
+def pending_unjudged_step(project_root: Path, name: str) -> int | None:
+    """当前子步骤是否有「已写 trace 但未经门控判决」。有 -> 返回子步骤号；否则 None。
+
+    §substep-gate-at-stop S10：PreToolUse 围栏（workflow_step_fence.py）的关闭条件。
+    围栏与门控共用 last_judged_trace 游标——判完（pass/block 都记游标）即开。
+    state.enforce_step_fence=False（/wf fence off）-> None（围栏停用，回文案约束）。
+    """
+    state = load_state(project_root, name)
+    if state is None:
+        return None
+    state = normalize_state(state)
+    if not state.get("enforce_step_fence", True):
+        return None
+    try:
+        node = get_node(state["phase"], state["sub_index"])
+    except KeyError:
+        return None
+    if not node.sub_steps:
+        return None
+    cur = state.get("sub_step_index", 1)
+    if sub_step_at(node, cur) is None:
+        return None
+    sha = latest_trace_sha1(project_root, name, cur)
+    if sha is None:
+        return None
+    judged = state.get("last_judged_trace", {})
+    if judged.get(f"{node_id(node.phase, node.sub)}#{cur}") == sha:
+        return None
+    return cur
+
+
 def _strip_json_fence(text: str) -> str:
     """剥 ```json ... ``` 代码块围栏（冒烟实测 judge 倾向包代码块）。"""
     s = text.strip()
@@ -1189,9 +1222,11 @@ def main(argv: list[str] | None = None) -> int:
         description="工作流编排内核（被 hook 咨询;不当主进程）",
     )
     parser.add_argument(
-        "cmd", choices=["status", "current", "advance", "progress", "meta", "step-pass"]
+        "cmd",
+        choices=["status", "current", "advance", "progress", "meta", "step-pass", "fence"],
     )
     parser.add_argument("name", nargs="?", help="工作流名（不填则从 cwd 反查）")
+    parser.add_argument("value", nargs="?", help="fence 的值（on|off）")
     parser.add_argument("--cwd", help="覆盖 cwd（默认进程 cwd）")
     args = parser.parse_args(argv)
 
@@ -1224,6 +1259,19 @@ def main(argv: list[str] | None = None) -> int:
         ok, msg = force_pass_sub_step(project_root, name, cwd)
         print(("✓ " if ok else "✗ ") + msg, file=sys.stdout if ok else sys.stderr)
         return 0 if ok else 1
+    if args.cmd == "fence":
+        if args.value not in ("on", "off"):
+            print("✗ 用法: fence <name> on|off", file=sys.stderr)
+            return 1
+        state = load_state(project_root, name)
+        if state is None:
+            print(f"✗ 工作流 {name} 的 state.json 缺失", file=sys.stderr)
+            return 1
+        state = normalize_state(state)
+        state["enforce_step_fence"] = args.value == "on"
+        save_state(project_root, name, state)
+        print(f"✓ 子步骤围栏（PreToolUse 硬约束）已{'开启' if args.value == 'on' else '关闭（回文案约束）'}")
+        return 0
     return 1
 
 

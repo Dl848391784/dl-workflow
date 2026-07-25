@@ -1069,6 +1069,44 @@ class TestRunJudgeIsolation:
         assert "返工历史" in prompt
 
 
+class TestPendingUnjudgedStep:
+    """§S10：PreToolUse 围栏的关闭条件（与门控共用 last_judged_trace 游标）。"""
+
+    def test_no_state_none(self, tmp_path):
+        assert eng.pending_unjudged_step(tmp_path, "t") is None
+
+    def test_no_sub_steps_none(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 2)
+        assert eng.pending_unjudged_step(tmp_path, "t") is None
+
+    def test_no_trace_none(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        assert eng.pending_unjudged_step(tmp_path, "t") is None
+
+    def test_unjudged_trace_returns_step(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        _write_evidence(tmp_path, "t", [_trace_line(1)])
+        assert eng.pending_unjudged_step(tmp_path, "t") == 1
+
+    def test_judged_trace_none(self, tmp_path, monkeypatch):
+        # judge 判过（游标 == 最新 hash）-> 围栏开
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        _write_evidence(tmp_path, "t", [_trace_line(1)])
+        monkeypatch.setattr(eng, "run_judge", lambda *a, **k: (False, "x"))
+        eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
+        assert eng.pending_unjudged_step(tmp_path, "t") is None
+
+    def test_fence_off_none(self, tmp_path):
+        # /wf fence off -> 围栏停用（回文案约束）
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        _write_evidence(tmp_path, "t", [_trace_line(1)])
+        st = eng.normalize_state(eng.load_state(tmp_path, "t"))
+        assert st["enforce_step_fence"] is True  # normalize 默认开
+        st["enforce_step_fence"] = False
+        eng.save_state(tmp_path, "t", st)
+        assert eng.pending_unjudged_step(tmp_path, "t") is None
+
+
 class TestReadEvidence:
     """read_evidence：读 evidence/<name>.jsonl 全文；缺失/失败返回 None。"""
 

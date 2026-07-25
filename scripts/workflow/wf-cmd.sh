@@ -9,6 +9,7 @@
 #   wf-cmd.sh jump <phase>           跳转到指定阶段
 #   wf-cmd.sh gate                   闸门放行（understand->plan / plan->execute）
 #   wf-cmd.sh step-pass              用户裁决：强制放行当前子步骤（连续 block 达阈值后的出口）
+#   wf-cmd.sh fence on|off           子步骤围栏开关（PreToolUse 硬约束：写完 evidence 未判决前禁工具调用）
 #   wf-cmd.sh done                   归档工作流（删 worktree，保留元数据）
 
 set -euo pipefail
@@ -142,6 +143,16 @@ case "$SUB" in
     python3 "$WF_ENGINE" step-pass "$NAME" --cwd "$(pwd)"
     ;;
 
+  fence)
+    # 子步骤围栏开关（§substep-gate-at-stop S10；实时生效无需重启）
+    V="${1:-}"
+    if [ "$V" != "on" ] && [ "$V" != "off" ]; then
+      echo "用法: /wf fence on|off（当前: $(wf_state_get "$NAME" enforce_step_fence 2>/dev/null || echo on)）" >&2
+      exit 1
+    fi
+    python3 "$WF_ENGINE" fence "$NAME" "$V" --cwd "$(pwd)"
+    ;;
+
   done)
     WT="$(wf_state_get "$NAME" worktree_path)"
     BR="$(wf_state_get "$NAME" branch)"
@@ -153,7 +164,7 @@ case "$SUB" in
     ;;
 
   *)
-    echo "✗ 未知子命令 '$SUB'。可用: status next back jump gate step-pass done" >&2
+    echo "✗ 未知子命令 '$SUB'。可用: status next back jump gate step-pass fence done" >&2
     exit 1
     ;;
 esac
