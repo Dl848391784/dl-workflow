@@ -161,6 +161,8 @@ claude --settings <per-wf settings> --append-system-prompt-file phase-rules.md \
 - "子步骤 / sub_steps / STEP_DONE / 子步骤不推进 / evidence 有但不推进" -> §2 症状 J
 - "模型不写 evidence / 只输 STEP_DONE 不写 skill-trace / 模型跳过写 evidence" -> §2 症状 K
 - "evidence 写到 worktree / evidence 路径错位 / 主仓库无 evidence 但 worktree 有" -> §2 症状 L
+- "模型抢答 / 跳过编排 / 覆盖写 evidence / 编造痛点 / 反复确认 / 合并行 / who 出处" -> §2 症状 P（违规模式目录）
+- "改判据 / 改 rubric / 一过率低 / judge 判得不对 / 判据太严太松" -> §3.5（rubric 设计方法论）
 - "改编排 / SUB_DONE STEP_DONE 打架 / phase-rules 与注入矛盾 / 改门控 checklist" -> §2 症状 M
 
 **测试方法伪问题**，非工作流 bug。管道 EOF 触发 claude 异常。真实 TTY 交互不受影响。
@@ -305,6 +307,23 @@ tail -5 <项目>/.claude/.wf_fence.log   # fence_deny（S10）/ phase_fence_deny
 
 **急诊**：先 `pkill -f "claude -p --output-format json 你是工作流节点门控"` 止血，再修 cwd。judge 超时的 block 会计 node_attempts，事故后可用 `/wf step-pass` 或手改 state.json `node_attempts` 归零恢复。
 
+### 症状 P：模型违规模式目录（弱遵从模型实测，MiniMax-M3 @ 2026-07-25）
+
+**元教训：对弱遵从模型，一切关键规则必须硬化——文案=建议（概率遵从，当日实测合规率约 50%），hook=物理。** 当日全部机制（S1 门控 / S10-S14 围栏）都是这个原则的兑现。下表是实测出现的违规模式 → 对应机制（加新机制前先查是否已有覆盖）：
+
+| 违规模式 | 实录 | 对应机制 |
+|---|---|---|
+| 明示「简单查询不走流程」直接抢答 | 8c51c318 | S13 参与围栏（无 trace 不许结束回合） |
+| plan mode 里「改走 plan mode Phase 1」适应而非退出 | 61482dbe | S12 拒提问 + deny 文案指路用户切模式 |
+| Write 覆盖 evidence（销毁前轮原话佐证） | e84aee6d | S14 覆盖守卫（全行包含检查） |
+| 把用户口语「润色」成书面语记录（判非原话） | bf2516ac | 取证指引（引用原话/会话事实） |
+| 知道要件后「填表」：推断补全字段 | e84aee6d | 质量判据黑盒（判「系自行推断」） |
+| 编造痛点（「好奇心缺口」「无法判断X」=复述提问） | 4f3d9754 等 | 双结论 rubric（②合法）+ judge 拦伪痛点 |
+| 把 ①/② 分支抛给用户投票（随手选与事实矛盾） | bf2516ac | 分支推导规则（事实推导，禁投票） |
+| Write 无尾换行 + printf 追加 = 合并行（trace 隐形） | 74f82d93 | raw_decode 容错解析 + S13 分诊 |
+| who 拿仓库事实（CLAUDE.md/git config）充当身份出处 | 74f82d93/4f3d9754 | who 出处钉死：只认用户自述 |
+| 返工时重问用户已答内容（「一直被要求重新确认」） | e84aee6d/bf2516ac | 取证优先级：上下文原话直接用，真缺才问 |
+
 ### 症状 L：evidence 写到 worktree 路径错位（模型用相对路径）
 
 **根因**：worktree 内 cwd 是 worktree 根，模型用 Bash 相对路径 `cat >> .claude/evidence/<name>.jsonl` 会写到 worktree 内 `.claude/worktrees/<name>/.claude/evidence/<name>.jsonl`。但 **hook 读主仓库** `<主 repo>/.claude/evidence/<name>.jsonl`（evidence 是持久物，per design 进 repo）-> 读不到 -> 不推进。
@@ -344,14 +363,24 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 
 排查工作流问题按此顺序：
 
-1. **先看日志，别猜**：项目根 `.wf_phase.log`（注入）、`.wf_advance.log`（推进 + gate 裁决记录 `gate_verdict_written`/`gate_block`）。
-2. **分清"没调用"vs"调用了没投递"vs"投递了模型不遵循"**：三层次，日志+attachment 分别诊断（症状 A1/A2/D）。
+1. **先看日志，别猜**：项目根 `.wf_phase.log`（注入）、`.wf_advance.log`（推进 + gate 裁决记录 `gate_verdict_written`/`gate_block`）。2. **分清"没调用"vs"调用了没投递"vs"投递了模型不遵循"**：三层次，日志+attachment 分别诊断（症状 A1/A2/D）。
 3. **看 session jsonl 的 attachment**：注入真相在 `hook_additional_context` attachment，不在 user message。但**投递到 jsonl ≠ 模型收到**--ark-code-latest 实测 jsonl 有 attachment 却进不了上下文（症状 D）。怀疑时用 canary `-p` 问模型能否复述阶段名直接验。
 4. **install 状态优先怀疑**：任何"改了不生效"，检 `~/.dl-workflow/hooks/` 是否含 _resolve_project_root（git pull 后即最新，无副本同步问题）。
 5. **验证用真实交互，别用管道/-p**：管道有 Execution error（症状 E），-p transcript 不可靠（症状 B）。
 - "证据链 / evidence / no_markers / evidence.jsonl 不生成 / 证据不落地" -> §2 症状 I
 6. **grep 命中 ≠ 模型真输出**：transcript 里 `### PHASE_DONE` / `### SUB_DONE` / `### STEP_DONE` 命中可能是注入的 attachment 文本，必须按 `role=assistant` 过滤后再判模型是否真发了标记。
 7. **有 sub_steps 节点特殊**：看 `.wf_advance.log` 的 `sub_step_gate_pass` / `sub_step_gate_block`（Stop hook 判，与无 sub_steps 节点同日志）；推进在模型 end_turn 时即判，**无需用户再发消息**。同时看 `<主 repo>/.claude/evidence/<name>.jsonl` 是否有当前 `sub_step==N` 的新 skill-trace（症状 J/L）+ state.json 的 `last_judged_trace` 游标。
+
+## 3.5 门控判据（rubric）设计方法论（改判据/写新 gate 前必读）
+
+2026-07-25 全天 demo 实测沉淀。改任何 `Step.gate` / `gate_rubric` / judge prompt 前对照：
+
+1. **三层分工，各判各的**：机械层判存在性（trace/hash，零成本短路）；judge 判**结构完整性**（覆盖度/对齐/引用/形式）——judge 没有项目上下文，**判得了结构、判不了真值**；真值与认可度归用户（读回确认 / 升级裁决）。别让 judge 判它判不了的东西（如「真实问题已逼出」——它无法验证）。
+2. **防 Goodhart 分层**：形式要件（格式/覆盖度）可以披露给模型（进 purpose，降形式性返工）；质量判据（可观察/非编造/非空泛）**只留 gate 黑盒**。全披露 = 模型照 checklist 填表，judge 分辨力丧失（Goodhart 定律）。方法论指引（怎么取证）进 purpose，评判标准进 gate，单源常量绑定。
+3. **判据必须接受「问题不成立」为合法结论**（双结论制）：只认「问题成立」的 rubric 会让诚实答案（无痛点/纯好奇）永远过不了，**逼模型编造痛点**（「好奇心缺口」式伪痛点实测被 judge 识破）。放②的判据 = 原话佐证 + 结论标记；区分「诚实无痛点」vs「懒得挖」的判据是原话佐证。
+4. **裁量点必钉死**：judge 也是模型，同一证据可不同判决（who 出处三次两拒一过实测）。发现「同类证据一过一拒」→ 立即把该点写成死规则（who 出处只认用户自述；仓库事实不能证明提问者身份）。**判据留白的每一寸都是方差**。
+5. **判词要指路**：block reason 不只说缺什么，还要指明返工方向（建议哪条分支/补哪类）——模型按判词一次修好，零提问返工是健康标杆。
+6. **一过率不是目标，健康返工才是**：健康 = 返工 ≤1 个定向问题或零提问、绝不重问已答内容。block 有信号价值（实测一次 block 把「随便查查」逼成真问题）——门控从不 block 时要怀疑它失效，而不是庆幸。
 
 ## 4. 不要做的事
 
