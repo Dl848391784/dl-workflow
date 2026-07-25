@@ -472,8 +472,6 @@ def normalize_state(state: dict[str, Any]) -> dict[str, Any]:
     state.setdefault("last_judged_trace", {})
     # §substep-gate-at-stop S10：PreToolUse 步骤围栏开关（/wf fence on|off）。
     state.setdefault("enforce_step_fence", True)
-    # §substep-gate-at-stop S11：phase 写权限围栏开关（/wf fence 统一切换）。
-    state.setdefault("enforce_phase_fence", True)
     # §orchestration v2：sub_step_index 补默认 + 范围校验
     node = get_node(phase, sub)
     if node.sub_steps:
@@ -963,14 +961,13 @@ def phase_write_denial(project_root: Path, name: str, file_path: str) -> str | N
     """phase-fence 判定：该 phase 写 file_path 是否被拒。被拒 -> 返回 deny 原因；否则 None。
 
     §substep-gate-at-stop S11：把「understand/plan 禁改源码、review 禁改实现」
-    从文案约束变硬约束。无 state / execute / 白名单命中 / 围栏关 -> None（放行）。
+    从文案约束变硬约束。无 state / execute / 白名单命中 -> None（放行）。
+    本围栏是系统级硬约束（同 rubric，对用户黑盒），无开关——/wf fence 只管 S10。
     """
     state = load_state(project_root, name)
     if state is None:
         return None
     state = normalize_state(state)
-    if not state.get("enforce_phase_fence", True):
-        return None
     phase = state.get("phase", "understand")
     if _phase_write_path_ok(phase, file_path):
         return None
@@ -1331,10 +1328,10 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         state = normalize_state(state)
         state["enforce_step_fence"] = args.value == "on"
-        state["enforce_phase_fence"] = args.value == "on"  # S10+S11 统一切换
         save_state(project_root, name, state)
         print(
-            f"✓ 围栏（S10 子步骤 + S11 阶段写权限）已{'开启' if args.value == 'on' else '关闭（回文案约束）'}"
+            f"✓ 子步骤围栏（S10）已{'开启' if args.value == 'on' else '关闭（回文案约束）'}"
+            "（阶段写围栏 S11 是系统硬约束，不受此开关影响）"
         )
         return 0
     return 1

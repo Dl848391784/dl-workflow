@@ -284,8 +284,8 @@ tail -5 <项目>/.claude/.wf_fence.log   # fence_deny（S10）/ phase_fence_deny
 ```
 - S10 被拒后模型应输出 `### STEP_DONE: N` + end_turn -> Stop 判定 -> 放行/返工。
 - **S10 误伤排查**（模型确实在做当前子步骤的事却被拒）：说明它提前写了 evidence（trace 落盘即被视为完成信号）。纠正：让它输出 STEP_DONE 把这轮判掉（judge block 后游标更新、围栏开、可返工），或 `/wf fence off` 临时关闭。
-- **S11 误伤排查**（该写的产物被拒）：查白名单是否漏路径模式（如产物约定改了）-> 改 engine `_PHASE_WRITE_NAMES`（单源），别关围栏迁就。
-- **确认围栏状态**：state.json `enforce_step_fence` / `enforce_phase_fence`（默认均 true，`/wf fence on|off` 统一切换）。
+- **S11 误伤排查**（该写的产物被拒）：查白名单是否漏路径模式（如产物约定改了）-> 改 engine `_PHASE_WRITE_NAMES`（单源），别想着关它——S11 是系统硬约束（同 rubric 黑盒），无开关。
+- **确认围栏状态**：state.json `enforce_step_fence`（S10，默认 true，`/wf fence on|off` 切换）。S11 无开关。
 
 **旧工作流（fence 前建的）无围栏**：per-wf settings.json 是 launcher 写的模板，旧 settings 缺 workflow_step_fence.py 注册。`dl <name> --resume` 重起 launcher 会补写 settings（或手加）。
 

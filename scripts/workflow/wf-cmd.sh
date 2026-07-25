@@ -9,7 +9,7 @@
 #   wf-cmd.sh jump <phase>           跳转到指定阶段
 #   wf-cmd.sh gate                   闸门放行（understand->plan / plan->execute）
 #   wf-cmd.sh step-pass              用户裁决：强制放行当前子步骤（连续 block 达阈值后的出口）
-#   wf-cmd.sh fence on|off           子步骤围栏开关（PreToolUse 硬约束：写完 evidence 未判决前禁工具调用）
+#   wf-cmd.sh fence on|off           子步骤围栏(S10)开关（阶段写围栏 S11 是系统硬约束，无开关）
 #   wf-cmd.sh done                   归档工作流（删 worktree，保留元数据）
 
 set -euo pipefail

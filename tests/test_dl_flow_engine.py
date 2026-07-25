@@ -1149,16 +1149,18 @@ class TestPhaseWriteDenial:
         assert self._deny(tmp_path, "evolution", 0, "/repo/.claude/skills/s/SKILL.md") is None
         assert self._deny(tmp_path, "evolution", 0, "/repo/main.py") is not None
 
-    def test_fence_off_allows(self, tmp_path):
-        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
-        st = eng.normalize_state(eng.load_state(tmp_path, "t"))
-        assert st["enforce_phase_fence"] is True  # normalize 默认开
-        st["enforce_phase_fence"] = False
-        eng.save_state(tmp_path, "t", st)
-        assert eng.phase_write_denial(tmp_path, "t", "/repo/main.py") is None
-
     def test_no_state_allows(self, tmp_path):
         assert eng.phase_write_denial(tmp_path, "t", "/repo/main.py") is None
+
+    def test_phase_fence_has_no_toggle(self, tmp_path):
+        # S11 是系统硬约束（同 rubric，对用户黑盒）：state 无 enforce_phase_fence
+        # 字段；即使手塞 False 也不生效
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        st = eng.normalize_state(eng.load_state(tmp_path, "t"))
+        assert "enforce_phase_fence" not in st
+        st["enforce_phase_fence"] = False
+        eng.save_state(tmp_path, "t", st)
+        assert eng.phase_write_denial(tmp_path, "t", "/repo/main.py") is not None
 
 
 class TestReadEvidence:
