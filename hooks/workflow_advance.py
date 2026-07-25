@@ -228,6 +228,66 @@ def main() -> int:
     cur_phase = state.get("phase", "understand")
     cur_sub = state.get("sub_index", 1)
 
+    # ---- 0. 子步骤 Stop 门控（§substep-gate-at-stop）----
+    # 触发 = evidence 当前子步骤最新 trace hash 有变化（非 transcript，避 flush 竞态）；
+    # block -> _block_continue 同轮返工（消 3a 割裂）；pass -> 推进 + 放行。
+    # 有 sub_steps 节点在此判完即返回；无 sub_steps 节点走下方 SUB_DONE/PHASE_DONE 分支。
+    try:
+        cur_node0 = engine.get_node(cur_phase, cur_sub)
+    except KeyError:
+        cur_node0 = None
+    if cur_node0 is not None and cur_node0.sub_steps:
+        judged_step = state.get("sub_step_index", 1)
+        action, reason, st = engine.gate_sub_step_at_stop(project_root, name, cwd)
+        if action == "none":
+            return 0  # 无新 trace / 同 trace 已判 -> 静默放行（S6/防 loop）
+        if action == "advanced":
+            nxt = (st or {}).get("sub_step_index", 0)
+            _log(
+                project_root,
+                "sub_step_gate_pass",
+                wf=name,
+                phase=cur_phase,
+                step=judged_step,
+                to=nxt,
+            )
+            if (st or {}).get("sub_index", cur_sub) != cur_sub:
+                _emit(f"✓ 子步骤 {judged_step} 通过门控 -> 子阶段推进")
+            else:
+                _emit(f"✓ 子步骤 {judged_step} 通过门控 -> 子步骤 {nxt}")
+            return 0
+        # block / escalate：同轮返工（S4/S7）
+        attempts = (st or state).get("node_attempts", 0)
+        step = engine.sub_step_at(cur_node0, judged_step)
+        purpose = step.purpose if step else ""
+        _log(
+            project_root,
+            "sub_step_gate_block",
+            wf=name,
+            phase=cur_phase,
+            step=judged_step,
+            attempts=attempts,
+            action=action,
+            reason=reason[:80],
+        )
+        if action == "escalate":
+            return _block_continue(
+                f"子步骤 {judged_step} 已连续 {attempts} 次未通过门控（达升级阈值）。\n"
+                f"最近原因：{reason}\n"
+                "停止盲目重做，用 AskUserQuestion 请用户裁决：\n"
+                "1. 用户补充信息/澄清后，你重做该子步骤\n"
+                "2. 用户同意强制放行后，你运行 "
+                "bash ~/.dl-workflow/scripts/workflow/wf-cmd.sh step-pass"
+                "（裁决记录落 evidence）\n"
+                "3. 用户要求回退 /wf back\n"
+                "门控判据不可自行变通；出口只有用户裁决。"
+            )
+        return _block_continue(
+            f"子步骤 {judged_step}（{purpose}）未通过门控（第 {attempts} 次）：{reason}\n"
+            "请返工该子步骤：修正后 append 一条新的 skill-trace（sub_step 不变）"
+            "到 evidence（勿覆盖已有行）。"
+        )
+
     # 读 transcript 取本轮输出
     transcript_path = ""
     for key in ("transcript_path", "transcriptPath", "transcript"):
@@ -238,9 +298,8 @@ def main() -> int:
     output = _last_assistant_text(transcript_path)
 
     # ---- 1. 完成信号检测（标记 = 模型自认做完 -> 触发 gate 审）----
-    # §step-advance-on-submit：有 sub_steps 节点（understand:1）的子步骤推进+gate
-    # 已移到 UserPromptSubmit（读 evidence，避开 transcript flush 竞态）。
-    # Stop hook 只处理无 sub_steps 节点的 SUB_DONE/PHASE_DONE（单条文本无工具中断，无竞态）。
+    # §substep-gate-at-stop：有 sub_steps 节点已在上方分支处理并返回（不到这里）。
+    # 本分支只处理无 sub_steps 节点的 SUB_DONE/PHASE_DONE（单条文本无工具中断，无竞态）。
     sm = SUB_DONE_RE.search(output)
     if sm:
         # 子阶段完成信号
