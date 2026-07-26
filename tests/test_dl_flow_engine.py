@@ -1669,6 +1669,14 @@ class TestEngagementFenceNotice:
         assert "携带子3全部证据" in step.purpose
         assert "证据不足" in step.purpose and "回流子3" in step.purpose  # d
 
+    def test_step3_purpose_forbids_credential_exploration(self):
+        # demo 121320fe：GitHub API 401 后模型扫 env 找 token 被安全分类器拦
+        # （Credential Exploration）——purpose 须 preempt：认证失败直接标
+        # 未取证（合法留痕），禁止探查凭证
+        step = eng.sub_step_at(eng.get_node("understand", 1), 3)
+        assert "禁止探查凭证" in step.purpose
+        assert "未取证+未认证" in step.purpose
+
 
 class TestPhaseWriteDenial:
     """§S11：phase 写权限围栏（understand/plan/review 禁改源码硬化）。"""
