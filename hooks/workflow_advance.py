@@ -295,6 +295,7 @@ def main() -> int:
                 phase=cur_phase,
                 step=judged_step,
                 to=nxt,
+                **engine.LAST_JUDGE_META,
             )
             if (st or {}).get("sub_index", cur_sub) != cur_sub:
                 # 末步通过 -> 子阶段边界：停轮作天然检查点（用户可介入/redirect），
@@ -335,6 +336,7 @@ def main() -> int:
             attempts=attempts,
             action=action,
             reason=reason[:80],
+            **engine.LAST_JUDGE_META,
         )
         if action == "escalate":
             return _block_continue(
@@ -413,6 +415,7 @@ def main() -> int:
                 phase=cur_phase,
                 n=n,
                 reason=reason[:120],
+                **engine.LAST_JUDGE_META,
             )
             return _block_continue(f"子阶段 {n}({node.label})未通过门控：{reason}")
         # 通过：写裁决记录（§8.6）+ 推进 sub_index
@@ -430,6 +433,7 @@ def main() -> int:
             wf=name,
             node=engine.node_id(cur_phase, cur_sub),
             ev_ok=_ev_ok,
+            **engine.LAST_JUDGE_META,
         )
         now = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
         state["sub_index"] = n + 1
@@ -495,6 +499,7 @@ def main() -> int:
             node=state["node"],
             attempts=attempts,
             reason=reason[:120],
+            **engine.LAST_JUDGE_META,
         )
         return _block_continue(f"节点 {node.label}未通过门控：\n{reason}")
 
@@ -508,7 +513,12 @@ def main() -> int:
         via="auto-stop",
     )
     _log(
-        project_root, "gate_verdict_written", wf=name, node=state["node"], ev_ok=_ev_ok
+        project_root,
+        "gate_verdict_written",
+        wf=name,
+        node=state["node"],
+        ev_ok=_ev_ok,
+        **engine.LAST_JUDGE_META,
     )
 
     # ---- 3. gate 过 -> 闸门判定 + 推进 ----

@@ -1235,6 +1235,101 @@ class TestRunJudgeHarnessTrim:
             assert needle in prompt
 
 
+class TestRunJudgeCostMeta:
+    """judge 成本可见性（2026-07-26）：claude -p 返回 JSON 的 usage/duration/cost
+    原被丢弃 -> judge 成本完全黑盒。run_judge 现采进 LAST_JUDGE_META 供 hook 写
+    审计日志；签名保持 (pass, reason) 不变，失败路径记 judge_error。"""
+
+    def _mock_run(self, monkeypatch, stdout=None, exc=None):
+        def _run(cmd, **kw):
+            if exc is not None:
+                raise exc
+
+            class _Res:
+                returncode = 0
+
+            _Res.stdout = stdout
+            return _Res()
+
+        monkeypatch.setattr(eng.subprocess, "run", _run)
+
+    def test_success_captures_usage_and_duration(self, monkeypatch):
+        self._mock_run(
+            monkeypatch,
+            stdout=(
+                '{"is_error":false,"duration_ms":12345,"duration_api_ms":11000,'
+                '"total_cost_usd":0.0123,'
+                '"usage":{"input_tokens":100,"output_tokens":20,'
+                '"cache_read_input_tokens":3000,"cache_creation_input_tokens":0},'
+                '"result":"{\\"pass\\": true, \\"reason\\": \\"\\"}"}\n'
+            ),
+        )
+        ok, _ = eng.run_judge("rubric", "label", "out")
+        assert ok
+        m = eng.LAST_JUDGE_META
+        assert m["judge_input_tokens"] == 100
+        assert m["judge_output_tokens"] == 20
+        assert m["judge_cache_read_input_tokens"] == 3000
+        assert m["judge_ms"] == 12345
+        assert m["judge_api_ms"] == 11000
+        assert m["judge_cost_usd"] == 0.0123
+        assert "judge_error" not in m
+
+    def test_missing_fields_omitted(self, monkeypatch):
+        # provider 包装器可能只给部分字段：缺什么就不记什么（防御式取值）
+        self._mock_run(
+            monkeypatch,
+            stdout=(
+                '{"is_error":false,"usage":{"input_tokens":5},'
+                '"result":"{\\"pass\\": true, \\"reason\\": \\"\\"}"}\n'
+            ),
+        )
+        eng.run_judge("rubric", "label", "out")
+        m = eng.LAST_JUDGE_META
+        assert m == {"judge_input_tokens": 5}
+
+    def test_timeout_marks_judge_error(self, monkeypatch):
+        self._mock_run(
+            monkeypatch, exc=eng.subprocess.TimeoutExpired(cmd="claude", timeout=1)
+        )
+        ok, reason = eng.run_judge("rubric", "label", "out")
+        assert not ok
+        assert eng.LAST_JUDGE_META == {"judge_error": "TimeoutExpired"}
+
+    def test_meta_reset_between_calls(self, monkeypatch):
+        # 上一次的成本字段不能漏到下一次失败调用里
+        self._mock_run(
+            monkeypatch,
+            stdout=(
+                '{"is_error":false,"usage":{"input_tokens":5},'
+                '"result":"{\\"pass\\": true, \\"reason\\": \\"\\"}"}\n'
+            ),
+        )
+        eng.run_judge("rubric", "label", "out")
+        self._mock_run(
+            monkeypatch, exc=eng.subprocess.TimeoutExpired(cmd="claude", timeout=1)
+        )
+        eng.run_judge("rubric", "label", "out")
+        assert eng.LAST_JUDGE_META == {"judge_error": "TimeoutExpired"}
+
+    def test_is_error_still_captures_usage(self, monkeypatch):
+        # is_error 路径也有 usage 可对账（judge_error 与成本字段共存）
+        self._mock_run(
+            monkeypatch,
+            stdout=(
+                '{"is_error":true,"duration_ms":500,'
+                '"usage":{"input_tokens":7,"output_tokens":1},'
+                '"result":"api boom"}\n'
+            ),
+        )
+        ok, _ = eng.run_judge("rubric", "label", "out")
+        assert not ok
+        m = eng.LAST_JUDGE_META
+        assert m["judge_error"] == "is_error"
+        assert m["judge_input_tokens"] == 7
+        assert m["judge_ms"] == 500
+
+
 class TestPendingUnjudgedStep:
     """§S10：PreToolUse 围栏的关闭条件（与门控共用 last_judged_trace 游标）。"""
 

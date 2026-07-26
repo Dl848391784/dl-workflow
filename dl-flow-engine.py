@@ -108,10 +108,15 @@ SUB_STEP_BLOCK_ESCALATE = 3
 # 对齐原则（2026-07-25）：形式要件（覆盖度/对齐/原话/结论形式）提前告诉模型，
 # 降形式性返工；质量判据（可观察/非编造/非空泛）只留在 gate 给 judge 裁量，
 # 不进 purpose——防应试教育/Goodhart（模型照 checklist 填表，judge 分辨力丧失）。
+# 2026-07-26 补「结论逐句出处」：demo 7ada3d8e 首轮 block 教训——模型把「报告失真/
+# 需排查」式后果想象包装进结论。出处形式属形式要件（可机械核对），提前告诉模型
+# 不泄质量判据；「痛点是否可观察/非空泛」仍只留 gate。
 _STEP1_FORM_REQUIREMENTS = (
     "覆盖 who/pain/why-now ≥3 类，q/a 按序对齐，答案引用用户原话或会话事实；"
     "结论二选一：①问题成立=可证伪定义（具体主语+可观察痛点+场景约束）；"
-    "②问题不成立=用户声明无真实痛点+原话佐证，记「字面请求即全部」"
+    "②问题不成立=用户声明无真实痛点+原话佐证，记「字面请求即全部」。"
+    "结论逐句须有出处（用户原话/会话事实）：无出处的推断禁止写进结论，"
+    "只能标注「推测」另列"
 )
 
 # 子1 取证方法论（2026-07-25，demo bf2516ac/e84aee6d 教训）：
@@ -1234,6 +1239,36 @@ def _extract_judge_result(result_text: str) -> dict[str, Any] | None:
     return obj
 
 
+# run_judge 最近一次调用的成本元数据（judge_* tokens/ms/cost；失败路径带 judge_error），
+# 供 hook 写 .wf_advance.log 审计行（2026-07-26：judge 成本原完全黑盒，无法对账）。
+# 只读方 = hook 进程（一次性子进程，无并发）；run_judge 每次调用开头 clear，
+# 签名保持 (pass, reason) 不变——mock run_judge 的测试全部不受影响。
+LAST_JUDGE_META: dict[str, Any] = {}
+
+
+def _capture_judge_meta(last_json: dict[str, Any]) -> None:
+    """从 claude -p --output-format json 的末行 JSON 采成本字段进 LAST_JUDGE_META。
+
+    防御式取值：provider 包装器（ac-ark 等）可能缺字段，缺什么就不记什么。
+    """
+    u = last_json.get("usage") or {}
+    for k in (
+        "input_tokens",
+        "output_tokens",
+        "cache_read_input_tokens",
+        "cache_creation_input_tokens",
+    ):
+        if isinstance(u.get(k), int):
+            LAST_JUDGE_META[f"judge_{k}"] = u[k]
+    for src, dst in (
+        ("duration_ms", "judge_ms"),
+        ("duration_api_ms", "judge_api_ms"),
+        ("total_cost_usd", "judge_cost_usd"),
+    ):
+        if last_json.get(src) is not None:
+            LAST_JUDGE_META[dst] = last_json[src]
+
+
 def run_judge(
     rubric: str,
     node_label: str,
@@ -1248,7 +1283,9 @@ def run_judge(
     judge 继承主会话 env（design §9 #2）：不另设 provider/model,跑在主会话已起的 provider 上。
 
     失败（API 错/超时/解析失败）-> (False, 失败原因)（design §5.1 降级：不默认放行）。
+    副作用：每次调用重置 LAST_JUDGE_META（成功=成本字段，失败=judge_error）供审计日志。
     """
+    LAST_JUDGE_META.clear()
     prompt = (
         "你是工作流节点门控的评审 judge。判定模型本轮输出是否符合判据。\n"
         "严格判定：判据任一条不满足 -> pass=false 并在 reason 写缺什么。\n"
@@ -1295,8 +1332,10 @@ def run_judge(
             cwd=tempfile.gettempdir(),
         )
     except (subprocess.TimeoutExpired, OSError) as e:
+        LAST_JUDGE_META["judge_error"] = type(e).__name__
         return False, f"judge 调用失败（{type(e).__name__}）"
     if res.returncode != 0:
+        LAST_JUDGE_META["judge_error"] = f"exit={res.returncode}"
         return False, f"judge claude -p 退出码 {res.returncode}"
 
     # claude -p --output-format json：stdout 末尾一行是 {"is_error":...,"result":"..."}
@@ -1311,13 +1350,18 @@ def run_judge(
             except json.JSONDecodeError:
                 continue
     if last_json is None:
+        LAST_JUDGE_META["judge_error"] = "no_result_json"
         return False, "judge 输出无 result JSON 行"
+    # last_json 存在起：先采成本（is_error/判定解析失败的路径也有 usage 可对账）
+    _capture_judge_meta(last_json)
     if last_json.get("is_error"):
+        LAST_JUDGE_META["judge_error"] = "is_error"
         return False, f"judge 会话出错：{last_json.get('result', '')[:200]}"
 
     result_text = last_json.get("result", "")
     verdict = _extract_judge_result(result_text)
     if verdict is None:
+        LAST_JUDGE_META["judge_error"] = "bad_verdict_json"
         return False, f"judge 返回非合法 JSON 判定：{result_text[:200]}"
     return bool(verdict["pass"]), str(verdict.get("reason", ""))
 
