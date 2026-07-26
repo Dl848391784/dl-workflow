@@ -37,6 +37,20 @@ install.sh 做什么：
 
 冲突文件会备份到 `~/.claude/.dl-workflow-backup/<timestamp>/`。
 
+## 环境配置（understand:1 子3 双向取证的外部证据源）
+
+子3「双向取证」（`designs/step3-verify-redesign-design.md`，v2.7）走五层免费源取证：学术（OpenAlex/arXiv）、社区（StackExchange/HN）、开源（GitHub API）、定点网页（WebFetch）、内部仓库（codegraph）。**禁用 tavily_search/WebSearch**。除 GitHub 外全部零 key 即用（curl 直连）；GitHub 在共享出口 IP 下未认证额度不可靠，需配 PAT：
+
+1. **创建 PAT**：github.com → Settings → Developer settings → Personal access tokens → Fine-grained → Repository access 选 **Public Repositories (read-only)**（或 classic token 不勾任何 scope）。
+2. **全局生效**（launcher `exec claude`，env 由调用方 shell 继承——一处 export 全链生效）：
+   ```bash
+   echo 'export GITHUB_TOKEN=<粘贴PAT>' >> ~/.bashrc
+   exec bash   # 或重开终端
+   ```
+3. **验证**：`curl -s -H "Authorization: Bearer $GITHUB_TOKEN" https://api.github.com/rate_limit` → `core.limit == 5000`。
+4. **纪律**：token 只用 read-only public scope；不写入任何 repo 文件 / evidence / design 文档；泄露即 revoke。
+5. **可选**：`SEMANTIC_SCHOLAR_API_KEY`（免费申请，学术层提额）同样 export 到 `~/.bashrc`；不配置用共享池，够用。
+
 ## 用
 
 两种入口（都拦 `--dl` 参数转交 launcher）：
