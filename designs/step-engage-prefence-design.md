@@ -116,8 +116,14 @@ S15 与 S10 同属「子步骤围栏」族（dl-cmd fence on|off 注释已写「
   （prompt 已带证据，职责是推理不是取证），如需放开在子4 fence_allow 追加。
   实录（2026-07-26 demo 121320fe）：子代理 9 分钟内 21 次 Bash 空拒后
   自行改用 Read 完成——结果质量无损但纯浪费。缓解（prompt 级，不动围栏）：
-  子4 purpose 已写明「红队 prompt 须告知子代理：取证只用
-  Read/Grep/Glob/codegraph，Bash 在窗口内会被 deny」。
+  子4 purpose 写明「红队 prompt 四要求」——a.携带子3全部证据（红队推理
+  不重新取证）；b.单层禁止再 spawn Agent（实录嵌套放大：3 嵌套 116k
+  boot + 82 Read 系统性重取证 + 嵌套层调 AskUserQuestion 角色错乱；
+  代价=失去并行压缩与上下文隔离，但红队职责=推理不是取证，净正）；
+  c.点查只用 Read/Grep/Glob/codegraph；d.证据不足下「证据不足」verdict
+  指明缺哪条、回流子3 补取（证据缺口显式化，替代偷偷重跑取证）。
+  注：fence_allow 按工具名放行不区分调用方，嵌套层 Agent 调用同样放行
+  ——限深只能靠 prompt 约束（合「威胁模型=弱遵从而非对抗」原则）。
 
 ## 3. 与现有机制的关系
 
