@@ -1,6 +1,6 @@
 ---
 name: workflow-creation
-description: 建工作流系统 + 运行诊断。触发：新建/改工作流、dl 命令、阶段不推进、注入没生效、/dl 报错、hook 装错位置、模型否认收到注入、5 阶段不显示、gate 裁决记录(evidence)不落地、子步骤编排(sub_steps/STEP_DONE) 不推进、evidence 写到 worktree。
+description: 建工作流系统 + 运行诊断 + 运行审计。触发：新建/改工作流、dl 命令、阶段不推进、注入没生效、/dl 报错、hook 装错位置、模型否认收到注入、5 阶段不显示、gate 裁决记录(evidence)不落地、子步骤编排(sub_steps/STEP_DONE) 不推进、evidence 写到 worktree、审计一轮运行(可避免的 error/返工/耗时/token 优化)。
 version: 2.4
 ---
 
@@ -405,7 +405,7 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 - "证据链 / evidence / no_markers / evidence.jsonl 不生成 / 证据不落地" -> §2 症状 I
 6. **grep 命中 ≠ 模型真输出**：transcript 里 `### PHASE_DONE` / `### SUB_DONE` / `### STEP_DONE` 命中可能是注入的 attachment 文本，必须按 `role=assistant` 过滤后再判模型是否真发了标记。
 7. **有 sub_steps 节点特殊**：看 `.wf_advance.log` 的 `sub_step_gate_pass` / `sub_step_gate_block`（Stop hook 判，与无 sub_steps 节点同日志）；推进在模型 end_turn 时即判，**无需用户再发消息**。同时看 `<主 repo>/.claude/evidence/<name>.jsonl` 是否有当前 `sub_step==N` 的新 skill-trace（症状 J/L）+ state.json 的 `last_judged_trace` 游标。
-8. **量 token / 审计模型消耗**：主会话 transcript 在 `~/.claude/projects/-...-worktrees-<name>/<session_id>.jsonl`；judge 会话在 `~/.claude/projects/-tmp/`（run_judge cwd=tempdir 的直接证据），按 `.wf_advance.log` 的 `sub_step_gate_block|...|ts` / `sub_step_gate_pass|...|ts` 时间戳找相邻 `-tmp/*.jsonl` 配对。**usage 必须按 message.id 去重**：同一响应的 thinking/text 分块各记一行 assistant、usage 整份重复，按行求和会虚增一倍；`queue-operation` 不是 API 调用。口径：`input_tokens`=新鲜输入（cache_read 单列），模型归属看每条 assistant 的 `model` 字段（judge 继承主会话 provider env，正常必与主会话同模型）。 **子代理 transcript**（红队等 Agent）：在 `~/.claude/projects/<proj>/<session_id>/subagents/agent-*.jsonl`（以 session id 命名的独立目录；主文件 `isSidechain` 全 false，别在主文件找）。嵌套子代理同目录并列，靠时间戳归属父代理。**按子步骤归集耗时/token**：以 `.wf_advance.log` 的 pass/block 事件时间戳为窗口边界，去重后 usage 按窗口分桶；注意日志是本地时、jsonl 是 UTC（+8 换算）。**生成速率测量**：相邻 assistant 消息间隔中位 ≈ 单轮生成耗时（ark 实测 ~67 tok/s、29s/轮）——「工作流慢」的量化口径。
+8. **量 token / 审计模型消耗**：主会话 transcript 在 `~/.claude/projects/-...-worktrees-<name>/<session_id>.jsonl`；judge 会话在 `~/.claude/projects/-tmp/`（run_judge cwd=tempdir 的直接证据），按 `.wf_advance.log` 的 `sub_step_gate_block|...|ts` / `sub_step_gate_pass|...|ts` 时间戳找相邻 `-tmp/*.jsonl` 配对。**v2.11 起 judge 用量优先直接读 `.wf_advance.log`**——pass/block 行已带 `judge_input_tokens|judge_output_tokens|judge_ms|judge_cost_usd|judge_error` 字段，爬 -tmp 配对只在要看 judge 对话原文时才需要。**usage 必须按 message.id 去重**：同一响应的 thinking/text 分块各记一行 assistant、usage 整份重复，按行求和会虚增一倍；`queue-operation` 不是 API 调用。口径：`input_tokens`=新鲜输入（cache_read 单列），模型归属看每条 assistant 的 `model` 字段（judge 继承主会话 provider env，正常必与主会话同模型）。 **子代理 transcript**（红队等 Agent）：在 `~/.claude/projects/<proj>/<session_id>/subagents/agent-*.jsonl`（以 session id 命名的独立目录；主文件 `isSidechain` 全 false，别在主文件找）。嵌套子代理同目录并列，靠时间戳归属父代理。**按子步骤归集耗时/token**：以 `.wf_advance.log` 的 pass/block 事件时间戳为窗口边界，去重后 usage 按窗口分桶；注意日志是本地时、jsonl 是 UTC（+8 换算）。**生成速率测量**：相邻 assistant 消息间隔中位 ≈ 单轮生成耗时（ark 实测 ~67 tok/s、29s/轮）——「工作流慢」的量化口径。
 9. **测 hook 用真 git worktree，别用普通子目录**（2026-07-25 冒烟实测）：`git rev-parse --git-common-dir` 在 repo 内普通子目录返**相对路径**（`../../../.git`）→ state 解析错位、hook 静默退出（无日志、无输出，极像「hook 没跑」）；只有 `git worktree add` 的真 worktree 返绝对路径。模板：`tests/test_workflow_advance.py`（in-process importlib 加载 hook + monkeypatch engine.run_judge 避免真起 judge 子进程 + tmp_path 真 worktree）。
 11. **报错全量盘点法**（2026-07-26 demo 104 报错根因链）：扫 tool_result `is_error`——主会话 + `subagents/agent-*.jsonl` 全部子代理，tool_use_id 回联工具名，按错误内容 Counter 归并成类。**主会话报错常只是冰山一角**（实录 5 vs 子代理 99）——子代理是报错主战场，盘点漏了它就等于漏了根因。归并后才看得见结构性（93/104 同属「子代理工具现实与 prompt 指引脱节」一条链）；逐条看只会得到「偶发很多」的错觉。
 10. **hook 行为冒烟不必开真会话**（2026-07-26 S15 验证法）：hook 全是 stdin JSON -> stdout JSON 契约，拿**真实工作流 state** 直接喂 payload 即见行为——`echo '{"cwd":"<worktree路径>","tool_name":"Bash","tool_input":{"command":"ls"}}' | python3 ~/.dl-workflow/hooks/workflow_step_fence.py`。改围栏/门控后必做：比开交互会话便宜，且用真实 state 覆盖「fixture 与真实数据形态漂移」盲区（测试 fixture 绿 ≠ 真实 state 下对）。
@@ -424,6 +424,18 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 8. **校准看 block 性质，不看频率**（2026-07-25 子1 四连 block 案例）：高频 block 不是松绑信号，先逐条分类——形式缺失/覆盖不足/编造自述 = **该抓**（门控在工作，说明模型在试图绕过）；「要求的佐证没有合法获取路径」= **判据缺陷**（见 #7）。只有后者改判据。n=1 的 block 率不构成校准依据；step2 一过而 step1 四连 block 的不对称，正确读法是「两次判得都对」，不是「一个太严一个太松」。 完整工作示例（demo 121320fe）：用户直觉「6 次 block、零一过率=问题很大」-> 逐条核对判词 vs purpose/证据 -> 6/6「该抓」（4 次违反已披露形式要求、1 次系统缺陷诱发、1 次实质越界）、0 判据缺陷 -> 结论：不动判据，修的是披露缺口+自查提示（#9）。
 
 9. **区分「知识失败」与「注意力失败」**（2026-07-26 demo 121320fe 复盘）：模型被指后一轮就修好 = 它**知道**规则只是没用上（注意力失败）——这类 block 的最便宜解法不是改判据，而是**提交前自查提示**（engine `STEP_SELFCHECK_HINT` 单源，pass 续轮/block 返工/注入三通道同文）：把「judge 抓」前移为「自查抓」，省 judge 调用 + 省一轮 Stop 往返。反之，反复讲仍犯 = 知识/能力失败，自查提示无效，只能机械拦或换模型。判据要求了但 purpose 没披露的形式要件（demo 子4「汇总声明不算记录」）属披露缺口——补上即可，属 #2 的应用，不算松判据。
+
+10. **block 文案就是模型的返工指令——基础设施失败必须区分**（2026-07-26 demo fbdb6ebd 子2 复盘）：judge 超时降级 block，模型把「judge 调用失败（TimeoutExpired）」解读为内容不合格，把**本已合格的 trace 精简重写一轮**（~2min + 十几 k tokens 白烧，下轮原样判过）。教训两条：①可重试的基础设施失败（超时/格式抖动）先在机制层重试，别转嫁成模型返工（v2.12 已实装）；②设计任何降级路径时把「模型会如何解读这个 block」算进成本——block reason 不只给 judge 看，它直接塑造模型下一轮回做什么。同理，「不做 X」的机制决策要记录**根因**（当初超时不重试防的是递归爆炸），根因消除（cwd=tempdir）后要重估，否则防御措施退化为纯损失。
+
+## 3.6 运行审计方法论（review 一轮真实运行：可避免 error / 返工 / 优化点）
+
+2026-07-26 审计 demo 双轮运行（121320fe / fbdb6ebd）沉淀。与症状 R 的分工：症状 R 应答「跑太慢/应该毫秒级」的**投诉**（概念纠正+耗时分解）；本节是用户问「这轮符不符合预期、error/返工/消耗能不能优化」时的**主动审计**动作。token 口径/耗时分解用 §3 #8 + 症状 R，不重复；本节只列增量：
+
+1. **block 三分类再下结论**：基础设施性（judge 超时/bad_verdict_json/围栏误伤）-> 修机制；内容质量性（缺结论/非原话/因果链断）-> 该抓，健康返工（§3.5 #8）；判据披露缺口（执行了但留痕形式不符）-> 补 purpose（§3.5 #2）。三类的修复出口完全不同，混着报 = 误诊；别把 judge 超时算成模型遵从问题。
+2. **git log 时间线对照运行窗口**：报「可避免的 error」前先对 `~/.dl-workflow` 的 git log——运行窗口**之后**的修复 commit 若已覆盖该 block 根因，报「已修+后一轮已验证收敛」，不是「待修」（demo run1 报出的 bad_verdict_json/红队 Agent 被拒/不写 trace 三问题当天已修；不核对会把已修问题当新发现重复上报）。
+3. **识别「重建丢弃」**：state.json `created_at` 晚于 `.wf_advance.log` 早段活动 = 工作流被删重建，前轮产出（墙钟 + token + judge 成本）全丢弃。审计时提示：想要答案用 `--resume` 或 `/dl gate` 接续；想在最终版 engine 下重测才是合理的重建理由。
+4. **judge 输入按子步骤排开看增长曲线**：单调陡增 = artifact 投喂范围过大（v2.12 前全量喂 evidence 的 O(n²) 就是 3.1k->14.9k 曲线暴露的；修复后每步只 +1 条 trace 的缓涨是设计内现象）。
+5. **冒烟验证优化用真实 evidence**：改 read/裁剪类函数后，拿真实工作流的 evidence.jsonl 直接调函数对比输入降幅（真实数据形态 > fixture；2026-07-26 实测：子1 -97%、子3 -65%）——与 §3 #10 的 hook payload 冒烟同法，不开会话。
 
 ## 4. 不要做的事
 
@@ -451,4 +463,5 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 - "子阶段 / SUB_DONE / understand 子阶段不推进 / 提前 PHASE_DONE 被阻断" → §2 症状 H
 - "Execution error / 管道测试" → §2 症状 E
 - "跑太慢 / 耗时长 / token 消耗大 / 程序应该毫秒级 / 成本审计" → §2 症状 R
+- "审计这轮运行 / 符合预期吗 / 哪些 error 返工可避免 / judge 输入膨胀 / 重建丢弃" → §3.6
 - "证据链 / evidence / no_markers / evidence.jsonl 不生成 / 证据不落地" -> §2 症状 I
