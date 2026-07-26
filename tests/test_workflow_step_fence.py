@@ -205,10 +205,10 @@ class TestS15EngagePreFence:
         )
         assert decision is None
 
-    def test_bash_evidence_rel_path_denied_with_abs_pointer(
+    def test_bash_evidence_rel_path_denied_with_append_trace_pointer(
         self, wf_repo, monkeypatch, capsys
     ):
-        # 症状 L 前置拦截：相对路径写 evidence -> deny 且文案给绝对路径
+        # 症状 L 前置拦截（v2.14）：相对路径写 evidence -> deny 且文案指 append-trace
         _write_state(wf_repo, sub_step=1)
         mod = _load_hook()
         decision, reason = _run_hook(
@@ -220,11 +220,12 @@ class TestS15EngagePreFence:
             {"command": "printf '%s\\n' '{}' >> .claude/evidence/t.jsonl"},
         )
         assert decision == "deny"
-        assert str(wf_repo / ".claude" / "evidence" / "t.jsonl") in reason
+        assert "append-trace" in reason  # v2.14：文案指 append-trace（脚本管路径）
 
-    def test_write_evidence_allowed(self, wf_repo, monkeypatch, capsys):
+    def test_write_payload_allowed(self, wf_repo, monkeypatch, capsys):
+        # v2.14：evidence 目录下载荷文件（.trace-payload-*.json）Write 放行
         _write_state(wf_repo, sub_step=1)
-        ev = wf_repo / ".claude" / "evidence" / "t.jsonl"
+        payload = wf_repo / ".claude" / "evidence" / ".trace-payload-t.json"
         mod = _load_hook()
         decision, _ = _run_hook(
             mod,
@@ -232,9 +233,40 @@ class TestS15EngagePreFence:
             monkeypatch,
             capsys,
             "Write",
-            {"file_path": str(ev), "content": "{}\n"},
+            {"file_path": str(payload), "content": "{}\n"},
         )
         assert decision is None
+
+    def test_write_evidence_jsonl_denied_to_append_trace(
+        self, wf_repo, monkeypatch, capsys
+    ):
+        # v2.14 S14 收编：直写 evidence jsonl 本体一律 deny，指回 append-trace
+        _write_state(wf_repo, sub_step=1)
+        ev = wf_repo / ".claude" / "evidence" / "t.jsonl"
+        mod = _load_hook()
+        decision, reason = _run_hook(
+            mod,
+            wf_repo,
+            monkeypatch,
+            capsys,
+            "Write",
+            {"file_path": str(ev), "content": "{}\n"},
+        )
+        assert decision == "deny"
+        assert "append-trace" in reason
+
+    def test_bash_append_trace_allowed(self, wf_repo, monkeypatch, capsys):
+        # v2.14：零 trace 窗口内 append-trace / redteam-prompt 属编排命令
+        _write_state(wf_repo, sub_step=1)
+        mod = _load_hook()
+        for cmd in (
+            "python3 ~/.dl-workflow/dl-flow-engine.py append-trace --from-file /tmp/p.json",
+            "python3 ~/.dl-workflow/dl-flow-engine.py redteam-prompt",
+        ):
+            decision, _ = _run_hook(
+                mod, wf_repo, monkeypatch, capsys, "Bash", {"command": cmd}
+            )
+            assert decision is None, cmd
 
     def test_write_source_denied(self, wf_repo, monkeypatch, capsys):
         # 写非 evidence 文件：S11（阶段白名单）或 S15 必有一拦

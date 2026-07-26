@@ -343,10 +343,12 @@ def main() -> int:
                 f"## WORKFLOW 子步骤 {judged_step} 已通过门控\n"
                 f"现在立即执行子步骤 {nxt}/{total}（{nxt_step.kind}: {nxt_step.ref}）：\n"
                 f"目的：{nxt_step.purpose}\n\n"
-                f"{how}；完成后写/append evidence skill-trace（sub_step={nxt}），"
+                f"{how}；完成后落 evidence（Write 载荷 purpose/q/a 到 "
+                f".claude/evidence/.trace-payload-<name>.json，再 Bash `python3 "
+                f"~/.dl-workflow/dl-flow-engine.py append-trace --from-file <载荷>`），"
                 f"再输出 ### STEP_DONE: {nxt} 并结束本轮。\n"
                 "如需用户输入：用 AskUserQuestion 工具（回合内完成）。\n"
-                + engine.STEP_SELFCHECK_HINT
+                + engine.selfcheck_hint(nxt_step)
                 + "\n"
                 + engine.engagement_fence_notice(nxt_step)
             )
@@ -377,11 +379,11 @@ def main() -> int:
             )
         # block 返工附当前步围栏提示（含 fence_allow 豁免）：block 高发场景正是
         # 「模型以为某工具被拦」，豁免文案直接纠正假信念（demo 121320fe）。
-        # §step-selfcheck：返工后再声明完成前同样要求逐条自查。
+        # §step-selfcheck：返工后再声明完成前同样要求逐条自查（步级 checklist）。
         judged_step_obj = engine.sub_step_at(cur_node0, judged_step)
         rework_hint = (
             "\n"
-            + engine.STEP_SELFCHECK_HINT
+            + engine.selfcheck_hint(judged_step_obj)
             + (
                 "\n" + engine.engagement_fence_notice(judged_step_obj)
                 if judged_step_obj is not None

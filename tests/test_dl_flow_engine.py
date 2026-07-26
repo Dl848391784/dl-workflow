@@ -276,6 +276,7 @@ class TestStepDataclass:
         s = eng.Step(
             kind="skill",
             ref="define-problem",
+            short="s",
             purpose="逼问",
             input=None,
             record=True,
@@ -287,7 +288,13 @@ class TestStepDataclass:
 
     def test_step_frozen_immutable(self):
         s = eng.Step(
-            kind="skill", ref="x", purpose="p", input=None, record=True, gate=None
+            kind="skill",
+            ref="x",
+            short="s",
+            purpose="p",
+            input=None,
+            record=True,
+            gate=None,
         )
         with pytest.raises((AttributeError, Exception)):
             s.kind = "tool"  # frozen -> 不可改
@@ -308,10 +315,22 @@ class TestNodeSubStepsField:
     def test_sub_steps_can_be_set(self):
         # 构造带 sub_steps 的节点（验证 schema 可用，不落 _NODES）
         s1 = eng.Step(
-            kind="skill", ref="x", purpose="p1", input=None, record=True, gate="g1"
+            kind="skill",
+            ref="x",
+            short="s",
+            purpose="p1",
+            input=None,
+            record=True,
+            gate="g1",
         )
         s2 = eng.Step(
-            kind="tool", ref="y", purpose="p2", input="step1", record=False, gate=None
+            kind="tool",
+            ref="y",
+            short="s",
+            purpose="p2",
+            input="step1",
+            record=False,
+            gate=None,
         )
         n = eng.Node(
             label="t",
@@ -361,6 +380,111 @@ class TestStep456Redesign:
         assert all(s.record for s in self._steps())
 
 
+class TestHarnessPromptOptimization:
+    """2026-07-26 harness 化优化（designs/harness-prompt-optimization-design.md）：
+    Step.short 骨架短名（P0 注入瘦身）；purpose 清考古（P2，规则留、考古移注释）；
+    render-phase-rules（P1 双通道单源）；rubric 判据关键词回归钉死。"""
+
+    def _steps(self):
+        node = eng.get_node("understand", 1)
+        assert node.sub_steps is not None
+        return node.sub_steps
+
+    # ----- P0：short 字段 -----
+    def test_six_steps_short_labels(self):
+        shorts = [s.short for s in self._steps()]
+        assert shorts == [
+            "逼问定义",
+            "拆解深挖",
+            "双向取证",
+            "质检裁决",
+            "归一化陈述",
+            "读回确认",
+        ]
+
+    # ----- P2：purpose/gate 不含考古（规则留下，考古移 engine 注释）-----
+    def test_purpose_gate_no_demo_archaeology(self):
+        for s in self._steps():
+            assert "实录" not in s.purpose
+            assert "demo " not in s.purpose
+            if s.gate:
+                assert "实录" not in s.gate
+                assert "demo " not in s.gate
+
+    # ----- rubric 判据关键词回归（防 P2 清理误删判据；逐条钉死）-----
+    def test_rubric_keywords_regression(self):
+        s = self._steps()
+        # 子1：who 出处钉死 + 双结论制
+        assert "who 类出处只认用户自述" in s[0].gate
+        assert "「未提及」" in s[0].gate
+        # 子2：反同义反复 + 反稻草人
+        assert "同义反复判 block" in s[1].gate
+        assert "竞争假设非稻草人" in s[1].gate
+        # 子3：可追溯指针 + 反训练记忆冒充
+        assert "可追溯指针" in s[2].gate
+        assert "用训练记忆冒充外部证据 = 编造" in s[2].gate
+        # 子4：三关质检 + 红队触发强制
+        assert "三关质检记录" in s[3].gate
+        assert "只给证据不给结论" in s[3].gate
+        # 子5：裁决传导
+        assert "裁决不传导判 block" in s[4].gate
+
+    def test_purpose_keywords_regression(self):
+        s = self._steps()
+        # 子3：证伪优先时序 + 禁 tavily/WebSearch + 禁探查凭证（规则留存）
+        assert "反证查询（先）→支持证据（后）" in s[2].purpose
+        assert "禁 tavily_search/WebSearch" in s[2].purpose
+        assert "禁止探查凭证" in s[2].purpose
+        # 子4：红队触发条件 + redteam-prompt 生成器（纪律 a-d 已机械化进模板）
+        for frag in (
+            "条件触发对抗复核",
+            "只给证据不给结论",
+            "redteam-prompt",
+            "触发条件写死",
+        ):
+            assert frag in s[3].purpose
+
+    # ----- P1：render-phase-rules -----
+    def test_render_substeps_section(self):
+        out = eng.render_substeps_section("understand:1")
+        assert out.startswith("<!-- BEGIN GENERATED sub_steps understand:1 -->")
+        assert out.endswith("<!-- END GENERATED sub_steps understand:1 -->")
+        # 渲染行含 ref + purpose 全文（与 engine 逐字同源）
+        s1 = self._steps()[0]
+        assert f"- **子步骤1 = {s1.ref}**：{s1.purpose}" in out
+        # gate=None 标自动过
+        assert "**子步骤6 = define-problem**（自动过）" in out
+
+    def test_render_phase_rules_replaces_marker(self):
+        tpl = (
+            "前\n<!-- BEGIN GENERATED sub_steps understand:1 -->\n旧内容\n"
+            "<!-- END GENERATED sub_steps understand:1 -->\n后"
+        )
+        out = eng.render_phase_rules(tpl)
+        assert "旧内容" not in out
+        assert "子步骤1 = define-problem" in out
+        assert out.startswith("前") and out.endswith("后")
+
+    def test_render_phase_rules_no_marker_passthrough(self):
+        tpl = "纯静态模板\n无标记段\n"
+        assert eng.render_phase_rules(tpl) == tpl
+
+    def test_render_phase_rules_idempotent(self):
+        tpl = "<!-- BEGIN GENERATED sub_steps understand:1 -->\nx\n<!-- END GENERATED sub_steps understand:1 -->"
+        once = eng.render_phase_rules(tpl)
+        assert eng.render_phase_rules(once) == once
+
+    def test_render_substeps_no_steps_raises(self):
+        with pytest.raises(ValueError, match="无 sub_steps"):
+            eng.render_substeps_section("plan:0")
+
+    def test_render_substeps_bad_id_raises(self):
+        with pytest.raises(ValueError, match="节点 id 非法"):
+            eng.render_substeps_section("understand")
+        with pytest.raises(KeyError, match="未知节点"):
+            eng.render_substeps_section("nope:1")
+
+
 class TestSubStepHelpers:
     def test_sub_step_total_no_steps(self):
         assert eng.sub_step_total(eng.get_node("plan", 0)) == 0
@@ -370,7 +494,13 @@ class TestSubStepHelpers:
 
     def test_sub_step_total_with_steps(self):
         s1 = eng.Step(
-            kind="skill", ref="x", purpose="p", input=None, record=True, gate=None
+            kind="skill",
+            ref="x",
+            short="s",
+            purpose="p",
+            input=None,
+            record=True,
+            gate=None,
         )
         n = eng.Node(
             label="t",
@@ -387,10 +517,22 @@ class TestSubStepHelpers:
 
     def test_sub_step_at_valid(self):
         s1 = eng.Step(
-            kind="skill", ref="a", purpose="p1", input=None, record=True, gate=None
+            kind="skill",
+            ref="a",
+            short="s",
+            purpose="p1",
+            input=None,
+            record=True,
+            gate=None,
         )
         s2 = eng.Step(
-            kind="tool", ref="b", purpose="p2", input="step1", record=True, gate=None
+            kind="tool",
+            ref="b",
+            short="s",
+            purpose="p2",
+            input="step1",
+            record=True,
+            gate=None,
         )
         n = eng.Node(
             label="t",
@@ -410,7 +552,13 @@ class TestSubStepHelpers:
         n = eng.get_node("plan", 0)  # 无 sub_steps
         assert eng.sub_step_at(n, 1) is None
         s1 = eng.Step(
-            kind="skill", ref="a", purpose="p", input=None, record=True, gate=None
+            kind="skill",
+            ref="a",
+            short="s",
+            purpose="p",
+            input=None,
+            record=True,
+            gate=None,
         )
         n2 = eng.Node(
             label="t",
@@ -431,6 +579,7 @@ class TestSubStepHelpers:
         se = eng.Step(
             kind="skill",
             ref="x",
+            short="s",
             purpose="p",
             input=None,
             record=True,
@@ -441,6 +590,7 @@ class TestSubStepHelpers:
         sn = eng.Step(
             kind="tool",
             ref="x",
+            short="s",
             purpose="p",
             input=None,
             record=True,
@@ -449,7 +599,13 @@ class TestSubStepHelpers:
         assert eng.step_needs_evidence(sn) is False
         # gate=None -> False
         snone = eng.Step(
-            kind="skill", ref="x", purpose="p", input=None, record=False, gate=None
+            kind="skill",
+            ref="x",
+            short="s",
+            purpose="p",
+            input=None,
+            record=False,
+            gate=None,
         )
         assert eng.step_needs_evidence(snone) is False
 
@@ -1708,16 +1864,15 @@ class TestEngagementFenceNotice:
         assert "额外放行：Bash / WebFetch" in notice
 
     def test_step4_purpose_guides_redteam_prompt_tools(self):
-        # demo 121320fe 子代理 104 报错根因链：Glob 不存在(11) + Bash 空拒(21)
-        # + 盲猜路径(61 Read 全空)——purpose 须让模型组 prompt 时对齐子代理
-        # 工具现实：a 带 file:line 清单（防零认知盲猜）c Read 为主（防撞死锁）
+        # v2.14：红队纪律 a-d 从 purpose 机械化进 redteam_prompt() 模板
+        # （demo 121320fe 子代理 104 报错根因链：Glob 不存在(11) + Bash 空拒(21)
+        # + 盲猜路径(61 Read 全空)——现场拼 prompt 的事故类，脚本组 prompt 根治）。
+        # purpose 只留触发条件 + 调用方式（判断归模型，prompt 内容归脚本）。
         step = eng.sub_step_at(eng.get_node("understand", 1), 4)
-        assert "file:line 清单" in step.purpose  # a：防盲猜路径
-        assert "Read 为主" in step.purpose  # c：子代理 Glob/Grep 可能不存在
-        assert "Bash" in step.purpose and "deny" in step.purpose
-        assert "禁止再 spawn Agent" in step.purpose  # b：单层红队
-        assert "携带子3全部证据" in step.purpose
-        assert "证据不足" in step.purpose and "回流子3" in step.purpose  # d
+        assert "redteam-prompt" in step.purpose  # 生成器调用
+        assert "禁止手拼" in step.purpose
+        assert "只给证据不给结论" in step.purpose  # 独立上下文契约（gate 判）
+        assert "触发条件写死" in step.purpose
         # 披露缺口修复（demo block#5）：「10/10 pass」式汇总声明被判 block——
         # 逐项可验证是形式要件，应披露进 purpose（§3.5 #2）
         assert "逐项可验证" in step.purpose
@@ -2180,3 +2335,230 @@ class TestStep3FalsificationOrderDisclosure:
         step3 = eng.sub_step_at(node, 3)
         assert "反证查询（先）" in step3.purpose
         assert "时序" in step3.purpose
+
+
+class TestStepSelfcheck:
+    """§step-selfcheck 步级化（2026-07-26，demo d59d05ea MiniMax-M3 子1 三连 block 复盘）：
+    Step.selfcheck 声明本步 checklist；selfcheck_hint 拼通用段+步级段，三通道同文。
+    红线：checklist 只含 purpose 已披露形式要件，质量判据（gate 黑盒）零泄漏。"""
+
+    def _steps(self):
+        node = eng.get_node("understand", 1)
+        assert node.sub_steps is not None
+        return node.sub_steps
+
+    def test_all_six_steps_have_selfcheck(self):
+        assert all(s.selfcheck for s in self._steps())
+
+    def test_step1_selfcheck_covers_disclosed_form_requirements(self):
+        sc = self._steps()[0].selfcheck
+        assert "who/pain/why-now" in sc
+        assert "原话" in sc
+        assert "出处" in sc
+
+    def test_selfcheck_no_quality_criteria_leak(self):
+        # Goodhart 分层守卫：只出现在 gate 质量判据的措辞不得进 checklist
+        for s in self._steps():
+            for banned in ("从严裁量", "好奇心缺口", "稻草人", "同义反复"):
+                assert banned not in s.selfcheck
+
+    def test_selfcheck_hint_none_falls_back_generic(self):
+        assert eng.selfcheck_hint(None) == eng.STEP_SELFCHECK_HINT
+
+    def test_selfcheck_hint_stitches_step_checklist(self):
+        s1 = self._steps()[0]
+        hint = eng.selfcheck_hint(s1)
+        assert hint.startswith(eng.STEP_SELFCHECK_HINT)
+        assert "本步自查：" in hint
+        assert s1.selfcheck in hint
+
+    def test_selfcheck_hint_step_without_selfcheck_generic_only(self):
+        s = eng.Step(
+            kind="skill",
+            ref="x",
+            short="s",
+            purpose="p",
+            input=None,
+            record=True,
+            gate=None,
+        )
+        assert eng.selfcheck_hint(s) == eng.STEP_SELFCHECK_HINT
+
+
+class TestCorruptReworkDetect:
+    """§corrupt-rework-detect（2026-07-26，demo d59d05ea 子3 卡死）：
+    模型返工把 trace 写碎（JSON 跨行/字面 \\"）-> 同 hash 分支不得再静默放行，
+    改判 block 给格式修复指引。只数最新合法 trace 之后的损坏行（旧碎片是历史）。"""
+
+    CORRUPT = '{"kind":"skill-trace","sub_step":3,"q":["跨行截断未完成'
+
+    def test_corrupt_after_latest_true(self, tmp_path):
+        _write_evidence(tmp_path, "t", [_trace_line(3), self.CORRUPT])
+        assert eng.corrupt_trace_after_latest(tmp_path, "t", 3) is True
+
+    def test_corrupt_before_latest_false(self, tmp_path):
+        # 损坏行在最新合法 trace 之前 = 已处理历史（模型修好后旧碎片仍在）-> 不报警
+        _write_evidence(tmp_path, "t", [self.CORRUPT, _trace_line(3)])
+        assert eng.corrupt_trace_after_latest(tmp_path, "t", 3) is False
+
+    def test_no_corrupt_false(self, tmp_path):
+        _write_evidence(tmp_path, "t", [_trace_line(3)])
+        assert eng.corrupt_trace_after_latest(tmp_path, "t", 3) is False
+
+    def test_corrupt_other_step_false(self, tmp_path):
+        _write_evidence(
+            tmp_path,
+            "t",
+            [_trace_line(3), '{"kind":"skill-trace","sub_step":2,"q":["x'],
+        )
+        assert eng.corrupt_trace_after_latest(tmp_path, "t", 3) is False
+
+    def test_gate_same_hash_with_corrupt_blocks(self, tmp_path, monkeypatch):
+        # 复现 demo 卡死：block 后模型写碎 trace -> 同 hash 分支改判 block（修复指引）
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=3)
+        _write_evidence(tmp_path, "t", [_trace_line(3)])
+        calls = {"n": 0}
+
+        def _spy(*a, **k):
+            calls["n"] += 1
+            return (False, "内容不达标")
+
+        monkeypatch.setattr(eng, "run_judge", _spy)
+        a1, _, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
+        assert a1 == "block" and calls["n"] == 1  # 首次：judge 判内容 block
+        # 模型返工但写碎（追加损坏行）
+        _write_evidence(tmp_path, "t", [_trace_line(3), self.CORRUPT])
+        a2, r2, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
+        assert a2 == "block"
+        assert "写入损坏" in r2 and "单行" in r2
+        assert calls["n"] == 1  # 损坏检测不跑 judge（省调用）
+        assert eng.load_state(tmp_path, "t")["node_attempts"] == 2
+        # 模型修好（append 合法 trace）-> 正常重判恢复
+        _write_evidence(
+            tmp_path, "t", [_trace_line(3), self.CORRUPT, _trace_line(3, "fixed")]
+        )
+        monkeypatch.setattr(eng, "run_judge", lambda *a, **k: (True, ""))
+        a3, _, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
+        assert a3 == "advanced"
+
+    def test_gate_same_hash_stale_corrupt_silent(self, tmp_path, monkeypatch):
+        # 修好后（合法 trace 在碎片之后）同 hash 不再触发损坏报警 -> 静默放行防 loop
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=3)
+        _write_evidence(tmp_path, "t", [self.CORRUPT, _trace_line(3)])
+        monkeypatch.setattr(eng, "run_judge", lambda *a, **k: (False, "x"))
+        a1, _, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
+        assert a1 == "block"
+        a2, _, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
+        assert a2 == "none"  # 碎片在最新合法 trace 之前 = 历史，静默
+
+    def test_corrupt_escalates_at_threshold(self, tmp_path, monkeypatch):
+        # 连续损坏达阈值同样升级用户裁决（防无限返工环）
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=3)
+        _write_evidence(tmp_path, "t", [_trace_line(3)])
+        monkeypatch.setattr(eng, "run_judge", lambda *a, **k: (False, "x"))
+        eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))  # attempts=1
+        _write_evidence(tmp_path, "t", [_trace_line(3), self.CORRUPT])
+        eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))  # attempts=2
+        a3, _, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))  # attempts=3
+        assert a3 == "escalate"
+
+
+class TestAppendTrace:
+    """v2.14 append-trace（「AI 定写什么，脚本定怎么写」A 级）：
+    载荷 purpose/q/a + state 结构字段 -> 校验 -> 单行 append。fail loud 即时暴露。"""
+
+    def _setup(self, tmp_path, sub_step=3):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=sub_step)
+        payload = tmp_path / "payload.json"
+        return payload
+
+    def _write_payload(self, payload, obj):
+        payload.write_text(json.dumps(obj, ensure_ascii=False), encoding="utf-8")
+
+    def test_happy_path_fills_struct_fields(self, tmp_path):
+        payload = self._setup(tmp_path)
+        self._write_payload(
+            payload, {"purpose": "双向取证", "q": ["q1", "q2"], "a": ["a1", "a2"]}
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert ok, msg
+        line = (
+            (tmp_path / ".claude" / "evidence" / "t.jsonl")
+            .read_text(encoding="utf-8")
+            .strip()
+        )
+        rec = json.loads(line)
+        assert rec["kind"] == "skill-trace"
+        assert rec["major_stage"] == "Understand"
+        assert rec["minor_stage"] == "ProblemContext"
+        assert rec["sub_step"] == 3
+        node = eng.get_node("understand", 1)
+        assert rec["skill"] == node.sub_steps[2].ref  # 从 state 当前步推导，非模型给
+        assert rec["q"] == ["q1", "q2"] and rec["a"] == ["a1", "a2"]
+        assert not payload.exists()  # 落库后删载荷防重复 append
+
+    def test_gate_sees_appended_trace(self, tmp_path):
+        # 与门控集成：append-trace 落库后 latest_trace_sha1 变化（Stop 门控可触发）
+        payload = self._setup(tmp_path)
+        assert eng.latest_trace_sha1(tmp_path, "t", 3) is None
+        self._write_payload(payload, {"purpose": "p", "q": ["q"], "a": ["a"]})
+        ok, _ = eng.append_trace(tmp_path, "t", str(payload))
+        assert ok
+        assert eng.latest_trace_sha1(tmp_path, "t", 3) is not None
+
+    def test_struct_fields_leak_rejected(self, tmp_path):
+        payload = self._setup(tmp_path)
+        self._write_payload(
+            payload, {"purpose": "p", "q": ["q"], "a": ["a"], "sub_step": 99}
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert not ok and "结构字段" in msg
+        assert payload.exists()  # 失败保留载荷供原地修
+
+    def test_qa_length_mismatch_rejected(self, tmp_path):
+        payload = self._setup(tmp_path)
+        self._write_payload(payload, {"purpose": "p", "q": ["q1", "q2"], "a": ["a1"]})
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert not ok and "长度不齐" in msg
+
+    def test_empty_q_rejected(self, tmp_path):
+        payload = self._setup(tmp_path)
+        self._write_payload(payload, {"purpose": "p", "q": [], "a": []})
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert not ok and "非空字符串数组" in msg
+
+    def test_invalid_json_rejected(self, tmp_path):
+        payload = self._setup(tmp_path)
+        payload.write_text("{not json", encoding="utf-8")
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert not ok and "不是合法 JSON" in msg
+
+    def test_missing_payload_rejected(self, tmp_path):
+        self._setup(tmp_path)
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "nope.json"))
+        assert not ok and "读载荷失败" in msg
+
+    def test_node_without_substeps_rejected(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 2)  # understand:2 无编排
+        payload = tmp_path / "payload.json"
+        self._write_payload(payload, {"purpose": "p", "q": ["q"], "a": ["a"]})
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert not ok and "无子步骤编排" in msg
+
+
+class TestRedteamPrompt:
+    """v2.14 redteam-prompt（B 级）：证据+纪律归脚本，Agent 调用归模型。"""
+
+    def test_contains_evidence_and_discipline(self, tmp_path):
+        _write_evidence(tmp_path, "t", [_trace_line(3, "ev3")])
+        prompt = eng.redteam_prompt(tmp_path, "t")
+        assert prompt is not None
+        assert "q-ev3" in prompt  # 子3 证据嵌入（只给证据不给结论）
+        assert "单层" in prompt and "禁止再 spawn 子代理" in prompt  # b
+        assert "Read 工具为主" in prompt  # c
+        assert "证据不足" in prompt  # d
+        assert "四态 verdict" in prompt or "证实/证伪/部分成立/证据不足" in prompt
+
+    def test_no_step3_trace_returns_none(self, tmp_path):
+        _write_evidence(tmp_path, "t", [_trace_line(1)])
+        assert eng.redteam_prompt(tmp_path, "t") is None

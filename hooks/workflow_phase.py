@@ -288,79 +288,81 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
     if node and node.sub_steps and not held_for_gate:
         cur_step = state.get("sub_step_index", 1)
         total_steps = len(node.sub_steps)
-        lines.append(
-            f"- 子步骤编排（本节点 {total_steps} 子步骤，按序执行，"
-            f"每步完成输出 `### STEP_DONE: <n>` 作自声明）："
+        cur = (
+            engine.sub_step_at(node, cur_step) if 1 <= cur_step <= total_steps else None
         )
-        for i, stp in enumerate(node.sub_steps, 1):
-            mark = "【当前】" if i == cur_step else ("✓" if i < cur_step else "")
-            rec = "记录：是（落 evidence skill-trace）" if stp.record else "记录：否"
-            inp = f"输入：{stp.input}" if stp.input else "输入：无（首步）"
-            gate_tag = "" if stp.gate else " ｜自动过"
+        # P0 注入瘦身（designs/harness-prompt-optimization-design.md §2）：
+        # 当前步 purpose 全文置顶（primacy）；其余 5 步只留骨架短名链。
+        # 非当前步完整 purpose 在 phase-rules（system-prompt 通道，launcher 渲染同源），
+        # 信息无丢失；与 ark fallback（dl-cmd status 只输出当前步 purpose）口径一致。
+        if cur is not None:
+            inp = f"输入：{cur.input}" if cur.input else "输入：无（首步）"
+            rec = "记录：是（落 evidence skill-trace）" if cur.record else "记录：否"
+            gate_tag = "" if cur.gate else " ｜自动过"
             lines.append(
-                f"  {i}. [{stp.kind}:{stp.ref}] 目的：{stp.purpose} ｜{inp} ｜{rec}{gate_tag}"
-                + (f" {mark}" if mark else "")
+                f"- ▶ 当前子步骤 {cur_step}/{total_steps} [{cur.kind}:{cur.ref}]\n"
+                f"  目的：{cur.purpose}\n"
+                f"  {inp} ｜{rec}{gate_tag}"
             )
+        chain_parts = []
+        for i, stp in enumerate(node.sub_steps, 1):
+            if i < cur_step:
+                chain_parts.append(f"{i}.{stp.short} ✓")
+            elif i == cur_step:
+                chain_parts.append(f"{i}.{stp.short}【当前】")
+            else:
+                chain_parts.append(f"{i}.{stp.short}")
+        lines.append("- 子步骤链：" + " → ".join(chain_parts))
         lines.append(
             "  强制：未达上步 purpose 就进下步=违规（等同未建清单就干活）。"
             "skill 内部 Q/A 不门控，按需 record 落 evidence 即可。"
+            "每步完成输出 `### STEP_DONE: <n>` 作自声明。"
         )
-        # §step-selfcheck：提交前自查提示（与 pass/block 续轮同文，单源在 engine）
-        lines.append("  " + engine.STEP_SELFCHECK_HINT)
+        # §step-selfcheck：提交前自查提示（与 pass/block 续轮同文，单源在 engine；
+        # 步级化——带当前步 checklist）
+        if cur is not None:
+            lines.append("  " + engine.selfcheck_hint(cur))
         # §step-engage-prefence S15：前置参与围栏（PreToolUse）提示——零 trace
         # 窗口内非编排工具会被硬 deny，提前告诉模型免它撞墙后困惑。
         # §autocontinue-fence-notice：文案单源在 engine（pass/block 续轮共用）。
-        cur_step_obj = (
-            engine.sub_step_at(node, cur_step)
-            if 1 <= cur_step <= len(node.sub_steps)
-            else None
-        )
-        if cur_step_obj is not None:
-            lines.append("  " + engine.engagement_fence_notice(cur_step_obj))
-        # evidence 写法格式（§step-advance-on-submit E4：统一 sub_step 字段；门控触发靠它）
+        if cur is not None:
+            lines.append("  " + engine.engagement_fence_notice(cur))
+        # evidence 写法（v2.14 append-trace：AI 定内容，脚本管格式/路径/结构字段）
         if project_root is not None:
-            ev_path = f"{project_root}/.claude/evidence/{name}.jsonl"
+            ev_dir = f"{project_root}/.claude/evidence"
+            payload_path = f"{ev_dir}/.trace-payload-{name}.json"
             lines.append(
-                f"  evidence 记录（record 步必写，向 **绝对路径** `{ev_path}` 追加，每行一条 JSON）："
-            )
-            # 结构标识(major_stage/minor_stage/sub_step/skill)注入当前实际值,模型照抄;
-            # 内容(purpose/q/a)用占位符,模型填真实交互。skill=当前子步骤 Step.ref
-            # (skill 步=skill 名,tool 步=工具描述,统填 ref 不区分,简单一致)。
-            phase_cap = phase.capitalize()  # understand -> Understand
-            minor_key = node.minor_key if node.minor_key else "<minor_key>"
-            cur_step_ref = (
-                node.sub_steps[cur_step - 1].ref
-                if 1 <= cur_step <= len(node.sub_steps)
-                else "<skill>"
+                "  evidence 记录（record 步必写，两动作——你定内容，脚本管格式）："
             )
             lines.append(
-                '   {"kind":"skill-trace",'
-                f'"major_stage":"{phase_cap}","minor_stage":"{minor_key}",'
-                f'"sub_step":{cur_step},"skill":"{cur_step_ref}",'
-                '"purpose":"<该步目的>",'
-                '"q":["<q1>","<q2>","..."],"a":["<a1>","<a2>","..."]}'
+                f"   ① Write 载荷到 `{payload_path}`（只含 3 个内容字段；"
+                "kind/major_stage/minor_stage/sub_step/skill 由脚本从 state 自动填，不要写）："
             )
             lines.append(
-                "   ⚠️ major_stage/minor_stage/sub_step/skill 是结构标识，照抄上面给的当前值；purpose/q/a 是内容，**禁止照抄** `<...>` 占位符字面"
-                '必须用真实 Q/A 替换——例：`"q":["who/pain=真实动机？"]`。'
-                "gate 检查 sub_step==N 的 skill-trace 内容是否达 purpose；"
-                "照抄 placeholder 必判 block 然后重做。"
+                '   {"purpose":"<该步目的>","q":["<q1>"],"a":["<a1>"]}'
+                "（q/a 一一按序对齐 q[i]↔a[i]，单问单答也用数组）"
             )
             lines.append(
-                "   字段：major_stage=phase 英文首字母大写(Understand/Plan/Execute/Review/Evolution)；"
-                "minor_stage=子阶段英文标识（首字母大写驼峰，当前值见上行，如 ProblemContext）；sub_step=子步骤序号(int)；"
-                "skill=当前子步骤调用的 skill/工具（Step.ref，当前值见上行，如 define-problem）；"
-                "q/a=字符串数组，每对一问一答按序对齐（即 q[0]↔a[0]、q[1]↔a[1]…）；"
-                '单问单答也用数组：q=["..."]、a=["..."]。'
+                '   ✓ 正例："q":["who=当前提问者身份？"],'
+                '"a":["用户原话：「我是唯一维护者」（本会话）"]'
             )
             lines.append(
-                "  写法（**必须用上面的绝对路径，禁用相对路径**--相对路径会写到 worktree，hook 读不到）："
-                "Write 工具（file_path 填上面的绝对路径，存在则先 Read 再拼末尾 Write，勿覆盖）/ "
-                f"Bash `printf '...' >> {ev_path}`。写完当前子步骤 evidence 后输出 `### STEP_DONE: <n>`。"
+                '   ✗ 反例（必 block）："q":["理解问题"],"a":["已理解"]'
+                "（汇总声明非记录）；或照抄 `<...>` 占位符字面"
             )
             lines.append(
-                "  gate 校验（你 end_turn 时 Stop hook 读 evidence 立即判）：当前子步骤需有 sub_step==N 的 "
-                "skill-trace 且内容达 purpose；过则推进，block 则当轮返工（返工须 append 新 trace 行）。"
+                "   ② Bash 落库：`python3 ~/.dl-workflow/dl-flow-engine.py append-trace "
+                f"--from-file {payload_path}`"
+                "（校验失败当场报错，按报错改载荷重跑。**禁止绕过它手写 evidence jsonl**——"
+                "手写 JSON 跨行/转义出错 = trace 隐形，且会被围栏 deny 指回这里）"
+            )
+            lines.append(
+                "   确认/裁决留痕由 /dl 命令自动写（kind=gate），不用手写其它 kind 的记录。"
+            )
+            lines.append(
+                "  落库后输出 `### STEP_DONE: <n>`。gate 校验（end_turn 时 Stop hook 读 evidence 立即判）："
+                "当前子步骤需有 sub_step==N 的 skill-trace 且内容达 purpose；"
+                "过则推进，block 则当轮返工（返工重新走①②落新行）。"
             )
         if cur_step < total_steps:
             lines.append(
@@ -407,12 +409,11 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
 
     lines.extend(
         [
-            "- 任务清单(原生 TaskList, 置顶常驻): 维护阶段任务作常驻进度清单, 状态须镜像当前 index/sub_index:",
+            # P0：只留 per-turn 状态数据；建齐/对齐/subject 编号等稳定规则在
+            # output-style + phase-rules 双 system-prompt 通道（措辞已统一，commit 5215b63），
+            # 此处删指令散文（跨通道重复）。
+            "- 任务清单目标状态（镜像同步原生 TaskList；建齐/对齐规则见 output-style 与 phase-rules）:",
             *task_rows,
-            "  首轮或续接后缺失时 TaskCreate 建齐并按上设状态; subject 带编号(纯展示前缀, 与上面镜像行的编号一致):",
-            "  阶段任务如 `1. 理解和求证问题`, 有子阶段的阶段后紧跟其子任务如 `1.1 理解问题和背景`;",
-            "  其后每轮若 in_progress 任务与当前不符则 TaskUpdate 对齐(旧->completed, 当前->in_progress);",
-            "  阶段任务(含子任务)全程保留勿删; execute 阶段工作子任务可追加在下方, 勿动阶段任务与其子任务。",
         ]
     )
     # 完成标记：无子阶段->PHASE_DONE；有子阶段->子1..N-1 用 SUB_DONE，末子阶段(N)用 PHASE_DONE

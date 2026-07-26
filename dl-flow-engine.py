@@ -27,6 +27,7 @@ import argparse
 import enum
 import hashlib
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -65,6 +66,10 @@ class Step:
     ref: (
         str  # skill 名（"define-problem"）或 工具+参数模板（"codegraph callers {sym}"）
     )
+    # 骨架短名（注入「子步骤链」用，harness-prompt-optimization P0）。
+    # 声明式数据：不采用「从 purpose 冒号前缀推导」（脆弱且隐式）。
+    # 词表与 workflow-creation SKILL.md §0 的子步骤摘要一致。
+    short: str
     purpose: str  # 本子步骤目的（注入模型 + gate 校验依据）。声明式,单源在 engine。
     input: str | None  # 引用上子步骤产出（"step1.real_problem"）；None=无依赖（首步）
     record: bool  # 是否落 evidence（True=关键步；False=噪声如交互确认）
@@ -74,6 +79,10 @@ class Step:
     # §step-engage-prefence S15：零 trace 窗口（PreToolUse 前置围栏）内，
     # 除常驻编排工具外本步额外放行的工具名（如 "Bash"/"WebFetch"/"Agent"）。
     fence_allow: tuple[str, ...] = ()
+    # §step-selfcheck 步级化：提交前自查的本步 checklist（selfcheck_hint 拼接到通用段后）。
+    # 只列 purpose 已披露的形式要件——质量判据仍只在 gate 黑盒（Goodhart 分层不破）。
+    # None -> 仅用通用段。
+    selfcheck: str | None = None
 
 
 @dataclass(frozen=True)
@@ -165,6 +174,7 @@ _NODES: dict[str, Node] = {
             Step(
                 kind="skill",
                 ref="define-problem",
+                short="逼问定义",
                 # purpose 含形式要件（模型可见，降形式性返工）；
                 # 质量判据不进 purpose（防应试填表），只在下方 gate 给 judge。
                 purpose=(
@@ -173,6 +183,12 @@ _NODES: dict[str, Node] = {
                 ),
                 input=None,
                 record=True,
+                # 步级自查（全部已在上方 purpose 披露，无质量判据泄漏）
+                selfcheck=(
+                    "who/pain/why-now ≥3 类都覆盖了吗？每条 a 是用户原话/会话事实，"
+                    "还是我推断补全的（推断只能标「推测」另列，禁止包装成原话或「真实回答」）？"
+                    "结论选了①还是②、每句都有出处吗？"
+                ),
                 # 门控分工：子1 只管「定义质量」（结构可判项），真值判给子3（验真）+ 子5（用户认可）。
                 # 双合法结论（demo 2026-07-25 行3）：问题成立要可证伪；问题不成立要原话佐证——
                 # 否则诚实回答「没有痛点」永远过不了，逼模型编造痛点（行2「好奇心缺口」被 judge 识破）。
@@ -192,6 +208,7 @@ _NODES: dict[str, Node] = {
             Step(
                 kind="skill",
                 ref="causal-inference-root-cause",
+                short="拆解深挖",
                 # 拆解深挖（2026-07-25 设计决议）：逼问出的是「用户声称的问题」，
                 # 须先横向拆（复合痛点 MECE 切分，防一捆问题混进后续）再纵向挖（因果链到根因，
                 # 防拿症状当问题）。拆解必须在验真之前——拿一捆问题/症状去搜证据 = 白搜。
@@ -208,6 +225,11 @@ _NODES: dict[str, Node] = {
                 ),
                 input="step1.real_problem",
                 record=True,
+                selfcheck=(
+                    "单一/复合判定了吗（复合→MECE 原子清单合起来覆盖全部痛点；"
+                    "单一→附「无复合」理由）？每个原子问题 ≥2 环因果链、每环标注证据出处了吗？"
+                    "每个问题有 ≥1 竞争假设+排除/保留理由吗？近因/根因区分和置信度标了吗？"
+                ),
                 # 门控分工：judge 只判结构完整性（清单/链/竞争假设/出处），
                 # 根因对不对归子3验真 + 子5用户认可（§3.5 三层分工）。
                 gate=(
@@ -227,28 +249,37 @@ _NODES: dict[str, Node] = {
             Step(
                 kind="tool",
                 ref="curl(OpenAlex/arXiv/StackExchange/HN/GitHub API) / WebFetch / codegraph impact {sym}",
+                short="双向取证",
+                # 规则考古出处（harness-prompt-optimization P2：规则留 purpose 原文，
+                # 考古只挪到注释）：反证时序留痕要求源自 demo fbdb6ebd 子3 block 实录
+                # （形式要件披露，非松判据）；禁探查凭证源自 demo 121320fe
+                # （扫 env/配置文件找 token 被安全分类器拦截）。
                 purpose=(
                     "双向取证：对子2拆出的每个原子问题逐个取证（允许「部分成立」）。"
                     "①主张可检验化——每个原子问题 → 可证伪 claim + 事先写死「什么证据会证实/"
                     "什么证据会证伪」；不可检验的主张退回子2，不进入取证。"
                     "②证伪优先——先构造反证查询（X 已解决/是反模式/不成立）并留痕，再搜支持证据；"
                     "每个原子问题的留痕按「反证查询（先）→支持证据（后）」分段书写，"
-                    "时序须从 trace 文本直接可读——执行了但留痕看不出先后 = 判 block"
-                    "（demo fbdb6ebd 子3 实录；形式要件披露，非松判据）。"
+                    "时序须从 trace 文本直接可读——执行了但留痕看不出先后 = 判 block。"
                     "③五层源各 ≥1 次尝试留痕：学术(OpenAlex/arXiv，curl 免费 API)、"
                     "社区(StackExchange/HN Algolia，curl)、开源(GitHub API，curl 带 "
                     "$GITHUB_TOKEN)、定点网页(WebFetch 抓上述层发现的 URL)、"
                     "内部仓库(codegraph+Read/Grep+Bash 查数据，证实/证伪问题在本仓存在+查已有解法)；"
                     "源层不可用显式标记「未取证+原因」是合法留痕；禁 tavily_search/WebSearch。"
                     "外部源认证失败（如 GitHub API 401）禁止探查凭证——"
-                    "扫 env/配置文件找 token 是红线行为，必被安全分类器拦截"
-                    "（demo 121320fe 实录）；直接标「未取证+未认证」即可，不扣分。"
+                    "扫 env/配置文件找 token 是红线行为，必被安全分类器拦截；"
+                    "直接标「未取证+未认证」即可，不扣分。"
                     "④codegraph 新鲜度前置——内部取证前查索引新鲜度（>72h 先 codegraph sync），"
                     "新鲜度查询结果留痕。"
                     "禁拿训练记忆冒充外部证据（无 URL/工具留痕的「业界通常」= 编造）。"
                 ),
                 input="step2.problem_list",
                 record=True,
+                selfcheck=(
+                    "每个原子问题有可检验 claim（含证实/证伪判定标准）吗？"
+                    "留痕按「反证查询（先）→支持证据（后）」分段、时序从文本直接可读吗？"
+                    "五层源各 ≥1 次尝试（或标「未取证+原因」）吗？codegraph 新鲜度查询留痕了吗？"
+                ),
                 # S15 前置围栏：本步合法工具 = curl 五层源（Bash）+ 定点网页（WebFetch）；
                 # codegraph 在常驻 Bash 模式内，无需声明。
                 fence_allow=("Bash", "WebFetch"),
@@ -265,25 +296,26 @@ _NODES: dict[str, Node] = {
             Step(
                 kind="tool",
                 ref="推理(三关质检+四态合成) / Agent(红队子代理,条件触发)",
+                short="质检裁决",
+                # 红队纪律 a-d 已机械化进 redteam_prompt()（v2.14「AI 定写什么，
+                # 脚本定怎么写」）：a.携带子1-3 证据；b.单层；c.Read 为主；
+                # d.证据不足下 verdict 不重取证。purpose 只留触发条件+调用方式。
+                # 考古出处（P2 移自 purpose 原文）：a 无文件清单时嵌套层盲猜路径
+                # 61 次 Read 全空；b 嵌套放大实录：3 嵌套 116k boot + 82 Read
+                # 系统性重取证，且嵌套层出现问用户的角色错乱；c 实录 11 次
+                # No such tool（Glob/Grep/codegraph 不存在）、Bash 21 次被 S15 空拒；
+                # 「10/10 pass」式汇总声明 demo 实录被判 block。
                 purpose=(
                     "质检裁决（不做新搜索，只审子3证据+下结论）："
                     "①证据三关质检——针对性(直接针对 claim 谓词)/独立性(来源互不转载)/"
                     "可追溯(URL、file:line 可复查)，三关不全过的证据不计数；"
                     "trace 须逐项可验证——每条计数证据逐条列出三关结果（E1…En × 三关），"
-                    "「10/10 pass」式汇总声明不算记录（demo 实录被判 block）；"
+                    "「10/10 pass」式汇总声明不算记录；"
                     "②条件触发对抗复核——verdict 决定大方向/大改动、或证据相互冲突时，"
-                    "起独立红队子代理尝试推翻初步结论（独立上下文，只给证据不给结论；"
-                    "红队 prompt 四要求：a.携带子3全部证据+关键文件 file:line 清单——"
-                    "红队推理不重新取证、不对项目结构零认知（实录：无清单时嵌套层"
-                    "盲猜路径 61 次 Read 全空）；"
-                    "b.单层——禁止再 spawn Agent（嵌套放大实录：3 嵌套 116k boot + "
-                    "82 Read 系统性重取证，且嵌套层出现问用户的角色错乱）；"
-                    "c.点查以 Read 为主——子代理会话里 Glob/Grep/codegraph 可能不存在"
-                    "（实录 11 次 No such tool）、Bash 必被 S15 围栏 deny"
-                    "（实录 21 次空拒），都不要试；"
-                    "d.证据不足时下「证据不足」verdict 并指明缺哪条，回流子3 补取，"
-                    "不得发起系统性重取证）；"
-                    "触发条件写死，不得自定义「不需要复核」豁免；"
+                    "起独立红队子代理尝试推翻初步结论（独立上下文，只给证据不给结论）："
+                    "用 `python3 ~/.dl-workflow/dl-flow-engine.py redteam-prompt` 生成红队 "
+                    "prompt（自动携带子1-3 证据+对抗纪律），Agent 工具单发起，"
+                    "禁止手拼 prompt；触发条件写死，不得自定义「不需要复核」豁免；"
                     "③四态结论合成——证实/证伪/部分成立/证据不足（证据不足是合法结论）"
                     "+ 推理链 + 置信度；"
                     "④按 verdict 处置问题集——证伪项剔除（留剔除理由）/部分成立项收窄到"
@@ -291,6 +323,12 @@ _NODES: dict[str, Node] = {
                 ),
                 input="step3.traces",
                 record=True,
+                selfcheck=(
+                    "每条计数证据逐条列出三关质检结果了吗（E1…En × 三关，汇总声明不算记录）？"
+                    "红队触发条件满足时起了红队子代理吗（独立上下文、只给证据不给结论、四要求 a-d）？"
+                    "每个原子问题有四态 verdict+推理链+置信度吗？"
+                    "处置后问题集与 verdict 逐项一致吗（证伪剔除+理由/部分收窄/不足标记）？"
+                ),
                 # S15 前置围栏：条件触发红队子代理（Agent）；子代理进程内
                 # Read/Grep 在常驻集，无需声明。
                 fence_allow=("Agent",),
@@ -307,6 +345,7 @@ _NODES: dict[str, Node] = {
             Step(
                 kind="skill",
                 ref="define-problem",
+                short="归一化陈述",
                 # 归一化陈述（2026-07-26 重设计，
                 # designs/step5-step6-statement-readback-redesign-design.md）：
                 # 职能 = claim normalization（原子+去上下文+verdict 传导），不是压缩话术。
@@ -320,6 +359,11 @@ _NODES: dict[str, Node] = {
                 ),
                 input="step4.disposed_problem_set",
                 record=True,
+                selfcheck=(
+                    "每条陈述单句只含 1 个独立痛点吗（「和/以及/同时」连接多痛点=复合未拆净，"
+                    "回子2重拆）？脱离本会话可独立理解吗（主语+动词+约束自包含）？"
+                    "携带 verdict 边界与置信度了吗？证伪项不在陈述集里吧？"
+                ),
                 gate=(
                     "evidence/<name>.jsonl 含本子步骤 skill-trace 记录；"
                     "形式要件：处置后问题集每个存活问题各 ≤1 句且含主语+动词+约束"
@@ -332,6 +376,7 @@ _NODES: dict[str, Node] = {
             Step(
                 kind="skill",
                 ref="define-problem",
+                short="读回确认",
                 # 带证据的读回确认（2026-07-26 重设计）：只给结论不给依据地「通知」用户
                 # = 不信任甚至 backfire effect（Das et al. 2023）；fact-checker 三大解释
                 # 需求 = 不确定性/证据指针/过程可解释（Show Me the Work, CHI 2025）。
@@ -347,6 +392,11 @@ _NODES: dict[str, Node] = {
                 # 完成触发，record=False 的末步永无触发信号、子阶段永远卡住（3a 潜在洞）。
                 # 确认内容本身也是裁决留痕（用户认可了问题陈述）。
                 record=True,
+                selfcheck=(
+                    "向用户呈现含归一化陈述+四态 verdict+证据指针+置信度了吗？"
+                    "「证据不足」项显式暴露了吗？用户对各项的认/否/搁置记入 trace 了吗？"
+                    "多问题时用户选定本实例处理项、其余落 evidence+understand.md 了吗？"
+                ),
                 gate=None,  # 交互步，gate 不跑 judge（trace 存在即过）
             ),
         ),
@@ -1251,6 +1301,50 @@ def evidence_mentions_sub_step(
     )
 
 
+def corrupt_trace_after_latest(
+    project_root: Path, name: str, sub_step_index: int
+) -> bool:
+    """最新合法 trace 之后是否存在「含 sub_step==N 子串但解析不出合法记录」的损坏行。
+
+    §corrupt-rework-detect（2026-07-26，demo d59d05ea）：模型返工把 trace 写碎
+    （shell 单引号内塞字面换行 -> JSON 跨两行；字面 \\" 原样落盘）->
+    latest_trace_sha1 仍等于已判 hash -> 「同 hash 静默放行」把「写了但写坏了」
+    误判为「没写新东西」-> 模型以为返工完成，工作流看似卡死（无任何日志）。
+    只数**最新合法 trace 行之后**的损坏行：之前的损坏行是已处理历史（模型修好后
+    旧碎片仍在文件里），不重复报警。append 协议下新写入必在最新合法行之后。
+    """
+    text = read_evidence(project_root, name)
+    if not text:
+        return False
+    lines = text.splitlines()
+    last_valid_idx = -1
+    for i, line in enumerate(lines):
+        if any(True for _ in _iter_trace_segments(line, sub_step_index)):
+            last_valid_idx = i
+    needle = (
+        f'"sub_step":{sub_step_index}',
+        f'"sub_step": {sub_step_index}',
+    )
+    for line in lines[last_valid_idx + 1 :]:
+        if not any(n in line for n in needle):
+            continue
+        if not any(True for _ in _iter_trace_segments(line, sub_step_index)):
+            return True
+    return False
+
+
+def _corrupt_trace_reason(sub_step_index: int) -> str:
+    """损坏返工的 block 判词（§corrupt-rework-detect）：指路到格式修复，不判内容。"""
+    return (
+        f"evidence 写入损坏：文件里存在 sub_step=={sub_step_index} 的记录片段，"
+        "但不是可解析的单行合法 JSON（手写 JSON 跨行/转义出错的典型后果）。"
+        "门控读不到等同没写。返工：改用 append-trace 落库——Write 载荷 "
+        '{"purpose":...,"q":[...],"a":[...]} 到 .claude/evidence/.trace-payload-*.json，'
+        "再 Bash `python3 ~/.dl-workflow/dl-flow-engine.py append-trace --from-file <载荷>`"
+        "（格式/路径/结构字段全归脚本，不会再写碎）。"
+    )
+
+
 def gate_sub_step_at_stop(
     project_root: Path, name: str, cwd: str
 ) -> tuple[str, str, dict[str, Any]]:
@@ -1286,7 +1380,20 @@ def gate_sub_step_at_stop(
     key = f"{node_id(node.phase, node.sub)}#{cur}"
     judged = state.setdefault("last_judged_trace", {})
     if judged.get(key) == sha:
-        return none  # 已判过同一产出（上轮 block 后模型未写新 trace）-> 放行防 loop
+        # §corrupt-rework-detect：同 hash 但最新合法 trace 之后有 sub_step==N 的
+        # 损坏写入（JSON 跨行/字面 \"）-> 不是「没写」，是「写了门控读不到」。
+        # 静默放行会让模型以为返工完成、流程看似卡死（demo d59d05ea 子3）。
+        # 判 block 给格式修复指引；计 attempts（连续损坏达阈值同样升级用户裁决，
+        # 防无限返工环）。游标不动：模型修好后 sha 变化 -> 走正常判定。
+        if not corrupt_trace_after_latest(project_root, name, cur):
+            return none  # 已判过同一产出（上轮 block 后模型未写新 trace）-> 放行防 loop
+        state["node_attempts"] = state.get("node_attempts", 0) + 1
+        state["updated_at"] = _now()
+        save_state(project_root, name, state)
+        action = (
+            "escalate" if state["node_attempts"] >= SUB_STEP_BLOCK_ESCALATE else "block"
+        )
+        return action, _corrupt_trace_reason(cur), state
     judged[key] = sha  # 判前即记：pass/block 都防重判
     if step.gate is None:
         ok, reason = True, ""
@@ -1445,6 +1552,22 @@ STEP_SELFCHECK_HINT = (
     "STEP_DONE 前自查：逐条对照本步 purpose 的形式要件检查你的 trace——"
     "每项要求在 trace 里都须有对应记录（「我做了」式汇总声明不算），缺项先补再声明完成。"
 )
+
+
+def selfcheck_hint(step: Step | None) -> str:
+    """提交前自查提示 = 通用段 + 按步声明的 checklist（Step.selfcheck）。
+
+    §step-selfcheck 步级化（2026-07-26）：通用提示对弱遵从模型太抽象
+    （demo d59d05ea：MiniMax-M3 子1 三连 block 全是已披露形式要件的注意力失败，
+    被指后一轮即修好——§3.5 #9 注意力失败的最便宜解法是自查前移）。
+    步级 checklist 只列 purpose 已披露的形式要件（Step.selfcheck 声明处已注释），
+    质量判据仍只在 gate 黑盒（Goodhart 分层不破）。step=None/未声明 -> 仅通用段。
+    三通道同文维持：注入（workflow_phase）+ pass 续轮 + block 返工（workflow_advance）
+    都调本函数，单源在此。
+    """
+    if step is None or not step.selfcheck:
+        return STEP_SELFCHECK_HINT
+    return STEP_SELFCHECK_HINT + "\n本步自查：" + step.selfcheck
 
 
 def engagement_fence_notice(step: Step) -> str:
@@ -1700,6 +1823,181 @@ def run_gate(
     return True, ""
 
 
+# ---------- phase-rules 渲染（P1 双通道单源，designs/harness-prompt-optimization-design.md）----------
+#
+# phase-rules.md 是模板：子步骤 bullet 段用 BEGIN/END GENERATED 标记占位，
+# dl-launch.sh 每次启动调 `render-phase-rules` 渲染到 per-wf 目录（渲染失败中止启动，
+# fail loud）。purpose 唯一真源 = engine Step.purpose——消灭 engine/phase-rules
+# 两份手维护异文（症状 M/F 的「两通道措辞漂移」病根）。
+
+
+_GENERATED_RE = re.compile(
+    r"<!-- BEGIN GENERATED sub_steps (\S+?) -->.*?<!-- END GENERATED sub_steps \1 -->",
+    re.DOTALL,
+)
+
+
+def render_substeps_section(nid: str) -> str:
+    """渲染节点 sub_steps 的 phase-rules 段落（含 BEGIN/END 标记行，幂等可重渲染）。
+
+    每步一行：`- **子步骤N = <ref>**：<purpose 全文>`（gate=None 标「自动过」）。
+    节点无 sub_steps / 节点不存在 -> 报错暴露（no silent fallback）。
+    """
+    phase, sep, sub_s = nid.partition(":")
+    if not sep or not sub_s.isdigit():
+        raise ValueError(
+            f"GENERATED 标记的节点 id 非法：{nid!r}（应形如 understand:1）"
+        )
+    node = get_node(phase, int(sub_s))
+    if not node.sub_steps:
+        raise ValueError(f"节点 {nid} 无 sub_steps，无可渲染段落")
+    lines = [f"<!-- BEGIN GENERATED sub_steps {nid} -->"]
+    for i, stp in enumerate(node.sub_steps, 1):
+        gate_tag = "" if stp.gate else "（自动过）"
+        lines.append(f"     - **子步骤{i} = {stp.ref}**{gate_tag}：{stp.purpose}")
+    lines.append(f"<!-- END GENERATED sub_steps {nid} -->")
+    return "\n".join(lines)
+
+
+def render_phase_rules(template_text: str) -> str:
+    """把模板里所有 GENERATED sub_steps 标记段替换为 engine 渲染产物。
+
+    无标记段 -> 原样返回（向后兼容）；标记的节点 id 非法 -> 抛错（调用方 fail loud）。
+    """
+    return _GENERATED_RE.sub(
+        lambda m: render_substeps_section(m.group(1)), template_text
+    )
+
+
+# ---------- 机械化记录写入（「AI 定写什么，脚本定怎么写」，2026-07-26）----------
+#
+# 原则：内容的正确值无法从 state 推导（问了什么/答了什么）-> 归 AI；
+# 结构字段/格式/路径的正确值都能从 state+engine 推导 -> 归脚本。
+# append-trace 根治手写 JSONL 的 5 类事故（症状 P/L：相对路径/覆盖写/合并行/
+# 写碎/结构字段抄错）；redteam-prompt 根治现场拼红队 prompt 的 4 类事故
+# （嵌套 spawn/无清单盲查/乱试工具/角色错乱）。
+
+# 载荷里禁止出现的结构字段（由 append_trace 从 state 推导填充）。
+_TRACE_STRUCT_FIELDS = ("kind", "major_stage", "minor_stage", "sub_step", "skill")
+
+
+def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool, str]:
+    """载荷（purpose/q/a）+ state 结构字段 -> 校验 -> 单行 skill-trace append。
+
+    返回 (ok, 消息)。校验失败 (False, 原因)——fail loud：模型当轮按报错修载荷
+    重跑，而不是写坏了到 gate 才暴露（甚至像 d59d05ea 那样静默卡死）。
+    成功后删载荷文件（防重复落库；失败保留供模型原地修）。
+    """
+    state = load_state(project_root, name)
+    if state is None:
+        return False, f"工作流 {name} 的 state.json 缺失"
+    state = normalize_state(state)
+    try:
+        node = get_node(state["phase"], state["sub_index"])
+    except KeyError:
+        return False, f"节点 {state['phase']}:{state['sub_index']} 不存在"
+    if not node.sub_steps:
+        return (
+            False,
+            f"节点 {node_id(node.phase, node.sub)} 无子步骤编排，append-trace 不适用",
+        )
+    if not node.minor_key:
+        return (
+            False,
+            f"节点 {node_id(node.phase, node.sub)} 无 minor_key，无法填结构字段",
+        )
+    cur = state.get("sub_step_index", 1)
+    step = sub_step_at(node, cur)
+    if step is None:
+        return False, f"子步骤 {cur} 不存在"
+
+    pf = Path(payload_file)
+    try:
+        raw = pf.read_text(encoding="utf-8")
+    except OSError as e:
+        return False, f"读载荷失败：{e}（先用 Write 写载荷文件再调 append-trace）"
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as e:
+        return False, f"载荷不是合法 JSON：{e}（载荷只需普通 JSON，Write 原样写即可）"
+    if not isinstance(payload, dict):
+        return False, '载荷须是 JSON 对象：{"purpose":..., "q":[...], "a":[...]}'
+    leaked = [k for k in _TRACE_STRUCT_FIELDS if k in payload]
+    if leaked:
+        return False, (
+            f"载荷含结构字段 {leaked}——这些由脚本从 state 自动填，载荷里不要写"
+            "（只留 purpose/q/a 三个内容字段）"
+        )
+    purpose = payload.get("purpose")
+    q, a = payload.get("q"), payload.get("a")
+    if not isinstance(purpose, str) or not purpose.strip():
+        return False, "purpose 须为非空字符串"
+    for field, val in (("q", q), ("a", a)):
+        if (
+            not isinstance(val, list)
+            or not val
+            or not all(isinstance(x, str) and x.strip() for x in val)
+        ):
+            return False, f"{field} 须为非空字符串数组（单问单答也用数组包一层）"
+    if len(q) != len(a):
+        return False, f"q/a 长度不齐（q={len(q)} a={len(a)}）：一问一答按序对齐"
+
+    record = {
+        "kind": "skill-trace",
+        "major_stage": state["phase"].capitalize(),
+        "minor_stage": node.minor_key,
+        "sub_step": cur,
+        "skill": step.ref,
+        "purpose": purpose,
+        "q": q,
+        "a": a,
+    }
+    path = _evidence_path(project_root, name)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except OSError as e:
+        return False, f"写 evidence 失败：{e}"
+    try:
+        pf.unlink()  # 已落库，删载荷防重复 append
+    except OSError:
+        pass
+    return (
+        True,
+        f"✓ 已落库 sub_step={cur} -> {path}（可输出 ### STEP_DONE: {cur} 并 end_turn）",
+    )
+
+
+def redteam_prompt(project_root: Path, name: str) -> str | None:
+    """组装子4 红队子代理 prompt（证据+纪律归脚本，Agent 调用归模型）。
+
+    证据取 read_evidence_for_step(≤3)：含子1-3 最新 trace、**不含子4 结论**
+    （只给证据不给结论）。无子3 trace -> None（调用方 exit 1 暴露：
+    红队无证据可审，先回补子3）。
+    """
+    if not sub_step_has_trace(project_root, name, 3):
+        return None
+    evidence = read_evidence_for_step(project_root, name, 3)
+    if evidence is None:
+        return None
+    return (
+        "你是独立红队评审。一个工作流正在对若干原子问题做取证后裁决，"
+        "你是独立第二视角——任务是对证据做点查并尝试找出推翻空间，"
+        "不是附和既有方向。\n\n"
+        "【证据（双向取证留痕，含 URL / file:line 指针）】\n"
+        f"{evidence}\n\n"
+        "【纪律】\n"
+        "1. 点查以 Read 工具为主：证据里引用的文件路径用 Read 复查；"
+        "你的会话里 Glob/Grep/codegraph 可能不存在、Bash 会被围栏拒绝，都不要试。\n"
+        "2. 单层：禁止再 spawn 子代理。\n"
+        "3. 不做系统性重新取证：只点查验证；证据不足时下「证据不足」verdict 并指明缺哪条。\n"
+        "4. 对每个原子问题给四态 verdict（证实/证伪/部分成立/证据不足）"
+        "+ 推理链（引用证据指针）+ 置信度。\n\n"
+        "【输出】逐原子问题：verdict / 推理链 / 置信度。"
+    )
+
+
 # ---------- CLI（design §8.1;供 dl-cmd.sh / 手动覆盖调用）----------
 
 
@@ -1751,6 +2049,7 @@ def _cmd_current(project_root: Path, name: str) -> int:
                     "n": i,
                     "kind": s.kind,
                     "ref": s.ref,
+                    "short": s.short,
                     "purpose": s.purpose,
                     "input": s.input,
                     "record": s.record,
@@ -1846,18 +2145,46 @@ def main(argv: list[str] | None = None) -> int:
             "step-reset",
             "subgate-pass",
             "fence",
+            "render-phase-rules",
+            "append-trace",
+            "redteam-prompt",
         ],
     )
-    parser.add_argument("name", nargs="?", help="工作流名（不填则从 cwd 反查）")
+    parser.add_argument(
+        "name",
+        nargs="?",
+        help="工作流名（不填则从 cwd 反查）；render-phase-rules 时为 phase-rules 模板路径",
+    )
     parser.add_argument(
         "value", nargs="?", help="fence 的值（on|off）/ step-reset 的子步骤号"
     )
     parser.add_argument("--cwd", help="覆盖 cwd（默认进程 cwd）")
+    parser.add_argument(
+        "--from-file", help="append-trace 的载荷文件路径（Write 写的 purpose/q/a JSON）"
+    )
     args = parser.parse_args(argv)
 
     # meta 是静态常量,不需要 git repo / name。
     if args.cmd == "meta":
         return _cmd_meta()
+
+    # render-phase-rules（P1）：渲染 phase-rules 模板的 GENERATED 段到 stdout。
+    # 不需要 git repo / 工作流名（dl-launch.sh 启动时调用，渲染失败非零退出 = 中止启动）。
+    if args.cmd == "render-phase-rules":
+        if not args.name:
+            print("✗ 用法: render-phase-rules <phase-rules 模板路径>", file=sys.stderr)
+            return 1
+        try:
+            template_text = Path(args.name).read_text(encoding="utf-8")
+        except OSError as e:
+            print(f"✗ 读模板失败：{e}", file=sys.stderr)
+            return 1
+        try:
+            sys.stdout.write(render_phase_rules(template_text))
+        except (KeyError, ValueError) as e:
+            print(f"✗ 渲染失败：{e}", file=sys.stderr)
+            return 1
+        return 0
 
     cwd = args.cwd or str(Path.cwd())
     project_root = resolve_project_root(cwd)
@@ -1872,6 +2199,23 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
+    if args.cmd == "append-trace":
+        if not args.from_file:
+            print("✗ 用法: append-trace [name] --from-file <载荷路径>", file=sys.stderr)
+            return 1
+        ok, msg = append_trace(project_root, name, args.from_file)
+        print(msg, file=sys.stdout if ok else sys.stderr)
+        return 0 if ok else 1
+    if args.cmd == "redteam-prompt":
+        prompt = redteam_prompt(project_root, name)
+        if prompt is None:
+            print(
+                "✗ 无子3 双向取证 trace——红队无证据可审，先回补子3",
+                file=sys.stderr,
+            )
+            return 1
+        sys.stdout.write(prompt + "\n")
+        return 0
     if args.cmd == "status":
         return _cmd_status(project_root, name)
     if args.cmd == "current":

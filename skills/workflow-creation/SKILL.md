@@ -35,7 +35,7 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
 **understand 含 4 子阶段**（依次自动推进，无子阶段闸门）：1.理解问题和背景 / 2.明确目标和价值 / 3.确定范围与约束 / 4.定义成功标准和验收方式。子 1-3 完成各输出 `### SUB_DONE: <n>`（Stop hook 推进 sub_index）；末子阶段(4) 写 understand.md 后输出 `### PHASE_DONE: understand` 触发 understand->plan 闸门。未走完子阶段直接 PHASE_DONE 会被守卫阻断。详见 `designs/understand-subphases-design.md`。
 **推进**：自动 + 闸门。`understand->plan`、`plan->execute` 需 `/dl gate` 放行；其余自动推进。
 
-**子步骤编排（v2.7，§node-step-orchestration + §substep-gate-at-stop）**：某些子阶段（当前仅 understand:1）声明 `sub_steps`--有序子步骤序列（调 skill / 调工具，各有 purpose + record + gate）。**门控单位 = 子步骤**（不是子阶段级 rubric）；**skill 内部 Q/A 不门控**只 record。understand:1 = 6 子步骤（子1 逼问定义 / 子2 拆解深挖[MECE 原子问题清单 + 根因因果链 + 竞争假设，invoke causal-inference-root-cause] / 子3 双向取证[主张可检验化→证伪优先→五层源(OpenAlex/arXiv/SE/HN/GitHub API/WebFetch/内部仓库)→codegraph 新鲜度前置；禁 tavily/WebSearch；禁训练记忆冒充外部证据] / 子4 质检裁决[三关质检(针对性/独立性/可追溯)+条件触发红队(独立上下文)+四态 verdict(证实/证伪/部分成立/证据不足)] / 子5 归一化陈述[原子(单句≤1独立痛点)+去上下文(主语+动词+约束自包含)+携带 verdict 边界/置信度；陈述集与子4 verdict 逐项一致——证伪项不进陈述集、部分成立项不超已证实边界] / 子6 带证据读回确认[呈现陈述+verdict+证据指针+置信度；证据不足显式暴露由用户裁决；多问题选定本实例处理项，其余落 evidence 供后续 dl 实例]），子1/2/3/4/5 gate 跑 judge 校验 evidence 里的 skill-trace，子6 gate=None（trace 存在即过）。v2.6（2026-07-25）：4→5 子步骤，插入子2 拆解深挖——复合问题 MECE 切分不丢弃 + 纵向挖根因防叙事式深挖。v2.7（2026-07-26，`designs/step3-verify-redesign-design.md`）：5→6 子步骤，旧子3 单步「验真」拆为子3 双向取证 + 子4 质检裁决——第一性原理消 F1 主张不可检验/F2 确认偏误/F5 证据不可追溯/F7 单视角四类失效；拆步按失效模式族（取证过程 vs 判断质量），一步内可编排多工具（ref 是声明式标签，engine 不限数量）。v2.8（2026-07-26，`designs/step5-step6-statement-readback-redesign-design.md`）：子4 加④按 verdict 处置问题集、子5 一句话陈述重定义为归一化陈述（claim normalization，消「裁决不传导」缺口）、子6 读回确认升级为带证据读回（消「无依据确认」缺口）——ProblemContext 终态三属性：内容正确(子1-4)/形式可移植(子5)/用户认可(子6)。**推进走 Stop hook**：模型完成一步 **先写/append evidence（主仓库绝对路径）-> 输 `### STEP_DONE: <n>` -> end_turn**；Stop hook 比对 evidence 当前子步骤最新 trace 行 hash 与 state.last_judged_trace 游标--有变化才判（区分「完成」vs「中途暂停等用户」，也防覆盖写漏判）：pass 推进 + **非末步自动续轮**（2026-07-25 决议：pass 也返 additionalContext 指令模型当轮开做下一子步骤，免用户每步发「继续」；末步 pass 仍停轮——子阶段边界是天然检查点）/ block 当轮 `_block_continue` 返工（返工须 append 新 trace 行）/ 连续 block 3 次升级为 AskUserQuestion 用户裁决。有 sub_steps 节点不用 SUB_DONE（互斥）。**反复重测某子步骤**：`/dl step-reset <n>`（engine reset_sub_step）——回退 sub_step_index=n、删 evidence 里 sub_step>=n 的 skill-trace + gate 行（前序步骤留痕与节点级裁决保留）、清 last_judged_trace 游标与 node_attempts；只在本节点内回退，跨子阶段用 `/dl back`。v2.9（2026-07-26，`designs/subphase-hold-gate-design.md`）：**子阶段门栏 hold_for_gate**（当前仅 understand:1）——末子步骤过门控后**无条件扣留不推进**（state.held_for_gate；不读 state.gate 防中途 /dl gate 预放行泄漏穿栏），唯一出口 `/dl gate`（dl-cmd 检测 held 路由 engine `subgate-pass`：写 manual-subgate-pass 裁决留痕 + 清标记 + 推进）；`/dl step-pass` 末步同被扣（步的放行 ≠ 子阶段的放行）；`step-reset` 清标记。
+**子步骤编排（v2.7，§node-step-orchestration + §substep-gate-at-stop）**：某些子阶段（当前仅 understand:1）声明 `sub_steps`--有序子步骤序列（调 skill / 调工具，各有 purpose + record + gate）。**门控单位 = 子步骤**（不是子阶段级 rubric）；**skill 内部 Q/A 不门控**只 record。understand:1 = 6 子步骤（子1 逼问定义 / 子2 拆解深挖[MECE 原子问题清单 + 根因因果链 + 竞争假设，invoke causal-inference-root-cause] / 子3 双向取证[主张可检验化→证伪优先→五层源(OpenAlex/arXiv/SE/HN/GitHub API/WebFetch/内部仓库)→codegraph 新鲜度前置；禁 tavily/WebSearch；禁训练记忆冒充外部证据] / 子4 质检裁决[三关质检(针对性/独立性/可追溯)+条件触发红队(独立上下文)+四态 verdict(证实/证伪/部分成立/证据不足)] / 子5 归一化陈述[原子(单句≤1独立痛点)+去上下文(主语+动词+约束自包含)+携带 verdict 边界/置信度；陈述集与子4 verdict 逐项一致——证伪项不进陈述集、部分成立项不超已证实边界] / 子6 带证据读回确认[呈现陈述+verdict+证据指针+置信度；证据不足显式暴露由用户裁决；多问题选定本实例处理项，其余落 evidence 供后续 dl 实例]），子1/2/3/4/5 gate 跑 judge 校验 evidence 里的 skill-trace，子6 gate=None（trace 存在即过）。v2.6（2026-07-25）：4→5 子步骤，插入子2 拆解深挖——复合问题 MECE 切分不丢弃 + 纵向挖根因防叙事式深挖。v2.7（2026-07-26，`designs/step3-verify-redesign-design.md`）：5→6 子步骤，旧子3 单步「验真」拆为子3 双向取证 + 子4 质检裁决——第一性原理消 F1 主张不可检验/F2 确认偏误/F5 证据不可追溯/F7 单视角四类失效；拆步按失效模式族（取证过程 vs 判断质量），一步内可编排多工具（ref 是声明式标签，engine 不限数量）。v2.8（2026-07-26，`designs/step5-step6-statement-readback-redesign-design.md`）：子4 加④按 verdict 处置问题集、子5 一句话陈述重定义为归一化陈述（claim normalization，消「裁决不传导」缺口）、子6 读回确认升级为带证据读回（消「无依据确认」缺口）——ProblemContext 终态三属性：内容正确(子1-4)/形式可移植(子5)/用户认可(子6)。**推进走 Stop hook**：模型完成一步 **Write 载荷（purpose/q/a）+ Bash `append-trace` 落 evidence（v2.14 起；格式/路径/结构字段归脚本）-> 输 `### STEP_DONE: <n>` -> end_turn**；Stop hook 比对 evidence 当前子步骤最新 trace 行 hash 与 state.last_judged_trace 游标--有变化才判（区分「完成」vs「中途暂停等用户」，也防覆盖写漏判）：pass 推进 + **非末步自动续轮**（2026-07-25 决议：pass 也返 additionalContext 指令模型当轮开做下一子步骤，免用户每步发「继续」；末步 pass 仍停轮——子阶段边界是天然检查点）/ block 当轮 `_block_continue` 返工（返工须 append 新 trace 行）/ 连续 block 3 次升级为 AskUserQuestion 用户裁决。有 sub_steps 节点不用 SUB_DONE（互斥）。**反复重测某子步骤**：`/dl step-reset <n>`（engine reset_sub_step）——回退 sub_step_index=n、删 evidence 里 sub_step>=n 的 skill-trace + gate 行（前序步骤留痕与节点级裁决保留）、清 last_judged_trace 游标与 node_attempts；只在本节点内回退，跨子阶段用 `/dl back`。v2.9（2026-07-26，`designs/subphase-hold-gate-design.md`）：**子阶段门栏 hold_for_gate**（当前仅 understand:1）——末子步骤过门控后**无条件扣留不推进**（state.held_for_gate；不读 state.gate 防中途 /dl gate 预放行泄漏穿栏），唯一出口 `/dl gate`（dl-cmd 检测 held 路由 engine `subgate-pass`：写 manual-subgate-pass 裁决留痕 + 清标记 + 推进）；`/dl step-pass` 末步同被扣（步的放行 ≠ 子阶段的放行）；`step-reset` 清标记。
 
 ## 1. 建工作流 / 改工作流
 
@@ -59,7 +59,7 @@ dl <name> --done          # 归档（删 worktree+分支+元数据）
 - 改 `~/.dl-workflow/hooks/*.py` -> **无需 install.sh**（settings.json 直接引用源），下轮 hook 触发即最新版（无需重建 worktree）。
 - 改 `~/.dl-workflow/output-styles/*.md` 或 `commands/*.md` 或 `skills/` -> 跑 `~/.dl-workflow/install.sh` copy 到 `~/.claude/`，再**重启会话**加载（output-style / slash command 在会话启动时载入）。
 - 改 `~/.dl-workflow/scripts/workflow/*.sh` -> 无需 install（launcher 直接从 dl-workflow 内跑），下次 `dl <name> --resume` 或新建即最新。
-- 改 `phase-rules.md`（append-system-prompt）-> 仅新开会话生效（append-system-prompt 是启动时载入）；已有会话不同步。
+- 改 `phase-rules.md`（append-system-prompt）-> 仅新开会话生效（append-system-prompt 是启动时载入）；已有会话不同步。**v2.12 起 phase-rules.md 是模板**：understand:1 的 6 条子步骤 purpose 段是 `<!-- BEGIN/END GENERATED sub_steps -->` 标记占位，launcher 每次启动调 `dl-flow-engine.py render-phase-rules` 渲染到 per-wf `phase-rules.rendered.md`（渲染失败中止启动）——**改 engine 的 Step.purpose 即自动同步双通道，新启动会话即生效，无需 install、无需手改 phase-rules**；phase-rules 静态部分（围栏/强制语义/完成标记）仍手维护。
 - per-wf `settings.json`（在项目 `.claude/workflows/<name>/`，非快照）改了要重启会话加载。
 
 **与 v1.x 项目内嵌版本对比**：v1.x 里 hook 在 `<项目>/.claude/hooks/` 是 git 快照，改后必须 commit + 重建 worktree；本版本 hook 在 `~/.dl-workflow/hooks/` 直接引用（不 copy），无此约束。
@@ -214,7 +214,7 @@ understand 拆 4 子阶段（1.理解问题和背景 / 2.明确目标和价值 /
 **新机制（designs/tui-state-machine-design.md §8.6 + §step-advance-on-submit）**：evidence.jsonl 现有两类记录同文件：
 1. **gate 裁决**（engine.write_gate_verdict）：`kind=gate`，字段 node/phase/gate=passed/gate_mech/rubric/attempts/commit_sha。block 不写（重试计数在 state.node_attempts，pass 时一并记入）。
 2. **skill-trace**（模型写，子步骤编排用）：`kind=skill-trace`，字段 `major_stage`(phase 英文首字母大写，如 Understand) / `minor_stage`(子阶段英文标识，首字母大写驼峰，如 ProblemContext) / `sub_step`(数字) / `skill`(子步骤调用的 skill/工具，Step.ref，模型照抄注入给的当前值) / `purpose` / `q`(字符串数组) / `a`(字符串数组，与 q 按序对齐)。Stop hook 门控时读此找当前 `sub_step==N` 的最新记录（hash 比对触发，症状 J/K/L）。展示用 `dl evidence show <name>`（英文标识转中文，映射 single source 在 engine）。
-两类都在主仓库 `<项目>/.claude/evidence/<name>.jsonl`。skill-trace **模型必须用绝对路径写**（相对路径会落 worktree，症状 L）。
+两类都在主仓库 `<项目>/.claude/evidence/<name>.jsonl`。skill-trace **v2.14 起走 `append-trace`**：模型 Write 载荷（仅 purpose/q/a）到 `.claude/evidence/.trace-payload-<name>.json`，再 Bash `dl-flow-engine.py append-trace --from-file <载荷>`——结构字段（kind/major_stage/minor_stage/sub_step/skill）脚本从 state 填、格式/路径归脚本，手写 JSONL 的 5 类事故（相对路径/覆盖/合并行/写碎/结构字段抄错）根治；直写 jsonl 被 S14 围栏 deny（v2.14 收编）。旧「模型手写绝对路径」写法仅作历史（症状 L）。
 
 
 **验证 gate 裁决记录落地**：跑一轮让模型过 gate（如完成 understand:4 写 understand.md 后输出 `### PHASE_DONE: understand`），看：
@@ -228,7 +228,7 @@ understand 拆 4 子阶段（1.理解问题和背景 / 2.明确目标和价值 /
 
 | # | 文件 | 改什么 |
 |---|---|---|
-| 1 | `hooks/workflow_phase.py` `_format_injection` | 注入模板里的 JSON 示例 + 字段说明行（模型每轮看到的写法契约） |
+| 1 | `hooks/workflow_phase.py` `_format_injection` | 注入模板里的 JSON 示例（模板行 + ✓正例/✗反例，模型每轮看到的写法契约） |
 | 2 | `scripts/workflow/phase-rules.md` | phase-rules 里 evidence 写法示例（output-style，与注入互为补路径） |
 | 3 | `dl-flow-engine.py` `sub_step_has_trace` / 其它 evidence 校验函数 | 匹配字段 + docstring；**校验松匹配原则**：只匹 `kind + 关键定位字段`（如 sub_step），不校验其它字段结构 -> 加字段/改子结构不 crash（旧数据能读、新数据能验） |
 | 4 | `designs/step-advance-on-submit-design.md` §E4 / 相关设计文档 | 契约文本（H8 真源） |
@@ -255,6 +255,7 @@ tail -10 <项目>/.claude/.wf_advance.log
 - `sub_step_gate_block|step=<N>|attempts=<X>|action=block` → judge 判 block，模型当轮返工。看 reason 明确差什么。
 - `sub_step_gate_block|...|action=escalate` → 连续 block 达 3 次，模型被指示 AskUserQuestion 请用户裁决（补充信息 / `dl-cmd.sh step-pass` / `/dl back`）。
 - 模型 STEP_DONE 后**没有任何** `sub_step_gate_*` 行 → Stop hook 判「无新 trace」：evidence 缺当前子步骤 sub_step==N 的 skill-trace 记录，或新行与已判 hash 相同（模型重写了一遍一字不差的内容）。查 evidence 是否落地 + 路径（症状 L）+ state.json 的 `last_judged_trace` 游标。
+  - **特例（v2.13 corrupt-rework-detect，2026-07-26，demo d59d05ea）**：模型返工把 trace **写碎**（shell 单引号内塞字面换行 -> JSON 跨两行；字面 `\"` 原样落盘）→ 最新**合法** trace 仍等于已判 hash。旧行为：同 hash 静默放行 -> 模型以为返工完成、流程看似卡死无日志。现行为：engine `corrupt_trace_after_latest` 检测「最新合法 trace 之后存在含 `"sub_step":N` 子串但解析不出的行」-> 判 block 并返格式修复指引（单行合法 JSON），计 attempts（连续损坏达阈值同样升级用户裁决）。**只数最新合法 trace 之后的损坏行**——之前的碎片是已处理历史，模型修好后不重复报警。诊断：`python3 -c "…engine.corrupt_trace_after_latest(root, name, N)"` 或看 `.wf_advance.log` 是否出现 `reason=evidence 写入损坏`。
 
 **验证 evidence 已落地**：
 ```bash
@@ -332,6 +333,8 @@ tail -5 <项目>/.claude/.wf_fence.log   # fence_deny（S10）/ phase_fence_deny
 
 **元教训：对弱遵从模型，一切关键规则必须硬化——文案=建议（概率遵从，当日实测合规率约 50%），hook=物理。** 当日全部机制（S1 门控 / S10-S15 围栏）都是这个原则的兑现。下表是实测出现的违规模式 → 对应机制（加新机制前先查是否已有覆盖）：
 
+**能力边界补充（2026-07-26「兼容度太低」之问）**：围栏硬化的是**遵从**（机械动作），硬化不了**能力**（根因分析/证据评估是工作本身）——能力不及的模型什么机制都救不了，其表现是 gate 持续 block 到升级。弱模型上的正确预期是**优雅降级**：质量底线由 judge 保证不变，代价是 block 率+用户裁决次数+墙钟上升；对用户的话术不是「必须用强模型」，是「弱模型上它会更频繁地向你求助」。MiniMax-M3 实测在能力下限之上（被指即修=会做不主动做）。
+
 | 违规模式 | 实录 | 对应机制 |
 |---|---|---|
 | 明示「简单查询不走流程」直接抢答 | 8c51c318 / b01d6507 | S15 前置参与围栏（零 trace 窗口探查工具首调即 deny）+ S13 参与围栏（无 trace 不许结束回合，纯 text 抢答兜底） |
@@ -341,7 +344,8 @@ tail -5 <项目>/.claude/.wf_fence.log   # fence_deny（S10）/ phase_fence_deny
 | 知道要件后「填表」：推断补全字段 | e84aee6d | 质量判据黑盒（判「系自行推断」） |
 | 编造痛点（「好奇心缺口」「无法判断X」=复述提问） | 4f3d9754 等 | 双结论 rubric（②合法）+ judge 拦伪痛点 |
 | 把 ①/② 分支抛给用户投票（随手选与事实矛盾） | bf2516ac | 分支推导规则（事实推导，禁投票） |
-| Write 无尾换行 + printf 追加 = 合并行（trace 隐形） | 74f82d93 | raw_decode 容错解析 + S13 分诊 |
+| Write 无尾换行 + printf 追加 = 合并行（trace 隐形） | 74f82d93 | raw_decode 容错解析 + S13 分诊；**v2.14 根治：append-trace（模型不再手写 JSONL）** |
+| printf 把单个 JSON 写碎（字面换行跨两行 / 字面 `\"`）= 返工 trace 隐形，流程看似卡死 | d59d05ea | corrupt-rework-detect（同 hash 分支检测损坏行 -> block 指 append-trace）；**v2.14 根治：append-trace + S14 直写 deny** |
 | who 拿仓库事实（CLAUDE.md/git config）充当身份出处 | 74f82d93/4f3d9754 | who 出处钉死：只认用户自述 |
 | 返工时重问用户已答内容（「一直被要求重新确认」） | e84aee6d/bf2516ac | 取证优先级：上下文原话直接用，真缺才问 |
 | 未试先称工具被围栏 deny（臆断无豁免，evidence 编造「Agent blocked by S15 fence」） | 121320fe | pass/block 续轮附 S15 围栏提示含 fence_allow 豁免（v2.11，engine `engagement_fence_notice` 单源）；验真伪：grep `.wf_fence.log` 有无对应 deny 行——无记录=编造 |
@@ -369,11 +373,11 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 
 **改编排 checklist**（每次改 engine sub_steps / gate 语义都过一遍）：
 1. `dl-flow-engine.py`：Node.sub_steps / Step.gate / advance 逻辑
-2. `workflow_phase.py`：`_format_injection` 的清单块 + 完成标记格式
+2. `workflow_phase.py`：`_format_injection` 的当前步块 + 骨架链 + 完成标记格式
 3. `workflow_advance.py`：Stop 检测的完成信号（若变）
-4. **`scripts/workflow/phase-rules.md`**：understand:1 段的完成标记 + 强制语义 -- **最易漏，system-prompt 通道优先级最高，漏改必打架**
+4. **`scripts/workflow/phase-rules.md`**（v2.12 起为模板）：子步骤 purpose 段是 GENERATED 标记（launcher 渲染，**改 engine Step.purpose 自动同步，无需手改**）；手维护范围只剩静态强制语义（围栏/invoke 时序/完成标记）-- 这些仍是**最易漏**项，system-prompt 通道优先级最高，漏改必打架
 5. **`output-styles/workflow.md`**：显示层契约（清单 subject 写法/横幅格式/建齐规则）-- 同为模型强遵从通道；改注入里 TaskList/横幅相关文案时漏改它，会出现"两通道措辞歧义 -> 模型解读随会话漂移"（症状 F 编号实例，commit 5215b63）
-6. 冒烟：拿真 worktree + 真 state 跑 `_format_injection`，看注入内容是否与 phase-rules 一致
+6. 冒烟：拿真 worktree + 真 state 跑 `_format_injection` 看注入结构；跑 `dl-flow-engine.py render-phase-rules scripts/workflow/phase-rules.md` 看渲染产物（子步骤段应与 engine purpose 逐字一致）
 
 ### 症状 G：install.sh 后 hook 没触发
 
@@ -410,6 +414,8 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 11. **报错全量盘点法**（2026-07-26 demo 104 报错根因链）：扫 tool_result `is_error`——主会话 + `subagents/agent-*.jsonl` 全部子代理，tool_use_id 回联工具名，按错误内容 Counter 归并成类。**主会话报错常只是冰山一角**（实录 5 vs 子代理 99）——子代理是报错主战场，盘点漏了它就等于漏了根因。归并后才看得见结构性（93/104 同属「子代理工具现实与 prompt 指引脱节」一条链）；逐条看只会得到「偶发很多」的错觉。
 10. **hook 行为冒烟不必开真会话**（2026-07-26 S15 验证法）：hook 全是 stdin JSON -> stdout JSON 契约，拿**真实工作流 state** 直接喂 payload 即见行为——`echo '{"cwd":"<worktree路径>","tool_name":"Bash","tool_input":{"command":"ls"}}' | python3 ~/.dl-workflow/hooks/workflow_step_fence.py`。改围栏/门控后必做：比开交互会话便宜，且用真实 state 覆盖「fixture 与真实数据形态漂移」盲区（测试 fixture 绿 ≠ 真实 state 下对）。
 
+12. **「卡住了 / block 多次」分诊 runbook——归因三分，别凭感觉**（2026-07-26 两连实证）：用户报「block 了 N 次」或「卡在第 N 步」时按序挖：state.json（sub_step/node_attempts/last_judged_trace 游标）-> `.wf_advance.log`（有判词=判过；无新行=静默放行）-> evidence 对 trace（`latest_trace_sha1` 对游标；行是否可解析）-> transcript 尾部事件（模型最后做了什么动作）。然后**归因三分**：判词 vs purpose **已披露**要件 → 该抓 = 模型注意力失败（§3.5 #9，解法=自查清单，非改判据）；判据要求的佐证无合法获取路径 → 判据缺陷（§3.5 #7）；模型做了动作但系统读不到/无反应 → **机制盲区**（demo d59d05ea：trace 写碎 -> 同 hash 静默放行 -> 看似卡死，corrupt-rework-detect 修）。同一天两个案例正好一边一个：子1 三连 block=模型，子3 卡死=系统——凭感觉猜必错一半。
+
 ## 3.5 门控判据（rubric）设计方法论（改判据/写新 gate 前必读）
 
 2026-07-25 全天 demo 实测沉淀。改任何 `Step.gate` / `gate_rubric` / judge prompt 前对照：
@@ -423,7 +429,7 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 7. **判据要求的佐证形式必须存在低成本合法获取路径**（2026-07-25 子1 校准）：要求「用户否认痛点的原话」但用户几乎不会主动声明 → 模型不敢问/没想到问就只剩编造一条路，block 循环。修法不是松判据，是**打通「问→引」路径**：purpose 强制「材料不足先 AskUserQuestion 事实性补问」+ gate 明示「补问的回答原话是合法佐证、从未被问及的『未提及』不算」。审查新判据时多问一句：模型拿到这个要求的合法证据，最便宜的正确动作是什么？如果答案是「没有」，判据本身就是在逼编造。
 8. **校准看 block 性质，不看频率**（2026-07-25 子1 四连 block 案例）：高频 block 不是松绑信号，先逐条分类——形式缺失/覆盖不足/编造自述 = **该抓**（门控在工作，说明模型在试图绕过）；「要求的佐证没有合法获取路径」= **判据缺陷**（见 #7）。只有后者改判据。n=1 的 block 率不构成校准依据；step2 一过而 step1 四连 block 的不对称，正确读法是「两次判得都对」，不是「一个太严一个太松」。 完整工作示例（demo 121320fe）：用户直觉「6 次 block、零一过率=问题很大」-> 逐条核对判词 vs purpose/证据 -> 6/6「该抓」（4 次违反已披露形式要求、1 次系统缺陷诱发、1 次实质越界）、0 判据缺陷 -> 结论：不动判据，修的是披露缺口+自查提示（#9）。
 
-9. **区分「知识失败」与「注意力失败」**（2026-07-26 demo 121320fe 复盘）：模型被指后一轮就修好 = 它**知道**规则只是没用上（注意力失败）——这类 block 的最便宜解法不是改判据，而是**提交前自查提示**（engine `STEP_SELFCHECK_HINT` 单源，pass 续轮/block 返工/注入三通道同文）：把「judge 抓」前移为「自查抓」，省 judge 调用 + 省一轮 Stop 往返。反之，反复讲仍犯 = 知识/能力失败，自查提示无效，只能机械拦或换模型。判据要求了但 purpose 没披露的形式要件（demo 子4「汇总声明不算记录」）属披露缺口——补上即可，属 #2 的应用，不算松判据。
+9. **区分「知识失败」与「注意力失败」**（2026-07-26 demo 121320fe 复盘）：模型被指后一轮就修好 = 它**知道**规则只是没用上（注意力失败）——这类 block 的最便宜解法不是改判据，而是**提交前自查提示**（engine `selfcheck_hint(step)` 单源 = 通用段 `STEP_SELFCHECK_HINT` + 按步声明的 `Step.selfcheck` checklist，pass 续轮/block 返工/注入三通道同文）：把「judge 抓」前移为「自查抓」，省 judge 调用 + 省一轮 Stop 往返。步级化动机（demo d59d05ea，MiniMax-M3 子1 三连 block 全是已披露形式要件的注意力失败）：通用提示太抽象，步级 checklist 把「对照形式要件」落成具体逐项提问——**checklist 只列 purpose 已披露的形式要件，质量判据仍只在 gate 黑盒**（测试 `test_selfcheck_no_quality_criteria_leak` 钉死）。反之，反复讲仍犯 = 知识/能力失败，自查提示无效，只能机械拦或换模型。判据要求了但 purpose 没披露的形式要件（demo 子4「汇总声明不算记录」）属披露缺口——补上即可，属 #2 的应用，不算松判据。
 
 10. **block 文案就是模型的返工指令——基础设施失败必须区分**（2026-07-26 demo fbdb6ebd 子2 复盘）：judge 超时降级 block，模型把「judge 调用失败（TimeoutExpired）」解读为内容不合格，把**本已合格的 trace 精简重写一轮**（~2min + 十几 k tokens 白烧，下轮原样判过）。教训两条：①可重试的基础设施失败（超时/格式抖动）先在机制层重试，别转嫁成模型返工（v2.12 已实装）；②设计任何降级路径时把「模型会如何解读这个 block」算进成本——block reason 不只给 judge 看，它直接塑造模型下一轮回做什么。同理，「不做 X」的机制决策要记录**根因**（当初超时不重试防的是递归爆炸），根因消除（cwd=tempdir）后要重估，否则防御措施退化为纯损失。
 
@@ -436,6 +442,30 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 3. **识别「重建丢弃」**：state.json `created_at` 晚于 `.wf_advance.log` 早段活动 = 工作流被删重建，前轮产出（墙钟 + token + judge 成本）全丢弃。审计时提示：想要答案用 `--resume` 或 `/dl gate` 接续；想在最终版 engine 下重测才是合理的重建理由。
 4. **judge 输入按子步骤排开看增长曲线**：单调陡增 = artifact 投喂范围过大（v2.12 前全量喂 evidence 的 O(n²) 就是 3.1k->14.9k 曲线暴露的；修复后每步只 +1 条 trace 的缓涨是设计内现象）。
 5. **冒烟验证优化用真实 evidence**：改 read/裁剪类函数后，拿真实工作流的 evidence.jsonl 直接调函数对比输入降幅（真实数据形态 > fixture；2026-07-26 实测：子1 -97%、子3 -65%）——与 §3 #10 的 hook payload 冒烟同法，不开会话。
+
+## 3.7 模型可见面工程（写/改任何喂给模型的文案、或让模型产出记录前必读）
+
+2026-07-26 harness 化优化沉淀（`designs/harness-prompt-optimization-design.md` + append-trace/redteam-prompt 两机制）。
+
+### 原则一：提示词 harness 6 实践（对照 Claude Code harness 工程）
+
+1. **静态规则与动态状态分通道**：稳定规则进 system-prompt（吃 prompt cache），每轮注入只带 delta。反例实录：注入 64% 是 6 步 purpose 全文每轮重发（6,100 字符/轮，48 轮 ≈ 20 万 token）→ P0 改当前步全文+骨架链（→ ~3,200）。
+2. **关键信息置顶**（primacy）：当前任务放注入最前；别让模型在几千字符里找行尾【当前】。
+3. **正反例替代散文警告**：一条 ✓/✗ JSON 例 > 三行字段解释。执行文本**不含维护者考古**（「demo xxx 实录」进代码注释/design，不进 prompt——执行模型不需要，judge 输入还随它线性涨）。
+4. **一条规则说一次；多通道必须同源生成**：engine → launcher 渲染 phase-rules，不手维护两份（症状 F/M 漂移病根的根治）。
+5. **强调信号经济学**：禁止/必/强制 每通道一处；~15 处/轮 = 弱遵从模型习惯性忽略。
+6. **给 rationale 防合理化绕过**：「相对路径会写到 worktree，hook 读不到」式因果，比裸禁令遵从率高。
+
+**体积审计法**：真实 state 直调 `_format_injection` 量字符数（importlib 加载 hook 即可，注入是每轮成本最大头）。改注入前后各量一次。
+
+### 原则二：「AI 定写什么，脚本定怎么写」
+
+**判别准则**：AI 某产出动作的正确值能否从 state/engine/文件系统**推导**？能 = 机械动作 → 归脚本（AI 不提供，自然不可能错）；不能（判断/取证/创作）→ 归 AI。
+- 兑现 1：**append-trace**（evidence 落库）——手写 JSONL 5 类事故（相对路径/覆盖/合并行/写碎/结构字段抄错，症状 P/L 各一条实录）连根拔；配 S14 直写 jsonl 全量 deny 物理收口。
+- 兑现 2：**redteam-prompt**（红队组装）——现场拼 prompt 4 类事故（嵌套 spawn/盲猜路径 61 Read 全空/乱试工具 11 No such tool/角色错乱）根除。
+- **audit 方法**（排查新环节）：列出 AI 每个产出动作 → 逐个问「正确值可推导否」→ 可推导即收编。2026-07-26 全量 audit 11 环节结论：evidence 写入/裁决记录/红队 prompt 收编；STEP_DONE/TaskList/横幅/产物 .md **不动**（已被 Stop hook 兜底 / harness 无 API 够不着模型会话内工具 / 内容即 AI 工作本身）。
+- **边界**：脚本够不着模型会话内工具（TaskCreate/Agent 调用）——这些环节的「内容」可由脚本生成（如 redteam-prompt 输出文本），「调用」只能留模型侧。
+- **附带红利**：脚本**当场校验**（载荷不合法即时报错，模型当轮修）——失败从「gate 时延迟暴露/静默」变「写入时即时暴露」。
 
 ## 4. 不要做的事
 

@@ -208,6 +208,8 @@ class TestContinueCarriesFenceNotice:
         out, _err = _run_hook(mod, wf_repo, monkeypatch, capsys, judge=(True, ""))
         ctx = json.loads(out.strip())["hookSpecificOutput"]["additionalContext"]
         assert "STEP_DONE 前自查" in ctx
+        # 步级化：子1 pass 续轮带的是**下一子步骤（子2）**的 checklist
+        assert "本步自查：" in ctx and "因果链" in ctx
 
     def test_block_continue_carries_selfcheck_hint(self, wf_repo, monkeypatch, capsys):
         # §step-selfcheck：block 返工同样带自查提示
@@ -219,3 +221,5 @@ class TestContinueCarriesFenceNotice:
         )
         ctx = json.loads(out.strip())["hookSpecificOutput"]["additionalContext"]
         assert "STEP_DONE 前自查" in ctx
+        # 步级化：子1 block 返工带的是**当前子步骤（子1）**的 checklist
+        assert "本步自查：" in ctx and "who/pain/why-now" in ctx

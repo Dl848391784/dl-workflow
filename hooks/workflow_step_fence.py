@@ -115,12 +115,17 @@ _S15_BASE_TOOLS = (
 
 def _s15_bash_orchestration(cmd: str, ev_file: Path) -> bool:
     """Bash 编排命令模式（§step-engage-prefence §1.2）：dl-cmd 状态查询 /
-    evidence 绝对路径 append / codegraph。已知限制：子串匹配可被复合命令
+    evidence 绝对路径 append / engine 机械化命令（append-trace 落库、
+    redteam-prompt 组装）/ codegraph。已知限制：子串匹配可被复合命令
     走私（`codegraph sync && <任意>`）——威胁模型是弱遵从模型非对抗攻击，
     同 S11 的 Bash 盲区，接受。"""
     if "dl-cmd.sh" in cmd:
         return True
     if str(ev_file) in cmd:
+        return True
+    if "dl-flow-engine.py" in cmd and (
+        "append-trace" in cmd or "redteam-prompt" in cmd
+    ):
         return True
     return re.search(r"\bcodegraph\b", cmd) is not None
 
@@ -138,9 +143,12 @@ def _s15_allowed(
         if fp and not Path(fp).is_absolute():
             fp = str((Path(cwd) / fp).resolve())
         try:
-            return bool(fp) and Path(fp).resolve() == ev_file.resolve()
+            rp = Path(fp).resolve()
         except OSError:
             return False
+        # evidence 目录下可写（append-trace 载荷文件 .trace-payload-*.json 等）；
+        # 直写 <name>.jsonl 本体由 S14 在前置段单独 deny（收编到 append-trace）。
+        return bool(fp) and rp.parent == ev_file.parent
     if tool == "Bash":
         return _s15_bash_orchestration(str(tool_input.get("command") or ""), ev_file)
     return False
@@ -206,11 +214,11 @@ def main() -> int:
             "然后 end_turn 等待用户切换。"
         )
 
-    # ---- S14 evidence 覆盖守卫：Write 目标为本工作流 evidence 文件时，
-    # 新内容必须原样包含全部已有行（append 协议的机械 enforcement）。
-    # demo e84aee6d 教训：模型连续 Write 覆盖，前几轮的用户原话佐证被销毁，
-    # judge 只能看到最后一行 -> 连环 block + 用户被反复要求「重新确认」。
-    if tool == "Write":
+    # ---- S14 evidence 写入收编（v2.14 append-trace）：模型一律不直写 evidence
+    # jsonl——落库走 append-trace（脚本管格式/路径/结构字段）。旧版是覆盖守卫
+    # （Write 新内容须含全部已有行，demo e84aee6d 教训）；append-trace 上线后
+    # 直写 jsonl 没有合法场景，Write/Edit/MultiEdit 全量 deny 并指路。
+    if tool in ("Write", "Edit", "MultiEdit"):
         ti = payload.get("tool_input") or {}
         fp = str(ti.get("file_path") or "")
         ev_file = project_root / ".claude" / "evidence" / f"{name}.jsonl"
@@ -218,33 +226,17 @@ def main() -> int:
             same = Path(fp).resolve() == ev_file.resolve()
         except OSError:
             same = False
-        if same and ev_file.exists():
-            try:
-                existing = [
-                    ln
-                    for ln in ev_file.read_text(encoding="utf-8").splitlines()
-                    if ln.strip()
-                ]
-            except OSError:
-                existing = []
-            if existing:
-                new_content = str(ti.get("content") or "")
-                missing = [ln for ln in existing if ln not in new_content]
-                if missing:
-                    _log_deny(
-                        project_root,
-                        name,
-                        "evidence_overwrite_deny",
-                        f"missing={len(missing)}/{len(existing)}",
-                    )
-                    return _deny(
-                        f"此次 Write 会覆盖 evidence 丢失 {len(missing)} 行历史记录"
-                        "（含此前轮次的用户原话佐证——judge 需要完整历史判定）。\n"
-                        "修正旧记录的方式是 **append 新行**（judge 以最后一条为准），"
-                        "不是改写旧行。\n"
-                        "evidence 只许 append：用 Bash `printf '%s\\n' '<json>' >> "
-                        f"{ev_file}`，或先 Read 全文把已有行原样拼在新内容前面再 Write。"
-                    )
+        if same:
+            _log_deny(project_root, name, "evidence_direct_write_deny", f"tool={tool}")
+            payload_path = f"{project_root}/.claude/evidence/.trace-payload-{name}.json"
+            return _deny(
+                "evidence 落库走 append-trace（你定内容，脚本管格式/路径/结构字段）：\n"
+                f'① Write 载荷 {{"purpose":...,"q":[...],"a":[...]}} 到 {payload_path}\n'
+                "② Bash `python3 ~/.dl-workflow/dl-flow-engine.py append-trace "
+                f"--from-file {payload_path}`\n"
+                "直写 evidence jsonl（含覆盖/编辑旧行）一律禁止——修正旧记录的方式是"
+                "用 append-trace 追加新行（judge 以最后一条为准）。"
+            )
 
     # ---- S11 phase 写权限围栏：写工具目标路径须在该 phase 白名单内 ----
     if tool in _WRITE_TOOLS:
@@ -271,7 +263,7 @@ def main() -> int:
         ti = payload.get("tool_input") or {}
         ev_file = project_root / ".claude" / "evidence" / f"{name}.jsonl"
         # 症状 L 前置拦截：Bash 相对路径写 evidence（落 worktree，hook 读主仓读不到）
-        # -> 拦下并指回绝对路径，比泛化 deny 文案更指路（§3.5 #5）。
+        # -> 拦下并指回 append-trace（脚本管路径，相对/绝对问题不存在）。
         if tool == "Bash":
             cmd = str(ti.get("command") or "")
             if f".claude/evidence/{name}.jsonl" in cmd and str(ev_file) not in cmd:
@@ -279,9 +271,10 @@ def main() -> int:
                     project_root, name, "engage_fence_deny", f"step={step_no}|rel_ev"
                 )
                 return _deny(
-                    f"evidence 必须用主仓库绝对路径写（相对路径会落 worktree，"
-                    f"门控读不到）：\n{ev_file}\n"
-                    f"例：Bash `printf '%s\\n' '<json>' >> {ev_file}`"
+                    "evidence 落库走 append-trace（脚本管路径/格式，相对路径事故不存在）：\n"
+                    f"① Write 载荷到 {project_root}/.claude/evidence/.trace-payload-{name}.json\n"
+                    "② Bash `python3 ~/.dl-workflow/dl-flow-engine.py append-trace "
+                    "--from-file <载荷>`"
                 )
         if not _s15_allowed(tool, ti, ev_file, step_obj, cwd):
             _log_deny(
@@ -300,7 +293,7 @@ def main() -> int:
                 "evidence skill-trace，处于前置参与围栏窗口（S15）。\n"
                 f"本步目的：{step_obj.purpose[:150]}{'…' if len(step_obj.purpose) > 150 else ''}\n"
                 "窗口内仅编排工具可用：AskUserQuestion / Skill / Task* / Read / Grep / "
-                f"Glob / codegraph / dl-cmd / 写 evidence（{ev_file}）{extra}。\n"
+                f"Glob / codegraph / dl-cmd / 写 evidence（append-trace 落库）{extra}。\n"
                 "直接回答用户、为用户任务探查（Bash/WebFetch/WebSearch/Agent 等）= 违规。\n"
                 f"正确动作：按注入的子步骤清单执行子步骤 {step_no}（invoke 对应 skill / "
                 f"用 AskUserQuestion 问用户），完成后写 evidence 再输出 ### STEP_DONE: {step_no} 并 end_turn。\n"

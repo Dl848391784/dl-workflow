@@ -159,13 +159,21 @@ if [ -f "$WF_SETTINGS" ]; then
   SETTINGS_ARGS=(--settings "$WF_SETTINGS")
 fi
 
-# 阶段规则 append-system-prompt-file（若存在）
-# dl-workflow 版本：phase-rules.md 与 dl-launch.sh 同目录（LIB_DIR = <dl-workflow>/scripts/workflow/），
+# 阶段规则 append-system-prompt-file：启动时渲染模板里的 GENERATED 段
+# （P1 双通道单源，designs/harness-prompt-optimization-design.md）——
+# engine sub_steps 是 purpose 唯一真源，渲染产物写 per-wf 目录（与 settings.json 同生命周期）。
+# dl-workflow 版本：phase-rules.md 模板与 dl-launch.sh 同目录（LIB_DIR = <dl-workflow>/scripts/workflow/），
 # 不再从当前项目 $WF_REPO_ROOT/scripts/workflow/ 取（那里没有）。
-PHASE_RULES_FILE="$LIB_DIR/phase-rules.md"
+# 渲染失败 = 中止启动（fail loud，no silent fallback；不回退未渲染模板——标记裸露会误导模型）。
+PHASE_RULES_TEMPLATE="$LIB_DIR/phase-rules.md"
 SYS_PROMPT_ARGS=()
-if [ -f "$PHASE_RULES_FILE" ]; then
-  SYS_PROMPT_ARGS=(--append-system-prompt-file "$PHASE_RULES_FILE")
+if [ -f "$PHASE_RULES_TEMPLATE" ]; then
+  PHASE_RULES_RENDERED="$WF_META_ROOT/$WF_NAME/phase-rules.rendered.md"
+  if ! python3 "$LIB_DIR/../../dl-flow-engine.py" render-phase-rules "$PHASE_RULES_TEMPLATE" > "$PHASE_RULES_RENDERED"; then
+    echo "✗ phase-rules 渲染失败（见上方错误），中止启动" >&2
+    exit 1
+  fi
+  SYS_PROMPT_ARGS=(--append-system-prompt-file "$PHASE_RULES_RENDERED")
 fi
 
 cd "$WORKTREE_PATH"

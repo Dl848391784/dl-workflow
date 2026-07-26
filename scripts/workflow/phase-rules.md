@@ -9,11 +9,11 @@
 
 - 你看到的注入段落（`## WORKFLOW 当前阶段`）是**当前阶段的真实状态源**，按其 `phase` 字段行为。
 - **反否认（重要）**：本 output style 已激活即证明你在工作流中（它只由 launcher 的 `--settings` 加载，普通会话不加载）。若某轮未在上下文定位到 `## WORKFLOW 当前阶段` 注入段，**绝不退回正常风格**--用 Bash 运行 `bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh status` 确认当前阶段再继续。注入在 `hook_additional_context` attachment，勿因在 user message 文本里找不到而否定。
-- **常驻阶段清单（每轮维护）**：用原生 TaskCreate/TaskUpdate 把阶段维护成置顶进度清单，状态镜像注入段「任务清单」给的目标（index/sub_index 之前=completed、当前=in_progress、之后=pending）。首轮建齐（阶段任务 subject=各阶段中文名；**有子阶段的阶段后紧跟其 1.1..1.N 子任务**，如 understand 后跟 1.1-1.4），其后每轮若 in_progress 任务不符则对齐。阶段任务（含子任务）全程保留勿删；execute 工作子任务追加在下方，勿动阶段任务与其子任务。
+- **常驻阶段清单（每轮维护）**：用原生 TaskCreate/TaskUpdate 把阶段维护成置顶进度清单，状态镜像注入段「任务清单」给的目标（index/sub_index 之前=completed、当前=in_progress、之后=pending）。首轮建齐（subject **带编号**——编号是 subject 一部分、纯展示前缀：阶段任务如 `1. 理解和求证问题`，**有子阶段的阶段后紧跟其子任务**如 `1.1 理解问题和背景`，understand 后跟 1.1-1.4），其后每轮若 in_progress 任务不符则对齐。阶段任务（含子任务）全程保留勿删；execute 工作子任务追加在下方，勿动阶段任务与其子任务。
 - **每轮首步顺序（硬性）**：每条回复**首步**=①对齐原生 TaskList 清单（用 TaskList/TaskUpdate 工具，**不需 Bash 查 status**；缺则首轮一次性建齐，**之后不重建**避免落底部）-> ②再做实际工作。**禁临时占位**（如"确认阶段中…"）--当前阶段以本轮注入的「## WORKFLOW 当前阶段」attachment 为准；若需取阶段真值，`bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh status` 末尾输出一行当前阶段/子阶段/子步骤数据（**非进度树展示，展示靠 TUI TaskList**），**一次即得，勿反复 Bash 找 state 文件**。
 - **阶段进度展示**：由原生 TUI TaskList 组件负责渲染（模型建齐的 9 项任务清单，见上「常驻阶段清单」）。**不再输出 checklist 文本**（原方案A 弃用，见 banner-tree-design.md）。
 - **阶段可有子阶段**（understand 拆 4 子阶段）：
-  - **understand:1（理解问题和背景）有子步骤编排**：按注入的「子步骤编排」清单逐子步骤执行，每子步骤完成输出 `### STEP_DONE: <n>`（Stop hook 逐步门控）；末子步骤(N)通过即推进到下一子阶段。**禁输出 SUB_DONE**（与 STEP_DONE 互斥）。
+  - **understand:1（理解问题和背景）有子步骤编排**：按注入的「▶ 当前子步骤」块逐子步骤执行，每子步骤完成输出 `### STEP_DONE: <n>`（Stop hook 逐步门控）；末子步骤(N)通过即推进到下一子阶段。**禁输出 SUB_DONE**（与 STEP_DONE 互斥）。
   - 其余子阶段（understand:2-4 等）无编排：子阶段 1..(N-1) 完成各输出 `### SUB_DONE: <n>`（Stop hook 自动推进，**无闸门**）；末子阶段 N 完成 -> 写阶段产物 + 输出 `### PHASE_DONE: <phase>`。
   - **未走完子阶段直接输出 PHASE_DONE 会被守卫阻断**（强制依次）。当前子阶段名/序号以每轮注入的「子阶段」块为准。
 - 无子阶段的阶段：完成即输出 `### PHASE_DONE: <phase>`（phase 为英文标识，如 `### PHASE_DONE: understand`）。
@@ -26,26 +26,24 @@
 ### understand（理解和求证问题）
 - 拆 **4 子阶段**，依次完成（understand:1 有子步骤编排逐步门控，2-4 各自动推进子阶段间无闸门）：
   1. **理解问题和背景**（**子步骤编排，逐步 STEP_DONE 门控**，严格时序不可乱序）：
-     - **① 先出阶段横幅**（`## PHASE: ...` + 子阶段标记），横幅后**按注入的「子步骤编排」清单逐子步骤执行**。
-     - **子步骤1 = invoke `define-problem` 并按其引导逼问问题定义**（who/pain/why-now）。横幅后立即、在其它任何动作之前 invoke，`### STEP_DONE` / 探查证据（Bash/Read/Grep/Glob/codegraph）**一律不得在 invoke 之前或与之并行**。
-     - **子步骤2 = invoke `causal-inference-root-cause` 拆解深挖**：先 MECE 判定单一/复合（复合拆成原子问题清单，全部保留不丢弃），再对每个原子问题挖根因因果链（每环须可观察证据：原话/日志/codegraph/数据，禁纯叙事）+ ≥1 竞争假设及排除理由。拆解必须在双向取证（子步骤3）之前——拿一捆问题或症状去搜证据 = 白搜。
-     - **子步骤3 = 双向取证**（designs/step3-verify-redesign-design.md；tool 步，步内多工具编排）：①主张可检验化——每个原子问题先落成可证伪 claim + 事先写死「什么证据会证实/证伪」，不可检验的退回子步骤2；②**证伪优先**——先构造反证查询（X 已解决/是反模式/不成立）并留痕，再搜支持证据；**每个原子问题的留痕按「反证查询（先）→支持证据（后）」分段书写，时序须从 trace 文本直接可读**（执行了但留痕看不出先后 = 判 block）；③五层源各 ≥1 次尝试留痕：学术（OpenAlex/arXiv，curl 免费 API）、社区（StackExchange/HN Algolia，curl）、开源（GitHub API，curl 带 `$GITHUB_TOKEN`）、定点网页（WebFetch 抓上述层发现的 URL）、内部仓库（codegraph+Read/Grep+Bash 查数据——既查已有解法，也证实/证伪问题在本仓真实存在）；**禁 tavily_search/WebSearch**；源层不可用显式标记「未取证+原因」是合法留痕；④codegraph 新鲜度前置——内部取证前先查索引新鲜度，>72h 先 `codegraph sync`，新鲜度结果留痕。**禁拿训练记忆冒充外部证据**（无 URL/工具留痕的「业界通常」= 编造）。
-     - **子步骤4 = 质检裁决**（不做新搜索，只审子3 证据 + 下结论）：①证据三关质检——针对性（直接针对 claim 谓词，非行业常识）/独立性（来源互不转载）/可追溯（URL、file:line 可复查），三关不全过的证据不计数；②**条件触发对抗复核**——verdict 决定大方向/大改动、或证据相互冲突时，起独立红队子代理（Agent 工具）尝试推翻初步结论：独立上下文、只给证据不给结论；触发条件写死，不得自定义「不需要复核」豁免；③四态结论合成——证实/证伪/部分成立/**证据不足**（证据不足是合法结论，不是失败）+ 推理链 + 置信度；④按 verdict 处置问题集——证伪项剔除（留剔除理由）/部分成立项收窄到已证实边界/证据不足项带标记进入读回；处置后问题集 = 子步骤5 唯一输入。
-     - **子步骤5 = 归一化陈述**（designs/step5-step6-statement-readback-redesign-design.md；对子4处置后问题集逐项产出）：①原子——单句 ≤1 个独立痛点（「和/以及/同时」连接多痛点 = 复合未拆净，回子步骤2 重拆）；②去上下文——脱离本会话可独立理解（主语+动词+约束自包含）；③携带 verdict 边界与置信度——部分成立项陈述只覆盖已证实边界，**证伪项不进陈述集**。放不进一句 = 未定义完。
-     - **子步骤6 = 带证据的读回确认**（交互步）：向用户呈现 **归一化陈述 + 四态 verdict + 证据指针 + 置信度**——「证据不足」项显式暴露，由用户裁决继续/等恢复/放弃；**禁止只给结论不给依据地让用户「确认」**。用户认「这就是问题（集）」；多问题时用户选定本实例处理项，其余带已验证陈述落 evidence + understand.md（供后续 dl 实例接续，不丢弃）。
+     - **① 先出阶段横幅**（`## PHASE: ...` + 子阶段标记），横幅后**按注入的「▶ 当前子步骤」块逐子步骤执行**（当前步 purpose 全文在注入置顶；全 6 步 purpose 见下方生成段，与注入同源）。
+     - **skill 步 invoke 时序**：子步骤 ref 为 skill 名的（子1 define-problem / 子2 causal-inference-root-cause / 子5、子6 define-problem），横幅后立即、在其它任何动作之前 invoke；`### STEP_DONE` / 探查证据（Bash/Read/Grep/Glob/codegraph）**一律不得在 invoke 之前或与之并行**。
+     - 全 6 子步骤 purpose（engine 渲染，与注入逐字同源）：
+<!-- BEGIN GENERATED sub_steps understand:1 -->
+（本段由 dl-launch.sh 调 dl-flow-engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
+<!-- END GENERATED sub_steps understand:1 -->
      - **子阶段门栏（hold_for_gate）**：末子步骤(6) 通过门控后**推进被扣留，不自动进 understand:2**——ProblemContext 是地基，完成点 = 显式用户裁决点。等用户 `/dl gate` 放行（用户也可 /dl back 回退、/dl step-reset <n> 重测）。**扣留期间不要做下一子阶段的事**；`/dl step-pass` 末步放行 ≠ 门栏放行（步的放行与子阶段的放行是两个独立的用户决定）。
-     - **取证方式（子1）**：优先引用上下文已有的用户原话（会话事实可作佐证），**禁止为凑字段重问用户已答过的内容**；真缺的维度才用 AskUserQuestion 补问（问实质问题，不要只让用户「确认」推断）。**材料不足以判①/②时必须先 AskUserQuestion 事实性补问**（问触发/痛点/后续动作，如「这背后有没有要解决的实际问题？」），禁止先推断凑数——补问的回答原话是②的合法佐证，用户从未被问及时的「未提及」不算佐证。①/② 结论由事实答案推导，**禁止直接问用户「这是否构成真实问题」**；事实是「只是想知道/临时起意/无后续动作」→ 按②（问题不成立+原话佐证）申报，禁止为凑①回填痛点（「无法判断X」=复述提问本身）。
      - **逐步执行 + 逐步 STEP_DONE**（**写 evidence 是 STEP_DONE 前置，STEP_DONE 后 end_turn**）：
-       每个子步骤达目的后，**先写** `{"kind":"skill-trace","major_stage":"<Phase>","minor_stage":"<MinorKey>","sub_step":<n>,"skill":"<skill>","purpose":"<该步目的>","q":["<q1>","<q2>",...],"a":["<a1>","<a2>",...]}` 到 evidence.jsonl（路径见注入清单；Write 创建 / Read+拼末尾Write / Bash printf >>，勿覆盖已有），**再**输出 `### STEP_DONE: <n>`。字段：`major_stage`=phase 英文首字母大写（Understand/Plan/…）；`minor_stage`=子阶段英文标识（首字母大写驼峰，当前值见注入清单，如 ProblemContext）；`skill`=当前子步骤调用的 skill/工具（Step.ref，当前值见注入清单，如 define-problem）；`q`/`a` 为**字符串数组**，一问一答按序对齐（`q[i]` ↔ `a[i]`），单问单答亦用数组包一层。**输完 STEP_DONE 即 end_turn 结束本轮**--不连续做下个子步骤、不继续探查；**end_turn 时 Stop hook 立即门控**（读 evidence 新 trace 判定）：**非末步 pass 则当轮收到下一子步骤指令（自动续轮，直接开做下一步，无需等用户发话）**；末步 pass 则停轮（子阶段边界，等用户）；block 则当轮收到原因并返工（**返工须 append 新 trace 行，勿覆盖**——hook 以新 trace 为返工信号）。
-       例：子步骤1 逼问到位 -> 写 evidence(sub_step=1) -> `### STEP_DONE: 1` -> end_turn -> Stop hook 判：过则当轮收到「执行子步骤2」指令直接开做；block 则当轮返工子步骤1。每步 purpose 见注入清单。
+       每个子步骤达目的后，**先落 evidence 再输出 `### STEP_DONE: <n>`**。落法（两动作——你定内容，脚本管格式）：① Write 载荷 `{"purpose":"<该步目的>","q":[...],"a":[...]}`（只含 3 个内容字段，q/a 一一按序对齐 `q[i]`↔`a[i]`，单问单答也用数组；结构字段脚本从 state 自动填，不要写）到注入给的载荷路径（`.claude/evidence/.trace-payload-<name>.json`）；② Bash `python3 ~/.dl-workflow/dl-flow-engine.py append-trace --from-file <载荷路径>`（脚本校验+单行 append 到主仓 evidence；校验失败当场报错，按报错改载荷重跑）。**禁止绕过 append-trace 手写 evidence jsonl**（手写 JSON 跨行/字面 \" = trace 隐形；直写 jsonl 会被 S14 围栏 deny 指回）。确认/裁决留痕由 /dl 命令自动写（kind=gate），不用手写其它 kind 的记录。**输完 STEP_DONE 即 end_turn 结束本轮**--不连续做下个子步骤、不继续探查；**end_turn 时 Stop hook 立即门控**（读 evidence 新 trace 判定）：**非末步 pass 则当轮收到下一子步骤指令（自动续轮，直接开做下一步，无需等用户发话）**；末步 pass 则停轮（子阶段边界，等用户）；block 则当轮收到原因并返工（**返工重新走①②落新行**——hook 以新 trace 为返工信号）。
+       例：子步骤1 逼问到位 -> Write 载荷 -> Bash append-trace -> `### STEP_DONE: 1` -> end_turn -> Stop hook 判：过则当轮收到「执行子步骤2」指令直接开做；block 则当轮返工子步骤1。每步 purpose 见注入「▶ 当前子步骤」块。
      - **强制（含简单查询）**：**任何**进 understand:1 的提问--哪怕看似简单事实查询（如"有多少个因子"）--都**必须先走编排**（横幅 -> invoke define-problem -> 子步骤1 逼问），**禁止直接 Bash/Read 抢答**。判断"这是简单查询可绕过编排"= 违规（等同未建清单就干活）。简单查询的真实问题往往是"为何要查这个/查了要做什么"，编排正是逼出它。
-     - **evidence 强制**：record 子步骤（子1/2/3/4/5/6）**必须**写 evidence skill-trace 后才许输 STEP_DONE；无 evidence 的 STEP_DONE = 违规（Stop hook 读不到新 trace -> 不推进，子步骤卡住）。子6（gate=None）也要写--记用户确认内容（确认本身是裁决留痕，且是 Stop 门控的完成触发信号）。**evidence 必须写到注入清单给的主仓库绝对路径**（`<repo>/.claude/evidence/<name>.jsonl`），**禁用相对路径**--worktree 内相对路径会写到 worktree（hook 读主仓库读不到）。skill 内部 Q/A 不门控，按需 record 落 evidence；子步骤边界（STEP_DONE）才门控。
+     - **evidence 强制**：record 子步骤（子1/2/3/4/5/6）**必须**用 append-trace 落 evidence skill-trace 后才许输 STEP_DONE；无 evidence 的 STEP_DONE = 违规（Stop hook 读不到新 trace -> 不推进，子步骤卡住）。子6（gate=None）也要写--记用户确认内容（确认本身是裁决留痕，且是 Stop 门控的完成触发信号）。路径/格式/结构字段全归脚本，无需手写也不用关心绝对/相对路径。skill 内部 Q/A 不门控，按需 record 落 evidence；子步骤边界（STEP_DONE）才门控。
      - **门控升级（连续 block 达阈值）**：子步骤被 Stop 门控连续 block 3 次后，你会收到「已达升级阈值」的续轮提示--此时**停止盲目重做**，用 AskUserQuestion 请用户裁决：①用户补充信息/澄清后你重做 ②用户同意强制放行后，你运行 `bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh step-pass`（裁决记录落 evidence）③用户要求回退 `/dl back`。门控判据（rubric）是编排内部定义，**禁止**自行变通判据或伪造 evidence 求过；出口只有用户裁决。
-     - **前置参与围栏（PreToolUse，S15）**：当前子步骤**写 evidence 前**（零 trace 窗口），仅编排工具可用——AskUserQuestion / Skill / Task* / Read / Grep / Glob / codegraph / dl-cmd / 写 evidence（主仓库绝对路径），外加当前子步骤注入清单声明的额外工具；**为用户任务探查（其它 Bash/WebFetch/WebSearch/Agent 等）会被 deny 指回当前子步骤**。「先快速回答用户的问题再走编排」不存在——当前子步骤就是你要做的事，用户对原问题的答案会随编排推进自然获得。
+     - **前置参与围栏（PreToolUse，S15）**：当前子步骤**落 evidence 前**（零 trace 窗口），仅编排工具可用——AskUserQuestion / Skill / Task* / Read / Grep / Glob / codegraph / dl-cmd / 写 evidence（Write 载荷 + append-trace 落库），外加当前子步骤注入清单声明的额外工具；**为用户任务探查（其它 Bash/WebFetch/WebSearch/Agent 等）会被 deny 指回当前子步骤**。「先快速回答用户的问题再走编排」不存在——当前子步骤就是你要做的事，用户对原问题的答案会随编排推进自然获得。
      - **硬围栏（PreToolUse，S10）**：写完当前子步骤 evidence 后、Stop 门控判决前，**一切工具调用会被围栏拒绝**（deny 提示「等待门控判决」）--这是硬约束不是建议。被拒后唯一正确动作：输出 `### STEP_DONE: <n>` 并 end_turn。**禁止**绕过（换工具/换说法重试=违规）。用户可随时 `/dl fence off` 关闭此围栏（回文案约束）、`/dl fence on` 重新开启。
      - **参与围栏（Stop）**：当前子步骤**没写 evidence 就结束回合 = 违规**，Stop hook 会强制你继续（deny 续轮）--「这是简单查询所以不走编排」之类的判断不成立，走不走编排**不是你的选择**。中途需要用户输入：**必须用 AskUserQuestion 工具**（回合内完成），禁止「文本提问 + 结束回合等回复」。
      - **阶段写围栏（PreToolUse，系统硬约束无开关）**：understand/plan 阶段 Edit/Write/MultiEdit/NotebookEdit **只能写白名单路径**（本阶段产物 .md、designs/*.md、.claude/evidence/），写源码/实现会被 deny--「禁止改源码」是硬约束。已知限制：Bash 写（重定向/sed -i）不在围栏内，但用 Bash 写源码 = 违规（文案约束仍有效）。
-     - > 若注入 attachment（`## WORKFLOW 当前阶段` 含子步骤清单）没到，本 system-prompt 段即替代通道，强制力等同。
+     - > 若注入 attachment（`## WORKFLOW 当前阶段` 含「▶ 当前子步骤」块）没到，本 system-prompt 段即替代通道，强制力等同。
   2. **明确目标和价值**：明确本次要达成什么、为谁解决什么、价值何在；区分 must / nice。
   3. **确定范围与约束**：划定 in-scope / out-of-scope + 技术/数据/资源/铁律约束（H1/H7/H9/H11 等）。
   4. **定义成功标准和验收方式**：可验证的成功标准（量化/可观测）+ 验收方式（测试/证据/file:line/数据契约）；汇总写 `understand.md`。
