@@ -256,14 +256,17 @@ _NODES: dict[str, Node] = {
                     "起独立红队子代理尝试推翻初步结论（独立上下文，只给证据不给结论）；"
                     "触发条件写死，不得自定义「不需要复核」豁免；"
                     "③四态结论合成——证实/证伪/部分成立/证据不足（证据不足是合法结论）"
-                    "+ 推理链 + 置信度。"
+                    "+ 推理链 + 置信度；"
+                    "④按 verdict 处置问题集——证伪项剔除（留剔除理由）/部分成立项收窄到"
+                    "已证实边界/证据不足项带标记进入读回；处置后问题集 = 子5 唯一输入。"
                 ),
                 input="step3.traces",
                 record=True,
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace 且 sub_step==4 的记录；"
                     "形式要件：每条计数证据有三关质检记录；每个原子问题有四态 verdict"
-                    "+ 推理链 + 置信度。"
+                    "+ 推理链 + 置信度；处置后问题集与 verdict 逐项一致"
+                    "（证伪项已剔除+理由、部分成立项已收窄、证据不足项已标记）。"
                     "质量判据（从严裁量）：红队触发条件满足时必须见红队 trace（独立上下文、"
                     "只给证据不给结论）；verdict 与证据间推理链非跳跃；"
                     "质检放水（明显不针对 claim 的证据被计数）判 block。"
@@ -272,24 +275,40 @@ _NODES: dict[str, Node] = {
             Step(
                 kind="skill",
                 ref="define-problem",
+                # 归一化陈述（2026-07-26 重设计，
+                # designs/step5-step6-statement-readback-redesign-design.md）：
+                # 职能 = claim normalization（原子+去上下文+verdict 传导），不是压缩话术。
+                # RCA：problem statement 取证前写（子1），root cause statement 证据检验后写（子5）。
                 purpose=(
-                    "每个原子问题各一句话陈述（若放不进一句则未定义完）；"
-                    "发现某陈述须用「和/以及/同时」连接多个独立痛点 = 复合未拆净，回子2重拆"
+                    "归一化陈述：对子4处置后问题集逐项产出归一化问题陈述——"
+                    "①原子（单句≤1个独立痛点，「和/以及/同时」连接多痛点=复合未拆净，回子2重拆）；"
+                    "②去上下文（脱离本会话可独立理解：主语+动词+约束自包含）；"
+                    "③携带 verdict 边界与置信度（部分成立项陈述只覆盖已证实边界）；"
+                    "放不进一句=未定义完。"
                 ),
-                input="step2+step4",
+                input="step4.disposed_problem_set",
                 record=True,
                 gate=(
-                    "evidence/<name>.jsonl 含本子步骤 skill-trace 记录，"
-                    "每个原子问题各 ≤1 句且含主语+动词+约束；"
+                    "evidence/<name>.jsonl 含本子步骤 skill-trace 记录；"
+                    "形式要件：处置后问题集每个存活问题各 ≤1 句且含主语+动词+约束"
+                    "（原子+去上下文）；陈述携带 verdict 与置信度。"
+                    "质量判据（从严裁量）：陈述集与子4 verdict 逐项一致——证伪项不得出现在"
+                    "陈述集、部分成立项陈述不得超出已证实边界（裁决不传导判 block）；"
                     "单句含多目标并列（「和/以及/同时」连接多个独立痛点）= 复合问题未拆解，判 block。"
                 ),
             ),
             Step(
                 kind="skill",
                 ref="define-problem",
+                # 带证据的读回确认（2026-07-26 重设计）：只给结论不给依据地「通知」用户
+                # = 不信任甚至 backfire effect（Das et al. 2023）；fact-checker 三大解释
+                # 需求 = 不确定性/证据指针/过程可解释（Show Me the Work, CHI 2025）。
                 purpose=(
-                    "读回确认：用户认「这就是问题（集）」；多个问题时用户选定本实例处理哪一个，"
-                    "其余带已验证陈述落 evidence + understand.md（供后续 dl 实例接续，不丢弃）"
+                    "带证据的读回确认：向用户呈现 归一化陈述+四态 verdict+证据指针+置信度"
+                    "（「证据不足」项显式暴露，由用户裁决继续/等恢复/放弃）；"
+                    "用户认「这就是问题（集）」；多个问题时用户选定本实例处理哪一个，"
+                    "其余带已验证陈述落 evidence + understand.md（供后续 dl 实例接续，不丢弃）；"
+                    "用户对各项的认/否/搁置记入 trace（用户认可本身是裁决留痕）"
                 ),
                 input="step5.statements",
                 # §substep-gate-at-stop：record=True——Stop 门控以「新 trace」为唯一

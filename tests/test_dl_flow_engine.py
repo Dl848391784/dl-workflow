@@ -295,7 +295,7 @@ class TestStepDataclass:
 
 class TestNodeSubStepsField:
     def test_default_none(self):
-        # 未编排节点 sub_steps None（向后兼容）；understand:1 除外（有 5 子步骤）
+        # 未编排节点 sub_steps None（向后兼容）；understand:1 除外（有 6 子步骤）
         for phase in eng.PHASES:
             total = eng.sub_total(phase)
             first_sub = 1 if total > 0 else 0
@@ -326,6 +326,39 @@ class TestNodeSubStepsField:
         )
         assert n.sub_steps == (s1, s2)
         assert len(n.sub_steps) == 2
+
+
+class TestStep456Redesign:
+    """2026-07-26 重设计（designs/step5-step6-statement-readback-redesign-design.md）：
+    子4 加④处置问题集；子5 一句话陈述→归一化陈述（裁决传导）；子6→带证据读回确认。"""
+
+    def _steps(self):
+        node = eng.get_node("understand", 1)
+        assert node.sub_steps is not None and len(node.sub_steps) == 6
+        return node.sub_steps
+
+    def test_step4_disposition_in_purpose_and_gate(self):
+        s4 = self._steps()[3]
+        assert "处置问题集" in s4.purpose
+        assert "处置后问题集与 verdict 逐项一致" in s4.gate
+
+    def test_step5_normalization_verdict_consistency(self):
+        s5 = self._steps()[4]
+        assert "归一化陈述" in s5.purpose
+        assert s5.input == "step4.disposed_problem_set"
+        # 裁决不传导判 block：陈述集与 verdict 一致性是质量判据
+        assert "裁决不传导" in s5.gate
+        assert "证伪项不得出现在" in s5.gate
+
+    def test_step6_readback_with_evidence_gate_none(self):
+        s6 = self._steps()[5]
+        assert s6.gate is None  # 交互步不跑 judge（trace 存在即过）
+        assert "证据指针" in s6.purpose
+        assert "证据不足" in s6.purpose  # 不确定性须显式暴露给用户裁决
+
+    def test_all_six_steps_record_true(self):
+        # 末步 record=True 是 Stop 门控的完成触发信号（3a 潜在洞修复）
+        assert all(s.record for s in self._steps())
 
 
 class TestSubStepHelpers:
@@ -628,10 +661,11 @@ class TestUnderstand1Orchestration:
         assert node.sub_steps[2].input == "step2.problem_list"
 
     def test_input_chain_after_redesign(self):
-        # 2026-07-26 重设计输入链：子4 吃子3 取证记录，子5 陈述吃子2+子4，子6 确认吃子5
+        # 2026-07-26 重设计输入链：子4 吃子3 取证记录，
+        # 子5 归一化陈述只吃子4 处置后问题集（v2.8 收窄，原 step2+step4），子6 确认吃子5
         node = eng.get_node("understand", 1)
         assert node.sub_steps[3].input == "step3.traces"
-        assert node.sub_steps[4].input == "step2+step4"
+        assert node.sub_steps[4].input == "step4.disposed_problem_set"
         assert node.sub_steps[5].input == "step5.statements"
 
     def test_step3_bidirectional_evidence(self):
