@@ -198,7 +198,7 @@ run_gate(name, output):
 - **输入**：node.gate_rubric（判据）+ 模型本轮输出（transcript 取或产物文件）+ 声明产物内容。
 - **输出**：`{"pass": bool, "reason": "..."}`（JSON 强约束，`--output-format json`）。
 - **成本**：每节点 ≥2 次模型调用（主 + judge），机械短路时 1 次。撞 8 次 cap -> 退化人工。
-- **降级**：judge 调用失败（API 错/超时）-> engine 不推进，banner 提示用户手动核（no silent fallback：失败必暴露，不默认放行）。
+- **降级**：judge 调用失败（API 错/超时）-> engine 不推进，banner 提示用户手动核（no silent fallback：失败必暴露，不默认放行）。 例外（2026-07-26 决议）：**bad_verdict_json（判定 JSON 解析失败）重试一次**，重试仍失败才降级 block——parse 失败多属输出格式抖动，直接降级会把 judge 本意的 pass 白烧一轮返工（demo 121320fe 子1 首次即 bad_verdict_json）；超时/API 错/exit 非零不重试（翻倍代价，症状 N 教训）。重试时两次尝试成本在 LAST_JUDGE_META 累加 + judge_retried=1 留痕。
 
 ### 5.2 Stop hook 续轮数据流
 

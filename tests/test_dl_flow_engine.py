@@ -1483,6 +1483,76 @@ class TestRunJudgeCostMeta:
         assert m["judge_ms"] == 500
 
 
+class TestRunJudgeRetry:
+    """bad_verdict_json 重试一次（2026-07-26 决议）：parse 失败多属 judge 输出
+    格式抖动，直接降级会把 judge 本意的 pass 白烧一轮返工（demo 121320fe 子1
+    首次即 bad_verdict_json）。超时/API 错/exit 非零不重试（翻倍代价）。"""
+
+    BAD = '{"is_error":false,"usage":{"input_tokens":10,"output_tokens":2},"result":"我不是 JSON"}\n'
+    GOOD = (
+        '{"is_error":false,"usage":{"input_tokens":20,"output_tokens":3},'
+        '"result":"{\\"pass\\": true, \\"reason\\": \\"\\"}"}\n'
+    )
+
+    def _mock_seq(self, monkeypatch, stdouts):
+        calls = {"n": 0, "prompts": []}
+
+        def _run(cmd, **kw):
+            i = calls["n"]
+            calls["n"] += 1
+            calls["prompts"].append(cmd[-1])
+
+            class _Res:
+                returncode = 0
+
+            _Res.stdout = stdouts[min(i, len(stdouts) - 1)]
+            return _Res()
+
+        monkeypatch.setattr(eng.subprocess, "run", _run)
+        return calls
+
+    def test_retry_success_after_bad_verdict(self, monkeypatch):
+        calls = self._mock_seq(monkeypatch, [self.BAD, self.GOOD])
+        ok, _ = eng.run_judge("rubric", "label", "out")
+        assert ok is True
+        assert calls["n"] == 2  # 重试了一次
+        assert "合法 JSON" in calls["prompts"][1]  # 重试带格式提醒后缀
+        m = eng.LAST_JUDGE_META
+        assert m.get("judge_retried") == 1
+        assert "judge_error" not in m  # 成功路径清掉首次失败标记
+        assert m["judge_input_tokens"] == 30  # 两次尝试成本累加
+        assert m["judge_output_tokens"] == 5
+
+    def test_retry_exhausted_degrades_to_block(self, monkeypatch):
+        calls = self._mock_seq(monkeypatch, [self.BAD, self.BAD])
+        ok, reason = eng.run_judge("rubric", "label", "out")
+        assert ok is False
+        assert calls["n"] == 2  # 只重试一次，不无限循环
+        assert "非合法 JSON" in reason
+        assert eng.LAST_JUDGE_META["judge_error"] == "bad_verdict_json"
+        assert eng.LAST_JUDGE_META.get("judge_retried") == 1
+
+    def test_timeout_not_retried(self, monkeypatch):
+        calls = {"n": 0}
+
+        def _run(cmd, **kw):
+            calls["n"] += 1
+            raise eng.subprocess.TimeoutExpired(cmd="claude", timeout=1)
+
+        monkeypatch.setattr(eng.subprocess, "run", _run)
+        ok, _ = eng.run_judge("rubric", "label", "out")
+        assert not ok
+        assert calls["n"] == 1  # 超时不重试
+        assert "judge_retried" not in eng.LAST_JUDGE_META
+
+    def test_clean_pass_not_retried(self, monkeypatch):
+        calls = self._mock_seq(monkeypatch, [self.GOOD])
+        ok, _ = eng.run_judge("rubric", "label", "out")
+        assert ok is True
+        assert calls["n"] == 1
+        assert "judge_retried" not in eng.LAST_JUDGE_META
+
+
 class TestPendingUnjudgedStep:
     """§S10：PreToolUse 围栏的关闭条件（与门控共用 last_judged_trace 游标）。"""
 

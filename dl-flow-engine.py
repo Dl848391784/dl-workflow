@@ -1466,6 +1466,7 @@ def _capture_judge_meta(last_json: dict[str, Any]) -> None:
     """从 claude -p --output-format json 的末行 JSON 采成本字段进 LAST_JUDGE_META。
 
     防御式取值：provider 包装器（ac-ark 等）可能缺字段，缺什么就不记什么。
+    数值字段**累加**（非覆盖）：bad_verdict_json 重试时两次尝试的成本都要入账。
     """
     u = last_json.get("usage") or {}
     for k in (
@@ -1475,14 +1476,15 @@ def _capture_judge_meta(last_json: dict[str, Any]) -> None:
         "cache_creation_input_tokens",
     ):
         if isinstance(u.get(k), int):
-            LAST_JUDGE_META[f"judge_{k}"] = u[k]
+            key = f"judge_{k}"
+            LAST_JUDGE_META[key] = LAST_JUDGE_META.get(key, 0) + u[k]
     for src, dst in (
         ("duration_ms", "judge_ms"),
         ("duration_api_ms", "judge_api_ms"),
         ("total_cost_usd", "judge_cost_usd"),
     ):
         if last_json.get(src) is not None:
-            LAST_JUDGE_META[dst] = last_json[src]
+            LAST_JUDGE_META[dst] = LAST_JUDGE_META.get(dst, 0) + last_json[src]
 
 
 def run_judge(
@@ -1499,7 +1501,12 @@ def run_judge(
     judge 继承主会话 env（design §9 #2）：不另设 provider/model,跑在主会话已起的 provider 上。
 
     失败（API 错/超时/解析失败）-> (False, 失败原因)（design §5.1 降级：不默认放行）。
-    副作用：每次调用重置 LAST_JUDGE_META（成功=成本字段，失败=judge_error）供审计日志。
+    例外：**bad_verdict_json（判定 JSON 解析失败）重试一次**（2026-07-26 决议）——
+    parse 失败多属 judge 输出格式抖动，直接降级会把 judge 本意的 pass 白烧一轮
+    返工（demo 121320fe 子1 首次即 bad_verdict_json）；重试仍失败才降级 block。
+    超时/API 错/退出码非零**不重试**（重试翻倍代价，症状 N 递归爆炸教训）。
+    副作用：每次调用重置 LAST_JUDGE_META（成功=成本字段，失败=judge_error；
+    重试时两次尝试成本累加 + judge_retried=1）供审计日志。
     """
     LAST_JUDGE_META.clear()
     prompt = (
@@ -1521,6 +1528,27 @@ def run_judge(
         )
     prompt += "\n只回上面的 JSON。"
 
+    for attempt in range(2):
+        # 重试时加格式提醒后缀（判决载荷逐字不动，只追加输出格式强调）
+        p = prompt + (
+            "\n\n提醒：上次你的回答不是合法 JSON。只回一个 JSON 对象，不要任何其它文本。"
+            if attempt
+            else ""
+        )
+        ok, reason, retryable = _run_judge_once(p)
+        if not retryable:
+            return ok, reason
+        LAST_JUDGE_META["judge_retried"] = 1
+    return ok, reason  # 重试仍是 bad_verdict_json -> 降级 block
+
+
+def _run_judge_once(prompt: str) -> tuple[bool, str, bool]:
+    """run_judge 单次尝试。返回 (pass, reason, retryable)。
+
+    retryable=True 仅 bad_verdict_json（判定 JSON 解析失败）——唯一值得
+    重试的失败模式；其余失败（超时/API 错/exit 非零/no_result_json/is_error）
+    一律 False，调用方直接降级。
+    """
     try:
         res = subprocess.run(
             # --tools ""：judge 明确不调工具，裁掉全套工具 schema（harness 开销大头）。
@@ -1549,10 +1577,10 @@ def run_judge(
         )
     except (subprocess.TimeoutExpired, OSError) as e:
         LAST_JUDGE_META["judge_error"] = type(e).__name__
-        return False, f"judge 调用失败（{type(e).__name__}）"
+        return False, f"judge 调用失败（{type(e).__name__}）", False
     if res.returncode != 0:
         LAST_JUDGE_META["judge_error"] = f"exit={res.returncode}"
-        return False, f"judge claude -p 退出码 {res.returncode}"
+        return False, f"judge claude -p 退出码 {res.returncode}", False
 
     # claude -p --output-format json：stdout 末尾一行是 {"is_error":...,"result":"..."}
     # （冒烟实测：ac-ark 包装器在前面混入调试日志,但 result JSON 在最后一行）。
@@ -1567,19 +1595,21 @@ def run_judge(
                 continue
     if last_json is None:
         LAST_JUDGE_META["judge_error"] = "no_result_json"
-        return False, "judge 输出无 result JSON 行"
+        return False, "judge 输出无 result JSON 行", False
     # last_json 存在起：先采成本（is_error/判定解析失败的路径也有 usage 可对账）
     _capture_judge_meta(last_json)
     if last_json.get("is_error"):
         LAST_JUDGE_META["judge_error"] = "is_error"
-        return False, f"judge 会话出错：{last_json.get('result', '')[:200]}"
+        return False, f"judge 会话出错：{last_json.get('result', '')[:200]}", False
 
     result_text = last_json.get("result", "")
     verdict = _extract_judge_result(result_text)
     if verdict is None:
         LAST_JUDGE_META["judge_error"] = "bad_verdict_json"
-        return False, f"judge 返回非合法 JSON 判定：{result_text[:200]}"
-    return bool(verdict["pass"]), str(verdict.get("reason", ""))
+        return False, f"judge 返回非合法 JSON 判定：{result_text[:200]}", True
+    # 重试后成功：清掉首次失败留下的 judge_error（避免审计日志误判本次为失败）
+    LAST_JUDGE_META.pop("judge_error", None)
+    return bool(verdict["pass"]), str(verdict.get("reason", "")), False
 
 
 def run_gate(
