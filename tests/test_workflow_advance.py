@@ -124,7 +124,7 @@ class TestStopStdoutPureJson:
         out, err = _run_hook(mod, wf_repo, monkeypatch, capsys, judge=(True, ""))
         directive = json.loads(out.strip())  # 整体可解析 = 纯 JSON（核心防回归）
         ctx = directive["hookSpecificOutput"]["additionalContext"]
-        assert "子步骤 2/5" in ctx
+        assert "子步骤 2/6" in ctx
         assert "causal-inference-root-cause" in ctx
         assert "✓" not in out  # ✓ 行不许混进 stdout
         assert "自动续轮" in err  # ✓ 行走 stderr
@@ -133,8 +133,8 @@ class TestStopStdoutPureJson:
 
     def test_final_pass_no_json_stops_turn(self, wf_repo, monkeypatch, capsys):
         # 末步 pass -> 子阶段边界停轮：stdout 无 JSON 指令（纯 ✓ 文本）
-        _write_state(wf_repo, sub_step=5)
-        _write_trace(wf_repo, sub_step=5)
+        _write_state(wf_repo, sub_step=6)
+        _write_trace(wf_repo, sub_step=6)
         mod = _load_hook()
         out, _err = _run_hook(mod, wf_repo, monkeypatch, capsys)
         assert "hookSpecificOutput" not in out

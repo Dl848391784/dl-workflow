@@ -152,7 +152,7 @@ _NODES: dict[str, Node] = {
         # 5 子步骤逐步 STEP_DONE gate；目的 engine 声明，注入 phase-rules + gate 兜底。
         # skill 内部 Q/A 不门控，record 步落 evidence（step_needs_evidence 读文件喂 judge）。
         gate_rubric=None,  # 子阶段级 rubric 删除（被 sub_steps 逐步门控取代）
-        advance="sub",  # 末子步骤 STEP_DONE:5 通过即推进 sub_index（_handle_step_done 调 advance_state）
+        advance="sub",  # 末子步骤 STEP_DONE:6 通过即推进 sub_index（_handle_step_done 调 advance_state）
         sub_steps=(
             Step(
                 kind="skill",
@@ -212,22 +212,61 @@ _NODES: dict[str, Node] = {
                     "竞争假设非稻草人（明显不成立拿来凑数判 block）。"
                 ),
             ),
+            # 子3/子4（2026-07-26 重设计，designs/step3-verify-redesign-design.md）：
+            # 旧单步「验真」对 F1 主张不可检验/F2 确认偏误/F5 证据不可追溯/F7 单视角
+            # 四类失效无防御。按失效模式族拆两步：子3 管取证过程（双向+多源），
+            # 子4 管判断质量（质检+对抗+裁决）。用户硬约束：禁 tavily/WebSearch。
             Step(
                 kind="tool",
-                ref="tavily_search / tavily_research / codegraph impact {sym}",
+                ref="curl(OpenAlex/arXiv/StackExchange/HN/GitHub API) / WebFetch / codegraph impact {sym}",
                 purpose=(
-                    "验真问题真实存在：对子2拆出的每个原子问题逐个验真（允许「部分成立」），"
-                    "用 Tavily（tavily_search 快搜 / tavily_research 深度调研）"
-                    "搜外部证据（repo/paper/他人实现/反模式）证实或证伪其子2陈述+约束（防 reinvent）；"
-                    "并用 codegraph 查本仓库是否已有解法。证伪也是合法结论——证据须直接针对问题陈述，"
-                    "证据与结论之间要有推理链，禁泛泛行业常识。"
+                    "双向取证：对子2拆出的每个原子问题逐个取证（允许「部分成立」）。"
+                    "①主张可检验化——每个原子问题 → 可证伪 claim + 事先写死「什么证据会证实/"
+                    "什么证据会证伪」；不可检验的主张退回子2，不进入取证。"
+                    "②证伪优先——先构造反证查询（X 已解决/是反模式/不成立）并留痕，再搜支持证据。"
+                    "③五层源各 ≥1 次尝试留痕：学术(OpenAlex/arXiv，curl 免费 API)、"
+                    "社区(StackExchange/HN Algolia，curl)、开源(GitHub API，curl 带 "
+                    "$GITHUB_TOKEN)、定点网页(WebFetch 抓上述层发现的 URL)、"
+                    "内部仓库(codegraph+Read/Grep+Bash 查数据，证实/证伪问题在本仓存在+查已有解法)；"
+                    "源层不可用显式标记「未取证+原因」是合法留痕；禁 tavily_search/WebSearch。"
+                    "④codegraph 新鲜度前置——内部取证前查索引新鲜度（>72h 先 codegraph sync），"
+                    "新鲜度查询结果留痕。"
+                    "禁拿训练记忆冒充外部证据（无 URL/工具留痕的「业界通常」= 编造）。"
                 ),
                 input="step2.problem_list",
                 record=True,
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace 且 sub_step==3 的记录；"
-                    "每个原子问题 ≥1 外部证据（repo/paper/codegraph 输出）直接针对该问题陈述，"
-                    "且证据与「问题真实存在/不存在」结论之间有推理链，非泛泛行业常识。"
+                    "形式要件：每个原子问题有可检验化 claim（含证实/证伪判定标准）；"
+                    "五层源各 ≥1 次尝试留痕（含合法的「未取证+原因」标记）；"
+                    "反证查询时序先于支持查询；codegraph 新鲜度查询留痕。"
+                    "质量判据（从严裁量）：凡声称外部证据须带可追溯指针（真实 URL/工具调用留痕），"
+                    "用训练记忆冒充外部证据 = 编造，判 block；"
+                    "证据须直接针对 claim 谓词，非泛泛行业常识。"
+                ),
+            ),
+            Step(
+                kind="tool",
+                ref="推理(三关质检+四态合成) / Agent(红队子代理,条件触发)",
+                purpose=(
+                    "质检裁决（不做新搜索，只审子3证据+下结论）："
+                    "①证据三关质检——针对性(直接针对 claim 谓词)/独立性(来源互不转载)/"
+                    "可追溯(URL、file:line 可复查)，三关不全过的证据不计数；"
+                    "②条件触发对抗复核——verdict 决定大方向/大改动、或证据相互冲突时，"
+                    "起独立红队子代理尝试推翻初步结论（独立上下文，只给证据不给结论）；"
+                    "触发条件写死，不得自定义「不需要复核」豁免；"
+                    "③四态结论合成——证实/证伪/部分成立/证据不足（证据不足是合法结论）"
+                    "+ 推理链 + 置信度。"
+                ),
+                input="step3.traces",
+                record=True,
+                gate=(
+                    "evidence/<name>.jsonl 含 kind=skill-trace 且 sub_step==4 的记录；"
+                    "形式要件：每条计数证据有三关质检记录；每个原子问题有四态 verdict"
+                    "+ 推理链 + 置信度。"
+                    "质量判据（从严裁量）：红队触发条件满足时必须见红队 trace（独立上下文、"
+                    "只给证据不给结论）；verdict 与证据间推理链非跳跃；"
+                    "质检放水（明显不针对 claim 的证据被计数）判 block。"
                 ),
             ),
             Step(
@@ -237,7 +276,7 @@ _NODES: dict[str, Node] = {
                     "每个原子问题各一句话陈述（若放不进一句则未定义完）；"
                     "发现某陈述须用「和/以及/同时」连接多个独立痛点 = 复合未拆净，回子2重拆"
                 ),
-                input="step2+step3",
+                input="step2+step4",
                 record=True,
                 gate=(
                     "evidence/<name>.jsonl 含本子步骤 skill-trace 记录，"
@@ -252,7 +291,7 @@ _NODES: dict[str, Node] = {
                     "读回确认：用户认「这就是问题（集）」；多个问题时用户选定本实例处理哪一个，"
                     "其余带已验证陈述落 evidence + understand.md（供后续 dl 实例接续，不丢弃）"
                 ),
-                input="step4.statements",
+                input="step5.statements",
                 # §substep-gate-at-stop：record=True——Stop 门控以「新 trace」为唯一
                 # 完成触发，record=False 的末步永无触发信号、子阶段永远卡住（3a 潜在洞）。
                 # 确认内容本身也是裁决留痕（用户认可了问题陈述）。

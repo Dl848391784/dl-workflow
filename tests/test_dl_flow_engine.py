@@ -252,16 +252,16 @@ class TestNormalizeState:
         assert norm["sub_step_index"] == 1
 
     def test_sub_step_index_out_of_range_raises(self):
-        # §orchestration v2：understand:1 有 5 子步骤，sub_step_index 越界 -> 报错暴露
-        for bad in (0, 6):
+        # §orchestration v2 + 2026-07-26 重设计：understand:1 有 6 子步骤，越界 -> 报错暴露
+        for bad in (0, 7):
             with pytest.raises(ValueError, match="越界"):
                 eng.normalize_state(
                     {"phase": "understand", "sub_index": 1, "sub_step_index": bad}
                 )
 
     def test_sub_step_index_in_range_ok(self):
-        # 1..5 合法范围不报错
-        for ok in (1, 2, 3, 4, 5):
+        # 1..6 合法范围不报错
+        for ok in (1, 2, 3, 4, 5, 6):
             norm = eng.normalize_state(
                 {"phase": "understand", "sub_index": 1, "sub_step_index": ok}
             )
@@ -332,8 +332,8 @@ class TestSubStepHelpers:
     def test_sub_step_total_no_steps(self):
         assert eng.sub_step_total(eng.get_node("plan", 0)) == 0
         assert eng.sub_step_total(eng.get_node("understand", 2)) == 0  # 无编排节点
-        # understand:1 有 5 子步骤
-        assert eng.sub_step_total(eng.get_node("understand", 1)) == 5
+        # understand:1 有 6 子步骤（2026-07-26 重设计：验真拆双向取证+质检裁决）
+        assert eng.sub_step_total(eng.get_node("understand", 1)) == 6
 
     def test_sub_step_total_with_steps(self):
         s1 = eng.Step(
@@ -575,21 +575,25 @@ class TestWriteGateVerdict:
 
 
 class TestUnderstand1Orchestration:
-    """understand:1 纯子步骤门控（删过渡 gate_rubric，5 子步骤逐步 STEP_DONE gate）。"""
+    """understand:1 纯子步骤门控（删过渡 gate_rubric，6 子步骤逐步 STEP_DONE gate）。
+
+    2026-07-26 重设计（designs/step3-verify-redesign-design.md）：旧子3「验真」拆为
+    子3 双向取证 + 子4 质检裁决（5 步 -> 6 步），原子4/5 顺移为子5/6。
+    """
 
     def test_gate_rubric_none(self):
         # 子阶段级 rubric 删除（被 sub_steps 逐步门控取代，Q4=删）
         assert eng.get_node("understand", 1).gate_rubric is None
 
-    def test_has_5_sub_steps(self):
+    def test_has_6_sub_steps(self):
         node = eng.get_node("understand", 1)
         assert node.sub_steps is not None
-        assert len(node.sub_steps) == 5
+        assert len(node.sub_steps) == 6
 
     def test_sub_steps_kinds(self):
         node = eng.get_node("understand", 1)
         kinds = [s.kind for s in node.sub_steps]
-        assert kinds == ["skill", "skill", "tool", "skill", "skill"]
+        assert kinds == ["skill", "skill", "tool", "tool", "skill", "skill"]
 
     def test_step2_refs_causal_inference(self):
         # 子步骤2（拆解深挖）invoke causal-inference-root-cause（2026-07-25 设计决议）
@@ -597,18 +601,18 @@ class TestUnderstand1Orchestration:
         assert node.sub_steps[1].ref == "causal-inference-root-cause"
 
     def test_last_step_gate_none_autopass(self):
-        # 子步骤5（读回确认）gate=None 自动过（trace 存在即过，不跑 judge）
+        # 子步骤6（读回确认）gate=None 自动过（trace 存在即过，不跑 judge）
         node = eng.get_node("understand", 1)
-        assert node.sub_steps[4].gate is None
+        assert node.sub_steps[5].gate is None
         # §substep-gate-at-stop：record=True——Stop 门控以新 trace 为唯一完成触发，
         # record=False 的末步永无触发信号、子阶段卡死（3a 潜在洞）
-        assert node.sub_steps[4].record is True
+        assert node.sub_steps[5].record is True
 
     def test_record_steps(self):
-        # 子步骤1-5 全 record=True（子5 记用户确认，作完成触发 + 裁决留痕）
+        # 子步骤1-6 全 record=True（子6 记用户确认，作完成触发 + 裁决留痕）
         node = eng.get_node("understand", 1)
         records = [s.record for s in node.sub_steps]
-        assert records == [True, True, True, True, True]
+        assert records == [True, True, True, True, True, True]
 
     def test_first_step_no_input(self):
         node = eng.get_node("understand", 1)
@@ -619,9 +623,38 @@ class TestUnderstand1Orchestration:
         assert node.sub_steps[1].input == "step1.real_problem"
 
     def test_step3_input_refs_step2(self):
-        # 验真针对子2 拆出的原子问题清单
+        # 双向取证针对子2 拆出的原子问题清单
         node = eng.get_node("understand", 1)
         assert node.sub_steps[2].input == "step2.problem_list"
+
+    def test_input_chain_after_redesign(self):
+        # 2026-07-26 重设计输入链：子4 吃子3 取证记录，子5 陈述吃子2+子4，子6 确认吃子5
+        node = eng.get_node("understand", 1)
+        assert node.sub_steps[3].input == "step3.traces"
+        assert node.sub_steps[4].input == "step2+step4"
+        assert node.sub_steps[5].input == "step5.statements"
+
+    def test_step3_bidirectional_evidence(self):
+        # 子3 双向取证（designs/step3-verify-redesign-design.md）：
+        # 证伪优先 + 五层源 + 禁 tavily/WebSearch（用户硬约束）+ codegraph 新鲜度前置
+        node = eng.get_node("understand", 1)
+        s3 = node.sub_steps[2]
+        assert s3.kind == "tool"
+        for needle in ("证伪优先", "可检验化", "五层源", "新鲜度", "禁 tavily_search/WebSearch"):
+            assert needle in s3.purpose, f"子3 purpose 缺 {needle}"
+        for needle in ("sub_step==3", "反证查询时序先于支持查询", "训练记忆冒充外部证据"):
+            assert needle in s3.gate, f"子3 gate 缺 {needle}"
+        assert "tavily" not in s3.ref
+
+    def test_step4_quality_verdict(self):
+        # 子4 质检裁决：三关质检 + 条件触发红队（独立上下文）+ 四态 verdict（证据不足合法）
+        node = eng.get_node("understand", 1)
+        s4 = node.sub_steps[3]
+        assert s4.kind == "tool"
+        for needle in ("三关质检", "红队", "独立上下文", "四态", "证据不足"):
+            assert needle in s4.purpose, f"子4 purpose 缺 {needle}"
+        for needle in ("sub_step==4", "红队触发条件", "推理链"):
+            assert needle in s4.gate, f"子4 gate 缺 {needle}"
 
     def test_skill_still_define_problem(self):
         assert eng.get_node("understand", 1).skill == "define-problem"
@@ -657,20 +690,18 @@ class TestRubricNeedsEvidence:
 
 
 class TestStepNeedsEvidenceForU1:
-    """understand:1 子步骤1-4 gate 含 evidence/ -> step_needs_evidence=True；子5 gate=None -> False。"""
+    """understand:1 子步骤1-5 gate 含 evidence/ -> step_needs_evidence=True；子6 gate=None -> False。"""
 
     def test_record_steps_need_evidence(self):
         node = eng.get_node("understand", 1)
-        # 子1/2/3/4 gate 含 "evidence/" -> True
-        assert eng.step_needs_evidence(node.sub_steps[0]) is True
-        assert eng.step_needs_evidence(node.sub_steps[1]) is True
-        assert eng.step_needs_evidence(node.sub_steps[2]) is True
-        assert eng.step_needs_evidence(node.sub_steps[3]) is True
+        # 子1/2/3/4/5 gate 含 "evidence/" -> True
+        for i in range(5):
+            assert eng.step_needs_evidence(node.sub_steps[i]) is True
 
     def test_last_step_no_evidence(self):
         node = eng.get_node("understand", 1)
-        # 子5 gate=None -> False
-        assert eng.step_needs_evidence(node.sub_steps[4]) is False
+        # 子6 gate=None -> False
+        assert eng.step_needs_evidence(node.sub_steps[5]) is False
 
 
 # ---------- §step-advance-on-submit：sub_step_has_trace + gate_and_advance_sub_step ----------
@@ -793,8 +824,8 @@ class TestGateAndAdvanceSubStep:
         assert reread["sub_step_index"] == 1  # 未变
 
     def test_gate_none_passes_without_judge(self, tmp_path, monkeypatch):
-        # 子5 gate=None 自动过，不调 judge；末步 -> 推进子阶段
-        _write_state_full(tmp_path, "t", "understand", 1, sub_step=5)
+        # 子6 gate=None 自动过，不调 judge；末步 -> 推进子阶段
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=6)
         called = {"n": 0}
 
         def _spy(*a, **k):
@@ -804,7 +835,7 @@ class TestGateAndAdvanceSubStep:
         monkeypatch.setattr(eng, "run_judge", _spy)
         node = eng.get_node("understand", 1)
         advanced, reason, new_state = eng.gate_and_advance_sub_step(
-            tmp_path, "t", node, 5
+            tmp_path, "t", node, 6
         )
         assert advanced is True
         assert called["n"] == 0  # gate=None 没调 judge
@@ -897,7 +928,7 @@ class TestSubStepBlockEscalation:
         assert rec["attempts"] == 3
 
     def test_force_pass_last_step_advances_subphase(self, tmp_path):
-        _write_state_full(tmp_path, "t", "understand", 1, sub_step=5)
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=6)
         ok, msg = eng.force_pass_sub_step(tmp_path, "t", str(tmp_path))
         assert ok is True
         reread = eng.load_state(tmp_path, "t")
@@ -969,7 +1000,7 @@ class TestResetSubStep:
 
     def test_reset_rejects_out_of_range(self, tmp_path):
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
-        for bad in (0, 6):
+        for bad in (0, 7):
             ok, msg = eng.reset_sub_step(tmp_path, "t", bad)
             assert ok is False
             assert "越界" in msg
@@ -1138,13 +1169,13 @@ class TestGateSubStepAtStop:
 
     def test_last_step_cursor_persisted(self, tmp_path):
         # 末步（gate=None 自动过）：advance_state 从磁盘重 load，游标须先落盘
-        _write_state_full(tmp_path, "t", "understand", 1, sub_step=5)
-        _write_evidence(tmp_path, "t", [_trace_line(5)])
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=6)
+        _write_evidence(tmp_path, "t", [_trace_line(6)])
         action, _, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
         assert action == "advanced"
         st = eng.load_state(tmp_path, "t")
         assert st["sub_index"] == 2  # 推进到 understand:2
-        assert "understand:1#5" in st["last_judged_trace"]
+        assert "understand:1#6" in st["last_judged_trace"]
 
 
 class TestRunJudgeIsolation:
