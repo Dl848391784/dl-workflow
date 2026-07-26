@@ -134,15 +134,17 @@ class TestStopStdoutPureJson:
         assert st["sub_step_index"] == 2  # 推进照常
 
     def test_final_pass_no_json_stops_turn(self, wf_repo, monkeypatch, capsys):
-        # 末步 pass -> 子阶段边界停轮：stdout 无 JSON 指令（纯 ✓ 文本）
+        # 末步 pass -> §subphase-hold-gate 门栏扣留停轮：stdout 无 JSON 指令（纯文本）
         _write_state(wf_repo, sub_step=6)
         _write_trace(wf_repo, sub_step=6)
         mod = _load_hook()
         out, _err = _run_hook(mod, wf_repo, monkeypatch, capsys)
         assert "hookSpecificOutput" not in out
-        assert "子阶段推进" in out
+        assert "门栏" in out
+        assert "/dl gate" in out
         st = json.loads((wf_repo / ".claude/workflows/t/state.json").read_text())
-        assert st["sub_index"] == 2
+        assert st["sub_index"] == 1  # 扣留：不推进
+        assert st["held_for_gate"] is True
 
     def test_block_stdout_is_pure_json(self, wf_repo, monkeypatch, capsys):
         # block 返工路径同样纯 JSON（历史一直正常，防未来混入 _emit）

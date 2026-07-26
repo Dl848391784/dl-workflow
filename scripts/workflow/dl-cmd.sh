@@ -126,6 +126,12 @@ case "$SUB" in
     ;;
 
   gate)
+    # §subphase-hold-gate：子阶段门栏扣留状态优先路由 engine subgate-pass
+    # （放行留痕 manual-subgate-pass + 推进；wf_state_get 输出 Python repr，true->True）
+    if [ "$(wf_state_get "$NAME" held_for_gate 2>/dev/null)" = "True" ]; then
+      python3 "$WF_ENGINE" subgate-pass "$NAME" --cwd "$(pwd)"
+      exit $?
+    fi
     P="$(cur_phase)"
     if ! wf_is_gated_after "$P"; then
       echo "ℹ 当前阶段 $(wf_phase_label "$P") 不是闸门后置阶段（闸门后置: $WF_GATED_AFTER）。"

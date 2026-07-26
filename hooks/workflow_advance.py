@@ -297,6 +297,22 @@ def main() -> int:
                 to=nxt,
                 **engine.LAST_JUDGE_META,
             )
+            if (st or {}).get("held_for_gate"):
+                # §subphase-hold-gate：末步过门控但子阶段门栏扣留 ->
+                # 停轮等用户 /dl gate（return 0 路径，_emit 文本不受症状 Q 纯 JSON 约束）
+                _log(
+                    project_root,
+                    "subphase_held_for_gate",
+                    wf=name,
+                    phase=cur_phase,
+                    step=judged_step,
+                )
+                _emit(
+                    f"✓ 子步骤 {judged_step} 通过门控 —— {cur_node0.label} 全部子步骤完成\n"
+                    "⛔ 子阶段门栏：进下一子阶段需用户裁决。\n"
+                    "  输入 /dl gate 放行；或 /dl back 回退、/dl step-reset <n> 重测。"
+                )
+                return 0
             if (st or {}).get("sub_index", cur_sub) != cur_sub:
                 # 末步通过 -> 子阶段边界：停轮作天然检查点（用户可介入/redirect），
                 # 不自动续轮进下一子阶段。

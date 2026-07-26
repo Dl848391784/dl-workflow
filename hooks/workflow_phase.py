@@ -270,7 +270,22 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
     # 逐步 purpose + STEP_DONE 格式 + evidence 写法（修复 commit4 遗漏：understand:1 现靠
     # sub_steps 清单块给 evidence 格式，旧 rubric_needs_evidence 触发的 trace 块已删）。
     # 子步骤=门控单位；gate+推进在 Stop hook（evidence 新 trace hash 触发）。
-    if node and node.sub_steps:
+    # §subphase-hold-gate：门栏扣留状态 -> 注入等放行，不给子步骤编排块
+    # （有效性三重判定：标记 + hold_for_gate + sub_step_index==末步，防 jump/back 后标记残留误导）。
+    held_for_gate = bool(
+        node
+        and node.sub_steps
+        and node.hold_for_gate
+        and state.get("held_for_gate")
+        and state.get("sub_step_index", 1) == len(node.sub_steps)
+    )
+    if held_for_gate:
+        lines.append(
+            "- ⛔ 子阶段门栏：本子阶段全部子步骤已通过门控，**推进被扣留**——"
+            "等用户 `/dl gate` 放行（用户也可 /dl back 回退、/dl step-reset <n> 重测）。"
+            "**不要做下一子阶段的事**；用户放行前，回答仅限本子阶段收尾/答疑。"
+        )
+    if node and node.sub_steps and not held_for_gate:
         cur_step = state.get("sub_step_index", 1)
         total_steps = len(node.sub_steps)
         lines.append(
@@ -338,6 +353,13 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
         if cur_step < total_steps:
             lines.append(
                 f"  当前子步骤 {cur_step} 完成时，回复末尾单独一行输出：`### STEP_DONE: {cur_step}`"
+            )
+        elif node.hold_for_gate:
+            # §subphase-hold-gate：末步过门控后推进被扣留，等 /dl gate
+            lines.append(
+                f"  末子步骤({total_steps})完成时（gate={'自动过' if not node.sub_steps[-1].gate else '校验'}），"
+                f"回复末尾单独一行输出：`### STEP_DONE: {total_steps}`"
+                "（Stop hook 门控通过后**子阶段门栏扣留**——等用户 /dl gate 放行进下一子阶段，勿输出 SUB_DONE）"
             )
         else:
             lines.append(

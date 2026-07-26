@@ -93,6 +93,9 @@ class Node:
     minor_key: str | None = (
         None  # 子阶段英文标识(首字母大写,evidence minor_stage 值;None=无子阶段)
     )
+    # §subphase-hold-gate：True=末子步骤通过后扣留不推进（state.held_for_gate），
+    # 唯一出口 release_subgate（/dl gate 路由）；与 phase 闸门 GATED_AFTER 同构。
+    hold_for_gate: bool = False
 
 
 # 节点表。<node_id> -> Node。node_id = f"{phase}:{sub}"。
@@ -321,6 +324,9 @@ _NODES: dict[str, Node] = {
             ),
         ),
         minor_key="ProblemContext",  # evidence minor_stage 值（结构标识,模型照抄注入给的当前值）
+        # §subphase-hold-gate（2026-07-26）：子6 读回确认守住「陈述的认可」，
+        # 门栏守住「进不进 understand:2」——ProblemContext 是地基，完成点=显式用户裁决点。
+        hold_for_gate=True,
     ),
     "understand:2": Node(
         label="明确目标和价值",
@@ -914,6 +920,12 @@ def _advance_sub_step(
     """子步骤推进共用段：非末步 sub_step_index++（attempts 归零）；末步 advance_state 推进子阶段。
 
     state 须已 normalize。返回推进后的 state。
+
+    §subphase-hold-gate：node.hold_for_gate 的末步**无条件扣留**（不读 state.gate——
+    中途 /dl gate 预放行 phase 闸门会把 gate 置 passed，读它会让门栏被静默穿过，
+    见 designs/subphase-hold-gate-design.md §2）。扣留写显式标记 held_for_gate，
+    唯一出口 release_subgate（/dl gate 路由）；step-pass 末步同被扣——
+    步的放行与子阶段的放行是两个独立的用户决定。
     """
     if cur < len(node.sub_steps):
         state["sub_step_index"] = cur + 1
@@ -921,8 +933,61 @@ def _advance_sub_step(
         state["updated_at"] = _now()
         save_state(project_root, name, state)
         return state
+    if node.hold_for_gate:
+        state["held_for_gate"] = True
+        state["updated_at"] = _now()
+        save_state(project_root, name, state)
+        return state
     # 末步：推进子阶段（advance_state 含 normalize + save）
     return advance_state(project_root, name, via=via)
+
+
+def release_subgate(project_root: Path, name: str, cwd: str) -> tuple[bool, str]:
+    """子阶段门栏放行（/dl gate 在 held 状态下的路由出口，§subphase-hold-gate）。
+
+    三件事（对齐 step-pass 的手动放行留痕原则）：
+    1. 校验 held 标记（无标记=没在门栏前，报错暴露不猜）。
+    2. write_gate_verdict(via="manual-subgate-pass", sub_step=末步)——手动放行必留痕。
+    3. 清标记 + advance_state 推进子阶段（子阶段推进把 state.gate 归 pending，
+       understand 末节点的 phase 闸门仍需独立 /dl gate，无语义叠加）。
+    """
+    state = load_state(project_root, name)
+    if state is None:
+        return False, f"工作流 {name} 的 state.json 缺失"
+    state = normalize_state(state)
+    try:
+        node = get_node(state["phase"], state["sub_index"])
+    except KeyError:
+        return False, f"节点 {state['phase']}:{state['sub_index']} 不存在"
+    cur = state.get("sub_step_index", 1)
+    held = (
+        state.get("held_for_gate")
+        and node.hold_for_gate
+        and node.sub_steps
+        and cur == len(node.sub_steps)
+    )
+    if not held:
+        return False, f"节点 {node_id(node.phase, node.sub)} 不在门栏扣留状态"
+    ok = write_gate_verdict(
+        project_root,
+        name,
+        node,
+        state.get("node_attempts", 0),
+        cwd,
+        via="manual-subgate-pass",
+        sub_step=cur,
+    )
+    if not ok:
+        return False, "裁决记录写 evidence 失败（未放行；见权限/磁盘）"
+    state.pop("held_for_gate", None)
+    state["updated_at"] = _now()
+    save_state(project_root, name, state)
+    advance_state(project_root, name, via="manual-subgate-pass")
+    nxt_phase, nxt_sub = next_node_id(node.phase, node.sub)
+    return (
+        True,
+        f"门栏放行：{node.label} 已批准 -> 推进 {node_id(nxt_phase, nxt_sub)}",
+    )
 
 
 def gate_and_advance_sub_step(
@@ -1006,9 +1071,14 @@ def force_pass_sub_step(project_root: Path, name: str, cwd: str) -> tuple[bool, 
     )
     if not ok:
         return False, "裁决记录写 evidence 失败（未推进；见权限/磁盘）"
-    _advance_sub_step(project_root, name, state, node, cur, via="manual-step-pass")
+    new_state = _advance_sub_step(
+        project_root, name, state, node, cur, via="manual-step-pass"
+    )
     if cur < len(node.sub_steps):
         return True, f"子步骤 {cur} 已手动放行 -> 子步骤 {cur + 1}"
+    if new_state.get("held_for_gate"):
+        # §subphase-hold-gate：步的放行 ≠ 子阶段的放行，门栏仍需 /dl gate
+        return True, f"末子步骤 {cur} 已手动放行，子阶段推进被门栏扣留 — /dl gate 放行"
     return True, f"末子步骤 {cur} 已手动放行 -> 子阶段推进"
 
 
@@ -1065,6 +1135,7 @@ def reset_sub_step(project_root: Path, name: str, step: int) -> tuple[bool, str]
     # 2. state 回退
     state["sub_step_index"] = step
     state["node_attempts"] = 0
+    state.pop("held_for_gate", None)  # §subphase-hold-gate：回退重测时门栏状态同步失效
     judged = state.get("last_judged_trace", {})
     nid = node_id(node.phase, node.sub)
     for k in list(judged):
@@ -1608,6 +1679,7 @@ def main(argv: list[str] | None = None) -> int:
             "meta",
             "step-pass",
             "step-reset",
+            "subgate-pass",
             "fence",
         ],
     )
@@ -1645,6 +1717,10 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_progress(project_root, name)
     if args.cmd == "step-pass":
         ok, msg = force_pass_sub_step(project_root, name, cwd)
+        print(("✓ " if ok else "✗ ") + msg, file=sys.stdout if ok else sys.stderr)
+        return 0 if ok else 1
+    if args.cmd == "subgate-pass":
+        ok, msg = release_subgate(project_root, name, cwd)
         print(("✓ " if ok else "✗ ") + msg, file=sys.stdout if ok else sys.stderr)
         return 0 if ok else 1
     if args.cmd == "step-reset":

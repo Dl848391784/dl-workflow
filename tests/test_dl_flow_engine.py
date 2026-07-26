@@ -868,7 +868,7 @@ class TestGateAndAdvanceSubStep:
         assert reread["sub_step_index"] == 1  # 未变
 
     def test_gate_none_passes_without_judge(self, tmp_path, monkeypatch):
-        # 子6 gate=None 自动过，不调 judge；末步 -> 推进子阶段
+        # 子6 gate=None 自动过，不调 judge；末步 -> §subphase-hold-gate 门栏扣留（不推进）
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=6)
         called = {"n": 0}
 
@@ -884,8 +884,8 @@ class TestGateAndAdvanceSubStep:
         assert advanced is True
         assert called["n"] == 0  # gate=None 没调 judge
         reread = eng.load_state(tmp_path, "t")
-        assert reread["sub_index"] == 2  # 推进到 understand:2
-        assert reread["node"] == "understand:2"
+        assert reread["sub_index"] == 1  # 门栏扣留：不推进
+        assert reread["held_for_gate"] is True
 
     def test_no_evidence_blocks(self, tmp_path, monkeypatch):
         # evidence 缺 -> judge 拿 None artifact -> 判 block（no silent fallback）
@@ -971,19 +971,90 @@ class TestSubStepBlockEscalation:
         assert rec["sub_step"] == 1
         assert rec["attempts"] == 3
 
-    def test_force_pass_last_step_advances_subphase(self, tmp_path):
+    def test_force_pass_last_step_held_by_subgate(self, tmp_path):
+        # §subphase-hold-gate：step-pass 末步放行 ≠ 子阶段放行——门栏扣留，/dl gate 才推进
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=6)
         ok, msg = eng.force_pass_sub_step(tmp_path, "t", str(tmp_path))
         assert ok is True
+        assert "门栏" in msg
         reread = eng.load_state(tmp_path, "t")
-        assert reread["sub_index"] == 2
-        assert reread["node"] == "understand:2"
+        assert reread["sub_index"] == 1  # 扣留：不推进
+        assert reread["held_for_gate"] is True
 
     def test_force_pass_rejects_node_without_sub_steps(self, tmp_path):
         _write_state_full(tmp_path, "t", "understand", 2)  # understand:2 无 sub_steps
         ok, msg = eng.force_pass_sub_step(tmp_path, "t", str(tmp_path))
         assert ok is False
         assert "无子步骤" in msg
+
+
+class TestSubphaseHoldGate:
+    """§subphase-hold-gate：hold_for_gate 节点末步过门控后无条件扣留，
+    /dl gate（engine subgate-pass）放行。"""
+
+    def test_hold_field_only_on_problem_context(self):
+        assert eng.get_node("understand", 1).hold_for_gate is True
+        for phase in eng.PHASES:
+            total = eng.sub_total(phase)
+            first_sub = 1 if total > 0 else 0
+            node = eng.get_node(phase, first_sub)
+            if not (node.phase == "understand" and node.sub == 1):
+                assert node.hold_for_gate is False
+
+    def test_last_step_held_not_advanced(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=6)
+        state = eng.normalize_state(eng.load_state(tmp_path, "t"))
+        node = eng.get_node("understand", 1)
+        new_state = eng._advance_sub_step(tmp_path, "t", state, node, 6, via="test")
+        assert new_state["sub_index"] == 1  # 扣留：sub_index 不翻
+        assert new_state["held_for_gate"] is True
+        assert eng.load_state(tmp_path, "t")["held_for_gate"] is True  # 已落盘
+
+    def test_hold_unconditional_ignores_gate_passed(self, tmp_path):
+        # 泄漏防护（design §2）：中途 /dl gate 预放行 phase 闸门（gate=passed）不得穿栏
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=6)
+        st = eng.load_state(tmp_path, "t")
+        st["gate"] = "passed"
+        eng.save_state(tmp_path, "t", st)
+        state = eng.normalize_state(eng.load_state(tmp_path, "t"))
+        node = eng.get_node("understand", 1)
+        new_state = eng._advance_sub_step(tmp_path, "t", state, node, 6, via="test")
+        assert new_state["sub_index"] == 1
+        assert new_state["held_for_gate"] is True
+
+    def test_release_subgate_advances_and_records(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=6)
+        st = eng.load_state(tmp_path, "t")
+        st["held_for_gate"] = True
+        eng.save_state(tmp_path, "t", st)
+        ok, msg = eng.release_subgate(tmp_path, "t", str(tmp_path))
+        assert ok is True
+        reread = eng.load_state(tmp_path, "t")
+        assert reread["sub_index"] == 2
+        assert reread["node"] == "understand:2"
+        assert "held_for_gate" not in reread
+        # phase 闸门语义不叠加：understand:4 的 understand->plan 闸门仍需独立 /dl gate
+        assert reread["gate"] == "pending"
+        rec = json.loads(eng.read_evidence(tmp_path, "t").strip().splitlines()[-1])
+        assert rec["via"] == "manual-subgate-pass"
+        assert rec["sub_step"] == 6
+
+    def test_release_without_held_errors(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=3)
+        ok, msg = eng.release_subgate(tmp_path, "t", str(tmp_path))
+        assert ok is False
+        assert "不在门栏扣留状态" in msg
+
+    def test_reset_clears_held_marker(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=6)
+        st = eng.load_state(tmp_path, "t")
+        st["held_for_gate"] = True
+        eng.save_state(tmp_path, "t", st)
+        ok, _ = eng.reset_sub_step(tmp_path, "t", 3)
+        assert ok is True
+        reread = eng.load_state(tmp_path, "t")
+        assert "held_for_gate" not in reread
+        assert reread["sub_step_index"] == 3
 
 
 class TestResetSubStep:
@@ -1217,13 +1288,15 @@ class TestGateSubStepAtStop:
         )
 
     def test_last_step_cursor_persisted(self, tmp_path):
-        # 末步（gate=None 自动过）：advance_state 从磁盘重 load，游标须先落盘
+        # 末步（gate=None 自动过）：游标须落盘（防下次 Stop 重判同一 trace）；
+        # §subphase-hold-gate：末步过门控后门栏扣留，sub_index 不翻
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=6)
         _write_evidence(tmp_path, "t", [_trace_line(6)])
         action, _, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
         assert action == "advanced"
         st = eng.load_state(tmp_path, "t")
-        assert st["sub_index"] == 2  # 推进到 understand:2
+        assert st["sub_index"] == 1  # 门栏扣留：不推进
+        assert st["held_for_gate"] is True
         assert "understand:1#6" in st["last_judged_trace"]
 
 
