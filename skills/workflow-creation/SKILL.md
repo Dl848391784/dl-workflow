@@ -307,6 +307,15 @@ tail -5 <项目>/.claude/.wf_fence.log   # fence_deny（S10）/ phase_fence_deny
 - **S11 误伤排查**（该写的产物被拒）：查白名单是否漏路径模式（如产物约定改了）-> 改 engine `_PHASE_WRITE_NAMES`（单源），别想着关它——S11 是系统硬约束（同 rubric 黑盒），无开关。
 - **确认围栏状态**：state.json `enforce_step_fence`（S10，默认 true，`/dl fence on|off` 切换）。S11 无开关。
 
+**「围栏没拦」分诊（2026-07-26 实录）**：用户报「模型抢答/围栏没生效」时先查两件事，别先怀疑机制——①**会话是否被用户中断**：transcript 有 `[Request interrupted by user]` = 中断不产生 Stop 事件，S13/Stop 门控等 **Stop 类围栏根本没开火**（demo b01d6507：S13 判据满足但用户中途打断，围栏无机会触发）；②**会话模型是谁**：`grep -o '"model":"[^"]*"' <session>.jsonl | sort | uniq -c`，与健康会话模型对照——弱遵从模型（MiniMax-M3）先怀疑遵从失效。机制是否正常的判据：`.wf_phase.log` 有 `injected` + jsonl 有 attachment + settings 齐全 = 机制侧无 bug。
+
+**围栏设计原则**（S15 沉淀，加新围栏前对照）：
+1. **触发点尽早**：回合末才拦 = 错误已完整暴露给用户才纠偏。Stop 判据能前置 PreToolUse 就前置（S15 = S13 判据前置，同判据单源在 engine，两处引用）。
+2. **白名单按步骤声明，单源在 engine**：黑名单无法定义——同一条命令在 A 步是合法探查、在 B 步是抢答（`ls` 于子3 vs 子1）。`fence_allow` 与 `ref`/`purpose` 同处声明，新编排节点被强制显式思考工具面。
+3. **只拦工具拦得住的通道**：text 抢答不可工具拦截（归 Stop 兜底）。为「形式严密」拦 Read 不多拦任何一类违规（模型不 Read 也能编答案），却误伤合法取证与红队子代理。
+4. **威胁模型 = 弱遵从而非对抗**：子串匹配级走私面（`codegraph sync && <任意>`）可接受——弱遵从模型不会刻意构造走私命令，只会「顺手跑个 ls」。别为对抗级严密牺牲误伤面。
+5. **相邻围栏判据互斥接力**：零 trace（S15 白名单）/ 未判决 trace（S10 全 deny）/ 已判决（自由）三态互斥无空隙——重叠 = 双重 deny 文案打架，空隙 = 无围栏窗口。
+
 **旧工作流（fence 前建的）无围栏**：per-wf settings.json 是 launcher 写的模板，旧 settings 缺 workflow_step_fence.py 注册。`dl <name> --resume` 重起 launcher 会补写 settings（或手加）。
 
 ### 症状 N：judge 递归爆炸（claude -p 进程堆积 / 连环 TimeoutExpired）
@@ -384,6 +393,7 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 7. **有 sub_steps 节点特殊**：看 `.wf_advance.log` 的 `sub_step_gate_pass` / `sub_step_gate_block`（Stop hook 判，与无 sub_steps 节点同日志）；推进在模型 end_turn 时即判，**无需用户再发消息**。同时看 `<主 repo>/.claude/evidence/<name>.jsonl` 是否有当前 `sub_step==N` 的新 skill-trace（症状 J/L）+ state.json 的 `last_judged_trace` 游标。
 8. **量 token / 审计模型消耗**：主会话 transcript 在 `~/.claude/projects/-...-worktrees-<name>/<session_id>.jsonl`；judge 会话在 `~/.claude/projects/-tmp/`（run_judge cwd=tempdir 的直接证据），按 `.wf_advance.log` 的 `sub_step_gate_block|...|ts` / `sub_step_gate_pass|...|ts` 时间戳找相邻 `-tmp/*.jsonl` 配对。**usage 必须按 message.id 去重**：同一响应的 thinking/text 分块各记一行 assistant、usage 整份重复，按行求和会虚增一倍；`queue-operation` 不是 API 调用。口径：`input_tokens`=新鲜输入（cache_read 单列），模型归属看每条 assistant 的 `model` 字段（judge 继承主会话 provider env，正常必与主会话同模型）。
 9. **测 hook 用真 git worktree，别用普通子目录**（2026-07-25 冒烟实测）：`git rev-parse --git-common-dir` 在 repo 内普通子目录返**相对路径**（`../../../.git`）→ state 解析错位、hook 静默退出（无日志、无输出，极像「hook 没跑」）；只有 `git worktree add` 的真 worktree 返绝对路径。模板：`tests/test_workflow_advance.py`（in-process importlib 加载 hook + monkeypatch engine.run_judge 避免真起 judge 子进程 + tmp_path 真 worktree）。
+10. **hook 行为冒烟不必开真会话**（2026-07-26 S15 验证法）：hook 全是 stdin JSON -> stdout JSON 契约，拿**真实工作流 state** 直接喂 payload 即见行为——`echo '{"cwd":"<worktree路径>","tool_name":"Bash","tool_input":{"command":"ls"}}' | python3 ~/.dl-workflow/hooks/workflow_step_fence.py`。改围栏/门控后必做：比开交互会话便宜，且用真实 state 覆盖「fixture 与真实数据形态漂移」盲区（测试 fixture 绿 ≠ 真实 state 下对）。
 
 ## 3.5 门控判据（rubric）设计方法论（改判据/写新 gate 前必读）
 
