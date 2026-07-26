@@ -1587,6 +1587,13 @@ class TestEngagementFenceNotice:
         notice = eng.engagement_fence_notice(step)
         assert "额外放行：Bash / WebFetch" in notice
 
+    def test_step4_purpose_guides_redteam_prompt_tools(self):
+        # demo 121320fe：红队子代理 21 次 Bash 空拒——purpose 须让模型组 prompt
+        # 时 preempt（告知子代理只用 Read/Grep/Glob/codegraph 取证）
+        step = eng.sub_step_at(eng.get_node("understand", 1), 4)
+        assert "Read/Grep/Glob/codegraph" in step.purpose
+        assert "Bash" in step.purpose and "deny" in step.purpose
+
 
 class TestPhaseWriteDenial:
     """§S11：phase 写权限围栏（understand/plan/review 禁改源码硬化）。"""

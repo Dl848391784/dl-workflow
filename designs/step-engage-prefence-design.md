@@ -114,6 +114,10 @@ S15 与 S10 同属「子步骤围栏」族（dl-cmd fence on|off 注释已写「
 - 红队子代理（子4）：Agent 调用本身在子4 fence_allow 内；子代理进程的
   Read/Grep 在常驻集。子代理若需 Bash/WebFetch 会被拦——可接受
   （prompt 已带证据，职责是推理不是取证），如需放开在子4 fence_allow 追加。
+  实录（2026-07-26 demo 121320fe）：子代理 9 分钟内 21 次 Bash 空拒后
+  自行改用 Read 完成——结果质量无损但纯浪费。缓解（prompt 级，不动围栏）：
+  子4 purpose 已写明「红队 prompt 须告知子代理：取证只用
+  Read/Grep/Glob/codegraph，Bash 在窗口内会被 deny」。
 
 ## 3. 与现有机制的关系
 
