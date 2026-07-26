@@ -266,6 +266,8 @@ _NODES: dict[str, Node] = {
                     "质检裁决（不做新搜索，只审子3证据+下结论）："
                     "①证据三关质检——针对性(直接针对 claim 谓词)/独立性(来源互不转载)/"
                     "可追溯(URL、file:line 可复查)，三关不全过的证据不计数；"
+                    "trace 须逐项可验证——每条计数证据逐条列出三关结果（E1…En × 三关），"
+                    "「10/10 pass」式汇总声明不算记录（demo 实录被判 block）；"
                     "②条件触发对抗复核——verdict 决定大方向/大改动、或证据相互冲突时，"
                     "起独立红队子代理尝试推翻初步结论（独立上下文，只给证据不给结论；"
                     "红队 prompt 四要求：a.携带子3全部证据+关键文件 file:line 清单——"
@@ -1399,6 +1401,16 @@ def engagement_fence_state(project_root: Path, name: str) -> tuple[int, Step] | 
     if latest_trace_sha1(project_root, name, cur) is not None:
         return None  # 有 trace（未判决/已判决）-> 归 S10/自由，非本围栏窗口
     return cur, step
+
+
+# §step-selfcheck：提交前自查提示（pass 续轮与注入双通道共用，单源）。
+# 动机（2026-07-26 demo 121320fe 复盘）：5 次真实 block 里 4 次违反的是已
+# 逐字披露在 purpose 的形式要求——注意力失败非知识失败（被指后一轮修好）。
+# 把「judge 抓」前移为「自查抓」：省 judge 调用 + 省一轮 Stop 返工往返。
+STEP_SELFCHECK_HINT = (
+    "STEP_DONE 前自查：逐条对照本步 purpose 的形式要件检查你的 trace——"
+    "每项要求在 trace 里都须有对应记录（「我做了」式汇总声明不算），缺项先补再声明完成。"
+)
 
 
 def engagement_fence_notice(step: Step) -> str:

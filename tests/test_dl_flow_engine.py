@@ -1668,6 +1668,15 @@ class TestEngagementFenceNotice:
         assert "禁止再 spawn Agent" in step.purpose  # b：单层红队
         assert "携带子3全部证据" in step.purpose
         assert "证据不足" in step.purpose and "回流子3" in step.purpose  # d
+        # 披露缺口修复（demo block#5）：「10/10 pass」式汇总声明被判 block——
+        # 逐项可验证是形式要件，应披露进 purpose（§3.5 #2）
+        assert "逐项可验证" in step.purpose
+        assert "汇总声明不算记录" in step.purpose
+
+    def test_step_selfcheck_hint_single_source(self):
+        # §step-selfcheck：自查提示单源常量（pass 续轮/block 返工/注入三通道共用）
+        assert "STEP_DONE 前自查" in eng.STEP_SELFCHECK_HINT
+        assert "汇总声明不算" in eng.STEP_SELFCHECK_HINT
 
     def test_step3_purpose_forbids_credential_exploration(self):
         # demo 121320fe：GitHub API 401 后模型扫 env 找 token 被安全分类器拦

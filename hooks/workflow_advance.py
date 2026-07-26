@@ -346,6 +346,8 @@ def main() -> int:
                 f"{how}；完成后写/append evidence skill-trace（sub_step={nxt}），"
                 f"再输出 ### STEP_DONE: {nxt} 并结束本轮。\n"
                 "如需用户输入：用 AskUserQuestion 工具（回合内完成）。\n"
+                + engine.STEP_SELFCHECK_HINT
+                + "\n"
                 + engine.engagement_fence_notice(nxt_step)
             )
         # block / escalate：同轮返工（S4/S7）
@@ -375,17 +377,22 @@ def main() -> int:
             )
         # block 返工附当前步围栏提示（含 fence_allow 豁免）：block 高发场景正是
         # 「模型以为某工具被拦」，豁免文案直接纠正假信念（demo 121320fe）。
+        # §step-selfcheck：返工后再声明完成前同样要求逐条自查。
         judged_step_obj = engine.sub_step_at(cur_node0, judged_step)
-        fence_hint = (
-            "\n" + engine.engagement_fence_notice(judged_step_obj)
-            if judged_step_obj is not None
-            else ""
+        rework_hint = (
+            "\n"
+            + engine.STEP_SELFCHECK_HINT
+            + (
+                "\n" + engine.engagement_fence_notice(judged_step_obj)
+                if judged_step_obj is not None
+                else ""
+            )
         )
         return _block_continue(
             f"子步骤 {judged_step} 未通过门控（第 {attempts} 次）：{reason}\n"
             "返工：按判词补缺——上下文已有的原话直接引用（无需问用户），"
             "真缺的维度才用 AskUserQuestion 补问；"
-            "完成后 append 新 trace 再 STEP_DONE。" + fence_hint
+            "完成后 append 新 trace 再 STEP_DONE。" + rework_hint
         )
 
     # 读 transcript 取本轮输出

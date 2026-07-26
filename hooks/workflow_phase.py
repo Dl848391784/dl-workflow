@@ -305,6 +305,8 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
             "  强制：未达上步 purpose 就进下步=违规（等同未建清单就干活）。"
             "skill 内部 Q/A 不门控，按需 record 落 evidence 即可。"
         )
+        # §step-selfcheck：提交前自查提示（与 pass/block 续轮同文，单源在 engine）
+        lines.append("  " + engine.STEP_SELFCHECK_HINT)
         # §step-engage-prefence S15：前置参与围栏（PreToolUse）提示——零 trace
         # 窗口内非编排工具会被硬 deny，提前告诉模型免它撞墙后困惑。
         # §autocontinue-fence-notice：文案单源在 engine（pass/block 续轮共用）。

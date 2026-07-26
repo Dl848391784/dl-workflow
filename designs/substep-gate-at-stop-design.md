@@ -94,3 +94,19 @@ Stop hook（workflow_advance.py）
 2. workflow_advance.py：sub_steps 分支（commit 2，此时双门控并存——UserPromptSubmit 分支还在，hash 防重判使两路径幂等不冲突）
 3. workflow_phase.py 撤 gate 分支 + 注入文案 + phase-rules + 设计文档标记 + SKILL.md 症状 J（commit 3）
 4. 真实 worktree 冒烟：跑 demo 会话子1，看 .wf_advance.log 的 sub_step_gate_pass/block 与新 trace hash 判定
+
+## §step-selfcheck：提交前自查提示（2026-07-26，一过滤优化 1+2）
+
+动机：demo 121320fe 复盘——5 次真实 block 中 4 次违反的是**已逐字披露**在
+purpose 的形式要求（注意力失败非知识失败：被指后一轮修好）；1 次（子4
+「10/10 pass」汇总声明）是判据要求了但 purpose 未披露的**披露缺口**。
+
+两处改动：
+1. engine `STEP_SELFCHECK_HINT` 单源常量（「STEP_DONE 前逐条对照本步
+   purpose 形式要件自查 trace，汇总声明不算」），pass 续轮 / block 返工 /
+   UserPromptSubmit 注入三通道同文——judge 抓前移为自查抓，省 judge
+   调用 + 省一轮 Stop 返工往返。对弱遵从模型非银弹（自查也是文案），
+   但给每项要求一次独立补抓机会；预期一过滤 ~33% -> 50-60%，攒 3 个
+   session 验证（§3.5 #9）。
+2. 子4 purpose 补披露「trace 须逐项可验证（E1…En × 三关），汇总声明
+   不算记录」——§3.5 #2（形式要件可披露）的应用，不动黑盒质量判据。

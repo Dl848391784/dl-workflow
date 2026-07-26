@@ -199,3 +199,23 @@ class TestContinueCarriesFenceNotice:
         ctx = json.loads(out.strip())["hookSpecificOutput"]["additionalContext"]
         assert "前置参与围栏" in ctx
         assert "额外放行" not in ctx
+
+    def test_pass_continue_carries_selfcheck_hint(self, wf_repo, monkeypatch, capsys):
+        # §step-selfcheck：pass 续轮带提交前自查提示（judge 抓前移为自查抓）
+        _write_state(wf_repo, sub_step=1)
+        _write_trace(wf_repo, sub_step=1)
+        mod = _load_hook()
+        out, _err = _run_hook(mod, wf_repo, monkeypatch, capsys, judge=(True, ""))
+        ctx = json.loads(out.strip())["hookSpecificOutput"]["additionalContext"]
+        assert "STEP_DONE 前自查" in ctx
+
+    def test_block_continue_carries_selfcheck_hint(self, wf_repo, monkeypatch, capsys):
+        # §step-selfcheck：block 返工同样带自查提示
+        _write_state(wf_repo, sub_step=1)
+        _write_trace(wf_repo, sub_step=1)
+        mod = _load_hook()
+        out, _err = _run_hook(
+            mod, wf_repo, monkeypatch, capsys, judge=(False, "缺出处")
+        )
+        ctx = json.loads(out.strip())["hookSpecificOutput"]["additionalContext"]
+        assert "STEP_DONE 前自查" in ctx
