@@ -231,7 +231,10 @@ _NODES: dict[str, Node] = {
                     "双向取证：对子2拆出的每个原子问题逐个取证（允许「部分成立」）。"
                     "①主张可检验化——每个原子问题 → 可证伪 claim + 事先写死「什么证据会证实/"
                     "什么证据会证伪」；不可检验的主张退回子2，不进入取证。"
-                    "②证伪优先——先构造反证查询（X 已解决/是反模式/不成立）并留痕，再搜支持证据。"
+                    "②证伪优先——先构造反证查询（X 已解决/是反模式/不成立）并留痕，再搜支持证据；"
+                    "每个原子问题的留痕按「反证查询（先）→支持证据（后）」分段书写，"
+                    "时序须从 trace 文本直接可读——执行了但留痕看不出先后 = 判 block"
+                    "（demo fbdb6ebd 子3 实录；形式要件披露，非松判据）。"
                     "③五层源各 ≥1 次尝试留痕：学术(OpenAlex/arXiv，curl 免费 API)、"
                     "社区(StackExchange/HN Algolia，curl)、开源(GitHub API，curl 带 "
                     "$GITHUB_TOKEN)、定点网页(WebFetch 抓上述层发现的 URL)、"
@@ -938,6 +941,37 @@ def sub_step_has_trace(project_root: Path, name: str, sub_step_index: int) -> bo
     return any(True for _ in _iter_trace_segments(text, sub_step_index))
 
 
+def read_evidence_for_step(
+    project_root: Path, name: str, sub_step_index: int
+) -> str | None:
+    """读 evidence 喂 judge 的子步骤裁剪版（2026-07-26，judge 输入 scope 化）。
+
+    背景：子步骤 gate 原先把 evidence **全文**喂 judge，输入随步数线性膨胀
+    （demo fbdb6ebd 实测 judge input 3.1k -> 14.9k，8 次累计 ~63k tokens，
+    总量 O(n²)），大输入还拉高 judge 超时风险。子步骤 rubric 实际只需：
+    当前步 trace（判对象）+ 前序各步**最新** trace（一致性锚点，
+    如子5 rubric 要求与子4 verdict 逐项一致）。
+    裁剪规则：
+    - 只含 kind=skill-trace 且 sub_step ≤ sub_step_index 的记录；
+    - 每个 sub_step 只留**最新一条**——返工历史不喂（judge 本就以最新为准，
+      历史是纯 token 开销）；
+    - kind=gate 裁决记录不喂（judge 判 trace 内容，不判裁决留痕）。
+    输出按 sub_step 升序拼行（append 协议下与原文顺序一致）。
+    无文件/读失败/无匹配 -> None（与 read_evidence 同语义：judge 拿不到
+    证据 -> 判 block，no silent fallback）。
+    """
+    text = read_evidence(project_root, name)
+    if not text:
+        return None
+    latest: dict[int, str] = {}
+    for k in range(1, sub_step_index + 1):
+        for seg, _rec in _iter_trace_segments(text, k):
+            latest[k] = seg
+    if not latest:
+        return None
+    return "\n".join(latest[k] for k in sorted(latest))
+
+
 def _advance_sub_step(
     project_root: Path, name: str, state: dict[str, Any], node: Node, cur: int, via: str
 ) -> dict[str, Any]:
@@ -1020,7 +1054,7 @@ def gate_and_advance_sub_step(
     """gate 当前子步骤 + 推进。返回 (advanced, reason, new_state)。
 
     §step-advance-on-submit E2（3a）：gate+推进合一，供 UserPromptSubmit 调用。
-    - gate=None 自动过；否则 run_judge（artifact_content = evidence 全文）。
+    - gate=None 自动过；否则 run_judge（artifact_content = read_evidence_for_step 裁剪版）。
     - advanced=True：已推进（非末步 sub_step_index++ / 末步 advance_state 推进子阶段）。
     - advanced=False：block（未推进，返回 reason，模型需重做）。
       block 时累加 state.node_attempts 并落盘（sub_step 路径的重试计数，
@@ -1034,7 +1068,7 @@ def gate_and_advance_sub_step(
     if step.gate is None:
         ok, reason = True, ""
     else:
-        artifact = read_evidence(project_root, name)
+        artifact = read_evidence_for_step(project_root, name, sub_step_index)
         ok, reason = run_judge(
             step.gate,
             f"{node.label} · 子步骤{sub_step_index}",
@@ -1257,7 +1291,7 @@ def gate_sub_step_at_stop(
     if step.gate is None:
         ok, reason = True, ""
     else:
-        artifact = read_evidence(project_root, name)
+        artifact = read_evidence_for_step(project_root, name, cur)
         ok, reason = run_judge(
             step.gate,
             f"{node.label} · 子步骤{cur}",
@@ -1519,10 +1553,14 @@ def run_judge(
     judge 继承主会话 env（design §9 #2）：不另设 provider/model,跑在主会话已起的 provider 上。
 
     失败（API 错/超时/解析失败）-> (False, 失败原因)（design §5.1 降级：不默认放行）。
-    例外：**bad_verdict_json（判定 JSON 解析失败）重试一次**（2026-07-26 决议）——
+    例外一：**bad_verdict_json（判定 JSON 解析失败）重试一次**（2026-07-26 决议）——
     parse 失败多属 judge 输出格式抖动，直接降级会把 judge 本意的 pass 白烧一轮
     返工（demo 121320fe 子1 首次即 bad_verdict_json）；重试仍失败才降级 block。
-    超时/API 错/退出码非零**不重试**（重试翻倍代价，症状 N 递归爆炸教训）。
+    例外二：**TimeoutExpired 重试一次**（2026-07-26 决议）——当初「超时不重试」的
+    理由是递归爆炸（症状 N），其根因（judge 继承 worktree cwd 触发 hooks）已被
+    cwd=tempdir 修掉；而超时降级 block 会让模型误以为内容不合格、把无问题的
+    trace 白重写一轮（demo fbdb6ebd 子2 实测），一次重试 ~3k tokens 远小于
+    一轮模型返工。API 错/退出码非零/OSError 仍**不重试**（重试无意义的失败模式）。
     副作用：每次调用重置 LAST_JUDGE_META（成功=成本字段，失败=judge_error；
     重试时两次尝试成本累加 + judge_retried=1）供审计日志。
     """
@@ -1547,24 +1585,28 @@ def run_judge(
     prompt += "\n只回上面的 JSON。"
 
     for attempt in range(2):
-        # 重试时加格式提醒后缀（判决载荷逐字不动，只追加输出格式强调）
+        # 重试时：bad_verdict_json 加格式提醒后缀（判决载荷逐字不动，只追加输出
+        # 格式强调）；TimeoutExpired 原样重发（输出格式没问题，是时延抖动）。
         p = prompt + (
             "\n\n提醒：上次你的回答不是合法 JSON。只回一个 JSON 对象，不要任何其它文本。"
-            if attempt
+            if attempt and LAST_JUDGE_META.get("judge_error") == "bad_verdict_json"
             else ""
         )
         ok, reason, retryable = _run_judge_once(p)
         if not retryable:
             return ok, reason
         LAST_JUDGE_META["judge_retried"] = 1
-    return ok, reason  # 重试仍是 bad_verdict_json -> 降级 block
+    return ok, reason  # 重试仍失败 -> 降级 block
 
 
 def _run_judge_once(prompt: str) -> tuple[bool, str, bool]:
     """run_judge 单次尝试。返回 (pass, reason, retryable)。
 
-    retryable=True 仅 bad_verdict_json（判定 JSON 解析失败）——唯一值得
-    重试的失败模式；其余失败（超时/API 错/exit 非零/no_result_json/is_error）
+    retryable=True 仅两种值得重试的失败模式：
+    - bad_verdict_json（判定 JSON 解析失败——输出格式抖动）；
+    - TimeoutExpired（时延抖动——递归爆炸根因已被 cwd=tempdir 修掉，
+      重试代价远小于超时误判 block 引发的模型返工，见 run_judge docstring）。
+    其余失败（API 错/exit 非零/no_result_json/is_error/OSError）
     一律 False，调用方直接降级。
     """
     try:
@@ -1593,7 +1635,10 @@ def _run_judge_once(prompt: str) -> tuple[bool, str, bool]:
             # 非 git 目录下 hooks 反查不到项目根，自然静默退出。
             cwd=tempfile.gettempdir(),
         )
-    except (subprocess.TimeoutExpired, OSError) as e:
+    except subprocess.TimeoutExpired as e:
+        LAST_JUDGE_META["judge_error"] = type(e).__name__
+        return False, f"judge 调用失败（{type(e).__name__}）", True  # 重试一次
+    except OSError as e:
         LAST_JUDGE_META["judge_error"] = type(e).__name__
         return False, f"judge 调用失败（{type(e).__name__}）", False
     if res.returncode != 0:

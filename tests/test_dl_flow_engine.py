@@ -1447,7 +1447,11 @@ class TestRunJudgeCostMeta:
         )
         ok, reason = eng.run_judge("rubric", "label", "out")
         assert not ok
-        assert eng.LAST_JUDGE_META == {"judge_error": "TimeoutExpired"}
+        # 超时重试一次后仍失败：judge_error + judge_retried 双标记
+        assert eng.LAST_JUDGE_META == {
+            "judge_error": "TimeoutExpired",
+            "judge_retried": 1,
+        }
 
     def test_meta_reset_between_calls(self, monkeypatch):
         # 上一次的成本字段不能漏到下一次失败调用里
@@ -1463,7 +1467,10 @@ class TestRunJudgeCostMeta:
             monkeypatch, exc=eng.subprocess.TimeoutExpired(cmd="claude", timeout=1)
         )
         eng.run_judge("rubric", "label", "out")
-        assert eng.LAST_JUDGE_META == {"judge_error": "TimeoutExpired"}
+        assert eng.LAST_JUDGE_META == {
+            "judge_error": "TimeoutExpired",
+            "judge_retried": 1,
+        }
 
     def test_is_error_still_captures_usage(self, monkeypatch):
         # is_error 路径也有 usage 可对账（judge_error 与成本字段共存）
@@ -1484,9 +1491,9 @@ class TestRunJudgeCostMeta:
 
 
 class TestRunJudgeRetry:
-    """bad_verdict_json 重试一次（2026-07-26 决议）：parse 失败多属 judge 输出
-    格式抖动，直接降级会把 judge 本意的 pass 白烧一轮返工（demo 121320fe 子1
-    首次即 bad_verdict_json）。超时/API 错/exit 非零不重试（翻倍代价）。"""
+    """judge 失败重试策略（2026-07-26 决议）：bad_verdict_json（输出格式抖动）与
+    TimeoutExpired（时延抖动；递归爆炸根因已被 cwd=tempdir 修掉）各重试一次，
+    重试仍失败才降级 block。API 错/exit 非零/OSError 不重试（重试无意义）。"""
 
     BAD = '{"is_error":false,"usage":{"input_tokens":10,"output_tokens":2},"result":"我不是 JSON"}\n'
     GOOD = (
@@ -1532,7 +1539,34 @@ class TestRunJudgeRetry:
         assert eng.LAST_JUDGE_META["judge_error"] == "bad_verdict_json"
         assert eng.LAST_JUDGE_META.get("judge_retried") == 1
 
-    def test_timeout_not_retried(self, monkeypatch):
+    def test_timeout_retried_once_then_pass(self, monkeypatch):
+        # TimeoutExpired 重试一次（2026-07-26 决议）：递归爆炸根因已被
+        # cwd=tempdir 修掉；超时降级 block 会让模型白返工一轮（demo fbdb6ebd 子2）。
+        calls = {"n": 0, "prompts": []}
+
+        def _run(cmd, **kw):
+            calls["n"] += 1
+            calls["prompts"].append(cmd[-1])
+            if calls["n"] == 1:
+                raise eng.subprocess.TimeoutExpired(cmd="claude", timeout=1)
+
+            class _Res:
+                returncode = 0
+
+            _Res.stdout = self.GOOD
+            return _Res()
+
+        monkeypatch.setattr(eng.subprocess, "run", _run)
+        ok, _ = eng.run_judge("rubric", "label", "out")
+        assert ok is True
+        assert calls["n"] == 2  # 重试了一次
+        # 超时重试原样重发（不加 bad_verdict_json 的 JSON 格式提醒后缀）
+        assert calls["prompts"][0] == calls["prompts"][1]
+        m = eng.LAST_JUDGE_META
+        assert m.get("judge_retried") == 1
+        assert "judge_error" not in m  # 成功路径清掉首次失败标记
+
+    def test_double_timeout_degrades_to_block(self, monkeypatch):
         calls = {"n": 0}
 
         def _run(cmd, **kw):
@@ -1540,9 +1574,25 @@ class TestRunJudgeRetry:
             raise eng.subprocess.TimeoutExpired(cmd="claude", timeout=1)
 
         monkeypatch.setattr(eng.subprocess, "run", _run)
+        ok, reason = eng.run_judge("rubric", "label", "out")
+        assert not ok
+        assert calls["n"] == 2  # 只重试一次，不无限循环
+        assert "TimeoutExpired" in reason
+        assert eng.LAST_JUDGE_META["judge_error"] == "TimeoutExpired"
+        assert eng.LAST_JUDGE_META.get("judge_retried") == 1
+
+    def test_oserror_not_retried(self, monkeypatch):
+        # OSError（二进制缺失/资源耗尽类）重试无意义，仍直接降级
+        calls = {"n": 0}
+
+        def _run(cmd, **kw):
+            calls["n"] += 1
+            raise OSError("boom")
+
+        monkeypatch.setattr(eng.subprocess, "run", _run)
         ok, _ = eng.run_judge("rubric", "label", "out")
         assert not ok
-        assert calls["n"] == 1  # 超时不重试
+        assert calls["n"] == 1
         assert "judge_retried" not in eng.LAST_JUDGE_META
 
     def test_clean_pass_not_retried(self, monkeypatch):
@@ -2056,3 +2106,77 @@ class TestCLI:
         assert out["subphases"]["plan"] == []
         assert out["sub_total"]["understand"] == 4
         assert out["sub_total"]["plan"] == 0
+
+
+class TestReadEvidenceForStep:
+    """read_evidence_for_step：judge 输入 scope 化（2026-07-26）。
+
+    子步骤 gate 原先喂 evidence 全文，judge 输入随步数线性膨胀（demo fbdb6ebd
+    实测 3.1k -> 14.9k，总量 O(n²)）。裁剪 = 当前步 + 前序各步最新 trace。
+    """
+
+    def test_no_file_none(self, tmp_path):
+        assert eng.read_evidence_for_step(tmp_path, "t", 1) is None
+
+    def test_excludes_later_steps(self, tmp_path):
+        _write_evidence(tmp_path, "t", [_trace_line(1), _trace_line(2), _trace_line(3)])
+        out = eng.read_evidence_for_step(tmp_path, "t", 2)
+        assert "q-m" in out
+        assert '"sub_step": 3' not in out
+
+    def test_only_latest_trace_per_step(self, tmp_path):
+        # 返工历史不喂 judge：同一步多条只留最新一条
+        _write_evidence(
+            tmp_path,
+            "t",
+            [_trace_line(1, "old"), _trace_line(1, "new"), _trace_line(2)],
+        )
+        out = eng.read_evidence_for_step(tmp_path, "t", 2)
+        assert "a-new" in out
+        assert "a-old" not in out
+
+    def test_gate_records_excluded(self, tmp_path):
+        gate_rec = json.dumps(
+            {"kind": "gate", "node": "understand:1", "sub_step": 1, "gate": "passed"}
+        )
+        _write_evidence(tmp_path, "t", [_trace_line(1), gate_rec])
+        out = eng.read_evidence_for_step(tmp_path, "t", 1)
+        assert '"kind": "gate"' not in out
+        assert "q-m" in out
+
+    def test_no_matching_trace_none(self, tmp_path):
+        # 只有更晚步骤的 trace -> 当前步视角无证据 -> None（判 block，不静默放行）
+        _write_evidence(tmp_path, "t", [_trace_line(3)])
+        assert eng.read_evidence_for_step(tmp_path, "t", 1) is None
+
+    def test_stop_gate_feeds_scoped_artifact(self, tmp_path, monkeypatch):
+        # gate_sub_step_at_stop 喂 judge 的是裁剪版：返工历史不进 prompt
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=2)
+        _write_evidence(
+            tmp_path,
+            "t",
+            [_trace_line(1, "old"), _trace_line(1, "new"), _trace_line(2)],
+        )
+        captured = {}
+
+        def _spy(rubric, label, output, artifact_content=None):
+            captured["artifact"] = artifact_content
+            return (True, "")
+
+        monkeypatch.setattr(eng, "run_judge", _spy)
+        action, _, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
+        assert action == "advanced"
+        art = captured["artifact"]
+        assert "a-new" in art and "a-old" not in art
+
+
+class TestStep3FalsificationOrderDisclosure:
+    """子3 purpose 披露反证时序留痕形式要件（2026-07-26，demo fbdb6ebd 子3 实录：
+    模型执行了反证但留痕看不出先后被判 block；形式要件进 purpose 降形式性返工，
+    §3.5 #2——质量判据仍只在 gate 黑盒）。"""
+
+    def test_step3_purpose_discloses_order_requirement(self):
+        node = eng.get_node("understand", 1)
+        step3 = eng.sub_step_at(node, 3)
+        assert "反证查询（先）" in step3.purpose
+        assert "时序" in step3.purpose
