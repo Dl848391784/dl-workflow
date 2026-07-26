@@ -24,7 +24,7 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
      ├─ ~/.claude/output-styles/workflow.md  → 引导模型输出 ## PHASE: <中文名> [n/5] + 维护 TaskList 常驻清单
      │     ⚠ 注入走 attachment，部分模型（ark-code-latest）收不到；output-style 已加 fallback：看不到注入时模型用 Bash 跑 dl-cmd.sh status 自取阶段（allowlist 免提示）。见症状 D
      ├─ ~/.dl-workflow/hooks/workflow_advance.py (Stop) -> 委托 dl-flow-engine.run_gate（机械+judge）；检完成信号(### PHASE_DONE/SUB_DONE) -> pass 推进 / block 返 additionalContext 续轮(模型自动重试)；有 sub_steps 节点走 gate_sub_step_at_stop（evidence hash 触发，症状 J）
-     ├─ ~/.dl-workflow/hooks/workflow_step_fence.py (PreToolUse) -> S10 步骤围栏：当前子步骤有未判决 trace 时 deny 一切工具调用（逼模型 STEP_DONE+end_turn）；开关 state.enforce_step_fence（/dl fence on|off，实时生效），症状 O
+     ├─ ~/.dl-workflow/hooks/workflow_step_fence.py (PreToolUse) -> S15 前置参与围栏（零 trace 窗口白名单，为用户任务探查首调即 deny 指回编排，症状 O）+ S10 步骤围栏：当前子步骤有未判决 trace 时 deny 一切工具调用（逼模型 STEP_DONE+end_turn）；开关 state.enforce_step_fence（/dl fence on|off，实时生效）
      ├─ ~/.dl-workflow/dl-flow-engine.py (编排内核,被 hook 咨询) -> 节点树+gate判据+推进 唯一真源；gate-pass 时 write_gate_verdict 写 kind=gate 裁决记录到 evidence/<name>.jsonl（替代旧 ### EVIDENCE 溯源，§8.6c）
      └─ /dl status|next|back|jump|gate|done  → ~/.dl-workflow/scripts/workflow/dl-cmd.sh
 ```
@@ -73,7 +73,7 @@ dl <name> --done          # 归档（删 worktree+分支+元数据）
 | ↑ | `phase-rules.md` | append-system-prompt，各阶段行为规则 |
 | `~/.dl-workflow/hooks/`            | `workflow_phase.py` | UserPromptSubmit 注入当前阶段 |
 | ↑ | `workflow_advance.py` | Stop 检 PHASE_DONE 推进 + sub_steps 门控（evidence hash 触发） |
-| ↑ | `workflow_step_fence.py` | PreToolUse S10 步骤围栏（未判决 trace 时 deny 工具调用） |
+| ↑ | `workflow_step_fence.py` | PreToolUse S15 前置参与围栏（零 trace 白名单）+ S10 步骤围栏（未判决 trace 时 deny） |
 | ↑ | `codegraph_gate.py` | PreToolUse H15 门禁（改已有 .py 前先查 codegraph） |
 | ↑ | `codegraph_audit.py` | PostToolUse 记 codegraph 查询 |
 | `~/.claude/output-styles/` | `workflow.md` | 横幅 + 常驻 TaskList 首要规则 |
@@ -286,7 +286,9 @@ for l in sys.stdin:
 
 ### 症状 O：模型工具调用被围栏拒绝（PreToolUse deny）
 
-围栏有两种（§substep-gate-at-stop S10/S11，2026-07-25 起），都是**正常触发**不是 bug：
+围栏有五种（§substep-gate-at-stop S10/S11/S14，2026-07-25 起；S15，2026-07-26 起；另 plan mode 互斥拦 S12），都是**正常触发**不是 bug：
+
+**S15 前置参与围栏**（deny 提示「尚未开始...前置参与围栏窗口」，2026-07-26 起，designs/step-engage-prefence-design.md）：当前子步骤**零 trace 窗口**（一条 skill-trace 都没写）仅编排工具可用——常驻集 AskUserQuestion / Skill / Task* / Read / Grep / Glob / codegraph / dl-cmd / 写 evidence（主仓绝对路径），外加 engine `Step.fence_allow` 步骤声明（当前：子3=Bash/WebFetch、子4=Agent）。为用户任务探查（其它 Bash/WebFetch/WebSearch/Agent）首调即 deny 指回当前子步骤——把 S13 判据前置到工具调用级（demo b01d6507：MiniMax-M3 首回合 Bash 探查抢答，S13 因用户中断没机会开火）。附带拦症状 L：Bash 相对路径写 evidence 会被 deny 并给出绝对路径。与 S10 状态互斥（零 trace vs 未判决 trace）；纯 text 抢答（无工具）仍由 S13 在 Stop 兜底。新编排节点声明 sub_steps 时**必须显式给 fence_allow**（与 ref/purpose 同处，单源）。
 
 **S10 步骤围栏**（deny 提示「等待门控判决」）：模型写完当前子步骤 evidence 后未 end_turn 就继续调工具（典型：连做下一子步骤探查，demo 会话 3009550c 实录）。围栏与 Stop 门控共用 `last_judged_trace` 游标——judge 判完（pass/block 都记游标）围栏自动开。
 
@@ -298,7 +300,7 @@ for l in sys.stdin:
 
 **诊断**：
 ```bash
-tail -5 <项目>/.claude/.wf_fence.log   # fence_deny（S10）/ phase_fence_deny（S11）
+tail -5 <项目>/.claude/.wf_fence.log   # fence_deny（S10）/ phase_fence_deny（S11）/ engage_fence_deny（S15）
 ```
 - S10 被拒后模型应输出 `### STEP_DONE: N` + end_turn -> Stop 判定 -> 放行/返工。
 - **S10 误伤排查**（模型确实在做当前子步骤的事却被拒）：说明它提前写了 evidence（trace 落盘即被视为完成信号）。纠正：让它输出 STEP_DONE 把这轮判掉（judge block 后游标更新、围栏开、可返工），或 `/dl fence off` 临时关闭。
@@ -319,11 +321,11 @@ tail -5 <项目>/.claude/.wf_fence.log   # fence_deny（S10）/ phase_fence_deny
 
 ### 症状 P：模型违规模式目录（弱遵从模型实测，MiniMax-M3 @ 2026-07-25）
 
-**元教训：对弱遵从模型，一切关键规则必须硬化——文案=建议（概率遵从，当日实测合规率约 50%），hook=物理。** 当日全部机制（S1 门控 / S10-S14 围栏）都是这个原则的兑现。下表是实测出现的违规模式 → 对应机制（加新机制前先查是否已有覆盖）：
+**元教训：对弱遵从模型，一切关键规则必须硬化——文案=建议（概率遵从，当日实测合规率约 50%），hook=物理。** 当日全部机制（S1 门控 / S10-S15 围栏）都是这个原则的兑现。下表是实测出现的违规模式 → 对应机制（加新机制前先查是否已有覆盖）：
 
 | 违规模式 | 实录 | 对应机制 |
 |---|---|---|
-| 明示「简单查询不走流程」直接抢答 | 8c51c318 | S13 参与围栏（无 trace 不许结束回合） |
+| 明示「简单查询不走流程」直接抢答 | 8c51c318 / b01d6507 | S15 前置参与围栏（零 trace 窗口探查工具首调即 deny）+ S13 参与围栏（无 trace 不许结束回合，纯 text 抢答兜底） |
 | plan mode 里「改走 plan mode Phase 1」适应而非退出 | 61482dbe | S12 拒提问 + deny 文案指路用户切模式 |
 | Write 覆盖 evidence（销毁前轮原话佐证） | e84aee6d | S14 覆盖守卫（全行包含检查） |
 | 把用户口语「润色」成书面语记录（判非原话） | bf2516ac | 取证指引（引用原话/会话事实） |

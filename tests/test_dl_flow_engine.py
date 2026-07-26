@@ -1521,6 +1521,53 @@ class TestPendingUnjudgedStep:
         assert eng.pending_unjudged_step(tmp_path, "t") is None
 
 
+class TestEngagementFenceState:
+    """§step-engage-prefence S15：零 trace 窗口判据（与 S13 同判据，单源）。"""
+
+    def test_no_state_none(self, tmp_path):
+        assert eng.engagement_fence_state(tmp_path, "t") is None
+
+    def test_no_sub_steps_none(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 2)
+        assert eng.engagement_fence_state(tmp_path, "t") is None
+
+    def test_zero_trace_returns_step(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        got = eng.engagement_fence_state(tmp_path, "t")
+        assert got is not None
+        n, step = got
+        assert n == 1
+        assert step.ref == "define-problem"
+        assert step.fence_allow == ()
+
+    def test_step3_declares_bash_webfetch(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=3)
+        got = eng.engagement_fence_state(tmp_path, "t")
+        assert got is not None
+        n, step = got
+        assert n == 3
+        assert step.fence_allow == ("Bash", "WebFetch")
+
+    def test_step4_declares_agent(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=4)
+        got = eng.engagement_fence_state(tmp_path, "t")
+        assert got is not None
+        assert got[1].fence_allow == ("Agent",)
+
+    def test_window_closed_with_trace(self, tmp_path):
+        # 有 trace（未判决）-> 归 S10，非本围栏窗口（两态互斥）
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        _write_evidence(tmp_path, "t", [_trace_line(1)])
+        assert eng.engagement_fence_state(tmp_path, "t") is None
+
+    def test_fence_off_none(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        st = eng.normalize_state(eng.load_state(tmp_path, "t"))
+        st["enforce_step_fence"] = False
+        eng.save_state(tmp_path, "t", st)
+        assert eng.engagement_fence_state(tmp_path, "t") is None
+
+
 class TestPhaseWriteDenial:
     """§S11：phase 写权限围栏（understand/plan/review 禁改源码硬化）。"""
 

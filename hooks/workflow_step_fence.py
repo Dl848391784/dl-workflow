@@ -1,6 +1,16 @@
 #!/usr/bin/env python3
 """
-PreToolUse hook：子步骤围栏（S10）+ 阶段写权限围栏（S11）。
+PreToolUse hook：子步骤围栏（S15 前置参与 + S10）+ 阶段写权限围栏（S11）。
+
+S15（§step-engage-prefence）：当前子步骤「零 trace 窗口」（一条 skill-trace
+都没写）时进入白名单模式——仅编排工具可用（常驻集：AskUserQuestion / Skill /
+Task* / Read / Grep / Glob / Write 系仅 evidence 文件 / Bash 仅 dl-cmd.sh、
+evidence 绝对路径 append、codegraph；外加 Step.fence_allow 的步骤声明），
+其它工具调用一律 deny。把 S13（Stop 参与围栏，回合末才纠偏）的判据前置到
+工具调用级：模型为「直接回答用户」发起的第一个工具调用即被拦并指回编排
+（2026-07-26 demo b01d6507：MiniMax-M3 首回合 Bash 探查抢答，S13 因用户
+中断没机会开火）。与 S10 互斥互补：零 trace->S15 白名单；有未判决 trace->
+S10 全 deny；已判决->自由。纯 text 抢答（无工具）仍由 S13 在 Stop 兜底。
 
 S10：把「写完 evidence 后必须 STEP_DONE + end_turn」从文案约束变硬约束：
 当前子步骤有「已写 trace 但未经 Stop 门控判决」（latest_trace_sha1 ≠
@@ -21,6 +31,7 @@ deny 留痕 <project>/.claude/.wf_fence.log（观测性）。
 
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 import time
@@ -83,6 +94,56 @@ def _log_deny(project_root: Path, name: str, kind: str, detail: str) -> None:
 
 # S11：结构化写工具（Bash 写无法可靠判定写意图，不在围栏内——见设计文档 S11）
 _WRITE_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
+
+# S15 常驻放行集（零 trace 窗口内所有子步骤可用）：编排原语 + 无害只读。
+# Read/Grep/Glob 放行的理由（设计 §2.2）：子2 证据源含日志/数据文件、子4 红队
+# 子代理需要读证据；纯 text 抢答本就无法用工具围栏拦截（S13 在 Stop 兜底），
+# 拦 Read 不多拦任何一类违规却会误伤合法取证。
+_S15_BASE_TOOLS = (
+    "AskUserQuestion",
+    "Skill",
+    "TaskCreate",
+    "TaskUpdate",
+    "TaskGet",
+    "TaskList",
+    "Read",
+    "Grep",
+    "Glob",
+    "ExitPlanMode",
+)
+
+
+def _s15_bash_orchestration(cmd: str, ev_file: Path) -> bool:
+    """Bash 编排命令模式（§step-engage-prefence §1.2）：dl-cmd 状态查询 /
+    evidence 绝对路径 append / codegraph。已知限制：子串匹配可被复合命令
+    走私（`codegraph sync && <任意>`）——威胁模型是弱遵从模型非对抗攻击，
+    同 S11 的 Bash 盲区，接受。"""
+    if "dl-cmd.sh" in cmd:
+        return True
+    if str(ev_file) in cmd:
+        return True
+    return re.search(r"\bcodegraph\b", cmd) is not None
+
+
+def _s15_allowed(
+    tool: str, tool_input: dict, ev_file: Path, step: "engine.Step", cwd: str
+) -> bool:
+    """S15 白名单判定：常驻集 / Write 系仅 evidence / Bash 编排模式 / 步骤声明。"""
+    if tool in _S15_BASE_TOOLS:
+        return True
+    if tool in step.fence_allow:
+        return True
+    if tool in _WRITE_TOOLS:
+        fp = str(tool_input.get("file_path") or tool_input.get("notebook_path") or "")
+        if fp and not Path(fp).is_absolute():
+            fp = str((Path(cwd) / fp).resolve())
+        try:
+            return bool(fp) and Path(fp).resolve() == ev_file.resolve()
+        except OSError:
+            return False
+    if tool == "Bash":
+        return _s15_bash_orchestration(str(tool_input.get("command") or ""), ev_file)
+    return False
 
 
 def _deny(reason: str) -> int:
@@ -200,6 +261,51 @@ def main() -> int:
                 return _deny(
                     reason + "\n（此硬约束可用 /dl fence off 关闭，回文案约束）"
                 )
+
+    # ---- S15 参与前置围栏：零 trace 窗口 -> 白名单模式，非编排工具 deny ----
+    # 与 S10 状态互斥（零 trace vs 未判决 trace），先后无关；放 S14/S11 之后
+    # 是让更具体的文案（覆盖守卫/阶段白名单）优先命中。
+    eng = engine.engagement_fence_state(project_root, name)
+    if eng is not None:
+        step_no, step_obj = eng
+        ti = payload.get("tool_input") or {}
+        ev_file = project_root / ".claude" / "evidence" / f"{name}.jsonl"
+        # 症状 L 前置拦截：Bash 相对路径写 evidence（落 worktree，hook 读主仓读不到）
+        # -> 拦下并指回绝对路径，比泛化 deny 文案更指路（§3.5 #5）。
+        if tool == "Bash":
+            cmd = str(ti.get("command") or "")
+            if f".claude/evidence/{name}.jsonl" in cmd and str(ev_file) not in cmd:
+                _log_deny(
+                    project_root, name, "engage_fence_deny", f"step={step_no}|rel_ev"
+                )
+                return _deny(
+                    f"evidence 必须用主仓库绝对路径写（相对路径会落 worktree，"
+                    f"门控读不到）：\n{ev_file}\n"
+                    f"例：Bash `printf '%s\\n' '<json>' >> {ev_file}`"
+                )
+        if not _s15_allowed(tool, ti, ev_file, step_obj, cwd):
+            _log_deny(
+                project_root,
+                name,
+                "engage_fence_deny",
+                f"step={step_no}|tool={tool}",
+            )
+            extra = (
+                f"；本步（{step_obj.ref}）额外放行：{' / '.join(step_obj.fence_allow)}"
+                if step_obj.fence_allow
+                else ""
+            )
+            return _deny(
+                f"子步骤 {step_no}（{step_obj.ref}）尚未开始：当前子步骤没有任何 "
+                "evidence skill-trace，处于前置参与围栏窗口（S15）。\n"
+                f"本步目的：{step_obj.purpose[:150]}{'…' if len(step_obj.purpose) > 150 else ''}\n"
+                "窗口内仅编排工具可用：AskUserQuestion / Skill / Task* / Read / Grep / "
+                f"Glob / codegraph / dl-cmd / 写 evidence（{ev_file}）{extra}。\n"
+                "直接回答用户、为用户任务探查（Bash/WebFetch/WebSearch/Agent 等）= 违规。\n"
+                f"正确动作：按注入的子步骤清单执行子步骤 {step_no}（invoke 对应 skill / "
+                f"用 AskUserQuestion 问用户），完成后写 evidence 再输出 ### STEP_DONE: {step_no} 并 end_turn。\n"
+                "（此硬约束可用 /dl fence off 关闭，回文案约束）"
+            )
 
     # ---- S10 子步骤围栏：有未判决 trace -> 禁一切工具调用，逼 STEP_DONE+end_turn ----
     step = engine.pending_unjudged_step(project_root, name)

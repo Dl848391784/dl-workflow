@@ -71,6 +71,9 @@ class Step:
     gate: (
         str | None
     )  # 子步骤 rubric（judge 校验 purpose 达成否）；None=自动过（仅机械）
+    # §step-engage-prefence S15：零 trace 窗口（PreToolUse 前置围栏）内，
+    # 除常驻编排工具外本步额外放行的工具名（如 "Bash"/"WebFetch"/"Agent"）。
+    fence_allow: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -240,6 +243,9 @@ _NODES: dict[str, Node] = {
                 ),
                 input="step2.problem_list",
                 record=True,
+                # S15 前置围栏：本步合法工具 = curl 五层源（Bash）+ 定点网页（WebFetch）；
+                # codegraph 在常驻 Bash 模式内，无需声明。
+                fence_allow=("Bash", "WebFetch"),
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace 且 sub_step==3 的记录；"
                     "形式要件：每个原子问题有可检验化 claim（含证实/证伪判定标准）；"
@@ -267,6 +273,9 @@ _NODES: dict[str, Node] = {
                 ),
                 input="step3.traces",
                 record=True,
+                # S15 前置围栏：条件触发红队子代理（Agent）；子代理进程内
+                # Read/Grep 在常驻集，无需声明。
+                fence_allow=("Agent",),
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace 且 sub_step==4 的记录；"
                     "形式要件：每条计数证据有三关质检记录；每个原子问题有四态 verdict"
@@ -1345,6 +1354,38 @@ def pending_unjudged_step(project_root: Path, name: str) -> int | None:
     if judged.get(f"{node_id(node.phase, node.sub)}#{cur}") == sha:
         return None
     return cur
+
+
+def engagement_fence_state(project_root: Path, name: str) -> tuple[int, Step] | None:
+    """当前子步骤处于「零 trace 窗口」-> 返回（子步骤号, Step）；否则 None。
+
+    §step-engage-prefence S15：PreToolUse 前置参与围栏（workflow_step_fence.py）
+    的触发判据——与 S13（Stop 参与围栏）同判据、单源在此。窗口内仅编排工具
+    可用（常驻集 + Step.fence_allow），模型为「直接回答用户」发起的工具调用
+    在第一次调用即被 deny 指回编排，不等回合末 S13 纠偏。
+    与 pending_unjudged_step（S10）互斥互补：零 trace->S15 白名单；
+    有未判决 trace->S10 全 deny；已判决->自由。
+    state.enforce_step_fence=False（/dl fence off）-> None（围栏停用，回文案约束）。
+    """
+    state = load_state(project_root, name)
+    if state is None:
+        return None
+    state = normalize_state(state)
+    if not state.get("enforce_step_fence", True):
+        return None
+    try:
+        node = get_node(state["phase"], state["sub_index"])
+    except KeyError:
+        return None
+    if not node.sub_steps:
+        return None
+    cur = state.get("sub_step_index", 1)
+    step = sub_step_at(node, cur)
+    if step is None:
+        return None
+    if latest_trace_sha1(project_root, name, cur) is not None:
+        return None  # 有 trace（未判决/已判决）-> 归 S10/自由，非本围栏窗口
+    return cur, step
 
 
 def _strip_json_fence(text: str) -> str:
