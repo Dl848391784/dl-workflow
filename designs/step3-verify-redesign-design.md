@@ -1,6 +1,6 @@
 # Step3「验真」第一性原理重设计：双向取证 + 质检裁决
 
-> 状态：**已设计待实施**（2026-07-26 设计决议，未改 engine）
+> 状态：**已实施**（2026-07-26；engine/phase-rules/README/SKILL/tests 已同步）
 > 父文档：`node-step-orchestration-design.md`（子步骤编排机制）、`workflow-creation` SKILL.md §3.5（rubric 方法论）
 > 用户硬约束：**禁用 tavily_search / WebSearch**（限制多、免费额度低）→ 外部源全部走零 key / 近零成本免费 API。
 
