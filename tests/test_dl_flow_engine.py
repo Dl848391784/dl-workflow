@@ -1568,6 +1568,26 @@ class TestEngagementFenceState:
         assert eng.engagement_fence_state(tmp_path, "t") is None
 
 
+class TestEngagementFenceNotice:
+    """§autocontinue-fence-notice：围栏提示文本单源（注入与 pass/block 续轮共用）。"""
+
+    def test_step_without_fence_allow_no_exemption_line(self):
+        step = eng.sub_step_at(eng.get_node("understand", 1), 1)
+        notice = eng.engagement_fence_notice(step)
+        assert "前置参与围栏" in notice
+        assert "额外放行" not in notice  # 子1 fence_allow=() -> 无豁免行
+
+    def test_step4_notice_declares_agent(self):
+        step = eng.sub_step_at(eng.get_node("understand", 1), 4)
+        notice = eng.engagement_fence_notice(step)
+        assert "额外放行：Agent" in notice
+
+    def test_step3_notice_declares_bash_webfetch(self):
+        step = eng.sub_step_at(eng.get_node("understand", 1), 3)
+        notice = eng.engagement_fence_notice(step)
+        assert "额外放行：Bash / WebFetch" in notice
+
+
 class TestPhaseWriteDenial:
     """§S11：phase 写权限围栏（understand/plan/review 禁改源码硬化）。"""
 

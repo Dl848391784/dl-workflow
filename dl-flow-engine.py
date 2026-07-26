@@ -1388,6 +1388,30 @@ def engagement_fence_state(project_root: Path, name: str) -> tuple[int, Step] | 
     return cur, step
 
 
+def engagement_fence_notice(step: Step) -> str:
+    """S15 零 trace 窗口的围栏提示文本（含 Step.fence_allow 豁免行）。
+
+    §autocontinue-fence-notice：单源——workflow_phase.py 注入
+    （UserPromptSubmit）与 workflow_advance.py pass/block 续轮
+    （Stop additionalContext）共用，防双通道文案漂移
+    （demo 121320fe：模型只在子1 见过无豁免版提示，到子4 臆断 Agent
+    被 deny，未试先放弃并在 evidence 编造「Agent blocked by S15 fence」）。
+    纯格式化函数：入参 Step，不查 state。
+    """
+    extra = (
+        f"；当前子步骤额外放行：{' / '.join(step.fence_allow)}"
+        if step.fence_allow
+        else ""
+    )
+    return (
+        "🚧 前置参与围栏（S15，PreToolUse 硬约束）：当前子步骤写 evidence 前，"
+        "仅编排工具可用（AskUserQuestion / Skill / Task* / Read / Grep / Glob / "
+        f"codegraph / dl-cmd / 写 evidence{extra}）；"
+        "为用户任务探查（Bash/WebFetch/WebSearch/Agent 等）会被 deny 指回本步——"
+        "「先回答用户问题再走编排」不存在，当前子步骤就是你要做的事。"
+    )
+
+
 def _strip_json_fence(text: str) -> str:
     """剥 ```json ... ``` 代码块围栏（冒烟实测 judge 倾向包代码块）。"""
     s = text.strip()

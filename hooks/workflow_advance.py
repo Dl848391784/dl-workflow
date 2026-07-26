@@ -335,13 +335,18 @@ def main() -> int:
                 how = f"先用 Skill 工具 invoke `{nxt_step.ref}`，再按其引导执行"
             else:
                 how = f"用工具 {nxt_step.ref} 执行"
+            # §autocontinue-fence-notice：续轮消息附下一子步骤的 S15 围栏提示
+            # （含 fence_allow 豁免）——注入通道只在 UserPromptSubmit 渲染，
+            # 自动续轮的会话模型可能只在子1 见过无豁免版提示，到后续步骤
+            # 臆断工具被 deny（demo 121320fe：子4 未试先称 Agent 被拦）。
             return _stop_continue(
                 f"## WORKFLOW 子步骤 {judged_step} 已通过门控\n"
                 f"现在立即执行子步骤 {nxt}/{total}（{nxt_step.kind}: {nxt_step.ref}）：\n"
                 f"目的：{nxt_step.purpose}\n\n"
                 f"{how}；完成后写/append evidence skill-trace（sub_step={nxt}），"
                 f"再输出 ### STEP_DONE: {nxt} 并结束本轮。\n"
-                "如需用户输入：用 AskUserQuestion 工具（回合内完成）。"
+                "如需用户输入：用 AskUserQuestion 工具（回合内完成）。\n"
+                + engine.engagement_fence_notice(nxt_step)
             )
         # block / escalate：同轮返工（S4/S7）
         attempts = (st or state).get("node_attempts", 0)
@@ -368,11 +373,19 @@ def main() -> int:
                 "3. 用户要求回退 /dl back\n"
                 "门控判据不可自行变通；出口只有用户裁决。"
             )
+        # block 返工附当前步围栏提示（含 fence_allow 豁免）：block 高发场景正是
+        # 「模型以为某工具被拦」，豁免文案直接纠正假信念（demo 121320fe）。
+        judged_step_obj = engine.sub_step_at(cur_node0, judged_step)
+        fence_hint = (
+            "\n" + engine.engagement_fence_notice(judged_step_obj)
+            if judged_step_obj is not None
+            else ""
+        )
         return _block_continue(
             f"子步骤 {judged_step} 未通过门控（第 {attempts} 次）：{reason}\n"
             "返工：按判词补缺——上下文已有的原话直接引用（无需问用户），"
             "真缺的维度才用 AskUserQuestion 补问；"
-            "完成后 append 新 trace 再 STEP_DONE。"
+            "完成后 append 新 trace 再 STEP_DONE。" + fence_hint
         )
 
     # 读 transcript 取本轮输出

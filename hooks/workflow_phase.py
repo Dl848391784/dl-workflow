@@ -307,21 +307,14 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
         )
         # §step-engage-prefence S15：前置参与围栏（PreToolUse）提示——零 trace
         # 窗口内非编排工具会被硬 deny，提前告诉模型免它撞墙后困惑。
-        cur_fence = (
-            node.sub_steps[cur_step - 1].fence_allow
+        # §autocontinue-fence-notice：文案单源在 engine（pass/block 续轮共用）。
+        cur_step_obj = (
+            engine.sub_step_at(node, cur_step)
             if 1 <= cur_step <= len(node.sub_steps)
-            else ()
+            else None
         )
-        fence_extra = (
-            f"；当前子步骤额外放行：{' / '.join(cur_fence)}" if cur_fence else ""
-        )
-        lines.append(
-            "  🚧 前置参与围栏（S15，PreToolUse 硬约束）：当前子步骤写 evidence 前，"
-            "仅编排工具可用（AskUserQuestion / Skill / Task* / Read / Grep / Glob / "
-            f"codegraph / dl-cmd / 写 evidence{fence_extra}）；"
-            "为用户任务探查（Bash/WebFetch/WebSearch/Agent 等）会被 deny 指回本步——"
-            "「先回答用户问题再走编排」不存在，当前子步骤就是你要做的事。"
-        )
+        if cur_step_obj is not None:
+            lines.append("  " + engine.engagement_fence_notice(cur_step_obj))
         # evidence 写法格式（§step-advance-on-submit E4：统一 sub_step 字段；门控触发靠它）
         if project_root is not None:
             ev_path = f"{project_root}/.claude/evidence/{name}.jsonl"

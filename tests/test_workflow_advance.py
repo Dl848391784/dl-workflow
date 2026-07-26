@@ -158,3 +158,44 @@ class TestStopStdoutPureJson:
         ctx = directive["hookSpecificOutput"]["additionalContext"]
         assert "WORKFLOW GATE 未通过" in ctx
         assert "缺出处" in ctx
+
+
+class TestContinueCarriesFenceNotice:
+    """§autocontinue-fence-notice：pass/block 续轮附当前步 S15 围栏提示（含
+    fence_allow 豁免）——防模型只在子1 见过无豁免版提示，到后续步骤臆断
+    工具被 deny（demo 121320fe：子4 未试先称 Agent 被 S15 拦）。"""
+
+    def test_pass_to_step4_notice_declares_agent(self, wf_repo, monkeypatch, capsys):
+        # 子3 pass -> 续轮子4：additionalContext 须含「额外放行：Agent」
+        _write_state(wf_repo, sub_step=3)
+        _write_trace(wf_repo, sub_step=3)
+        mod = _load_hook()
+        out, _err = _run_hook(mod, wf_repo, monkeypatch, capsys, judge=(True, ""))
+        directive = json.loads(out.strip())  # 纯 JSON 回归不变
+        ctx = directive["hookSpecificOutput"]["additionalContext"]
+        assert "子步骤 4/6" in ctx
+        assert "前置参与围栏" in ctx
+        assert "额外放行：Agent" in ctx
+
+    def test_block_at_step4_notice_declares_agent(self, wf_repo, monkeypatch, capsys):
+        # 子4 block 返工：豁免文案纠正「Agent 被拦」假信念
+        _write_state(wf_repo, sub_step=4)
+        _write_trace(wf_repo, sub_step=4)
+        mod = _load_hook()
+        out, _err = _run_hook(
+            mod, wf_repo, monkeypatch, capsys, judge=(False, "缺独立红队")
+        )
+        directive = json.loads(out.strip())
+        ctx = directive["hookSpecificOutput"]["additionalContext"]
+        assert "缺独立红队" in ctx
+        assert "额外放行：Agent" in ctx
+
+    def test_pass_to_step2_notice_has_no_exemption(self, wf_repo, monkeypatch, capsys):
+        # 子2 fence_allow=() -> 提示在但无豁免行（文案与注入通道一致）
+        _write_state(wf_repo, sub_step=1)
+        _write_trace(wf_repo, sub_step=1)
+        mod = _load_hook()
+        out, _err = _run_hook(mod, wf_repo, monkeypatch, capsys, judge=(True, ""))
+        ctx = json.loads(out.strip())["hookSpecificOutput"]["additionalContext"]
+        assert "前置参与围栏" in ctx
+        assert "额外放行" not in ctx
