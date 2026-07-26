@@ -90,7 +90,9 @@ class Node:
     sub_steps: tuple[Step, ...] | None = (
         None  # §orchestration v2：None=无编排(当前行为);非 None=启用子步骤注入/逐步门控
     )
-    minor_key: str | None = None  # 子阶段英文标识(首字母大写,evidence minor_stage 值;None=无子阶段)
+    minor_key: str | None = (
+        None  # 子阶段英文标识(首字母大写,evidence minor_stage 值;None=无子阶段)
+    )
 
 
 # 节点表。<node_id> -> Node。node_id = f"{phase}:{sub}"。
@@ -964,8 +966,12 @@ def gate_and_advance_sub_step(
     if state is None:
         return False, f"工作流 {name} 的 state.json 缺失", {}
     state = normalize_state(state)
-    return True, "", _advance_sub_step(
-        project_root, name, state, node, sub_step_index, via="step-submit"
+    return (
+        True,
+        "",
+        _advance_sub_step(
+            project_root, name, state, node, sub_step_index, via="step-submit"
+        ),
     )
 
 
@@ -986,7 +992,10 @@ def force_pass_sub_step(project_root: Path, name: str, cwd: str) -> tuple[bool, 
     except KeyError:
         return False, f"节点 {state['phase']}:{state['sub_index']} 不存在"
     if not node.sub_steps:
-        return False, f"节点 {node_id(node.phase, node.sub)} 无子步骤编排，step-pass 不适用"
+        return (
+            False,
+            f"节点 {node_id(node.phase, node.sub)} 无子步骤编排，step-pass 不适用",
+        )
     cur = state.get("sub_step_index", 1)
     step = sub_step_at(node, cur)
     if step is None:
@@ -1003,9 +1012,7 @@ def force_pass_sub_step(project_root: Path, name: str, cwd: str) -> tuple[bool, 
     return True, f"末子步骤 {cur} 已手动放行 -> 子阶段推进"
 
 
-def reset_sub_step(
-    project_root: Path, name: str, step: int
-) -> tuple[bool, str]:
+def reset_sub_step(project_root: Path, name: str, step: int) -> tuple[bool, str]:
     """回退到子步骤 step 重测（/dl step-reset <n>；反复测试某子步骤的出口）。
 
     三件事（都落盘才算完成，无 silent fallback）：
@@ -1024,7 +1031,10 @@ def reset_sub_step(
     except KeyError:
         return False, f"节点 {state['phase']}:{state['sub_index']} 不存在"
     if not node.sub_steps:
-        return False, f"节点 {node_id(node.phase, node.sub)} 无子步骤编排，step-reset 不适用"
+        return (
+            False,
+            f"节点 {node_id(node.phase, node.sub)} 无子步骤编排，step-reset 不适用",
+        )
     total = len(node.sub_steps)
     if not (1 <= step <= total):
         return False, f"子步骤 {step} 越界（本节点 1..{total}）"
@@ -1106,7 +1116,10 @@ def evidence_mentions_sub_step(
     text = read_evidence(project_root, name)
     if not text:
         return False
-    return f'"sub_step":{sub_step_index}' in text or f'"sub_step": {sub_step_index}' in text
+    return (
+        f'"sub_step":{sub_step_index}' in text
+        or f'"sub_step": {sub_step_index}' in text
+    )
 
 
 def gate_sub_step_at_stop(
@@ -1160,7 +1173,9 @@ def gate_sub_step_at_stop(
         # 先落盘（含 last_judged[key]）：末步路径 advance_state 从磁盘重 load，
         # 不落盘会丢判定游标 -> 下次 Stop 重判同一 trace。
         save_state(project_root, name, state)
-        new_state = _advance_sub_step(project_root, name, state, node, cur, via="step-stop")
+        new_state = _advance_sub_step(
+            project_root, name, state, node, cur, via="step-stop"
+        )
         return "advanced", "", new_state
     state["node_attempts"] = state.get("node_attempts", 0) + 1
     state["updated_at"] = _now()
@@ -1597,7 +1612,9 @@ def main(argv: list[str] | None = None) -> int:
         ],
     )
     parser.add_argument("name", nargs="?", help="工作流名（不填则从 cwd 反查）")
-    parser.add_argument("value", nargs="?", help="fence 的值（on|off）/ step-reset 的子步骤号")
+    parser.add_argument(
+        "value", nargs="?", help="fence 的值（on|off）/ step-reset 的子步骤号"
+    )
     parser.add_argument("--cwd", help="覆盖 cwd（默认进程 cwd）")
     args = parser.parse_args(argv)
 
@@ -1634,7 +1651,9 @@ def main(argv: list[str] | None = None) -> int:
         try:
             n = int(args.value or "")
         except ValueError:
-            print("✗ 用法: step-reset <name> <n>（n=回退到的子步骤号）", file=sys.stderr)
+            print(
+                "✗ 用法: step-reset <name> <n>（n=回退到的子步骤号）", file=sys.stderr
+            )
             return 1
         ok, msg = reset_sub_step(project_root, name, n)
         print(("✓ " if ok else "✗ ") + msg, file=sys.stdout if ok else sys.stderr)

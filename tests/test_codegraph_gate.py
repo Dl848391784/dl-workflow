@@ -210,7 +210,10 @@ def test_audit_parses_qualified_path(repo: Path) -> None:
     sid = "t8_qualified"
     _run(
         AUDIT,
-        {"tool_name": "Bash", "tool_input": {"command": "/home/x/codegraph impact foo.py"}},
+        {
+            "tool_name": "Bash",
+            "tool_input": {"command": "/home/x/codegraph impact foo.py"},
+        },
         sid,
         cwd=repo,
     )

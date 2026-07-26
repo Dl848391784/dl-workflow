@@ -96,7 +96,9 @@ def _write_trace(repo: Path, sub_step: int) -> None:
         },
         ensure_ascii=False,
     )
-    (repo / ".claude" / "evidence" / "t.jsonl").write_text(trace + "\n", encoding="utf-8")
+    (repo / ".claude" / "evidence" / "t.jsonl").write_text(
+        trace + "\n", encoding="utf-8"
+    )
 
 
 def _run_hook(mod, repo: Path, monkeypatch, capsys, judge=(True, "")):
@@ -147,7 +149,9 @@ class TestStopStdoutPureJson:
         _write_state(wf_repo, sub_step=1)
         _write_trace(wf_repo, sub_step=1)
         mod = _load_hook()
-        out, _err = _run_hook(mod, wf_repo, monkeypatch, capsys, judge=(False, "缺出处"))
+        out, _err = _run_hook(
+            mod, wf_repo, monkeypatch, capsys, judge=(False, "缺出处")
+        )
         directive = json.loads(out.strip())
         ctx = directive["hookSpecificOutput"]["additionalContext"]
         assert "WORKFLOW GATE 未通过" in ctx

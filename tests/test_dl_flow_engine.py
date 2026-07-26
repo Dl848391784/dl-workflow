@@ -674,9 +674,19 @@ class TestUnderstand1Orchestration:
         node = eng.get_node("understand", 1)
         s3 = node.sub_steps[2]
         assert s3.kind == "tool"
-        for needle in ("证伪优先", "可检验化", "五层源", "新鲜度", "禁 tavily_search/WebSearch"):
+        for needle in (
+            "证伪优先",
+            "可检验化",
+            "五层源",
+            "新鲜度",
+            "禁 tavily_search/WebSearch",
+        ):
             assert needle in s3.purpose, f"子3 purpose 缺 {needle}"
-        for needle in ("sub_step==3", "反证查询时序先于支持查询", "训练记忆冒充外部证据"):
+        for needle in (
+            "sub_step==3",
+            "反证查询时序先于支持查询",
+            "训练记忆冒充外部证据",
+        ):
             assert needle in s3.gate, f"子3 gate 缺 {needle}"
         assert "tavily" not in s3.ref
 
@@ -1078,9 +1088,9 @@ class TestLatestTraceSha1:
     def test_latest_line_wins(self, tmp_path):
         _write_evidence(tmp_path, "t", [_trace_line(1, "old"), _trace_line(1, "new")])
         sha = eng.latest_trace_sha1(tmp_path, "t", 1)
-        assert sha == eng.hashlib.sha1(
-            _trace_line(1, "new").encode("utf-8")
-        ).hexdigest()
+        assert (
+            sha == eng.hashlib.sha1(_trace_line(1, "new").encode("utf-8")).hexdigest()
+        )
 
     def test_merged_line_tolerated(self, tmp_path):
         # 合并行（Write 无尾换行 + printf 追加）：两个 JSON 粘一行，
@@ -1088,17 +1098,19 @@ class TestLatestTraceSha1:
         merged = _trace_line(1, "v1") + _trace_line(1, "v2")
         _write_evidence(tmp_path, "t", [merged])
         assert eng.sub_step_has_trace(tmp_path, "t", 1) is True
-        assert eng.latest_trace_sha1(tmp_path, "t", 1) == eng.hashlib.sha1(
-            _trace_line(1, "v2").encode("utf-8")
-        ).hexdigest()
+        assert (
+            eng.latest_trace_sha1(tmp_path, "t", 1)
+            == eng.hashlib.sha1(_trace_line(1, "v2").encode("utf-8")).hexdigest()
+        )
 
     def test_merged_line_hash_changes_on_append(self, tmp_path):
         # 合并行存在时 append 第三条 -> latest 指向第三条（重判可触发）
         merged = _trace_line(1, "v1") + _trace_line(1, "v2")
         _write_evidence(tmp_path, "t", [merged, _trace_line(1, "v3")])
-        assert eng.latest_trace_sha1(tmp_path, "t", 1) == eng.hashlib.sha1(
-            _trace_line(1, "v3").encode("utf-8")
-        ).hexdigest()
+        assert (
+            eng.latest_trace_sha1(tmp_path, "t", 1)
+            == eng.hashlib.sha1(_trace_line(1, "v3").encode("utf-8")).hexdigest()
+        )
 
 
 class TestEvidenceMentionsSubStep:
@@ -1109,7 +1121,9 @@ class TestEvidenceMentionsSubStep:
 
     def test_mentions_broken_json(self, tmp_path):
         # 损坏行（截断）含 sub_step 字样 -> True（走「修复格式」分支）
-        _write_evidence(tmp_path, "t", ['{"kind":"skill-trace","sub_step":1,"q":["未完成'])
+        _write_evidence(
+            tmp_path, "t", ['{"kind":"skill-trace","sub_step":1,"q":["未完成']
+        )
         assert eng.evidence_mentions_sub_step(tmp_path, "t", 1) is True
         # 但 latest_trace_sha1 解析不出 -> None（与 mentions 配合分诊）
         assert eng.latest_trace_sha1(tmp_path, "t", 1) is None
@@ -1198,7 +1212,8 @@ class TestGateSubStepAtStop:
             action, _, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
         assert action == "escalate"
         assert (
-            eng.load_state(tmp_path, "t")["node_attempts"] == eng.SUB_STEP_BLOCK_ESCALATE
+            eng.load_state(tmp_path, "t")["node_attempts"]
+            == eng.SUB_STEP_BLOCK_ESCALATE
         )
 
     def test_last_step_cursor_persisted(self, tmp_path):
@@ -1437,7 +1452,9 @@ class TestPhaseWriteDenial:
     """§S11：phase 写权限围栏（understand/plan/review 禁改源码硬化）。"""
 
     def _deny(self, tmp_path, phase, sub, path):
-        step = 1 if eng.sub_total(phase) > 0 else 0  # 有子阶段的节点 sub_step_index 须 1-based
+        step = (
+            1 if eng.sub_total(phase) > 0 else 0
+        )  # 有子阶段的节点 sub_step_index 须 1-based
         _write_state_full(tmp_path, "t", phase, sub, sub_step=step)
         return eng.phase_write_denial(tmp_path, "t", path)
 
@@ -1472,7 +1489,10 @@ class TestPhaseWriteDenial:
             )
             is None
         )
-        assert self._deny(tmp_path, "evolution", 0, "/repo/.claude/skills/s/SKILL.md") is None
+        assert (
+            self._deny(tmp_path, "evolution", 0, "/repo/.claude/skills/s/SKILL.md")
+            is None
+        )
         assert self._deny(tmp_path, "evolution", 0, "/repo/main.py") is not None
 
     def test_no_state_allows(self, tmp_path):

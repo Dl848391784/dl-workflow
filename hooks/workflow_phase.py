@@ -301,7 +301,11 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
             # (skill 步=skill 名,tool 步=工具描述,统填 ref 不区分,简单一致)。
             phase_cap = phase.capitalize()  # understand -> Understand
             minor_key = node.minor_key if node.minor_key else "<minor_key>"
-            cur_step_ref = node.sub_steps[cur_step - 1].ref if 1 <= cur_step <= len(node.sub_steps) else "<skill>"
+            cur_step_ref = (
+                node.sub_steps[cur_step - 1].ref
+                if 1 <= cur_step <= len(node.sub_steps)
+                else "<skill>"
+            )
             lines.append(
                 '   {"kind":"skill-trace",'
                 f'"major_stage":"{phase_cap}","minor_stage":"{minor_key}",'
@@ -320,7 +324,7 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
                 "minor_stage=子阶段英文标识（首字母大写驼峰，当前值见上行，如 ProblemContext）；sub_step=子步骤序号(int)；"
                 "skill=当前子步骤调用的 skill/工具（Step.ref，当前值见上行，如 define-problem）；"
                 "q/a=字符串数组，每对一问一答按序对齐（即 q[0]↔a[0]、q[1]↔a[1]…）；"
-                "单问单答也用数组：q=[\"...\"]、a=[\"...\"]。"
+                '单问单答也用数组：q=["..."]、a=["..."]。'
             )
             lines.append(
                 "  写法（**必须用上面的绝对路径，禁用相对路径**--相对路径会写到 worktree，hook 读不到）："

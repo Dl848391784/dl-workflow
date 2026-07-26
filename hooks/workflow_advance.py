@@ -305,7 +305,9 @@ def main() -> int:
             # ⚠ stdout 必须是纯 JSON（harness 整体解析）——✓ 行走 stderr，
             # 混一行非 JSON 文本会让 additionalContext 被整段丢弃（demo 2026-07-25 实测：
             # pass 续轮未投递，模型停轮；block 路径纯 JSON 所以一直正常）。
-            sys.stderr.write(f"✓ 子步骤 {judged_step} 通过门控 -> 子步骤 {nxt}（自动续轮）\n")
+            sys.stderr.write(
+                f"✓ 子步骤 {judged_step} 通过门控 -> 子步骤 {nxt}（自动续轮）\n"
+            )
             # pass 自动续轮（2026-07-25 决议）：非末步 pass 也返 additionalContext，
             # 模型当轮直接开做下一子步骤，免去用户每步发一次「继续」。
             # 中途需用户输入模型会走 AskUserQuestion；用户可随时 Esc 打断。

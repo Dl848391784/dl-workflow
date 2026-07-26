@@ -33,9 +33,9 @@ def render(project_root: Path, name: str) -> str:
     """读 evidence/<name>.jsonl,渲染中文展示树。文件缺失/空返回提示。"""
     text = engine.read_evidence(project_root, name)
     if not text:
-        return (
-            "（无 evidence 记录：%s/.claude/evidence/%s.jsonl 不存在或为空）"
-            % (project_root, name)
+        return "（无 evidence 记录：%s/.claude/evidence/%s.jsonl 不存在或为空）" % (
+            project_root,
+            name,
         )
 
     phase_labels = engine.PHASE_LABELS

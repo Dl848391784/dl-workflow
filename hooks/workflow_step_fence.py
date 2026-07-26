@@ -194,8 +194,12 @@ def main() -> int:
                 fp = str((Path(cwd) / fp).resolve())
             reason = engine.phase_write_denial(project_root, name, fp)
             if reason:
-                _log_deny(project_root, name, "phase_fence_deny", f"tool={tool}|path={fp}")
-                return _deny(reason + "\n（此硬约束可用 /dl fence off 关闭，回文案约束）")
+                _log_deny(
+                    project_root, name, "phase_fence_deny", f"tool={tool}|path={fp}"
+                )
+                return _deny(
+                    reason + "\n（此硬约束可用 /dl fence off 关闭，回文案约束）"
+                )
 
     # ---- S10 子步骤围栏：有未判决 trace -> 禁一切工具调用，逼 STEP_DONE+end_turn ----
     step = engine.pending_unjudged_step(project_root, name)
