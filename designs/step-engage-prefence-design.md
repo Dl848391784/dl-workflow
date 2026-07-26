@@ -120,10 +120,18 @@ S15 与 S10 同属「子步骤围栏」族（dl-cmd fence on|off 注释已写「
   不重新取证）；b.单层禁止再 spawn Agent（实录嵌套放大：3 嵌套 116k
   boot + 82 Read 系统性重取证 + 嵌套层调 AskUserQuestion 角色错乱；
   代价=失去并行压缩与上下文隔离，但红队职责=推理不是取证，净正）；
-  c.点查只用 Read/Grep/Glob/codegraph；d.证据不足下「证据不足」verdict
+  c.点查以 Read 为主；d.证据不足下「证据不足」verdict
   指明缺哪条、回流子3 补取（证据缺口显式化，替代偷偷重跑取证）。
   注：fence_allow 按工具名放行不区分调用方，嵌套层 Agent 调用同样放行
   ——限深只能靠 prompt 约束（合「威胁模型=弱遵从而非对抗」原则）。
+  104 报错根因链（2026-07-26 全量盘点 demo ProblemContext）：ark provider
+  子代理会话 **Glob 不存在**（11 次 No such tool），harness 错误消息又
+  指引「用 Bash find」——Bash 必被 S15 deny（21 次空拒），两头堵后
+  嵌套层只剩盲猜路径（61 次 Read File-not-found + 5 EISDIR，1.48M
+  cache_read 大头）。教训：prompt 指引必须对齐**子代理真实工具集**
+  （Read 为主），且红队 prompt 须携带关键文件 file:line 清单
+  （a 要求加码）——零认知 + 单工具 = 盲猜。子代理真实可用工具随
+  provider/harness 变，写指引前以实测为准。
 
 ## 3. 与现有机制的关系
 

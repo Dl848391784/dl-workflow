@@ -1658,15 +1658,16 @@ class TestEngagementFenceNotice:
         assert "额外放行：Bash / WebFetch" in notice
 
     def test_step4_purpose_guides_redteam_prompt_tools(self):
-        # demo 121320fe：红队子代理 21 次 Bash 空拒 + 3 层嵌套放大（116k boot +
-        # 82 Read 重取证）——purpose 须让模型组 prompt 时 preempt：工具面 +
-        # 单层禁令 + 证据带全 + 证据不足回流子3
+        # demo 121320fe 子代理 104 报错根因链：Glob 不存在(11) + Bash 空拒(21)
+        # + 盲猜路径(61 Read 全空)——purpose 须让模型组 prompt 时对齐子代理
+        # 工具现实：a 带 file:line 清单（防零认知盲猜）c Read 为主（防撞死锁）
         step = eng.sub_step_at(eng.get_node("understand", 1), 4)
-        assert "Read/Grep/Glob/codegraph" in step.purpose
+        assert "file:line 清单" in step.purpose  # a：防盲猜路径
+        assert "Read 为主" in step.purpose  # c：子代理 Glob/Grep 可能不存在
         assert "Bash" in step.purpose and "deny" in step.purpose
-        assert "禁止再 spawn Agent" in step.purpose  # 单层红队
-        assert "携带子3全部证据" in step.purpose  # 红队推理不重新取证
-        assert "证据不足" in step.purpose and "回流子3" in step.purpose
+        assert "禁止再 spawn Agent" in step.purpose  # b：单层红队
+        assert "携带子3全部证据" in step.purpose
+        assert "证据不足" in step.purpose and "回流子3" in step.purpose  # d
 
 
 class TestPhaseWriteDenial:
