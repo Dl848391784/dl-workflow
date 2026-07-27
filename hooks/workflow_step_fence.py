@@ -95,6 +95,14 @@ def _log_deny(project_root: Path, name: str, kind: str, detail: str) -> None:
 # S11：结构化写工具（Bash 写无法可靠判定写意图，不在围栏内——见设计文档 S11）
 _WRITE_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 
+# S10 豁免的清单记账工具（2026-07-27，demo 907fee09）：output-style 强制模型
+# 每轮维护 TaskList（「每轮首步=对齐清单」），模型落 evidence 后按此规则做
+# TaskUpdate -> 撞 S10 全 deny -> 弱遵从模型不明所以重试 9 次报错刷屏。
+# Task* 是编排记账工具，无法用于「为下一子步骤探查/继续工作」（S10 的防御
+# 对象）——deny 它不防任何违规，只制造与 output-style 强规则的打架。
+# 与 S15 常驻集含 Task* 同一逻辑。TaskStop 不在内（操作后台任务，非记账）。
+_S10_TASK_TOOLS = frozenset({"TaskCreate", "TaskUpdate", "TaskList", "TaskGet"})
+
 # S15 常驻放行集（零 trace 窗口内所有子步骤可用）：编排原语 + 无害只读。
 # Read/Grep/Glob 放行的理由（设计 §2.2）：子2 证据源含日志/数据文件、子4 红队
 # 子代理需要读证据；纯 text 抢答本就无法用工具围栏拦截（S13 在 Stop 兜底），
@@ -304,6 +312,8 @@ def main() -> int:
     step = engine.pending_unjudged_step(project_root, name)
     if step is None:
         return 0  # 无未判决 trace（或围栏已 /dl fence off）-> 放行
+    if tool in _S10_TASK_TOOLS:
+        return 0  # 清单记账豁免（见 _S10_TASK_TOOLS 注释：不防任何违规，只消打架）
     _log_deny(project_root, name, "fence_deny", f"step={step}|tool={tool}")
     return _deny(
         f"子步骤 {step} 已写 evidence，正等待 Stop 门控判决。\n"

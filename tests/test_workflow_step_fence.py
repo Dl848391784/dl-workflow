@@ -333,6 +333,23 @@ class TestS15EngagePreFence:
         assert decision == "deny"
         assert "STEP_DONE" in reason  # S10 文案，非 S15
 
+    def test_task_tools_exempt_in_s10_window(self, wf_repo, monkeypatch, capsys):
+        # S10 Task* 豁免（2026-07-27，demo 907fee09）：Task* 是 output-style 强制
+        # 每轮维护的清单记账工具，无法用于下一子步骤探查——deny 它不防违规，
+        # 只制造「同步 TaskList 被 deny -> 重试 9 次」的报错刷屏。
+        _write_state(wf_repo, sub_step=1)
+        _write_trace(wf_repo, sub_step=1)  # 未判决 trace -> S10 窗口
+        mod = _load_hook()
+        for task_tool in ("TaskCreate", "TaskUpdate", "TaskList", "TaskGet"):
+            decision, _ = _run_hook(mod, wf_repo, monkeypatch, capsys, task_tool, {})
+            assert decision is None, f"{task_tool} 应在 S10 窗口豁免"
+        # 探查工具仍 deny——豁免不削弱 S10 的防御目的
+        decision, reason = _run_hook(
+            mod, wf_repo, monkeypatch, capsys, "Bash", {"command": "ls"}
+        )
+        assert decision == "deny"
+        assert "STEP_DONE" in reason
+
     def test_fence_off_allows_all(self, wf_repo, monkeypatch, capsys):
         _write_state(wf_repo, sub_step=1, enforce=False)
         mod = _load_hook()
