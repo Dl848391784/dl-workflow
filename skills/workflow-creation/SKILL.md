@@ -246,7 +246,7 @@ understand 拆 4 子阶段（1.理解问题和背景 / 2.明确目标和价值 /
 
 有 `sub_steps` 的节点（当前 understand:1）**推进走 Stop hook**（§substep-gate-at-stop，2026-07-25 起；旧 3a「走 UserPromptSubmit」已废止）。触发 = evidence 里当前子步骤**最新 trace 行 hash 有变化**（state.last_judged_trace 游标比对），不是 transcript。
 
-**「没推进」主诉先分诊推进失败 vs 停轮检查点**（2026-07-27，demo 907fee09）：state.json 的 sub_index **已翻**但模型不动 = 停轮检查点（末步停轮/门栏扣留，设计行为），不是推进失败——检查日志会有 `sub_step_gate_pass|step=末|to=1`；sub_index **未翻**才按下方日志链排查。同理「没进下一子阶段」：state 已进 + 模型停轮 = 旧规则末步停轮（2026-07-27 起无门栏边界已改自动续轮；该日前建的会话仍可能停在边界，发「继续」即走）。
+**「没推进」主诉先分诊推进失败 vs 停轮检查点**（2026-07-27，demo 907fee09）：state.json 的 sub_index **已翻**但模型不动 = 停轮检查点（末步停轮/门栏扣留，设计行为），不是推进失败——检查日志会有 `sub_step_gate_pass|step=末|to=1`；sub_index **未翻**才按下方日志链排查。同理「没进下一子阶段」：state 已进 + 模型停轮 = 旧规则末步停轮（2026-07-27 起无门栏边界已改自动续轮；该日前建的会话仍可能停在边界，发「继续」即走）。再同理「understand:4 门栏放行后没推进」：**放行 ≠ 推进是设计行为**（首个 advance="phase" 门栏节点，v2.17）——subgate-pass 只清 held 不 advance_state，state 停在 understand:4 等模型写 understand.md + PHASE_DONE 撞大闸门（需第二次 /dl gate）；注入第三态（✓ 放行待产物）是正常显示，别当卡死排查。
 
 **先确认协议边界**：模型输 STEP_DONE -> end_turn -> Stop hook 立即判：非末步 pass 推进 + **当轮自动续轮**（additionalContext 指令开做下一子步骤），末步 pass 时——无门栏且下一子阶段有编排则**跨子阶段自动续轮**进其子1（2026-07-27 起），门栏节点末步扣留停轮（等 /dl gate），无编排边界停轮，block 则模型**当轮**收到原因返工。**无需用户再发消息**（这是与旧 3a 的核心差别；2026-07-25 起 pass 也不再等用户发「继续」）。两个相关强制：
 - **S13 参与围栏**（2026-07-25 起）：当前子步骤**从未写过 trace** 就结束回合 -> `sub_step_engage_block` 强制续轮（「简单查询不走编排」之类的拒执被机械封堵；问用户必须走 AskUserQuestion 回合内完成）。
@@ -387,8 +387,9 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 7. **新增/移动编排节点或门栏专项**（2026-07-27 GoalsAndValue + 门栏迁移 + ScopeAndConstraints 三轮沉淀）：
    - **共享 evidence 串号防御**：第二个编排节点起，sub_step 都从 1 起——trace 匹配层（`_iter_trace_segments` 一族 + `reset_sub_step` + `redteam_prompt`）必须按 minor_stage 过滤，否则 ProblemContext 子1 的 trace 被新节点门控误读（门控误判/S15 窗口错位/step-reset 误删他节点留痕）。
    - **新开通的推进路径必须有 pinning**：「路径第一次真正走到」是 latent bug 温床——advance_state 跨节点不重置 sub_step_index 藏了一个版本（此前无害纯因下一节点无编排），门栏移走后路径首次开通即爆（normalize_state 越界卡死）。改动让某条推进路径从「走不到」变「走得到」时，先写该路径的 pinning 测试。
-   - **测试 fixture 迁移**：fixture 里当「无编排节点」用的占位在节点编排化后全量换下一个无编排节点（understand:2 → understand:3 → **当前 understand:4**），逐处 grep 别漏（ScopeAndConstraints 编排时迁了 9 处）。
+   - **测试 fixture 迁移**：fixture 里当「无编排节点」用的占位在节点编排化后全量换下一个无编排节点（understand:2 → understand:3 → understand:4 → **当前 plan:0**），逐处 grep 别漏（ScopeAndConstraints 编排迁 9 处；SuccessCriteria 编排迁 11 处 + 2 处注释残留——计数随编排节点增多只增不减）。
    - **排他性/唯一性断言必须全量遍历，禁抽样**（2026-07-27 ScopeAndConstraints 实例）：`test_hold_field_only_on_goals_and_value` 只查「每 phase 首子节点」，understand:3 加了 hold_for_gate 它照样绿——**测试通过 ≠ 新节点被覆盖**。凡「仅 X 有某属性」的断言，遍历 `_NODES` 全表逐节点断言，别用「每 phase 第一个」式抽样。
+   - **机制组合语义走查**（2026-07-27 understand:4 实例）：hold × advance="phase" 是此前不存在的属性组合，release_subgate 的隐含假设（hold 节点都是 sub-advance）被打破——大闸门被静默吸收。新节点属性组合与既有机制的组合语义必须逐函数走查，清单见 §3.8 #6。
    - **模块拆分后 re-export 会被 ruff --fix 当 F401 误删**（2026-07-27 拆 dl_flow_nodes.py 实例）：engine `from dl_flow_nodes import minor_key_map` 在 engine 内未直接使用（tests 经 `eng.minor_key_map` 访问），ruff --fix 删掉 → 9 tests 挂。教训两条：①re-export 处加 `# noqa: F401  # re-export：<谁经此访问>` 注释；②**ruff --fix 后必重跑 pytest 再 commit**——ruff → commit 连跑会把误删固化进历史（当日靠 amend 救回）。
 
 ### 症状 G：install.sh 后 hook 没触发
@@ -499,6 +500,7 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 3. **取证源深度定取证步数量**：五层外部源（OpenAlex/arXiv/SE/HN/GitHub）→ 取证过程与判断质量异族，拆双步（ProblemContext 子3+子4）；本地单层源（Bash/codegraph/Read 验证项目内部事实）→ 压缩为一步（ScopeAndConstraints 子2），独立质检步判无可判 = 纯烧 judge。
 4. **失效模式族定步数**：先列失效模式表（每条带外部出处），再按族归并——异族拆开（judge 分步可判），同族合并（省 judge）。步数不是模板对称出来的（6≠5≠5≠5），是失效模式族数出来的。
 5. **每个新节点先写「关键不对称」**：与前序节点的差异即设计轴心（ProblemContext=纯事实、GoalsAndValue=纯规范、ScopeAndConstraints=混合[约束事实+范围规范]、SuccessCriteria=混合[轴心=规范性目标的可检验化转换；**消费契约倒推**——产物字段从下游消费方（review:0 rubric 判定需求）倒推，不是拍的]）——照抄前节点步数/结构而不重做失效模式分析 = 设计事故温床（各 design 文档「否决的替代方案」节都否过一个「全对称版」）。
+6. **机制适配走查（内容设计之外的第二轴，2026-07-27 understand:4 沉淀）**：#1-5 定的是「内容编排」（几步/每步干什么/判据），但新节点的**属性组合**（advance 类型 × hold × artifact × gate_mech）可能与机制函数的隐含假设冲突——understand:4 实例：hold 机制为 advance="sub" 设计（release_subgate 无条件 advance_state），直接套到首个 advance="phase" 的 hold 节点会把 phase 大闸门**静默吸收**（一次 /dl gate 穿两道门 + 产物 understand.md 失去写入窗口）；且编排节点 Stop hook 在子步骤门控分支即返回，PHASE_DONE 不可达。设计文档只写「需 pinning 测试」这种抽象预见不够——**设计期逐函数走查一遍**（读代码，不是读设计）：①末步推进（`_advance_sub_step` 对该 advance 类型的行为）；②门栏放行（`release_subgate` 推进否、推进后闸门语义）；③完成信号通道（STEP_DONE/PHASE_DONE 哪个对该节点可达）；④注入状态机（编排中/扣留/放行后每态模型看到什么）；⑤/dl 命令路由（held 检测与 phase gate 的次序）。缺口修正后**补记回设计文档**（设计文档是下次实施的真源）。
 
 ## 4. 不要做的事
 
