@@ -13,8 +13,8 @@
 - **每轮首步顺序（硬性）**：每条回复**首步**=①对齐原生 TaskList 清单（用 TaskList/TaskUpdate 工具，**不需 Bash 查 status**；缺则首轮一次性建齐，**之后不重建**避免落底部）-> ②再做实际工作。**禁临时占位**（如"确认阶段中…"）--当前阶段以本轮注入的「## WORKFLOW 当前阶段」attachment 为准；若需取阶段真值，`bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh status` 末尾输出一行当前阶段/子阶段/子步骤数据（**非进度树展示，展示靠 TUI TaskList**），**一次即得，勿反复 Bash 找 state 文件**。
 - **阶段进度展示**：由原生 TUI TaskList 组件负责渲染（模型建齐的 9 项任务清单，见上「常驻阶段清单」）。**不再输出 checklist 文本**（原方案A 弃用，见 banner-tree-design.md）。
 - **阶段可有子阶段**（understand 拆 4 子阶段）：
-  - **understand:1（理解问题和背景）与 understand:2（明确目标和价值）有子步骤编排**：按注入的「▶ 当前子步骤」块逐子步骤执行，每子步骤完成输出 `### STEP_DONE: <n>`（Stop hook 逐步门控）；末子步骤(N)通过即推进到下一子阶段。**禁输出 SUB_DONE**（与 STEP_DONE 互斥）。
-  - 其余子阶段（understand:3-4 等）无编排：子阶段 1..(N-1) 完成各输出 `### SUB_DONE: <n>`（Stop hook 自动推进，**无闸门**）；末子阶段 N 完成 -> 写阶段产物 + 输出 `### PHASE_DONE: <phase>`。
+  - **understand:1（理解问题和背景）、understand:2（明确目标和价值）与 understand:3（确定范围与约束）有子步骤编排**：按注入的「▶ 当前子步骤」块逐子步骤执行，每子步骤完成输出 `### STEP_DONE: <n>`（Stop hook 逐步门控）；末子步骤(N)通过即推进到下一子阶段（门栏节点末步扣留等 `/dl gate`）。**禁输出 SUB_DONE**（与 STEP_DONE 互斥）。
+  - 其余子阶段（understand:4 等）无编排：子阶段 1..(N-1) 完成各输出 `### SUB_DONE: <n>`（Stop hook 自动推进，**无闸门**）；末子阶段 N 完成 -> 写阶段产物 + 输出 `### PHASE_DONE: <phase>`。
   - **未走完子阶段直接输出 PHASE_DONE 会被守卫阻断**（强制依次）。当前子阶段名/序号以每轮注入的「子阶段」块为准。
 - 无子阶段的阶段：完成即输出 `### PHASE_DONE: <phase>`（phase 为英文标识，如 `### PHASE_DONE: understand`）。
 - **只在（子）阶段目标真正达成时**输出对应标记；未达成绝不输出。
@@ -24,7 +24,7 @@
 ## 各阶段行为
 
 ### understand（理解和求证问题）
-- 拆 **4 子阶段**，依次完成（understand:1/2 有子步骤编排逐步门控，3-4 各自动推进子阶段间无闸门）：
+- 拆 **4 子阶段**，依次完成（understand:1/2/3 有子步骤编排逐步门控，4 自动推进子阶段间无闸门）：
   1. **理解问题和背景**（**子步骤编排，逐步 STEP_DONE 门控**，严格时序不可乱序）：
      - **① 先出阶段横幅**（`## PHASE: ...` + 子阶段标记），横幅后**按注入的「▶ 当前子步骤」块逐子步骤执行**（当前步 purpose 全文在注入置顶；全 6 步 purpose 见下方生成段，与注入同源）。
      - **skill 步 invoke 时序**：子步骤 ref 为 skill 名的（子1 define-problem / 子2 causal-inference-root-cause / 子5、子6 define-problem），横幅后立即、在其它任何动作之前 invoke；`### STEP_DONE` / 探查证据（Bash/Read/Grep/Glob/codegraph）**一律不得在 invoke 之前或与之并行**。
@@ -52,11 +52,18 @@
 （本段由 dl-launch.sh 调 dl-flow-engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
 <!-- END GENERATED sub_steps understand:2 -->
      - **子阶段门栏（hold_for_gate）**：末子步骤(5) 通过门控后**推进被扣留，不自动进 understand:3**——「问题 + 目标价值」是 understand 的地基组，完成点 = 显式用户裁决点。等用户 `/dl gate` 放行（用户也可 /dl back 回退、/dl step-reset <n> 重测）。**扣留期间不要做下一子阶段的事**；`/dl step-pass` 末步放行 ≠ 门栏放行（步的放行与子阶段的放行是两个独立的用户决定）。
-  3. **确定范围与约束**：划定 in-scope / out-of-scope + 技术/数据/资源/铁律约束（H1/H7/H9/H11 等）。
+  3. **确定范围与约束**（**子步骤编排，5 步逐步 STEP_DONE 门控**，严格时序不可乱序）：
+     - 编排强制语义与 understand:1 **完全相同**（①横幅后按「▶ 当前子步骤」块逐步执行；②写 evidence 是 STEP_DONE 前置（append-trace 两动作）；③输完 STEP_DONE 即 end_turn；④S15/S10/S13/阶段写围栏；⑤连续 block 3 次升级用户裁决）——见上方 understand:1 各条，不再重复。
+     - **skill 步 invoke 时序**：子4/子5 ref 含 define-problem，进入该步后立即、在其它任何动作之前 invoke。
+     - 全 5 子步骤 purpose（engine 渲染，与注入逐字同源）：
+<!-- BEGIN GENERATED sub_steps understand:3 -->
+（本段由 dl-launch.sh 调 dl-flow-engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
+<!-- END GENERATED sub_steps understand:3 -->
+     - **子阶段门栏（hold_for_gate）**：末子步骤(5) 通过门控后**推进被扣留，不自动进 understand:4**——新编排阶段隔离测试，跑完在此停（2026-07-27 用户决议）。等用户 `/dl gate` 放行（用户也可 /dl back 回退、/dl step-reset <n> 重测）。**扣留期间不要做下一子阶段的事**；`/dl step-pass` 末步放行 ≠ 门栏放行（步的放行与子阶段的放行是两个独立的用户决定）。
   4. **定义成功标准和验收方式**：可验证的成功标准（量化/可观测）+ 验收方式（测试/证据/file:line/数据契约）；汇总写 `understand.md`。
 - 允许：Read / Grep / Glob / codegraph 查证 / AskUserQuestion 澄清。
 - 禁止：Edit / Write 任何源码。
-- 完成：understand:1/2 用 `### STEP_DONE: <n>` 逐步推进（末步通过推进到下一子阶段）；understand:3 输出 `### SUB_DONE: 3`；末子阶段(4) 写出 `understand.md`（真实问题重述 + 边界 + 成功标准；若子2 拆出多个原子问题，未被选定的问题及其一句话陈述也须写入，供后续 dl 实例接续）后输出 `### PHASE_DONE: understand`。
+- 完成：understand:1/2/3 用 `### STEP_DONE: <n>` 逐步推进（末步通过推进到下一子阶段，门栏节点末步扣留等 `/dl gate`）；末子阶段(4) 写出 `understand.md`（真实问题重述 + 边界 + 成功标准；若子2 拆出多个原子问题，未被选定的问题及其一句话陈述也须写入，供后续 dl 实例接续）后输出 `### PHASE_DONE: understand`。
 - **此阶段完成后是闸门**：你不会自动进入 plan，需用户 `/dl gate` 放行。
 
 ### plan（生成执行计划）

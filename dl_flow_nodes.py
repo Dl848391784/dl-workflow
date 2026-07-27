@@ -145,6 +145,22 @@ _G2_STEP1_FORM_REQUIREMENTS = (
     "只能标注「推测」另列"
 )
 
+# understand:3 子1 的形式要件（单源：purpose 模型侧与 gate judge 侧都引用）。
+# 对齐原则同 _STEP1_FORM_REQUIREMENTS：形式要件披露降形式性返工，
+# 质量判据（非空泛/非形式主义/佐证合法性）只留 gate 黑盒。
+# 双结论制（§3.5 #3）：「无实质约束」是合法结论——但须每个 must 目标做过
+# KAOS 否定提问留痕，「未做过否定提问的无约束」= 懒得想，不算（防偷懒出口）。
+_S3_STEP1_FORM_REQUIREMENTS = (
+    "对 GoalsAndValue 每个 must 目标做否定提问「什么会使它失败」（KAOS 障碍分析）"
+    "引出约束候选；约束类型覆盖 ≥3 类（数据/环境/权限/时间/资源/外部依赖），"
+    "q/a 按序对齐，用户侧约束（deadline/人力/权限）缺口用 AskUserQuestion 补问"
+    "（优先上下文已有原话，禁重问已答内容）；"
+    "结论二选一：①约束成立=每 must 目标 ≥1 约束候选或显式「无约束+理由」；"
+    "②无实质约束=所有 must 目标均做过否定提问留痕后仍无候选。"
+    "结论逐句须有出处（用户原话/会话事实/工具留痕）：无出处的推断禁止写进结论，"
+    "只能标注「推测」另列"
+)
+
 _NODES: dict[str, Node] = {
     # ---------- understand（含 4 子阶段;design §3 / workflow_advance.py:47 SUBPHASES 同源）----------
     "understand:1": Node(
@@ -594,9 +610,177 @@ _NODES: dict[str, Node] = {
         skill=None,
         artifact=None,
         gate_mech=GateMech.NONE,
-        gate_rubric=None,
+        gate_rubric=None,  # 子阶段级 rubric 删除（被 sub_steps 逐步门控取代）
         advance="sub",
+        # designs/scope-and-constraints-substeps-design.md（2026-07-27 用户确认 5 步）。
+        # 混合命题不对称：约束=事实性（本地单层源验证，压缩 ProblemContext 取证+质检
+        # 双步为子2 一步），范围=规范性（提案归模型、拍板归用户子5），
+        # 假设=中间态（显式标注置信度×影响，接受归用户子5）。
+        sub_steps=(
+            Step(
+                kind="tool",
+                ref="推理(KAOS 障碍分析) / AskUserQuestion(补问)",
+                short="障碍分析引出",
+                purpose=(
+                    f"障碍分析与约束引出：{_S3_STEP1_FORM_REQUIREMENTS}。"
+                    "obstacle = goal 的对偶（KAOS，van Lamsweerde TSE 2000）："
+                    "否定每个 must 目标找 what-could-go-wrong——"
+                    "「first-sketch goals tend to be too ideal」，"
+                    "未发现的约束会在 execute 期爆炸返工。"
+                ),
+                input="GoalsAndValue.step4.statements",
+                record=True,
+                selfcheck=(
+                    "每个 must 目标都做了否定提问「什么会使它失败」并留痕吗？"
+                    "约束类型 ≥3 类吗？"
+                    "每条 a 是用户原话/会话事实/工具留痕，还是我推断补全的"
+                    "（推断只能标「推测」另列）？结论选了①还是②、每句都有出处吗？"
+                ),
+                gate=(
+                    "evidence/<name>.jsonl 含 kind=skill-trace、"
+                    "minor_stage=ScopeAndConstraints 且 sub_step==1 的记录；"
+                    f"形式要件：{_S3_STEP1_FORM_REQUIREMENTS}。"
+                    "质量判据（从严裁量）：约束候选非空泛复述（「数据可能不准」"
+                    "无具体对象判 block）；否定提问形式主义（每目标同一句套话，"
+                    "未针对目标内容具体化）判 block；②的「无实质约束」缺任一"
+                    "must 目标的否定提问留痕 = 偷懒判 block。"
+                ),
+            ),
+            Step(
+                kind="tool",
+                ref="Bash(本地验证) / codegraph(结构约束) / Read",
+                short="约束验证标注",
+                # ProblemContext 子3+子4 的压缩版：约束是项目内部事实（非外部五层源），
+                # 本地单层取证 + 真伪判断浅，一步完成，无独立质检裁决步。
+                purpose=(
+                    "约束验证与假设标注：对子1 约束候选逐条定真伪，三态输出——"
+                    "①已验证约束（项目内部事实用工具验证：数据文件存在性/新鲜度、"
+                    "接口签名、权限、环境配置，附工具留痕出处）；"
+                    "②假设（无法低成本验证 → 显式标注「假设+置信度+错误时的影响」，"
+                    "PMBOK：assumption stated without proof；「预算是事实，"
+                    "预算够用是假设」）；③证伪剔除（附证据）。"
+                    "不可验证又不标假设 = 静默兜底（no silent fallback 同构）。"
+                    "只标注不裁决——假设的接受是风险承担，留子5 用户裁决。"
+                ),
+                input="step1.constraint_candidates",
+                record=True,
+                fence_allow=("Bash",),
+                selfcheck=(
+                    "子1 每条候选都做了三态处置吗（已验证/假设/证伪，无遗漏）？"
+                    "已验证项都附工具留痕出处了吗？假设项都含置信度+错误时的影响吗？"
+                    "有「未验证」直接混进约束集的（假设未标注）吗？"
+                ),
+                gate=(
+                    "evidence/<name>.jsonl 含 kind=skill-trace、"
+                    "minor_stage=ScopeAndConstraints 且 sub_step==2 的记录；"
+                    "形式要件：子1 候选逐条三态处置（已验证/假设/证伪，无遗漏）；"
+                    "已验证项附工具留痕出处；假设项含置信度+错误时影响。"
+                    "质量判据（从严裁量）：已验证项无工具出处=编造判 block；"
+                    "「未验证」直接进约束集（假设未标注）判 block；"
+                    "训练记忆冒充项目事实（「通常」「一般来说」式断言无本地留痕）"
+                    "判 block。"
+                ),
+            ),
+            Step(
+                kind="tool",
+                ref="推理(双向追溯矩阵+约束回写)",
+                short="范围界定",
+                purpose=(
+                    "范围界定：从 must/nice 裁决 + GoalsAndValue 子5 用户圈定范围"
+                    "派生 in-scope / out-of-scope 双侧清单（PMI：只有 in 侧 = "
+                    "scope creep 温床，52% 项目经历 scope creep；out 侧显式列举"
+                    "「看似该做但不做」的项）；双向追溯：每个 in-scope 项回溯 ≥1 "
+                    "must 目标（backward，防镀金），每个 must 目标有范围覆盖或"
+                    "显式搁置+理由（forward，防漏）；约束回写：已验证约束/已标注"
+                    "假设迫使缩小范围处显式记录（obstacle resolution = "
+                    "alternative scope，KAOS）。只提案不拍板（裁决权留子5）。"
+                    "trace 须含完整矩阵（目标×范围项逐项），汇总声明不算记录。"
+                ),
+                input="step2.verified_constraints + GoalsAndValue.step5.user_decisions",
+                record=True,
+                selfcheck=(
+                    "in-scope 和 out-of-scope 双侧清单都有吗（out 侧是显式列举"
+                    "「看似该做但不做」的项）？双向矩阵逐项完整吗（非汇总声明）？"
+                    "孤儿范围项/孤儿目标都显式处置了吗？约束迫使缩范围处回写了吗？"
+                    "全程只提案、没替用户拍板吧？"
+                ),
+                gate=(
+                    "evidence/<name>.jsonl 含 kind=skill-trace、"
+                    "minor_stage=ScopeAndConstraints 且 sub_step==3 的记录；"
+                    "形式要件：in/out 双侧清单；双向矩阵完备（目标×范围项逐项）；"
+                    "孤儿项显式处置；约束回写已记录。"
+                    "质量判据（从严裁量）：out-of-scope 空清单 = 无真实取舍"
+                    "从严裁量；矩阵放水（明显无关联的目标-范围硬连）判 block；"
+                    "替用户拍板范围（无「提案-待用户裁决」语义）判 block。"
+                ),
+            ),
+            Step(
+                kind="skill",
+                ref="define-problem",
+                short="归一化陈述",
+                # claim normalization 职能第三次复用（ProblemContext 子5 /
+                # GoalsAndValue 子4 同构）。
+                purpose=(
+                    "归一化陈述：对子3 范围与约束集逐项产出归一化陈述——"
+                    "①原子（单句 ≤1 个独立范围项/约束，「和/以及/同时」连接多项="
+                    "复合未拆净，回子3）；"
+                    "②去上下文（脱离本会话可独立理解：主语+动词+约束自包含）；"
+                    "③携带类型标签（约束=已验证 or 假设+置信度；范围=in or out）"
+                    "与 verdict 边界（部分成立目标的范围只覆盖已证实边界——"
+                    "裁决传导，同构 ProblemContext 子5）；"
+                    "④solution-free 复核（范围项含方案名词 = GoalsAndValue 子2 "
+                    "剥离不净残留）。放不进一句=未定义完。"
+                ),
+                input="step3.scope_proposal",
+                record=True,
+                selfcheck=(
+                    "每条陈述单句只含 1 个独立范围项/约束吗（「和/以及/同时」连接"
+                    "多项=复合未拆净，回子3）？脱离本会话可独立理解吗"
+                    "（主语+动词+约束自包含）？携带类型标签（已验证/假设+置信度/"
+                    "in/out）与 verdict 边界了吗？无方案名词残留吧？"
+                ),
+                gate=(
+                    "evidence/<name>.jsonl 含 kind=skill-trace、"
+                    "minor_stage=ScopeAndConstraints 且 sub_step==4 的记录；"
+                    "形式要件：子3 范围与约束集每项各 ≤1 句且含主语+动词+约束"
+                    "（原子+去上下文）；陈述携带类型标签（已验证/假设+置信度/"
+                    "in/out）与边界。"
+                    "质量判据（从严裁量）：陈述集与子3 逐项一致——类型标注/边界"
+                    "不传导判 block；单句含多项并列=复合未拆净判 block；"
+                    "含方案名词/实现动词=solutioneering 残留判 block。"
+                ),
+            ),
+            Step(
+                kind="skill",
+                ref="define-problem / AskUserQuestion",
+                short="读回确认",
+                # 带证据读回（同构 ProblemContext 子6 / GoalsAndValue 子5）。
+                # 本子阶段两个规范裁决点都在此：范围边界拍板 + 假设接受（风险承担）。
+                purpose=(
+                    "带证据的读回确认：向用户呈现 归一化范围双侧清单+约束集"
+                    "（已验证附出处）+假设清单（置信度+影响）+不确定性；"
+                    "用户裁决两件事：①范围边界（in/out 拍板——本子阶段第一规范"
+                    "裁决点）；②假设的接受（风险承担是规范裁决，模型无权替用户"
+                    "接受——第二规范裁决点）；用户认/否/调整记入 trace；"
+                    "多约束/假设时用户圈定本实例处理项，其余落 evidence + "
+                    "understand.md（供后续 dl 实例接续，不丢弃）。"
+                ),
+                input="step4.statements",
+                record=True,
+                selfcheck=(
+                    "呈现了范围双侧清单+约束集（已验证附出处）+假设清单"
+                    "（置信度+影响）+不确定性吗？用户对范围边界与假设接受的"
+                    "两项裁决都记入 trace 了吗？多约束/假设时用户圈定本实例"
+                    "范围、其余落 evidence+understand.md 了吗？"
+                ),
+                gate=None,  # 交互步，gate 不跑 judge（trace 存在即过）
+            ),
+        ),
         minor_key="ScopeAndConstraints",
+        # §subphase-hold-gate（用户决议 2026-07-27）：新编排阶段隔离测试——
+        # 本子阶段跑完扣留等 /dl gate，验证没问题再流入 understand:4。
+        # 门栏位置现状：understand:1=无，understand:2=有，understand:3=有（本节点）。
+        hold_for_gate=True,
     ),
     "understand:4": Node(
         label="定义成功标准和验收方式",
