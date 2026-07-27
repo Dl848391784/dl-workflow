@@ -108,6 +108,8 @@ judge 调用 4 次（子5 gate=None）。
 
 **机制新路径**：hold_for_gate 此前仅用于 advance="sub" 节点（understand:2/3），本节点是首个 advance="phase" 的 hold 节点——末子步 pass -> 扣留 -> subgate-pass -> 推进 phase 的路径从未真正走过，**必须有 pinning 测试**（症状 M #7：新开通的推进路径是 latent bug 温床）。
 
+> **实施期机制缺口修正（2026-07-27，v2.17 实现时发现）**：原机制下 `release_subgate` 无条件 `advance_state`——对 advance="phase" 节点会把 understand->plan **大闸门静默吸收**（一次 /dl gate 既放子闸门又穿大闸门，且 understand.md 失去写入窗口），与本节「放行后写产物 + PHASE_DONE + 第二次 /dl gate」的设计矛盾。修正三处：①engine `release_subgate` 对 advance="phase" 节点**只放行不推进**；②新增 engine `phase_done_channel_open` 单源判据（末步已判过 + 门栏未扣留 + advance="phase"），Stop hook 据此把 PHASE_DONE fall-through 到阶段大闸门分支（编排节点原本在子步骤门控分支即返回，PHASE_DONE 不可达）；③workflow_phase 注入加第三态（编排完成 + 门栏已放行 -> 提示写产物 + PHASE_DONE，防模型重做已判过的子5）。
+
 ## 3. 门控设计要点（§3.5 对齐）
 
 - **双结论制 ×2**（#3）：子1 接受「只能定性验收」为合法结论（须逐目标理由）；子2 接受「不可检验化退回」为合法出口（Volere 退回信号）——否则逼模型硬编假指标（同 ProblemContext 子1 逼编造痛点机制）。
