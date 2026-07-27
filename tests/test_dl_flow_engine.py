@@ -873,6 +873,182 @@ class TestUnderstand1Orchestration:
         assert eng.get_node("understand", 4).sub_steps is None
 
 
+class TestUnderstand2Orchestration:
+    """understand:2 GoalsAndValue 5 子步骤编排（designs/goals-and-value-substeps-design.md）。
+
+    关键不对称：问题是事实性命题（需外部取证+质检裁决），目标/价值是规范性命题
+    （真值源只有用户）——故 5 步无取证/裁决双步；must/nice 分层模型只提案、
+    用户子5 裁决；无 hold_for_gate（用户决议 2026-07-26）。
+    """
+
+    def _steps(self):
+        node = eng.get_node("understand", 2)
+        assert node.sub_steps is not None and len(node.sub_steps) == 5
+        return node.sub_steps
+
+    def test_gate_rubric_none(self):
+        assert eng.get_node("understand", 2).gate_rubric is None
+
+    def test_no_hold_for_gate(self):
+        # 用户决议：子5 读回已含用户裁决，understand->plan 大闸门兜底
+        assert eng.get_node("understand", 2).hold_for_gate is False
+
+    def test_shorts_order(self):
+        shorts = [s.short for s in self._steps()]
+        assert shorts == ["目标引出", "对齐质检", "价值论证", "归一化陈述", "读回确认"]
+
+    def test_record_all_true(self):
+        assert all(s.record for s in self._steps())
+
+    def test_input_chain(self):
+        steps = self._steps()
+        assert steps[0].input == "ProblemContext.step5.statements"  # 跨节点吃子1 输出
+        assert steps[1].input == "step1.goal_candidates"
+        assert steps[2].input == "step2.aligned_goals"
+        assert steps[3].input == "step3.valued_goals"
+        assert steps[4].input == "step4.statements"
+
+    def test_step1_dual_conclusion(self):
+        # 双结论制（§3.5 #3）：「目标不成立」合法——防逼编造价值
+        s1 = self._steps()[0]
+        assert "目标不成立" in s1.purpose and "字面请求即全部" in s1.purpose
+        assert "minor_stage=GoalsAndValue 且 sub_step==1" in s1.gate
+        assert "AskUserQuestion" in s1.ref
+
+    def test_step2_alignment_gate(self):
+        s2 = self._steps()[1]
+        for needle in ("双向追溯矩阵", "solutioneering", "冲突", "汇总声明不算记录"):
+            assert needle in s2.purpose, f"子2 purpose 缺 {needle}"
+        for needle in ("sub_step==2", "同义反复", "矩阵放水"):
+            assert needle in s2.gate, f"子2 gate 缺 {needle}"
+
+    def test_step3_value_and_fence(self):
+        s3 = self._steps()[2]
+        assert s3.fence_allow == ("Bash",)  # S15：条件性基线测量
+        for needle in (
+            "受益者",
+            "价值链",
+            "量化基线",
+            "不可量化+原因",
+            "禁止替用户拍板",
+        ):
+            assert needle in s3.purpose, f"子3 purpose 缺 {needle}"
+        for needle in ("sub_step==3", "全 must", "拍脑袋数字"):
+            assert needle in s3.gate, f"子3 gate 缺 {needle}"
+
+    def test_step4_normalization(self):
+        s4 = self._steps()[3]
+        assert s4.kind == "skill" and s4.ref == "define-problem"
+        for needle in ("原子", "去上下文", "must/nice", "solution-free"):
+            assert needle in s4.purpose, f"子4 purpose 缺 {needle}"
+        assert "sub_step==4" in s4.gate and "逐项一致" in s4.gate
+
+    def test_step5_readback_gate_none(self):
+        s5 = self._steps()[4]
+        assert s5.gate is None  # 交互步，trace 存在即过
+        assert s5.record is True
+        assert "用户裁决 must/nice" in s5.purpose
+
+    def test_selfcheck_no_quality_criteria_leak(self):
+        # Goodhart 分层守卫（同 understand:1）：gate 黑盒措辞不得进 checklist
+        for s in self._steps():
+            if not s.selfcheck:
+                continue
+            for banned in ("从严裁量", "同义反复", "矩阵放水", "拍脑袋数字", "全 must"):
+                assert banned not in s.selfcheck, f"{s.short} selfcheck 泄漏 {banned}"
+
+
+class TestMinorStageFilter:
+    """v2.15：多编排节点共用 evidence，trace 匹配层按 minor_stage 过滤防跨节点串号。
+
+    无过滤时 ProblemContext 子1 的 trace 会被 GoalsAndValue 子1 的门控/围栏误读。
+    minor_stage=None 不过滤（向后兼容）。
+    """
+
+    def _g2_trace(self, sub_step: int, marker: str = "g") -> str:
+        return json.dumps(
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "GoalsAndValue",
+                "sub_step": sub_step,
+                "skill": "define-problem",
+                "purpose": "p",
+                "q": [f"q-{marker}"],
+                "a": [f"a-{marker}"],
+            },
+            ensure_ascii=False,
+        )
+
+    def test_has_trace_scoped(self, tmp_path):
+        _write_evidence(tmp_path, "t", [_trace_line(1)])  # ProblemContext 子1
+        assert eng.sub_step_has_trace(tmp_path, "t", 1, "GoalsAndValue") is False
+        assert eng.sub_step_has_trace(tmp_path, "t", 1, "ProblemContext") is True
+        assert eng.sub_step_has_trace(tmp_path, "t", 1) is True  # None=不过滤（兼容）
+
+    def test_latest_sha1_scoped(self, tmp_path):
+        _write_evidence(tmp_path, "t", [_trace_line(1), self._g2_trace(1)])
+        sha_pc = eng.latest_trace_sha1(tmp_path, "t", 1, "ProblemContext")
+        sha_g2 = eng.latest_trace_sha1(tmp_path, "t", 1, "GoalsAndValue")
+        assert sha_pc is not None and sha_g2 is not None and sha_pc != sha_g2
+
+    def test_read_evidence_for_step_scoped(self, tmp_path):
+        _write_evidence(tmp_path, "t", [_trace_line(1), self._g2_trace(1)])
+        out = eng.read_evidence_for_step(tmp_path, "t", 1, "GoalsAndValue")
+        assert (
+            out is not None and "GoalsAndValue" in out and "ProblemContext" not in out
+        )
+
+    def test_mentions_scoped_line_level(self, tmp_path):
+        _write_evidence(tmp_path, "t", [_trace_line(2)])  # ProblemContext 子2
+        assert (
+            eng.evidence_mentions_sub_step(tmp_path, "t", 2, "GoalsAndValue") is False
+        )
+        assert (
+            eng.evidence_mentions_sub_step(tmp_path, "t", 2, "ProblemContext") is True
+        )
+
+    def test_corrupt_skips_other_node_lines(self, tmp_path):
+        # 他节点（ProblemContext）的损坏行不归 GoalsAndValue 判
+        corrupt_pc = '{"kind":"skill-trace","minor_stage":"ProblemContext","sub_step":1,"q":["截断'
+        _write_evidence(tmp_path, "t", [self._g2_trace(1), corrupt_pc])
+        assert (
+            eng.corrupt_trace_after_latest(tmp_path, "t", 1, "GoalsAndValue") is False
+        )
+
+    def test_corrupt_counts_unattributed_fragment(self, tmp_path):
+        # 无 minor_stage 字段的截断碎片无法归属 -> 按本节点候选处理（防卡死回退）
+        corrupt = '{"kind":"skill-trace","sub_step":1,"q":["截断'
+        _write_evidence(tmp_path, "t", [self._g2_trace(1), corrupt])
+        assert eng.corrupt_trace_after_latest(tmp_path, "t", 1, "GoalsAndValue") is True
+
+    def test_reset_deletes_only_own_node(self, tmp_path):
+        # GoalsAndValue step-reset 不得删 ProblemContext 留痕（v2.15 前会误删）
+        _write_state_full(tmp_path, "t", "understand", 2, sub_step=1)
+        _write_evidence(
+            tmp_path,
+            "t",
+            [
+                _trace_line(1),  # ProblemContext 子1
+                _trace_line(2),  # ProblemContext 子2
+                self._g2_trace(1),  # GoalsAndValue 子1
+            ],
+        )
+        ok, _ = eng.reset_sub_step(tmp_path, "t", 1)
+        assert ok is True
+        text = eng._evidence_path(tmp_path, "t").read_text(encoding="utf-8")
+        assert "ProblemContext" in text  # 他节点留痕保留
+        assert "GoalsAndValue" not in text  # 本节点 sub_step>=1 已删
+
+    def test_gate_at_stop_ignores_other_node_trace(self, tmp_path, monkeypatch):
+        # GoalsAndValue 子1 零 trace 窗口：ProblemContext 子1 trace 不得被误读为本节点的
+        _write_state_full(tmp_path, "t", "understand", 2, sub_step=1)
+        _write_evidence(tmp_path, "t", [_trace_line(1)])
+        action, _, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
+        assert action == "none"  # 本节点无 trace -> 静默放行（非误判推进）
+        assert eng.engagement_fence_state(tmp_path, "t") is not None  # S15 窗口仍开
+
+
 class TestRubricNeedsEvidence:
     """rubric_needs_evidence：节点级 rubric（understand:1 现已 None -> False）。
 

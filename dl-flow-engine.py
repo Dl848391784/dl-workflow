@@ -1138,7 +1138,9 @@ def step_needs_evidence(step: Step) -> bool:
     return "evidence/" in r or "skill-trace" in r
 
 
-def _iter_trace_segments(text: str, sub_step_index: int, minor_stage: str | None = None):
+def _iter_trace_segments(
+    text: str, sub_step_index: int, minor_stage: str | None = None
+):
     """逐行扫描 evidence 文本，产出匹配 trace 的 (raw_segment, rec)。
 
     容错（2026-07-25，demo 74f82d93）：Write 无尾换行 + printf 追加会让两个
@@ -1440,12 +1442,13 @@ def reset_sub_step(project_root: Path, name: str, step: int) -> tuple[bool, str]
             except json.JSONDecodeError:
                 kept.append(line)  # 坏行不属于任何子步骤，保留（暴露而非吞掉）
                 continue
-            if not (
-                isinstance(rec.get("sub_step"), int) and rec["sub_step"] >= step
-            ):
+            if not (isinstance(rec.get("sub_step"), int) and rec["sub_step"] >= step):
                 kept.append(line)
                 continue
-            if rec.get("kind") == "skill-trace" and rec.get("minor_stage") == node.minor_key:
+            if (
+                rec.get("kind") == "skill-trace"
+                and rec.get("minor_stage") == node.minor_key
+            ):
                 removed += 1
                 continue
             if rec.get("kind") == "gate" and rec.get("node") == nid:
@@ -1567,11 +1570,15 @@ def corrupt_trace_after_latest(
     for line in lines[last_valid_idx + 1 :]:
         if not any(n in line for n in needle):
             continue
-        if mneedle is not None and '"minor_stage"' in line and not any(
-            m in line for m in mneedle
+        if (
+            mneedle is not None
+            and '"minor_stage"' in line
+            and not any(m in line for m in mneedle)
         ):
             continue  # 明确归属他节点的行，不归本节点判
-        if not any(True for _ in _iter_trace_segments(line, sub_step_index, minor_stage)):
+        if not any(
+            True for _ in _iter_trace_segments(line, sub_step_index, minor_stage)
+        ):
             return True
     return False
 
@@ -1617,7 +1624,9 @@ def gate_sub_step_at_stop(
     step = sub_step_at(node, cur)
     if step is None:
         return none
-    mk = node.minor_key  # 跨节点串号防御：trace 匹配限定本节点（见 _iter_trace_segments）
+    mk = (
+        node.minor_key
+    )  # 跨节点串号防御：trace 匹配限定本节点（见 _iter_trace_segments）
     sha = latest_trace_sha1(project_root, name, cur, mk)
     if sha is None:
         return none  # 无 trace：中途暂停（或 evidence 路径错位,症状 L）-> 静默放行

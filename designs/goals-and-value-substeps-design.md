@@ -1,6 +1,7 @@
 # understand:2「明确目标和价值」子步骤编排设计（GoalsAndValue）
 
-> 状态：**待实施**（2026-07-26 设计已与用户确认：5 步 / 不加 hold_for_gate / 先写本文档）
+> 状态：**已实施**（2026-07-26；engine/phase-rules/SKILL/tests 已同步，312 tests 全绿；设计已与用户确认：5 步 / 不加 hold_for_gate / 先写本文档）
+> 实施期增量发现：多编排节点共用 evidence 且 sub_step 都从 1 起——trace 匹配层（_iter_trace_segments 一族 + reset_sub_step + redteam_prompt + workflow_advance S13）原只按 sub_step 匹配会**跨节点串号**（ProblemContext 子1 trace 被 GoalsAndValue 门控误读），已加 minor_stage 过滤（None=不过滤向后兼容；corrupt 检测保留无 minor_stage 截断碎片防卡死回退）。
 > 父文档：`node-step-orchestration-design.md`（子步骤编排机制）、`understand-subphases-design.md`（4 子阶段划分，sub2 goal=「明确本次达成什么、为谁解决什么、价值；分 must/nice」）、`step3-verify-redesign-design.md` + `step5-step6-statement-readback-redesign-design.md`（ProblemContext 6 步范式）、`workflow-creation` SKILL.md §3.5（rubric 方法论）/ §3.7（四桶分工）
 > 外部取证：本文 §4（Tavily 检索，2026-07-26，设计期调研——用户明示允许；与运行期 understand:1 子3「禁 tavily/WebSearch」约束无关）
 
