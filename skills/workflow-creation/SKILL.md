@@ -383,10 +383,12 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 4. **`scripts/workflow/phase-rules.md`**（v2.12 起为模板）：子步骤 purpose 段是 GENERATED 标记（launcher 渲染，**改 engine Step.purpose 自动同步，无需手改**）；手维护范围只剩静态强制语义（围栏/invoke 时序/完成标记）-- 这些仍是**最易漏**项，system-prompt 通道优先级最高，漏改必打架
 5. **`output-styles/workflow.md`**：显示层契约（清单 subject 写法/横幅格式/建齐规则）-- 同为模型强遵从通道；改注入里 TaskList/横幅相关文案时漏改它，会出现"两通道措辞歧义 -> 模型解读随会话漂移"（症状 F 编号实例，commit 5215b63）
 6. 冒烟：拿真 worktree + 真 state 跑 `_format_injection` 看注入结构；跑 `dl-flow-engine.py render-phase-rules scripts/workflow/phase-rules.md` 看渲染产物（子步骤段应与 engine purpose 逐字一致）
-7. **新增/移动编排节点或门栏专项**（2026-07-27 GoalsAndValue + 门栏迁移沉淀）：
+7. **新增/移动编排节点或门栏专项**（2026-07-27 GoalsAndValue + 门栏迁移 + ScopeAndConstraints 三轮沉淀）：
    - **共享 evidence 串号防御**：第二个编排节点起，sub_step 都从 1 起——trace 匹配层（`_iter_trace_segments` 一族 + `reset_sub_step` + `redteam_prompt`）必须按 minor_stage 过滤，否则 ProblemContext 子1 的 trace 被新节点门控误读（门控误判/S15 窗口错位/step-reset 误删他节点留痕）。
    - **新开通的推进路径必须有 pinning**：「路径第一次真正走到」是 latent bug 温床——advance_state 跨节点不重置 sub_step_index 藏了一个版本（此前无害纯因下一节点无编排），门栏移走后路径首次开通即爆（normalize_state 越界卡死）。改动让某条推进路径从「走不到」变「走得到」时，先写该路径的 pinning 测试。
-   - **测试 fixture 迁移**：fixture 里当「无编排节点」用的占位（如 understand:2）在节点编排化后全量换下一个无编排节点（understand:3），逐处 grep 别漏。
+   - **测试 fixture 迁移**：fixture 里当「无编排节点」用的占位在节点编排化后全量换下一个无编排节点（understand:2 → understand:3 → **当前 understand:4**），逐处 grep 别漏（ScopeAndConstraints 编排时迁了 9 处）。
+   - **排他性/唯一性断言必须全量遍历，禁抽样**（2026-07-27 ScopeAndConstraints 实例）：`test_hold_field_only_on_goals_and_value` 只查「每 phase 首子节点」，understand:3 加了 hold_for_gate 它照样绿——**测试通过 ≠ 新节点被覆盖**。凡「仅 X 有某属性」的断言，遍历 `_NODES` 全表逐节点断言，别用「每 phase 第一个」式抽样。
+   - **模块拆分后 re-export 会被 ruff --fix 当 F401 误删**（2026-07-27 拆 dl_flow_nodes.py 实例）：engine `from dl_flow_nodes import minor_key_map` 在 engine 内未直接使用（tests 经 `eng.minor_key_map` 访问），ruff --fix 删掉 → 9 tests 挂。教训两条：①re-export 处加 `# noqa: F401  # re-export：<谁经此访问>` 注释；②**ruff --fix 后必重跑 pytest 再 commit**——ruff → commit 连跑会把误删固化进历史（当日靠 amend 救回）。
 
 ### 症状 G：install.sh 后 hook 没触发
 
@@ -484,6 +486,19 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 - **边界**：脚本够不着模型会话内工具（TaskCreate/Agent 调用）——这些环节的「内容」可由脚本生成（如 redteam-prompt 输出文本），「调用」只能留模型侧。
 - **附带红利**：脚本**当场校验**（载荷不合法即时报错，模型当轮修）——失败从「gate 时延迟暴露/静默」变「写入时即时暴露」。
 
+## 3.8 编排节点拆步方法论（设计新 sub_steps 前必读）
+
+三个编排节点（ProblemContext 6 步 / GoalsAndValue 5 步 / ScopeAndConstraints 5 步）沉淀的第一性原理推导链。设计文档是全貌（各 `designs/*-substeps-design.md`），本节是浓缩的推导顺序：
+
+1. **终态三属性定目标**：内容正确（中间步）/ 形式可移植（归一化陈述步）/ 用户认可（读回确认步）——三属性同构贯穿所有 understand 子阶段，末两步（归一化 + 带证据读回）是固定收尾对。
+2. **命题性质三分定取证配置**（2026-07-27 从二分扩成三分）：
+   - **事实性命题**（问题是否存在、约束是否真实）→ 需取证 + 质检裁决（judge 判结构、外部证据判真值）；
+   - **规范性命题**（想要什么、范围取舍、must/nice）→ **无取证步**——外部证据无权证伪「我想要什么」，真值源只有用户（硬设取证步 = 逼模型拿「业界通常」式训练记忆冒充依据）；
+   - **中间态（假设）**（未证明但当作真）→ 显式标注（置信度 × 错误时影响）+ **接受归用户**（风险承担是规范裁决，模型无权代答）。
+3. **取证源深度定取证步数量**：五层外部源（OpenAlex/arXiv/SE/HN/GitHub）→ 取证过程与判断质量异族，拆双步（ProblemContext 子3+子4）；本地单层源（Bash/codegraph/Read 验证项目内部事实）→ 压缩为一步（ScopeAndConstraints 子2），独立质检步判无可判 = 纯烧 judge。
+4. **失效模式族定步数**：先列失效模式表（每条带外部出处），再按族归并——异族拆开（judge 分步可判），同族合并（省 judge）。步数不是模板对称出来的（6≠5≠5），是失效模式族数出来的。
+5. **每个新节点先写「关键不对称」**：与前序节点的差异即设计轴心（ProblemContext=纯事实、GoalsAndValue=纯规范、ScopeAndConstraints=混合）——照抄前节点步数/结构而不重做失效模式分析 = 设计事故温床（各 design 文档「否决的替代方案」节都否过一个「全对称版」）。
+
 ## 4. 不要做的事
 
 - ❌ **手改 hook 逻辑**：应直接改 `~/.dl-workflow/hooks/*.py`（git 跟踪），`git pull` 即生效，无副本同步。
@@ -511,4 +526,5 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 - "Execution error / 管道测试" → §2 症状 E
 - "跑太慢 / 耗时长 / token 消耗大 / 程序应该毫秒级 / 成本审计" → §2 症状 R
 - "审计这轮运行 / 符合预期吗 / 哪些 error 返工可避免 / judge 输入膨胀 / 重建丢弃" → §3.6
+- "设计新编排节点 / 拆几个子步骤 / 每步什么目的 / 要不要取证步 / 步数怎么定" → §3.8
 - "证据链 / evidence / no_markers / evidence.jsonl 不生成 / 证据不落地" -> §2 症状 I
