@@ -248,11 +248,20 @@ def main() -> int:
         # 协议遵从的模型不需要在子步骤中途结束回合（问用户走 AskUserQuestion
         # 回合内完成）；无 trace 结束回合 = 拒绝参与 -> 强制继续。
         # 有 trace 的情况走下方门控（新 hash 判 / 同 hash 已判过放行，R2 保留）。
-        if engine.latest_trace_sha1(project_root, name, judged_step) is None:
+        # minor_stage 限定本节点——多编排节点共用 evidence，不限定会把
+        # ProblemContext 的同号子步骤 trace 误读为本节点的（跨节点串号）。
+        if (
+            engine.latest_trace_sha1(
+                project_root, name, judged_step, cur_node0.minor_key
+            )
+            is None
+        ):
             step0 = engine.sub_step_at(cur_node0, judged_step)
             purpose0 = step0.purpose if step0 else ""
             # 分诊：真无 trace（拒执，强制参与）vs 有内容但 JSON 损坏（指引修复格式）
-            if engine.evidence_mentions_sub_step(project_root, name, judged_step):
+            if engine.evidence_mentions_sub_step(
+                project_root, name, judged_step, cur_node0.minor_key
+            ):
                 _log(
                     project_root,
                     "sub_step_malformed_trace",

@@ -945,13 +945,19 @@ def step_needs_evidence(step: Step) -> bool:
     return "evidence/" in r or "skill-trace" in r
 
 
-def _iter_trace_segments(text: str, sub_step_index: int):
+def _iter_trace_segments(text: str, sub_step_index: int, minor_stage: str | None = None):
     """逐行扫描 evidence 文本，产出匹配 trace 的 (raw_segment, rec)。
 
     容错（2026-07-25，demo 74f82d93）：Write 无尾换行 + printf 追加会让两个
     JSON 对象粘在一行，按行 json.loads 会整行跳过 -> trace「隐形」
     （S13 误判无 trace 强制参与）。用 raw_decode 循环扫一行内多个 JSON 对象。
     匹配：kind=skill-trace + sub_step == sub_step_index。
+    minor_stage（2026-07-26，goals-and-value-substeps-design）：多编排节点
+    （understand:1 ProblemContext / understand:2 GoalsAndValue）共用一个
+    evidence 文件且 sub_step 都从 1 起——不按 minor_stage 过滤，ProblemContext
+    子1 的 trace 会被 GoalsAndValue 子1 的门控/围栏误读（跨节点串号）。
+    None=不过滤（向后兼容）；指定时缺 minor_stage 字段的旧记录不匹配
+    （显式不算数，no silent fallback）。
     """
     decoder = json.JSONDecoder()
     for line in text.splitlines():
@@ -970,29 +976,33 @@ def _iter_trace_segments(text: str, sub_step_index: int):
                 isinstance(rec, dict)
                 and rec.get("kind") == "skill-trace"
                 and rec.get("sub_step") == sub_step_index
+                and (minor_stage is None or rec.get("minor_stage") == minor_stage)
             ):
                 yield s[idx:end], rec
             idx = end
 
 
-def sub_step_has_trace(project_root: Path, name: str, sub_step_index: int) -> bool:
+def sub_step_has_trace(
+    project_root: Path, name: str, sub_step_index: int, minor_stage: str | None = None
+) -> bool:
     """evidence.jsonl 是否含 sub_step == sub_step_index 的 skill-trace 记录。
 
     §step-advance-on-submit E1：UserPromptSubmit 据此判断当前子步骤是否已写 evidence
     （避开 transcript flush 竞态；evidence 是上轮写、已落盘）。
     缺文件/读失败 -> False（gate 降级判 block，不默认放行）。
-    匹配字段：kind=skill-trace + sub_step == sub_step_index。
+    匹配字段：kind=skill-trace + sub_step == sub_step_index（+ minor_stage，见
+    _iter_trace_segments 的跨节点串号说明）。
     q/a 从字符串改为字符串数组（新格式兼容旧格式，单值 q/a 也匹配）。
     容一行多 JSON 对象（raw_decode 循环，见 _iter_trace_segments）。
     """
     text = read_evidence(project_root, name)
     if not text:
         return False
-    return any(True for _ in _iter_trace_segments(text, sub_step_index))
+    return any(True for _ in _iter_trace_segments(text, sub_step_index, minor_stage))
 
 
 def read_evidence_for_step(
-    project_root: Path, name: str, sub_step_index: int
+    project_root: Path, name: str, sub_step_index: int, minor_stage: str | None = None
 ) -> str | None:
     """读 evidence 喂 judge 的子步骤裁剪版（2026-07-26，judge 输入 scope 化）。
 
@@ -1005,7 +1015,8 @@ def read_evidence_for_step(
     - 只含 kind=skill-trace 且 sub_step ≤ sub_step_index 的记录；
     - 每个 sub_step 只留**最新一条**——返工历史不喂（judge 本就以最新为准，
       历史是纯 token 开销）；
-    - kind=gate 裁决记录不喂（judge 判 trace 内容，不判裁决留痕）。
+    - kind=gate 裁决记录不喂（judge 判 trace 内容，不判裁决留痕）；
+    - minor_stage 指定时只取该节点的 trace（跨节点串号见 _iter_trace_segments）。
     输出按 sub_step 升序拼行（append 协议下与原文顺序一致）。
     无文件/读失败/无匹配 -> None（与 read_evidence 同语义：judge 拿不到
     证据 -> 判 block，no silent fallback）。
@@ -1015,7 +1026,7 @@ def read_evidence_for_step(
         return None
     latest: dict[int, str] = {}
     for k in range(1, sub_step_index + 1):
-        for seg, _rec in _iter_trace_segments(text, k):
+        for seg, _rec in _iter_trace_segments(text, k, minor_stage):
             latest[k] = seg
     if not latest:
         return None
@@ -1118,7 +1129,9 @@ def gate_and_advance_sub_step(
     if step.gate is None:
         ok, reason = True, ""
     else:
-        artifact = read_evidence_for_step(project_root, name, sub_step_index)
+        artifact = read_evidence_for_step(
+            project_root, name, sub_step_index, node.minor_key
+        )
         ok, reason = run_judge(
             step.gate,
             f"{node.label} · 子步骤{sub_step_index}",
@@ -1218,6 +1231,10 @@ def reset_sub_step(project_root: Path, name: str, step: int) -> tuple[bool, str]
         return False, f"子步骤 {step} 越界（本节点 1..{total}）"
 
     # 1. evidence 过滤（删 sub_step >= step 的 trace/gate 行；坏行原样保留不吞）
+    # 多编排节点共用 evidence（goals-and-value-substeps-design）：只删**本节点**的行——
+    # skill-trace 按 minor_stage、gate 按 node 归属判定；归属不明（缺字段）的行
+    # 与坏行同原则保留（暴露而非吞掉），防 step-reset 误删他节点（如 ProblemContext）留痕。
+    nid = node_id(node.phase, node.sub)
     removed = 0
     path = _evidence_path(project_root, name)
     if path.exists():
@@ -1230,14 +1247,18 @@ def reset_sub_step(project_root: Path, name: str, step: int) -> tuple[bool, str]
             except json.JSONDecodeError:
                 kept.append(line)  # 坏行不属于任何子步骤，保留（暴露而非吞掉）
                 continue
-            if (
-                rec.get("kind") in ("skill-trace", "gate")
-                and isinstance(rec.get("sub_step"), int)
-                and rec["sub_step"] >= step
+            if not (
+                isinstance(rec.get("sub_step"), int) and rec["sub_step"] >= step
             ):
+                kept.append(line)
+                continue
+            if rec.get("kind") == "skill-trace" and rec.get("minor_stage") == node.minor_key:
                 removed += 1
                 continue
-            kept.append(line)
+            if rec.get("kind") == "gate" and rec.get("node") == nid:
+                removed += 1
+                continue
+            kept.append(line)  # 他节点的行 / 归属不明的行：保留
         path.write_text("".join(line + "\n" for line in kept), encoding="utf-8")
 
     # 2. state 回退
@@ -1245,7 +1266,6 @@ def reset_sub_step(project_root: Path, name: str, step: int) -> tuple[bool, str]
     state["node_attempts"] = 0
     state.pop("held_for_gate", None)  # §subphase-hold-gate：回退重测时门栏状态同步失效
     judged = state.get("last_judged_trace", {})
-    nid = node_id(node.phase, node.sub)
     for k in list(judged):
         if not k.startswith(f"{nid}#"):
             continue
@@ -1266,18 +1286,21 @@ def reset_sub_step(project_root: Path, name: str, step: int) -> tuple[bool, str]
 # ---------- 子步骤 Stop 门控（§substep-gate-at-stop）----------
 
 
-def latest_trace_sha1(project_root: Path, name: str, sub_step_index: int) -> str | None:
+def latest_trace_sha1(
+    project_root: Path, name: str, sub_step_index: int, minor_stage: str | None = None
+) -> str | None:
     """evidence.jsonl 里 sub_step == sub_step_index 的**最后一条** skill-trace 的 sha1。
 
     §substep-gate-at-stop S1：Stop hook 以此与 state.last_judged_trace 比对判定「有新产出」。
     用 hash 不用行数：模型违规覆盖写也产生新 hash -> 必判。无匹配/文件缺 -> None。
     容一行多 JSON 对象（raw_decode，取最后一个匹配段的 hash）。
+    minor_stage 指定时只取该节点的 trace（跨节点串号见 _iter_trace_segments）。
     """
     text = read_evidence(project_root, name)
     if not text:
         return None
     latest: str | None = None
-    for seg, _rec in _iter_trace_segments(text, sub_step_index):
+    for seg, _rec in _iter_trace_segments(text, sub_step_index, minor_stage):
         latest = seg
     if latest is None:
         return None
@@ -1285,24 +1308,37 @@ def latest_trace_sha1(project_root: Path, name: str, sub_step_index: int) -> str
 
 
 def evidence_mentions_sub_step(
-    project_root: Path, name: str, sub_step_index: int
+    project_root: Path, name: str, sub_step_index: int, minor_stage: str | None = None
 ) -> bool:
     """evidence 原文是否提及 sub_step==N（raw 子串探测，不解析 JSON）。
 
     §S13 分诊用：latest_trace_sha1 为 None 时区分「真无 trace」（强制参与）
     vs「有内容但 JSON 损坏/被合并后仍无法解析」（提示修复格式）。
+    minor_stage 指定时要求同一行同时含 sub_step 与 minor_stage 子串
+    （跨节点串号见 _iter_trace_segments；行级探测防 ProblemContext 的
+    同号子步骤被误判为本节点的损坏写入）。
     """
     text = read_evidence(project_root, name)
     if not text:
         return False
-    return (
-        f'"sub_step":{sub_step_index}' in text
-        or f'"sub_step": {sub_step_index}' in text
+    needles = (
+        f'"sub_step":{sub_step_index}',
+        f'"sub_step": {sub_step_index}',
+    )
+    if minor_stage is None:
+        return any(n in text for n in needles)
+    mneedles = (
+        f'"minor_stage":"{minor_stage}"',
+        f'"minor_stage": "{minor_stage}"',
+    )
+    return any(
+        any(n in line for n in needles) and any(m in line for m in mneedles)
+        for line in text.splitlines()
     )
 
 
 def corrupt_trace_after_latest(
-    project_root: Path, name: str, sub_step_index: int
+    project_root: Path, name: str, sub_step_index: int, minor_stage: str | None = None
 ) -> bool:
     """最新合法 trace 之后是否存在「含 sub_step==N 子串但解析不出合法记录」的损坏行。
 
@@ -1312,6 +1348,11 @@ def corrupt_trace_after_latest(
     误判为「没写新东西」-> 模型以为返工完成，工作流看似卡死（无任何日志）。
     只数**最新合法 trace 行之后**的损坏行：之前的损坏行是已处理历史（模型修好后
     旧碎片仍在文件里），不重复报警。append 协议下新写入必在最新合法行之后。
+    minor_stage 指定时：合法行定位限定该节点；损坏行候选 = 含 sub_step 子串
+    且【不含 minor_stage 字段（截断碎片无法归属，按本节点候选处理）或
+    含本节点 minor_stage】——含**他节点** minor_stage 的行跳过（跨节点串号
+    见 _iter_trace_segments）。截断碎片常丢 minor_stage 字段（demo d59d05ea
+    的碎片就没有），若强制要求 minor_stage 子串会把真损坏放行回「卡死」。
     """
     text = read_evidence(project_root, name)
     if not text:
@@ -1319,16 +1360,25 @@ def corrupt_trace_after_latest(
     lines = text.splitlines()
     last_valid_idx = -1
     for i, line in enumerate(lines):
-        if any(True for _ in _iter_trace_segments(line, sub_step_index)):
+        if any(True for _ in _iter_trace_segments(line, sub_step_index, minor_stage)):
             last_valid_idx = i
     needle = (
         f'"sub_step":{sub_step_index}',
         f'"sub_step": {sub_step_index}',
     )
+    mneedle = (
+        (f'"minor_stage":"{minor_stage}"', f'"minor_stage": "{minor_stage}"')
+        if minor_stage is not None
+        else None
+    )
     for line in lines[last_valid_idx + 1 :]:
         if not any(n in line for n in needle):
             continue
-        if not any(True for _ in _iter_trace_segments(line, sub_step_index)):
+        if mneedle is not None and '"minor_stage"' in line and not any(
+            m in line for m in mneedle
+        ):
+            continue  # 明确归属他节点的行，不归本节点判
+        if not any(True for _ in _iter_trace_segments(line, sub_step_index, minor_stage)):
             return True
     return False
 
@@ -1374,7 +1424,8 @@ def gate_sub_step_at_stop(
     step = sub_step_at(node, cur)
     if step is None:
         return none
-    sha = latest_trace_sha1(project_root, name, cur)
+    mk = node.minor_key  # 跨节点串号防御：trace 匹配限定本节点（见 _iter_trace_segments）
+    sha = latest_trace_sha1(project_root, name, cur, mk)
     if sha is None:
         return none  # 无 trace：中途暂停（或 evidence 路径错位,症状 L）-> 静默放行
     key = f"{node_id(node.phase, node.sub)}#{cur}"
@@ -1385,7 +1436,7 @@ def gate_sub_step_at_stop(
         # 静默放行会让模型以为返工完成、流程看似卡死（demo d59d05ea 子3）。
         # 判 block 给格式修复指引；计 attempts（连续损坏达阈值同样升级用户裁决，
         # 防无限返工环）。游标不动：模型修好后 sha 变化 -> 走正常判定。
-        if not corrupt_trace_after_latest(project_root, name, cur):
+        if not corrupt_trace_after_latest(project_root, name, cur, mk):
             return none  # 已判过同一产出（上轮 block 后模型未写新 trace）-> 放行防 loop
         state["node_attempts"] = state.get("node_attempts", 0) + 1
         state["updated_at"] = _now()
@@ -1398,7 +1449,7 @@ def gate_sub_step_at_stop(
     if step.gate is None:
         ok, reason = True, ""
     else:
-        artifact = read_evidence_for_step(project_root, name, cur)
+        artifact = read_evidence_for_step(project_root, name, cur, mk)
         ok, reason = run_judge(
             step.gate,
             f"{node.label} · 子步骤{cur}",
@@ -1503,7 +1554,7 @@ def pending_unjudged_step(project_root: Path, name: str) -> int | None:
     cur = state.get("sub_step_index", 1)
     if sub_step_at(node, cur) is None:
         return None
-    sha = latest_trace_sha1(project_root, name, cur)
+    sha = latest_trace_sha1(project_root, name, cur, node.minor_key)
     if sha is None:
         return None
     judged = state.get("last_judged_trace", {})
@@ -1539,7 +1590,7 @@ def engagement_fence_state(project_root: Path, name: str) -> tuple[int, Step] | 
     step = sub_step_at(node, cur)
     if step is None:
         return None
-    if latest_trace_sha1(project_root, name, cur) is not None:
+    if latest_trace_sha1(project_root, name, cur, node.minor_key) is not None:
         return None  # 有 trace（未判决/已判决）-> 归 S10/自由，非本围栏窗口
     return cur, step
 
@@ -1975,10 +2026,13 @@ def redteam_prompt(project_root: Path, name: str) -> str | None:
     证据取 read_evidence_for_step(≤3)：含子1-3 最新 trace、**不含子4 结论**
     （只给证据不给结论）。无子3 trace -> None（调用方 exit 1 暴露：
     红队无证据可审，先回补子3）。
+    minor_stage 限定 ProblemContext（本函数是 understand:1 子4 专属；
+    不限定会读到 GoalsAndValue 的同号子步骤 trace——跨节点串号）。
     """
-    if not sub_step_has_trace(project_root, name, 3):
+    pc_minor = _NODES["understand:1"].minor_key
+    if not sub_step_has_trace(project_root, name, 3, pc_minor):
         return None
-    evidence = read_evidence_for_step(project_root, name, 3)
+    evidence = read_evidence_for_step(project_root, name, 3, pc_minor)
     if evidence is None:
         return None
     return (
