@@ -151,6 +151,23 @@ class TestStopStdoutPureJson:
         assert st["sub_index"] == 2  # 扣留：不推进
         assert st["held_for_gate"] is True
 
+    def test_cross_subphase_auto_continue(self, wf_repo, monkeypatch, capsys):
+        # 无门栏的子阶段边界不是检查点（2026-07-27 用户预期「跑到门栏再停」）：
+        # understand:1 末步（子6）pass -> 自动续轮进 understand:2 子1（纯 JSON 指令）
+        _write_state(wf_repo, sub_step=6, sub_index=1)
+        _write_trace(wf_repo, sub_step=6, sub_index=1)
+        mod = _load_hook()
+        out, _err = _run_hook(mod, wf_repo, monkeypatch, capsys, judge=(True, ""))
+        directive = json.loads(out.strip())  # 整体可解析 = 纯 JSON（症状 Q 契约）
+        ctx = directive["hookSpecificOutput"]["additionalContext"]
+        assert "子步骤 1/5" in ctx
+        assert "明确目标和价值" in ctx  # 新子阶段名
+        assert "目标引出" in ctx  # understand:2 子1 的 purpose/selfcheck 入场
+        st = json.loads((wf_repo / ".claude/workflows/t/state.json").read_text())
+        assert st["sub_index"] == 2
+        assert st["sub_step_index"] == 1
+        assert "held_for_gate" not in st
+
     def test_block_stdout_is_pure_json(self, wf_repo, monkeypatch, capsys):
         # block 返工路径同样纯 JSON（历史一直正常，防未来混入 _emit）
         _write_state(wf_repo, sub_step=1)

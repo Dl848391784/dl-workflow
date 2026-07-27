@@ -186,6 +186,43 @@ def _block_continue(reason: str) -> int:
     )
 
 
+def _sub_step_continue(prev_desc: str, node: "engine.Node", n: int) -> int:
+    """pass 自动续轮指令（非末步 & 跨子阶段进下一编排节点子1 共用，单源）。
+
+    pass 自动续轮（2026-07-25 决议）：pass 也返 additionalContext 指令模型当轮
+    开做下一子步骤，免去用户每步发一次「继续」；中途需用户输入模型会走
+    AskUserQuestion，用户可随时 Esc 打断。
+    prev_desc：刚通过门控的对象描述（「子步骤 3」/「子阶段「X」的全部子步骤」）。
+    ⚠ stdout 必须是纯 JSON（症状 Q）：本函数只经 _stop_continue 输出，
+    ✓ 等人类可读文本由调用方走 stderr。
+    §autocontinue-fence-notice：续轮消息附目标子步骤的 S15 围栏提示
+    （含 fence_allow 豁免）——注入通道只在 UserPromptSubmit 渲染，
+    自动续轮的会话模型可能只在子1 见过无豁免版提示，到后续步骤
+    臆断工具被 deny（demo 121320fe：子4 未试先称 Agent 被拦）。
+    """
+    step = engine.sub_step_at(node, n)
+    if step is None:
+        return 0  # 防御：索引异常时停轮（下轮注入自纠）
+    total = len(node.sub_steps)
+    if step.kind == "skill":
+        how = f"先用 Skill 工具 invoke `{step.ref}`，再按其引导执行"
+    else:
+        how = f"用工具 {step.ref} 执行"
+    return _stop_continue(
+        f"## WORKFLOW {prev_desc} 已通过门控\n"
+        f"现在立即执行「{node.label}」子步骤 {n}/{total}（{step.kind}: {step.ref}）：\n"
+        f"目的：{step.purpose}\n\n"
+        f"{how}；完成后落 evidence（Write 载荷 purpose/q/a 到 "
+        f".claude/evidence/.trace-payload-<name>.json，再 Bash `python3 "
+        f"~/.dl-workflow/dl-flow-engine.py append-trace --from-file <载荷>`），"
+        f"再输出 ### STEP_DONE: {n} 并结束本轮。\n"
+        "如需用户输入：用 AskUserQuestion 工具（回合内完成）。\n"
+        + engine.selfcheck_hint(step)
+        + "\n"
+        + engine.engagement_fence_notice(step)
+    )
+
+
 def _evidence_artifact(
     project_root: Path | None, name: str, node: "engine.Node"
 ) -> str | None:
@@ -322,9 +359,24 @@ def main() -> int:
                     "  输入 /dl gate 放行；或 /dl back 回退、/dl step-reset <n> 重测。"
                 )
                 return 0
-            if (st or {}).get("sub_index", cur_sub) != cur_sub:
-                # 末步通过 -> 子阶段边界：停轮作天然检查点（用户可介入/redirect），
-                # 不自动续轮进下一子阶段。
+            new_sub = (st or {}).get("sub_index", cur_sub)
+            if new_sub != cur_sub:
+                # 末步通过 -> 跨子阶段。无门栏的边界不是检查点（门栏才是——
+                # 2026-07-27 用户预期「无门栏一路跑到门栏再停」）：
+                # 下一子阶段有编排则自动续轮进其子1；无编排/不存在才停轮等用户。
+                nxt_node = None
+                try:
+                    nxt_node = engine.get_node(cur_phase, new_sub)
+                except KeyError:
+                    nxt_node = None
+                if nxt_node is not None and nxt_node.sub_steps:
+                    sys.stderr.write(
+                        f"✓ 子步骤 {judged_step} 通过门控 -> "
+                        f"{nxt_node.label} 子步骤 1（自动续轮）\n"
+                    )
+                    return _sub_step_continue(
+                        f"子阶段「{cur_node0.label}」的全部子步骤", nxt_node, 1
+                    )
                 _emit(f"✓ 子步骤 {judged_step} 通过门控 -> 子阶段推进")
                 return 0
             # ⚠ stdout 必须是纯 JSON（harness 整体解析）——✓ 行走 stderr，
@@ -333,34 +385,7 @@ def main() -> int:
             sys.stderr.write(
                 f"✓ 子步骤 {judged_step} 通过门控 -> 子步骤 {nxt}（自动续轮）\n"
             )
-            # pass 自动续轮（2026-07-25 决议）：非末步 pass 也返 additionalContext，
-            # 模型当轮直接开做下一子步骤，免去用户每步发一次「继续」。
-            # 中途需用户输入模型会走 AskUserQuestion；用户可随时 Esc 打断。
-            nxt_step = engine.sub_step_at(cur_node0, nxt)
-            total = len(cur_node0.sub_steps)
-            if nxt_step is None:
-                return 0  # 防御：索引异常时停轮（下轮注入自纠）
-            if nxt_step.kind == "skill":
-                how = f"先用 Skill 工具 invoke `{nxt_step.ref}`，再按其引导执行"
-            else:
-                how = f"用工具 {nxt_step.ref} 执行"
-            # §autocontinue-fence-notice：续轮消息附下一子步骤的 S15 围栏提示
-            # （含 fence_allow 豁免）——注入通道只在 UserPromptSubmit 渲染，
-            # 自动续轮的会话模型可能只在子1 见过无豁免版提示，到后续步骤
-            # 臆断工具被 deny（demo 121320fe：子4 未试先称 Agent 被拦）。
-            return _stop_continue(
-                f"## WORKFLOW 子步骤 {judged_step} 已通过门控\n"
-                f"现在立即执行子步骤 {nxt}/{total}（{nxt_step.kind}: {nxt_step.ref}）：\n"
-                f"目的：{nxt_step.purpose}\n\n"
-                f"{how}；完成后落 evidence（Write 载荷 purpose/q/a 到 "
-                f".claude/evidence/.trace-payload-<name>.json，再 Bash `python3 "
-                f"~/.dl-workflow/dl-flow-engine.py append-trace --from-file <载荷>`），"
-                f"再输出 ### STEP_DONE: {nxt} 并结束本轮。\n"
-                "如需用户输入：用 AskUserQuestion 工具（回合内完成）。\n"
-                + engine.selfcheck_hint(nxt_step)
-                + "\n"
-                + engine.engagement_fence_notice(nxt_step)
-            )
+            return _sub_step_continue(f"子步骤 {judged_step}", cur_node0, nxt)
         # block / escalate：同轮返工（S4/S7）
         attempts = (st or state).get("node_attempts", 0)
         _log(
