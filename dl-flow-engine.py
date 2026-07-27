@@ -35,7 +35,6 @@ from pathlib import Path
 from typing import Any
 
 
-
 # ---------- 节点树（单源在 dl_flow_nodes.py；此处 re-export 保持 engine.* 访问面不变）----------
 #
 # 拆分缘由（2026-07-27，designs/scope-and-constraints-substeps-design.md §6 前置项）：
@@ -570,14 +569,47 @@ def _advance_sub_step(
     return advance_state(project_root, name, via=via)
 
 
+def phase_done_channel_open(
+    project_root: Path, name: str, state: dict[str, Any], node: Node
+) -> bool:
+    """sub_steps 节点的 PHASE_DONE 通道是否打开（单源判据，hook 两处引用）。
+
+    仅 advance="phase" 的编排末节点（understand:4，success-criteria-substeps-design
+    §2）：编排全部完成（当前步=末步且末步最新 trace 已判过）且门栏未扣留时，
+    模型的 PHASE_DONE 走无编排节点的阶段闸门路径（写产物 -> PHASE_DONE -> 大闸门）。
+    其余节点（advance="sub" 编排节点/无编排节点/门栏扣留中）一律 False：
+    - advance="sub"：末步 pass 即推进，无 PHASE_DONE 通道；
+    - 门栏扣留中：PHASE_DONE 无效，唯一出口 /dl gate（subgate-pass）。
+    """
+    if not (node.sub_steps and node.advance == "phase"):
+        return False
+    if state.get("held_for_gate"):
+        return False
+    cur = state.get("sub_step_index", 1)
+    if cur != len(node.sub_steps):
+        return False
+    sha = latest_trace_sha1(project_root, name, cur, node.minor_key)
+    if sha is None:
+        return False
+    key = f"{node_id(node.phase, node.sub)}#{cur}"
+    return state.get("last_judged_trace", {}).get(key) == sha
+
+
 def release_subgate(project_root: Path, name: str, cwd: str) -> tuple[bool, str]:
     """子阶段门栏放行（/dl gate 在 held 状态下的路由出口，§subphase-hold-gate）。
 
     三件事（对齐 step-pass 的手动放行留痕原则）：
     1. 校验 held 标记（无标记=没在门栏前，报错暴露不猜）。
     2. write_gate_verdict(via="manual-subgate-pass", sub_step=末步)——手动放行必留痕。
-    3. 清标记 + advance_state 推进子阶段（子阶段推进把 state.gate 归 pending，
-       understand 末节点的 phase 闸门仍需独立 /dl gate，无语义叠加）。
+    3. 清标记 + 推进——按 node.advance 分两种：
+       - advance="sub"（understand:2/3）：advance_state 推进子阶段（子阶段推进把
+         state.gate 归 pending，understand 末节点的 phase 闸门仍需独立 /dl gate，
+         无语义叠加）。
+       - advance="phase"（understand:4）：**只放行不推进**——放行后模型写阶段产物
+         + PHASE_DONE 撞 phase 大闸门（understand 在 GATED_AFTER，需第二次 /dl gate；
+         success-criteria-substeps-design §2）。若在此 advance_state，大闸门会被
+         subgate-pass 静默吸收（一次 /dl gate 既放子闸门又穿大闸门），且产物
+         understand.md 失去写入窗口。
     """
     state = load_state(project_root, name)
     if state is None:
@@ -610,6 +642,15 @@ def release_subgate(project_root: Path, name: str, cwd: str) -> tuple[bool, str]
     state.pop("held_for_gate", None)
     state["updated_at"] = _now()
     save_state(project_root, name, state)
+    if node.advance == "phase":
+        # advance="phase" 节点（understand:4）：门栏放行 ≠ 阶段推进。
+        # 模型写产物 + PHASE_DONE -> phase 大闸门（仍需第二次 /dl gate）。
+        return (
+            True,
+            f"门栏放行：{node.label} 已批准 —— 模型将汇总写 "
+            f"{node.artifact or '阶段产物'} 并输出 ### PHASE_DONE: {node.phase}"
+            f"（进下一阶段的 phase 闸门仍需 /dl gate 放行）",
+        )
     advance_state(project_root, name, via="manual-subgate-pass")
     nxt_phase, nxt_sub = next_node_id(node.phase, node.sub)
     return (

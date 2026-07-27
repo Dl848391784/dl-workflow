@@ -285,7 +285,22 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
             "等用户 `/dl gate` 放行（用户也可 /dl back 回退、/dl step-reset <n> 重测）。"
             "**不要做下一子阶段的事**；用户放行前，回答仅限本子阶段收尾/答疑。"
         )
-    if node and node.sub_steps and not held_for_gate:
+    # §success-criteria-orchestration：advance="phase" 编排末节点（understand:4）
+    # 编排完成 + 门栏已放行（判据单源 engine.phase_done_channel_open）->
+    # 第三态：不给子步骤编排块，改提示写产物 + PHASE_DONE 撞阶段大闸门。
+    phase_done_open = bool(
+        node
+        and project_root is not None
+        and engine.phase_done_channel_open(project_root, name, state, node)
+    )
+    if phase_done_open:
+        lines.append(
+            f"- ✓ 本子阶段全部子步骤已通过门控，门栏已放行——**汇总写 "
+            f"{node.artifact or '阶段产物'}（4 子阶段归一化陈述直接装配，禁二次创作）"
+            f"+ 输出 `### PHASE_DONE: {node.phase}`** 触发阶段大闸门"
+            "（仍需用户 `/dl gate` 放行才进下一阶段）。不要重做已通过的子步骤。"
+        )
+    if node and node.sub_steps and not held_for_gate and not phase_done_open:
         cur_step = state.get("sub_step_index", 1)
         total_steps = len(node.sub_steps)
         cur = (

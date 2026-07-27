@@ -331,8 +331,12 @@ def main() -> int:
             )
         action, reason, st = engine.gate_sub_step_at_stop(project_root, name, cwd)
         if action == "none":
-            return 0  # 无新 trace / 同 trace 已判 -> 静默放行（S6/防 loop）
-        if action == "advanced":
+            # advance="phase" 编排末节点（understand:4）：末步已判过 + 门栏未扣留
+            # -> PHASE_DONE 通道打开（判据单源 engine.phase_done_channel_open），
+            # 落到下方 PHASE_DONE 分支走阶段大闸门；否则维持静默放行（S6/防 loop）。
+            if not engine.phase_done_channel_open(project_root, name, state, cur_node0):
+                return 0  # 无新 trace / 同 trace 已判 -> 静默放行
+        elif action == "advanced":
             nxt = (st or {}).get("sub_step_index", 0)
             _log(
                 project_root,
@@ -386,50 +390,51 @@ def main() -> int:
                 f"✓ 子步骤 {judged_step} 通过门控 -> 子步骤 {nxt}（自动续轮）\n"
             )
             return _sub_step_continue(f"子步骤 {judged_step}", cur_node0, nxt)
-        # block / escalate：同轮返工（S4/S7）
-        attempts = (st or state).get("node_attempts", 0)
-        _log(
-            project_root,
-            "sub_step_gate_block",
-            wf=name,
-            phase=cur_phase,
-            step=judged_step,
-            attempts=attempts,
-            action=action,
-            reason=reason[:80],
-            **engine.LAST_JUDGE_META,
-        )
-        if action == "escalate":
+        else:
+            # block / escalate：同轮返工（S4/S7）
+            attempts = (st or state).get("node_attempts", 0)
+            _log(
+                project_root,
+                "sub_step_gate_block",
+                wf=name,
+                phase=cur_phase,
+                step=judged_step,
+                attempts=attempts,
+                action=action,
+                reason=reason[:80],
+                **engine.LAST_JUDGE_META,
+            )
+            if action == "escalate":
+                return _block_continue(
+                    f"子步骤 {judged_step} 已连续 {attempts} 次未通过门控（达升级阈值）。\n"
+                    f"最近原因：{reason}\n"
+                    "停止盲目重做，用 AskUserQuestion 请用户裁决：\n"
+                    "1. 用户补充信息/澄清后，你重做该子步骤\n"
+                    "2. 用户同意强制放行后，你运行 "
+                    "bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh step-pass"
+                    "（裁决记录落 evidence）\n"
+                    "3. 用户要求回退 /dl back\n"
+                    "门控判据不可自行变通；出口只有用户裁决。"
+                )
+            # block 返工附当前步围栏提示（含 fence_allow 豁免）：block 高发场景正是
+            # 「模型以为某工具被拦」，豁免文案直接纠正假信念（demo 121320fe）。
+            # §step-selfcheck：返工后再声明完成前同样要求逐条自查（步级 checklist）。
+            judged_step_obj = engine.sub_step_at(cur_node0, judged_step)
+            rework_hint = (
+                "\n"
+                + engine.selfcheck_hint(judged_step_obj)
+                + (
+                    "\n" + engine.engagement_fence_notice(judged_step_obj)
+                    if judged_step_obj is not None
+                    else ""
+                )
+            )
             return _block_continue(
-                f"子步骤 {judged_step} 已连续 {attempts} 次未通过门控（达升级阈值）。\n"
-                f"最近原因：{reason}\n"
-                "停止盲目重做，用 AskUserQuestion 请用户裁决：\n"
-                "1. 用户补充信息/澄清后，你重做该子步骤\n"
-                "2. 用户同意强制放行后，你运行 "
-                "bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh step-pass"
-                "（裁决记录落 evidence）\n"
-                "3. 用户要求回退 /dl back\n"
-                "门控判据不可自行变通；出口只有用户裁决。"
+                f"子步骤 {judged_step} 未通过门控（第 {attempts} 次）：{reason}\n"
+                "返工：按判词补缺——上下文已有的原话直接引用（无需问用户），"
+                "真缺的维度才用 AskUserQuestion 补问；"
+                "完成后 append 新 trace 再 STEP_DONE。" + rework_hint
             )
-        # block 返工附当前步围栏提示（含 fence_allow 豁免）：block 高发场景正是
-        # 「模型以为某工具被拦」，豁免文案直接纠正假信念（demo 121320fe）。
-        # §step-selfcheck：返工后再声明完成前同样要求逐条自查（步级 checklist）。
-        judged_step_obj = engine.sub_step_at(cur_node0, judged_step)
-        rework_hint = (
-            "\n"
-            + engine.selfcheck_hint(judged_step_obj)
-            + (
-                "\n" + engine.engagement_fence_notice(judged_step_obj)
-                if judged_step_obj is not None
-                else ""
-            )
-        )
-        return _block_continue(
-            f"子步骤 {judged_step} 未通过门控（第 {attempts} 次）：{reason}\n"
-            "返工：按判词补缺——上下文已有的原话直接引用（无需问用户），"
-            "真缺的维度才用 AskUserQuestion 补问；"
-            "完成后 append 新 trace 再 STEP_DONE。" + rework_hint
-        )
 
     # 读 transcript 取本轮输出
     transcript_path = ""

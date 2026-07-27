@@ -161,6 +161,24 @@ _S3_STEP1_FORM_REQUIREMENTS = (
     "只能标注「推测」另列"
 )
 
+# understand:4 子1 的形式要件（单源：purpose 模型侧与 gate judge 侧都引用）。
+# 对齐原则同 _STEP1_FORM_REQUIREMENTS：形式要件披露降形式性返工，
+# 质量判据（非空泛/非脑补/追溯放水）只留 gate 黑盒。
+# 双结论制（§3.5 #3）：「目标只能定性验收」是合法结论——但须逐目标留痕理由，
+# 无理由的「不可检验」= 懒得想，不算（防偷懒出口，同 _S3_STEP1_FORM_REQUIREMENTS）。
+_S4_STEP1_FORM_REQUIREMENTS = (
+    "对 GoalsAndValue 每个 must 目标做验收视角提问「怎么知道它达成了」"
+    "（INCOSE verification point-of-view：想象自己在执行验收事件）引出成功标准候选；"
+    "双向追溯逐项列出（每 must 目标 ≥1 标准候选或显式「纯定性目标+理由」；"
+    "每候选回溯 ≥1 目标，孤儿候选剔除或退回补问），q/a 按序对齐，"
+    "用户侧期望（「什么结果你会满意」）缺口用 AskUserQuestion 补问"
+    "（优先上下文已有原话，禁重问已答内容）；"
+    "结论二选一：①标准候选成立=每 must 目标 ≥1 候选或显式定性+理由；"
+    "②目标只能定性验收=合法，但须逐目标留痕理由。"
+    "结论逐句须有出处（用户原话/会话事实）：无出处的推断禁止写进结论，"
+    "只能标注「推测」另列"
+)
+
 _NODES: dict[str, Node] = {
     # ---------- understand（含 4 子阶段;design §3 / workflow_advance.py:47 SUBPHASES 同源）----------
     "understand:1": Node(
@@ -789,9 +807,200 @@ _NODES: dict[str, Node] = {
         skill=None,
         artifact="understand.md",  # 末子阶段写产物
         gate_mech=GateMech.ARTIFACT_EXISTS,
-        gate_rubric="对照注入的真实问题：①是否重述真实问题(非字面) ②边界 in/out-scope ③可验证成功标准。缺任一 block。",
+        gate_rubric=None,  # 子阶段级 rubric 删除（被 sub_steps 逐步门控取代）
         advance="phase",  # 末子阶段 -> 推进到 plan（过 understand->plan 闸门）
+        # designs/success-criteria-substeps-design.md（2026-07-27 用户确认 5 步 + hold）。
+        # 关键不对称（第四种）：混合命题，轴心 = 规范性目标的可检验化转换——
+        # 对齐=结构性，可检验化=技术转换（Volere fit criterion），
+        # 验收可行性=事实性（本地单层源，压缩原则同 ScopeAndConstraints 子2），
+        # 阈值/验收取舍=规范性（拍板归用户子5）。
+        # 消费契约锚点：验收包六字段倒推自 review:0 rubric
+        # 「对照 understand.md 真实问题 + 成功标准，判定 solved/partial/not，附 file:line 证据」。
+        sub_steps=(
+            Step(
+                kind="tool",
+                ref="推理(验收视角提问) / AskUserQuestion(补问)",
+                short="成功标准引出",
+                purpose=(
+                    f"成功标准引出：{_S4_STEP1_FORM_REQUIREMENTS}。"
+                    "solutioneering 剥离：标准候选含方案名词/实现动词"
+                    "（「做一个X」「实现Y」）→ 剥到 outcome 度量"
+                    "（纪律同 GoalsAndValue 子2）。"
+                    "消费契约锚点：成功标准是 review 阶段 gate 判定 "
+                    "solved/partial/not 的依据——写每条候选时想象 review 时拿什么判它。"
+                ),
+                input="GoalsAndValue.step4.statements + ScopeAndConstraints.step4.statements",
+                record=True,
+                selfcheck=(
+                    "每个 must 目标都做了验收视角提问「怎么知道它达成了」吗？"
+                    "双向追溯逐项列出了吗（每目标 ≥1 候选或定性+理由；"
+                    "每候选回溯 ≥1 目标）？含方案名词的候选剥到 outcome 了吗？"
+                    "每条 a 是用户原话/会话事实，还是我推断补全的"
+                    "（推断只能标「推测」另列）？结论选了①还是②、每句都有出处吗？"
+                ),
+                gate=(
+                    "evidence/<name>.jsonl 含 kind=skill-trace、"
+                    "minor_stage=SuccessCriteria 且 sub_step==1 的记录；"
+                    f"形式要件：{_S4_STEP1_FORM_REQUIREMENTS}。"
+                    "质量判据（从严裁量）：标准候选非空泛复述"
+                    "（「系统变快」「体验好」无度量对象判 block）；"
+                    "脑补候选挂无关目标（追溯放水——明显无关联的目标-标准硬连）判 block；"
+                    "②的「只能定性验收」缺逐目标理由 = 偷懒判 block；"
+                    "方案名词/实现动词残留 = solutioneering 判 block。"
+                ),
+            ),
+            Step(
+                kind="tool",
+                ref="推理(Volere fit criterion + INCOSE 模糊词清单) / Bash(条件性基线测量)",
+                short="可检验化",
+                # 本节点独有的核心步（前三个节点都没有）：规范性目标 → 可检验命题
+                # 的技术转换。Volere 核心判据：找不到 fit criterion = 标准模糊或
+                # 理解不足——是合法退回信号，不是硬编假指标的理由。
+                purpose=(
+                    "可检验化：对子1 标准候选逐条做 fit criterion 转换——"
+                    "①模糊词扫描改写（INCOSE vague terms：some/any/several/many/"
+                    "a lot of/significant/adequate/efficient/effective/reasonable 等，"
+                    "改写为量化表述）；"
+                    "②三要素齐备：度量指标 + 基线（Bash 实测现状——查数据/日志/耗时，"
+                    "附工具留痕出处；不可测显式标「无基线+原因」= 合法留痕）"
+                    "+ 阈值提案（只提案不拍板——阈值是风险偏好，裁决权留子5）；"
+                    "③不可检验化 = 合法退回信号（Volere：找不到 fit criterion → "
+                    "标准模糊/目标理解不足 → 退回子1 重引或显式标记回退 GoalsAndValue；"
+                    "禁止硬编假指标——假指标 = 度量对象与目标 outcome 不相关，"
+                    "如拿「代码行数」度量「体验」）。"
+                ),
+                input="step1.criteria_candidates",
+                record=True,
+                fence_allow=("Bash",),
+                selfcheck=(
+                    "每条候选都做了模糊词扫描改写吗？每条有度量指标+基线"
+                    "（Bash 留痕出处或「无基线+原因」）+阈值提案吗？"
+                    "阈值全程只提案、没替用户拍板吧？"
+                    "不可检验的候选走了退回通道（而非硬编指标）吗？"
+                ),
+                gate=(
+                    "evidence/<name>.jsonl 含 kind=skill-trace、"
+                    "minor_stage=SuccessCriteria 且 sub_step==2 的记录；"
+                    "形式要件：每条候选有度量指标+基线（或「无基线+原因」标注）"
+                    "+阈值提案；模糊词扫描留痕；退回项显式标注。"
+                    "质量判据（从严裁量）：基线数字无工具留痕出处 = 拍脑袋编造判 block；"
+                    "假指标——度量对象与目标 outcome 不相关（拿易测的替代该测的）判 block；"
+                    "替用户拍板阈值（无「提案-待用户裁决」语义）判 block；"
+                    "改写后仍含模糊词（some/any/significant/adequate 等）判 block。"
+                ),
+            ),
+            Step(
+                kind="tool",
+                ref="推理(INCOSE 四法) / Bash / codegraph / Read(手段存在性)",
+                short="验收方式设计",
+                # 可行性验证 = ScopeAndConstraints 子2 同构压缩版：验收手段存在性
+                # 是项目内部事实，本地单层源一步完成，无独立质检裁决步。
+                purpose=(
+                    "验收方式设计与可行性验证：对每条可检验标准定验收方式——"
+                    "①方法选择（INCOSE 四法：test 测试/analysis 数据分析/"
+                    "inspection 审查/demonstration 演示，附选择理由——经典映射："
+                    "功能→demonstration、性能→test、设计约束→inspection、"
+                    "质量属性→analysis）；"
+                    "②可行性三态处置（本地单层源）：手段存在（测试框架/数据源/"
+                    "契约检查脚本在本仓，Bash/codegraph/Read 验证附出处）/ "
+                    "验收手段待建（不存在 → 显式标注 = 进 plan 的任务项，不静默略过）/ "
+                    "不可行剔除（附理由）；"
+                    "③验收时机标注（triggered = review 一次性判 vs continuous = "
+                    "持续监控，fitness function 概念；只能在事后验证的显式标注风险——"
+                    "如 T+1 实战效果只能事后验，review 期只能用回测代理指标，"
+                    "代理与真值的关系显式说明）；"
+                    "④证据形式锚定（review 判 solved/partial/not 时拿什么："
+                    "file:line/测试输出/数据查询）。"
+                ),
+                input="step2.testable_criteria",
+                record=True,
+                fence_allow=("Bash",),
+                selfcheck=(
+                    "每条标准有四法之一+选择理由吗？可行性三态逐条处置了吗"
+                    "（存在附出处/待建标注/剔除附理由）？时机标注了吗"
+                    "（triggered/continuous；事后验证的标了风险+代理指标关系）？"
+                    "证据形式锚定到 review 判定可消费的形态了吗？"
+                ),
+                gate=(
+                    "evidence/<name>.jsonl 含 kind=skill-trace、"
+                    "minor_stage=SuccessCriteria 且 sub_step==3 的记录；"
+                    "形式要件：每条标准有四法之一+选择理由；可行性三态处置"
+                    "（存在附出处/待建标注/剔除附理由，无遗漏）；时机标注；证据形式。"
+                    "质量判据（从严裁量）：手段声称存在无工具出处 = 编造判 block；"
+                    "全选同一方法无真实选择理由判 block；"
+                    "事后验证未标注风险判 block。"
+                ),
+            ),
+            Step(
+                kind="skill",
+                ref="define-problem",
+                short="归一化陈述",
+                # claim normalization 职能第四次复用（ProblemContext 子5 /
+                # GoalsAndValue 子4 / ScopeAndConstraints 子4 同构）。
+                purpose=(
+                    "归一化陈述：对子3 标准集逐项产出归一化成功标准陈述——"
+                    "①原子（单句 ≤1 个独立标准，「和/以及/同时」连接多项 = "
+                    "复合未拆净，回子1）；"
+                    "②去上下文（脱离本会话可独立理解：主语+动词+约束自包含）；"
+                    "③携带完整验收包（指标+基线+阈值提案+验收方法+时机+证据形式）"
+                    "与 verdict 边界（部分成立目标的标准只覆盖已证实边界——"
+                    "裁决传导，同构 ProblemContext 子5）；"
+                    "④solution-free 复核（含方案名词 = 子1 剥离不净残留）。"
+                    "放不进一句 = 未定义完。"
+                ),
+                input="step3.criteria_with_acceptance",
+                record=True,
+                selfcheck=(
+                    "每条陈述单句只含 1 个独立标准吗（「和/以及/同时」连接多项 = "
+                    "复合未拆净，回子1）？脱离本会话可独立理解吗"
+                    "（主语+动词+约束自包含）？验收包六字段"
+                    "（指标/基线/阈值提案/方法/时机/证据形式）都传导了吗？"
+                    "无方案名词残留吧？"
+                ),
+                gate=(
+                    "evidence/<name>.jsonl 含 kind=skill-trace、"
+                    "minor_stage=SuccessCriteria 且 sub_step==4 的记录；"
+                    "形式要件：子3 标准集每项各 ≤1 句且含主语+动词+约束"
+                    "（原子+去上下文）；陈述携带完整验收包六字段与边界。"
+                    "质量判据（从严裁量）：验收包字段不传导——子3 已定的"
+                    "方法/时机/证据形式在陈述中丢失或篡改判 block；"
+                    "单句含多项并列 = 复合未拆净判 block；"
+                    "含方案名词/实现动词 = solutioneering 残留判 block。"
+                ),
+            ),
+            Step(
+                kind="skill",
+                ref="define-problem / AskUserQuestion",
+                short="读回确认",
+                # 带证据读回（同构前三个节点末步）。本子阶段两个规范裁决点：
+                # 阈值拍板（风险偏好）+ 验收方式认可（含「待建手段」是否接受为任务项）。
+                purpose=(
+                    "带证据的读回确认：向用户呈现 归一化标准+验收包+不可检验退回项"
+                    "+「验收手段待建」清单+不确定性；"
+                    "用户裁决两件事：①阈值拍板（风险偏好 = 规范裁决，"
+                    "本子阶段第一裁决点）；②验收方式认可（含「待建手段」是否接受为"
+                    "本实例任务项——等于给 plan 埋任务，须用户知情；第二裁决点）；"
+                    "不可检验退回项显式暴露由用户裁决"
+                    "（降低标准/回退目标定义/接受定性验收）；"
+                    "用户认/否/调整记入 trace。"
+                ),
+                input="step4.statements",
+                record=True,
+                selfcheck=(
+                    "呈现了归一化标准+验收包+退回项+「验收手段待建」清单+不确定性吗？"
+                    "用户对阈值拍板与验收方式认可的两项裁决都记入 trace 了吗？"
+                    "退回项显式暴露了吗？"
+                ),
+                gate=None,  # 交互步，gate 不跑 judge（trace 存在即过）
+            ),
+        ),
         minor_key="SuccessCriteria",
+        # §subphase-hold-gate（用户决议 2026-07-27）：新编排阶段隔离测试——
+        # 末子步过后扣留等 /dl gate。**首个 advance="phase" 的 hold 节点**：
+        # 门栏放行 ≠ 阶段推进（release_subgate 对 advance="phase" 节点只放行不推进），
+        # 放行后模型写 understand.md + PHASE_DONE 撞 understand->plan 大闸门
+        # （第二次 /dl gate，两次连拍是用户已接受的代价）。
+        hold_for_gate=True,
     ),
     # ---------- plan ----------
     "plan:0": Node(
@@ -927,4 +1136,3 @@ def next_phase(phase: str) -> str | None:
 def is_gated_after(phase: str) -> bool:
     """该 phase 完成后进下一 phase 需用户 /dl gate 放行。"""
     return phase in GATED_AFTER
-
