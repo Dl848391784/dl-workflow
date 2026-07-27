@@ -415,9 +415,9 @@ _NODES: dict[str, Node] = {
             ),
         ),
         minor_key="ProblemContext",  # evidence minor_stage 值（结构标识,模型照抄注入给的当前值）
-        # §subphase-hold-gate（2026-07-26）：子6 读回确认守住「陈述的认可」，
-        # 门栏守住「进不进 understand:2」——ProblemContext 是地基，完成点=显式用户裁决点。
-        hold_for_gate=True,
+        # 无 hold_for_gate（用户决议 2026-07-27）：门栏移到 understand:2——
+        # 完整跑「开始 -> 明确目标和价值」中途不扣留；ProblemContext 子6 读回确认
+        # 已守「陈述的认可」，子阶段边界不再是显式用户裁决点。
     ),
     "understand:2": Node(
         label="明确目标和价值",
@@ -606,8 +606,11 @@ _NODES: dict[str, Node] = {
             ),
         ),
         minor_key="GoalsAndValue",
-        # 无 hold_for_gate（用户决议 2026-07-26）：保持「子阶段间无闸门」原设计；
-        # 子5 用户读回已含一层用户裁决，understand->plan 大闸门在 understand:4 后兜底。
+        # §subphase-hold-gate（用户决议 2026-07-27，自 understand:1 移来）：
+        # 门栏守住「进不进 understand:3」——「问题 + 目标价值」是 understand 的地基组，
+        # 跑完GoalsAndValue = 显式用户裁决点（一轮完整跑 ProblemContext+GoalsAndValue
+        # 后在此停，用户 /dl gate 放行才进范围与约束）。
+        hold_for_gate=True,
     ),
     "understand:3": Node(
         label="确定范围与约束",
@@ -982,6 +985,13 @@ def advance_state(project_root: Path, name: str, via: str = "auto") -> dict[str,
     else:
         state["gate"] = "pending"
     state["node_attempts"] = 0  # 新节点重试计数归零
+    # 跨节点重置 sub_step_index（2026-07-27）：门栏移出 understand:1 后，
+    # 编排节点末步会经本函数直接推进到下一个编排节点（understand:1 子6 ->
+    # understand:2）——不重置会把 sub_step_index=6 带进只有 5 步的
+    # understand:2，下次 normalize_state 范围校验即 ValueError 卡死工作流。
+    # （此前无害纯属侥幸：understand:2 当时无编排，sub_step_index 不被读。）
+    nxt_node = get_node(nxt_phase, nxt_sub)
+    state["sub_step_index"] = 1 if nxt_node.sub_steps else 0
     state["history"] = hist
     save_state(project_root, name, state)
     return state

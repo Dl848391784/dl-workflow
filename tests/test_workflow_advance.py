@@ -59,14 +59,14 @@ def wf_repo(tmp_path: Path):
     return tmp_path
 
 
-def _write_state(repo: Path, sub_step: int) -> None:
+def _write_state(repo: Path, sub_step: int, sub_index: int = 1) -> None:
     state = {
         "name": "t",
         "phase": "understand",
         "index": 1,
-        "sub_index": 1,
+        "sub_index": sub_index,
         "sub_total": 4,
-        "node": "understand:1",
+        "node": f"understand:{sub_index}",
         "sub_step_index": sub_step,
         "gate": "pending",
         "node_attempts": 0,
@@ -82,12 +82,16 @@ def _write_state(repo: Path, sub_step: int) -> None:
     )
 
 
-def _write_trace(repo: Path, sub_step: int) -> None:
+# sub_index -> evidence minor_stage（与 engine 节点表 minor_key 对齐）
+_MINOR = {1: "ProblemContext", 2: "GoalsAndValue"}
+
+
+def _write_trace(repo: Path, sub_step: int, sub_index: int = 1) -> None:
     trace = json.dumps(
         {
             "kind": "skill-trace",
             "major_stage": "Understand",
-            "minor_stage": "ProblemContext",
+            "minor_stage": _MINOR[sub_index],
             "sub_step": sub_step,
             "skill": "x",
             "purpose": "p",
@@ -135,15 +139,16 @@ class TestStopStdoutPureJson:
 
     def test_final_pass_no_json_stops_turn(self, wf_repo, monkeypatch, capsys):
         # 末步 pass -> §subphase-hold-gate 门栏扣留停轮：stdout 无 JSON 指令（纯文本）
-        _write_state(wf_repo, sub_step=6)
-        _write_trace(wf_repo, sub_step=6)
+        # （门栏 2026-07-27 起在 understand:2 GoalsAndValue 末步=子5）
+        _write_state(wf_repo, sub_step=5, sub_index=2)
+        _write_trace(wf_repo, sub_step=5, sub_index=2)
         mod = _load_hook()
         out, _err = _run_hook(mod, wf_repo, monkeypatch, capsys)
         assert "hookSpecificOutput" not in out
         assert "门栏" in out
         assert "/dl gate" in out
         st = json.loads((wf_repo / ".claude/workflows/t/state.json").read_text())
-        assert st["sub_index"] == 1  # 扣留：不推进
+        assert st["sub_index"] == 2  # 扣留：不推进
         assert st["held_for_gate"] is True
 
     def test_block_stdout_is_pure_json(self, wf_repo, monkeypatch, capsys):

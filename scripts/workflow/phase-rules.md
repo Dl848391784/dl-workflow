@@ -32,7 +32,7 @@
 <!-- BEGIN GENERATED sub_steps understand:1 -->
 （本段由 dl-launch.sh 调 dl-flow-engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
 <!-- END GENERATED sub_steps understand:1 -->
-     - **子阶段门栏（hold_for_gate）**：末子步骤(6) 通过门控后**推进被扣留，不自动进 understand:2**——ProblemContext 是地基，完成点 = 显式用户裁决点。等用户 `/dl gate` 放行（用户也可 /dl back 回退、/dl step-reset <n> 重测）。**扣留期间不要做下一子阶段的事**；`/dl step-pass` 末步放行 ≠ 门栏放行（步的放行与子阶段的放行是两个独立的用户决定）。
+     - **末步自动推进（无门栏）**：末子步骤(6) 通过门控后**自动推进到 understand:2**（2026-07-27 起门栏移到 GoalsAndValue——「问题+目标价值」一次跑完再停）。
      - **逐步执行 + 逐步 STEP_DONE**（**写 evidence 是 STEP_DONE 前置，STEP_DONE 后 end_turn**）：
        每个子步骤达目的后，**先落 evidence 再输出 `### STEP_DONE: <n>`**。落法（两动作——你定内容，脚本管格式）：① Write 载荷 `{"purpose":"<该步目的>","q":[...],"a":[...]}`（只含 3 个内容字段，q/a 一一按序对齐 `q[i]`↔`a[i]`，单问单答也用数组；结构字段脚本从 state 自动填，不要写）到注入给的载荷路径（`.claude/evidence/.trace-payload-<name>.json`）；② Bash `python3 ~/.dl-workflow/dl-flow-engine.py append-trace --from-file <载荷路径>`（脚本校验+单行 append 到主仓 evidence；校验失败当场报错，按报错改载荷重跑）。**禁止绕过 append-trace 手写 evidence jsonl**（手写 JSON 跨行/字面 \" = trace 隐形；直写 jsonl 会被 S14 围栏 deny 指回）。确认/裁决留痕由 /dl 命令自动写（kind=gate），不用手写其它 kind 的记录。**输完 STEP_DONE 即 end_turn 结束本轮**--不连续做下个子步骤、不继续探查；**end_turn 时 Stop hook 立即门控**（读 evidence 新 trace 判定）：**非末步 pass 则当轮收到下一子步骤指令（自动续轮，直接开做下一步，无需等用户发话）**；末步 pass 则停轮（子阶段边界，等用户）；block 则当轮收到原因并返工（**返工重新走①②落新行**——hook 以新 trace 为返工信号）。
        例：子步骤1 逼问到位 -> Write 载荷 -> Bash append-trace -> `### STEP_DONE: 1` -> end_turn -> Stop hook 判：过则当轮收到「执行子步骤2」指令直接开做；block 则当轮返工子步骤1。每步 purpose 见注入「▶ 当前子步骤」块。
@@ -51,7 +51,7 @@
 <!-- BEGIN GENERATED sub_steps understand:2 -->
 （本段由 dl-launch.sh 调 dl-flow-engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
 <!-- END GENERATED sub_steps understand:2 -->
-     - 末子步骤(5)通过即自动推进到 understand:3（**无门栏**，与 understand:1 不同）。
+     - **子阶段门栏（hold_for_gate）**：末子步骤(5) 通过门控后**推进被扣留，不自动进 understand:3**——「问题 + 目标价值」是 understand 的地基组，完成点 = 显式用户裁决点。等用户 `/dl gate` 放行（用户也可 /dl back 回退、/dl step-reset <n> 重测）。**扣留期间不要做下一子阶段的事**；`/dl step-pass` 末步放行 ≠ 门栏放行（步的放行与子阶段的放行是两个独立的用户决定）。
   3. **确定范围与约束**：划定 in-scope / out-of-scope + 技术/数据/资源/铁律约束（H1/H7/H9/H11 等）。
   4. **定义成功标准和验收方式**：可验证的成功标准（量化/可观测）+ 验收方式（测试/证据/file:line/数据契约）；汇总写 `understand.md`。
 - 允许：Read / Grep / Glob / codegraph 查证 / AskUserQuestion 澄清。

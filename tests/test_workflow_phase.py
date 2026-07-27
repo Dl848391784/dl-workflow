@@ -112,11 +112,14 @@ class TestEvidenceBlockExamples:
 
 
 class TestHeldForGateUnchanged:
-    """门栏扣留分支不回归（§subphase-hold-gate）。"""
+    """门栏扣留分支不回归（§subphase-hold-gate；门栏 2026-07-27 起在 understand:2）。"""
 
     def test_held_state_shows_gate_hold_not_steps(self):
-        node = wp.engine.get_node("understand", 1)
-        ctx = wp._format_injection(_state(6, held_for_gate=True), PROJECT_ROOT)
+        node = wp.engine.get_node("understand", 2)
+        ctx = wp._format_injection(
+            _state(5, sub_index=2, node="understand:2", held_for_gate=True),
+            PROJECT_ROOT,
+        )
         assert node.hold_for_gate  # fixture 前提
         assert "子阶段门栏" in ctx
         assert "▶ 当前子步骤" not in ctx
@@ -129,9 +132,12 @@ class TestLastStepInstruction:
         assert "### STEP_DONE: 3`" in ctx
 
     def test_last_step_mentions_hold_gate(self):
-        ctx = wp._format_injection(_state(6), PROJECT_ROOT)
-        assert "### STEP_DONE: 6`" in ctx
-        assert "门栏" in ctx  # hold_for_gate 末步提示等 /dl gate
+        # hold_for_gate 末步提示等 /dl gate（门栏 2026-07-27 起在 understand:2 子5）
+        ctx = wp._format_injection(
+            _state(5, sub_index=2, node="understand:2"), PROJECT_ROOT
+        )
+        assert "### STEP_DONE: 5`" in ctx
+        assert "门栏" in ctx
 
 
 class TestSelfcheckStepSpecific:

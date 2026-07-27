@@ -95,9 +95,10 @@ judge 调用 4 次（子5 gate=None）。按失效模式族拆步：子2=结构�
 - **record**：True（确认内容是 Stop 门控完成触发 + 裁决留痕）；**fence_allow**：无
 - **gate**：None（交互步，trace 存在即过）
 
-### hold_for_gate：不加（用户决议 2026-07-26）
+### hold_for_gate：2026-07-27 起**加**（决议变更）
 
-保持 understand-subphases-design §1「子阶段间无闸门」原设计。子5 用户读回已含一层用户裁决；understand→plan 大闸门在 understand:4 后兜底。ProblemContext 的 hold 是例外（问题定义是整个 understand 的地基），不构成先例推广。
+原决议（2026-07-26）不加：保持「子阶段间无闸门」、子5 读回已含用户裁决、understand→plan 大闸门兜底。
+**变更（2026-07-27 用户决议）**：门栏自 understand:1 **移到** understand:2——「问题 + 目标价值」是 understand 的地基组，一轮完整跑 ProblemContext + GoalsAndValue 后在 GoalsAndValue 末步扣留等 `/dl gate`；ProblemContext 不再单独扣留（其子6 读回确认已守「陈述的认可」，无需两个相邻裁决点）。
 
 ## 3. 门控设计要点（§3.5 对齐）
 
@@ -119,7 +120,7 @@ judge 调用 4 次（子5 gate=None）。按失效模式族拆步：子2=结构�
 2. **4 步合并版**（子2+子3 合为「目标质检」）——次优备选，被用户否决（2026-07-26 选定 5 步）。省 1 次 judge，但结构对齐（追溯矩阵）与规范论证（价值/分层）异族，合并稀释 judge 判力。
 3. **子3 加红队子代理**——否。ProblemContext 红队对抗事实性结论；价值论证的对立审查=「找方案伪装的目标」已由子2 覆盖；judge 成本不值。
 4. **must/nice 独立成步**——否。分层=规范裁决，模型侧只有「提案附理由」（并入子3），裁决在用户（并入子5）；独立步只多一轮空转。
-5. **加 hold_for_gate**——用户决议不加（§2 末）。
+5. **加 hold_for_gate**——原决议不加（2026-07-26）；**2026-07-27 决议变更：加，且 understand:1 的门栏同时移除**（门栏移到本子阶段，§2 末）。
 
 ## 6. 实施 checklist（改编排必过，症状 M + §3.7）
 

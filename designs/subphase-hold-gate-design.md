@@ -1,6 +1,7 @@
-# 子阶段门栏设计：hold_for_gate（ProblemContext 完成扣留，/dl gate 放行）
+# 子阶段门栏设计：hold_for_gate（编排子阶段完成扣留，/dl gate 放行）
 
 > 状态：**已实施**（2026-07-26；engine/hooks/dl-cmd/phase-rules/SKILL/tests 已同步）
+> **适用节点变更（2026-07-27 用户决议）**：门栏自 understand:1（ProblemContext）**移至 understand:2（GoalsAndValue）**——「问题+目标价值」作为地基组一轮跑完再扣留；ProblemContext 不再单独扣留（子6 读回已守「陈述的认可」，两个相邻裁决点冗余）。机制本身不变（Node.hold_for_gate 是声明式开关）。
 > 父文档：`node-step-orchestration-design.md`（子步骤编排）、`substep-gate-at-stop-design.md`（Stop 门控）、`tui-state-machine-design.md`（GATED_AFTER 阶段闸门）
 
 ## 0. 动因：子6 读回确认守住「陈述的认可」，没守住「进不进下一子阶段」
