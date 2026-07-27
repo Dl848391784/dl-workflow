@@ -213,7 +213,7 @@ understand 拆 4 子阶段（1.理解问题和背景 / 2.明确目标和价值 /
 > **旧系统已弃用**（2026-07-23）：`### EVIDENCE:{json}` 推理溯源（模型每轮自发记 claim/依赖/证据 + evidence_append.py 解析）已删除。用户决策弃用，理由：transcript 解析脆（no_markers debug 一整节）+ 与"gate 裁决"诉求不符。下列旧排查内容（transcript 目录 / 注入提示 / no_markers 判定）仅作历史记录，新系统不适用。
 
 **新机制（designs/tui-state-machine-design.md §8.6 + §step-advance-on-submit）**：evidence.jsonl 现有两类记录同文件：
-1. **gate 裁决**（engine.write_gate_verdict）：`kind=gate`，字段 node/phase/gate=passed/gate_mech/rubric/attempts/commit_sha。block 不写（重试计数在 state.node_attempts，pass 时一并记入）。
+1. **gate 裁决**（engine.write_gate_verdict）：`kind=gate`，字段 node/phase/gate=passed/gate_mech/rubric/attempts/commit_sha + **major_stage/minor_stage**（2026-07-27 起，与 skill-trace 结构字段对齐；取值单源 node.phase/node.minor_key，整阶段节点 minor_stage=null）。block 不写（重试计数在 state.node_attempts，pass 时一并记入）。
 2. **skill-trace**（模型写，子步骤编排用）：`kind=skill-trace`，字段 `major_stage`(phase 英文首字母大写，如 Understand) / `minor_stage`(子阶段英文标识，首字母大写驼峰，如 ProblemContext) / `sub_step`(数字) / `skill`(子步骤调用的 skill/工具，Step.ref，模型照抄注入给的当前值) / `purpose` / `q`(字符串数组) / `a`(字符串数组，与 q 按序对齐)。Stop hook 门控时读此找当前 `sub_step==N` 的最新记录（hash 比对触发，症状 J/K/L）。展示用 `dl evidence show <name>`（英文标识转中文，映射 single source 在 engine）。
 两类都在主仓库 `<项目>/.claude/evidence/<name>.jsonl`。skill-trace **v2.14 起走 `append-trace`**：模型 Write 载荷（仅 purpose/q/a）到 `.claude/evidence/.trace-payload-<name>.json`，再 Bash `dl-flow-engine.py append-trace --from-file <载荷>`——结构字段（kind/major_stage/minor_stage/sub_step/skill）脚本从 state 填、格式/路径归脚本，手写 JSONL 的 5 类事故（相对路径/覆盖/合并行/写碎/结构字段抄错）根治；直写 jsonl 被 S14 围栏 deny（v2.14 收编）。旧「模型手写绝对路径」写法仅作历史（症状 L）。
 
@@ -243,6 +243,8 @@ understand 拆 4 子阶段（1.理解问题和背景 / 2.明确目标和价值 /
 ### 症状 J：子步骤编排--模型输 STEP_DONE 但没推进（有 sub_steps 节点专属）
 
 有 `sub_steps` 的节点（当前 understand:1）**推进走 Stop hook**（§substep-gate-at-stop，2026-07-25 起；旧 3a「走 UserPromptSubmit」已废止）。触发 = evidence 里当前子步骤**最新 trace 行 hash 有变化**（state.last_judged_trace 游标比对），不是 transcript。
+
+**「没推进」主诉先分诊推进失败 vs 停轮检查点**（2026-07-27，demo 907fee09）：state.json 的 sub_index **已翻**但模型不动 = 停轮检查点（末步停轮/门栏扣留，设计行为），不是推进失败——检查日志会有 `sub_step_gate_pass|step=末|to=1`；sub_index **未翻**才按下方日志链排查。同理「没进下一子阶段」：state 已进 + 模型停轮 = 旧规则末步停轮（2026-07-27 起无门栏边界已改自动续轮；该日前建的会话仍可能停在边界，发「继续」即走）。
 
 **先确认协议边界**：模型输 STEP_DONE -> end_turn -> Stop hook 立即判：非末步 pass 推进 + **当轮自动续轮**（additionalContext 指令开做下一子步骤），末步 pass 时——无门栏且下一子阶段有编排则**跨子阶段自动续轮**进其子1（2026-07-27 起），门栏节点末步扣留停轮（等 /dl gate），无编排边界停轮，block 则模型**当轮**收到原因返工。**无需用户再发消息**（这是与旧 3a 的核心差别；2026-07-25 起 pass 也不再等用户发「继续」）。两个相关强制：
 - **S13 参与围栏**（2026-07-25 起）：当前子步骤**从未写过 trace** 就结束回合 -> `sub_step_engage_block` 强制续轮（「简单查询不走编排」之类的拒执被机械封堵；问用户必须走 AskUserQuestion 回合内完成）。
@@ -317,6 +319,7 @@ tail -5 <项目>/.claude/.wf_fence.log   # fence_deny（S10）/ phase_fence_deny
 3. **只拦工具拦得住的通道**：text 抢答不可工具拦截（归 Stop 兜底）。为「形式严密」拦 Read 不多拦任何一类违规（模型不 Read 也能编答案），却误伤合法取证与红队子代理。
 4. **威胁模型 = 弱遵从而非对抗**：子串匹配级走私面（`codegraph sync && <任意>`）可接受——弱遵从模型不会刻意构造走私命令，只会「顺手跑个 ls」。别为对抗级严密牺牲误伤面。
 5. **相邻围栏判据互斥接力**：零 trace（S15 白名单）/ 未判决 trace（S10 全 deny）/ 已判决（自由）三态互斥无空隙——重叠 = 双重 deny 文案打架，空隙 = 无围栏窗口。
+6. **deny 某工具前先问「它与其它强规则打架吗」**（2026-07-27，demo 907fee09）：S10 全 deny 撞上 output-style「每轮对齐 TaskList」强规则 -> 模型按规则同步清单被 deny、弱遵从重试 9 次报错刷屏——**两个强规则冲突时模型必然反复违规，报错刷屏且无一处有 bug**。记账类工具（Task*，不能用于探查）应豁免；评判标准：deny 它防得住哪一类违规？答不上 = 不该拦。
 
 **旧工作流（fence 前建的）无围栏**：per-wf settings.json 是 launcher 写的模板，旧 settings 缺 workflow_step_fence.py 注册。`dl <name> --resume` 重起 launcher 会补写 settings（或手加）。
 
@@ -379,6 +382,10 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 4. **`scripts/workflow/phase-rules.md`**（v2.12 起为模板）：子步骤 purpose 段是 GENERATED 标记（launcher 渲染，**改 engine Step.purpose 自动同步，无需手改**）；手维护范围只剩静态强制语义（围栏/invoke 时序/完成标记）-- 这些仍是**最易漏**项，system-prompt 通道优先级最高，漏改必打架
 5. **`output-styles/workflow.md`**：显示层契约（清单 subject 写法/横幅格式/建齐规则）-- 同为模型强遵从通道；改注入里 TaskList/横幅相关文案时漏改它，会出现"两通道措辞歧义 -> 模型解读随会话漂移"（症状 F 编号实例，commit 5215b63）
 6. 冒烟：拿真 worktree + 真 state 跑 `_format_injection` 看注入结构；跑 `dl-flow-engine.py render-phase-rules scripts/workflow/phase-rules.md` 看渲染产物（子步骤段应与 engine purpose 逐字一致）
+7. **新增/移动编排节点或门栏专项**（2026-07-27 GoalsAndValue + 门栏迁移沉淀）：
+   - **共享 evidence 串号防御**：第二个编排节点起，sub_step 都从 1 起——trace 匹配层（`_iter_trace_segments` 一族 + `reset_sub_step` + `redteam_prompt`）必须按 minor_stage 过滤，否则 ProblemContext 子1 的 trace 被新节点门控误读（门控误判/S15 窗口错位/step-reset 误删他节点留痕）。
+   - **新开通的推进路径必须有 pinning**：「路径第一次真正走到」是 latent bug 温床——advance_state 跨节点不重置 sub_step_index 藏了一个版本（此前无害纯因下一节点无编排），门栏移走后路径首次开通即爆（normalize_state 越界卡死）。改动让某条推进路径从「走不到」变「走得到」时，先写该路径的 pinning 测试。
+   - **测试 fixture 迁移**：fixture 里当「无编排节点」用的占位（如 understand:2）在节点编排化后全量换下一个无编排节点（understand:3），逐处 grep 别漏。
 
 ### 症状 G：install.sh 后 hook 没触发
 
@@ -396,6 +403,8 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 | judge 判决（11 次） | ~13% | 同为 LLM 推理 |
 | 工具执行 + 子代理串行段 | ~15% | 秒级累加 |
 | 确定性程序 | <1s | 毫秒级，无可压 |
+
+**交互步墙钟 = 用户时间，别算进系统开销**（2026-07-27，demo 2e0f41dc）：读回确认类子步骤（ProblemContext 子6/GoalsAndValue 子5，gate=None）的耗时大头是**用户看材料做裁决**——该轮子6 占 66 分钟全是用户时间，机械层与模型都在等。耗时分解先把交互步的用户等待单列，再对剩余部分按上表归集；「GoalsAndValue 5 步全自动段 10.5 分钟」这类数字才是系统水位。
 
 **审计方法**：§3 #8（transcript 位置/去重/窗口归集/生成速率）+ §3 #11（报错盘点）。**优化排序**：①消浪费（假冲突循环/子代理嵌套/盲猜/撞围栏——通常占 20-30%，先于一切结构调整）；②轮数（block 循环 = +1-2 轮/次，自查提示 §3.5 #9 前移到自查抓）；③输出冗长度（墙钟 ≈ 输出 token ÷ 生成速率，线性）。**底线**：给定模型的 tok/s 与遵从率决定水位（ark 实测 6 步带门控 ~25-35m 属正常）；要数量级提速只有换更快/更强模型，不是调程序。
 
