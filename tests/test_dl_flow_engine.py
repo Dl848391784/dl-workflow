@@ -239,7 +239,7 @@ class TestNormalizeState:
 
     def test_sub_step_index_defaults_zero_no_steps(self):
         # §orchestration v2：无 sub_steps 节点 -> sub_step_index 补 0
-        old = {"phase": "understand", "sub_index": 2}  # understand:2 无 sub_steps
+        old = {"phase": "understand", "sub_index": 3}  # understand:3 无 sub_steps
         norm = eng.normalize_state(dict(old))
         assert norm["sub_step_index"] == 0
         # 整阶段节点同
@@ -247,9 +247,11 @@ class TestNormalizeState:
         assert norm2["sub_step_index"] == 0
 
     def test_sub_step_index_defaults_one_with_steps(self):
-        # §orchestration v2：understand:1 有 sub_steps -> sub_step_index 缺省补 1（首步起步）
+        # §orchestration v2：understand:1/2 有 sub_steps -> sub_step_index 缺省补 1（首步起步）
         norm = eng.normalize_state({"phase": "understand", "sub_index": 1})
         assert norm["sub_step_index"] == 1
+        norm_g2 = eng.normalize_state({"phase": "understand", "sub_index": 2})
+        assert norm_g2["sub_step_index"] == 1
 
     def test_sub_step_index_out_of_range_raises(self):
         # §orchestration v2 + 2026-07-26 重设计：understand:1 有 6 子步骤，越界 -> 报错暴露
@@ -488,9 +490,11 @@ class TestHarnessPromptOptimization:
 class TestSubStepHelpers:
     def test_sub_step_total_no_steps(self):
         assert eng.sub_step_total(eng.get_node("plan", 0)) == 0
-        assert eng.sub_step_total(eng.get_node("understand", 2)) == 0  # 无编排节点
+        assert eng.sub_step_total(eng.get_node("understand", 3)) == 0  # 无编排节点
         # understand:1 有 6 子步骤（2026-07-26 重设计：验真拆双向取证+质检裁决）
         assert eng.sub_step_total(eng.get_node("understand", 1)) == 6
+        # understand:2 有 5 子步骤（2026-07-26 goals-and-value-substeps-design）
+        assert eng.sub_step_total(eng.get_node("understand", 2)) == 5
 
     def test_sub_step_total_with_steps(self):
         s1 = eng.Step(
@@ -706,9 +710,9 @@ class TestWriteGateVerdict:
         assert "ts" in rec
 
     def test_rubric_none_for_mech_only_node(self, tmp_path):
-        # rubric=None 的节点（understand 子 2-3）-> rubric 字段 None（仅机械过）
-        # 注：understand:1 现有验真 rubric（§define-problem-verify-gate），用 understand:2 测无 rubric
-        node = eng.get_node("understand", 2)
+        # rubric=None 的节点（understand 子 3）-> rubric 字段 None（仅机械过）
+        # 注：understand:1 现有验真 rubric（§define-problem-verify-gate），用 understand:3 测无 rubric
+        node = eng.get_node("understand", 3)
         ok = eng.write_gate_verdict(tmp_path, "t", node, attempts=0, cwd=str(tmp_path))
         assert ok is True
         rec = json.loads(
@@ -863,9 +867,10 @@ class TestUnderstand1Orchestration:
         assert eng.get_node("understand", 1).advance == "sub"
 
     def test_other_subphases_no_steps(self):
-        # understand:2-3 无 sub_steps（行为不变）
-        assert eng.get_node("understand", 2).sub_steps is None
+        # understand:3-4 无 sub_steps（行为不变）；understand:2 自
+        # goals-and-value-substeps-design（2026-07-26）起有 5 子步骤编排
         assert eng.get_node("understand", 3).sub_steps is None
+        assert eng.get_node("understand", 4).sub_steps is None
 
 
 class TestRubricNeedsEvidence:
@@ -1138,7 +1143,7 @@ class TestSubStepBlockEscalation:
         assert reread["held_for_gate"] is True
 
     def test_force_pass_rejects_node_without_sub_steps(self, tmp_path):
-        _write_state_full(tmp_path, "t", "understand", 2)  # understand:2 无 sub_steps
+        _write_state_full(tmp_path, "t", "understand", 3)  # understand:3 无 sub_steps
         ok, msg = eng.force_pass_sub_step(tmp_path, "t", str(tmp_path))
         assert ok is False
         assert "无子步骤" in msg
@@ -1264,7 +1269,7 @@ class TestResetSubStep:
         assert eng.load_state(tmp_path, "t")["last_judged_trace"] == {}
 
     def test_reset_rejects_node_without_sub_steps(self, tmp_path):
-        _write_state_full(tmp_path, "t", "understand", 2)
+        _write_state_full(tmp_path, "t", "understand", 3)
         ok, msg = eng.reset_sub_step(tmp_path, "t", 2)
         assert ok is False
         assert "无子步骤" in msg
@@ -1362,7 +1367,7 @@ class TestEvidenceMentionsSubStep:
 
 class TestGateSubStepAtStop:
     def test_none_without_sub_steps(self, tmp_path):
-        _write_state_full(tmp_path, "t", "understand", 2)
+        _write_state_full(tmp_path, "t", "understand", 3)
         action, _, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
         assert action == "none"
 
@@ -1766,7 +1771,7 @@ class TestPendingUnjudgedStep:
         assert eng.pending_unjudged_step(tmp_path, "t") is None
 
     def test_no_sub_steps_none(self, tmp_path):
-        _write_state_full(tmp_path, "t", "understand", 2)
+        _write_state_full(tmp_path, "t", "understand", 3)
         assert eng.pending_unjudged_step(tmp_path, "t") is None
 
     def test_no_trace_none(self, tmp_path):
@@ -1804,7 +1809,7 @@ class TestEngagementFenceState:
         assert eng.engagement_fence_state(tmp_path, "t") is None
 
     def test_no_sub_steps_none(self, tmp_path):
-        _write_state_full(tmp_path, "t", "understand", 2)
+        _write_state_full(tmp_path, "t", "understand", 3)
         assert eng.engagement_fence_state(tmp_path, "t") is None
 
     def test_zero_trace_returns_step(self, tmp_path):
@@ -2154,9 +2159,9 @@ class TestRunJudge:
 
 class TestRunGate:
     def test_no_rubric_passes_without_judge(self, monkeypatch):
-        # understand:2 无 rubric -> 不调 judge,机械项 NONE 过 -> pass
+        # understand:3 无 rubric -> 不调 judge,机械项 NONE 过 -> pass
         # 用计数器证明 judge 没被调
-        # 注：understand:1 现有验真 rubric 会调 judge，故用 understand:2 测无 rubric 路径
+        # 注：understand:1 现有验真 rubric 会调 judge，故用 understand:3 测无 rubric 路径
         called = {"n": 0}
 
         def _spy(cmd, **kw):
@@ -2164,7 +2169,7 @@ class TestRunGate:
             return _fake_run_factory(0, _result_line('{"pass": true}'))(cmd, **kw)
 
         monkeypatch.setattr(eng.subprocess, "run", _spy)
-        node = eng.get_node("understand", 2)
+        node = eng.get_node("understand", 3)
         ok, _ = eng.run_gate(node, "输出")
         assert ok is True
         assert called["n"] == 0  # judge 没被调
@@ -2539,7 +2544,7 @@ class TestAppendTrace:
         assert not ok and "读载荷失败" in msg
 
     def test_node_without_substeps_rejected(self, tmp_path):
-        _write_state_full(tmp_path, "t", "understand", 2)  # understand:2 无编排
+        _write_state_full(tmp_path, "t", "understand", 3)  # understand:3 无编排
         payload = tmp_path / "payload.json"
         self._write_payload(payload, {"purpose": "p", "q": ["q"], "a": ["a"]})
         ok, msg = eng.append_trace(tmp_path, "t", str(payload))

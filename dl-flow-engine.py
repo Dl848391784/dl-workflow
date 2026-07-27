@@ -156,6 +156,20 @@ _STEP1_METHOD_GUIDANCE = (
     "禁止为凑①回填痛点（「无法判断X」=复述提问本身，必 block）"
 )
 
+# understand:2 子1 的形式要件（单源：purpose 模型侧与 gate judge 侧都引用）。
+# 对齐原则同 _STEP1_FORM_REQUIREMENTS：形式要件披露降形式性返工，
+# 质量判据（非脑补/非空泛/佐证合法性）只留 gate 黑盒。
+# 双结论制（§3.5 #3）：「目标不成立」是合法结论——ProblemContext 可能已得出
+# ②「字面请求即全部」，GoalsAndValue 必须能直通，否则逼模型编造价值。
+_G2_STEP1_FORM_REQUIREMENTS = (
+    "覆盖 who（受益者）/outcome（达成什么状态）/初步价值 ≥3 类，q/a 按序对齐，"
+    "答案引用用户原话或会话事实；"
+    "结论二选一：①目标成立=ProblemContext 每个存活问题 ≥1 目标候选；"
+    "②目标不成立=用户声明字面请求即全部/无进一步诉求+原话佐证。"
+    "结论逐句须有出处（用户原话/会话事实）：无出处的推断禁止写进结论，"
+    "只能标注「推测」另列"
+)
+
 _NODES: dict[str, Node] = {
     # ---------- understand（含 4 子阶段;design §3 / workflow_advance.py:47 SUBPHASES 同源）----------
     "understand:1": Node(
@@ -414,7 +428,186 @@ _NODES: dict[str, Node] = {
         gate_mech=GateMech.NONE,
         gate_rubric=None,
         advance="sub",
+        # goals-and-value-substeps-design（2026-07-26，用户确认 5 步/无 hold_for_gate）：
+        # 与 ProblemContext 的关键不对称——问题是事实性命题（需外部取证+质检裁决），
+        # 目标/价值是规范性命题（外部证据无权证伪「我想要什么」，真值源只有用户），
+        # 故砍取证/裁决双步；步数由目标定义自身失效模式族（G1-G7）决定：
+        # 子2=结构对齐族（G1 脱节/G2 手段目的倒置/G5a 目标间冲突），
+        # 子3=规范论证族（G3 分层失真/G4 价值无据），子4=形式可移植族（G6）。
+        sub_steps=(
+            Step(
+                kind="tool",
+                ref="推理(KAOS WHY/HOW 问) / AskUserQuestion(补问)",
+                short="目标引出",
+                # 形式要件披露进 purpose（降形式性返工）；质量判据只留 gate 黑盒。
+                purpose=(
+                    f"目标引出：{_G2_STEP1_FORM_REQUIREMENTS}。"
+                    "方法：从 ProblemContext 归一化问题陈述（evidence 里 "
+                    "minor_stage=ProblemContext 的最新子5 trace）逐条问"
+                    "「解决了它 = 达成什么状态」（KAOS WHY/HOW 问）；"
+                    "取证纪律同 ProblemContext 子1——优先引用上下文已有的用户原话"
+                    "（会话事实可作佐证），禁止为凑字段重问用户已答过的内容；"
+                    "真正缺失的维度才用 AskUserQuestion 事实性补问"
+                    "（补问的回答原话是②的合法佐证）。"
+                ),
+                input="ProblemContext.step5.statements",
+                record=True,
+                selfcheck=(
+                    "who/outcome/初步价值 ≥3 类都覆盖了吗？每条 a 是用户原话/会话事实，"
+                    "还是我推断补全的（推断只能标「推测」另列）？"
+                    "结论选了①还是②、每句都有出处吗？①的每个目标候选都能对应到"
+                    "ProblemContext 存活问题吗？"
+                ),
+                gate=(
+                    "evidence/<name>.jsonl 含 kind=skill-trace、"
+                    "minor_stage=GoalsAndValue 且 sub_step==1 的记录；"
+                    f"形式要件：{_G2_STEP1_FORM_REQUIREMENTS}。"
+                    "质量判据（从严裁量）：各答案非空泛复述；①的目标候选非凭空脑补"
+                    "（每个候选须能对应到 ProblemContext 存活问题，对应不上=脑补判 block）；"
+                    "②的无目标声明须以原话为证——本步 AskUserQuestion 事实性补问的"
+                    "回答原话是合法佐证；用户从未被问及时的「未提及」不算佐证"
+                    "（须先问再引），无佐证=偷懒判 block。"
+                ),
+            ),
+            Step(
+                kind="tool",
+                ref="推理(双向追溯矩阵+方案剥离+冲突检测)",
+                short="对齐质检",
+                # 结构对齐族（G1+G2+G5a）：双向可追溯文献（forward 查覆盖/backward 查镀金）
+                # + INCOSE/BABOK implementation-free + KAOS conflict analysis。
+                purpose=(
+                    "对齐质检（不做新交互，只审子1 目标集的对齐质量）："
+                    "①双向追溯矩阵——每个目标回溯 ≥1 个 ProblemContext 已验证问题"
+                    "（backward，防镀金目标），每个存活问题有目标承接或显式搁置+理由"
+                    "（forward，防漏）；孤儿目标剔除或退回子1 补问；"
+                    "②solutioneering 剥离——目标陈述含方案名词/实现动词"
+                    "（「做一个X」「实现Y」）-> WHY 问一层（「为什么要 X」）剥到 outcome 状态；"
+                    "③目标间冲突检测——两目标不可兼得处显式标注（无冲突须显式声明，"
+                    "冲突留子5 用户裁决）。"
+                    "trace 须含完整矩阵（问题×目标逐项列出），"
+                    "「全部对齐」式汇总声明不算记录。"
+                ),
+                input="step1.goal_candidates",
+                record=True,
+                selfcheck=(
+                    "双向矩阵逐项列出了吗（问题×目标，汇总声明不算）？"
+                    "孤儿目标/孤儿问题都显式处置了吗（剔除/退回补问/搁置+理由）？"
+                    "含方案名词的目标剥到 outcome 了吗？目标间冲突检测做了吗"
+                    "（无冲突须显式声明）？"
+                ),
+                gate=(
+                    "evidence/<name>.jsonl 含 kind=skill-trace、"
+                    "minor_stage=GoalsAndValue 且 sub_step==2 的记录；"
+                    "形式要件：双向追溯矩阵逐项列出（每个目标 ≥1 问题回溯；"
+                    "每个存活问题有承接目标或显式搁置+理由）；孤儿项显式处置留痕；"
+                    "含方案名词/实现动词的目标已改写为 outcome；目标间冲突已标注"
+                    "（或显式声明无冲突）。"
+                    "质量判据（从严裁量）：剥离后 outcome 非同义反复"
+                    "（「做 X 为了能做 X」判 block）；矩阵放水（明显无关联的问题-目标"
+                    "硬连、脑补目标挂到无关问题上）判 block；"
+                    "「全部对齐」式汇总声明无逐项矩阵判 block。"
+                ),
+            ),
+            Step(
+                kind="tool",
+                ref="推理(价值链+分层理由) / Bash(条件性基线测量)",
+                short="价值论证",
+                # 规范论证族（G3+G4）：MoSCoW 批评（无 rationale 分层无效/须 stakeholder
+                # 拍板）+ INCOSE R7 模糊词禁令/Wiegers「unverifiable = wish」。
+                # 四桶分工：分层提案归模型（写什么），分层裁决归用户（认不认，子5）。
+                purpose=(
+                    "价值论证与分层提案：对子2 对齐后目标集逐项产出——"
+                    "①受益者（为谁解决；who 出处只认用户自述，纪律同 ProblemContext 子1）；"
+                    "②价值链（目标 -> 承接的痛点 -> 价值类型）；"
+                    "③量化基线——可测处实测现状（Bash 查数据/日志/耗时）；"
+                    "不可量化显式标注「不可量化+原因」= 合法留痕；"
+                    "④must/nice 提案附理由（每条写清「为什么是 must/nice」；试金石："
+                    "「不达成它本实例就失败」-> must，有 workaround 可继续 -> nice）；"
+                    "分层只提案，裁决权在子5 用户——禁止替用户拍板。"
+                ),
+                input="step2.aligned_goals",
+                record=True,
+                selfcheck=(
+                    "每个目标有受益者吗（who 只认用户自述）？价值链连到承接痛点了吗？"
+                    "基线实测留痕（Bash 输出）或显式标「不可量化+原因」了吗？"
+                    "must/nice 每条附理由了吗（只提案、未替用户拍板）？"
+                ),
+                # S15 前置围栏：本步合法工具 = Bash（条件性基线测量）。
+                fence_allow=("Bash",),
+                gate=(
+                    "evidence/<name>.jsonl 含 kind=skill-trace、"
+                    "minor_stage=GoalsAndValue 且 sub_step==3 的记录；"
+                    "形式要件：每个目标有受益者+价值链+基线（或显式「不可量化+原因」标注）"
+                    "+must/nice 提案附理由，逐项齐全。"
+                    "质量判据（从严裁量）：价值论证非空泛复述（「提升效率」无基线无"
+                    "痛点链接判 block）；基线数字须有工具留痕出处，拍脑袋数字=编造判 block；"
+                    "全 must 无真实取舍、或分层无理由（「重要所以 must」式循环论证）判 block；"
+                    "替用户拍板分层（无「提案-待用户裁决」语义）判 block。"
+                ),
+            ),
+            Step(
+                kind="skill",
+                ref="define-problem",
+                short="归一化陈述",
+                # claim normalization 职能同构 ProblemContext 子5（同一 skill 承担）；
+                # 可消费陈述三属性 = atomic / decontextualized / check-worthy
+                # （Deng et al. 2024，见 goals-and-value-substeps-design §4）。
+                purpose=(
+                    "归一化陈述：对子3 论证后目标集逐项产出归一化目标陈述——"
+                    "①原子（单句≤1个独立目标，「和/以及/同时」连接多目标=复合未拆净，"
+                    "回子1 重引）；"
+                    "②去上下文（脱离本会话可独立理解：主语+动词+约束自包含）；"
+                    "③携带 must/nice 提案与 verdict 边界（部分成立问题的目标只覆盖"
+                    "已证实边界——裁决传导，同构 ProblemContext 子5）；"
+                    "④solution-free 复核（归一化后仍含方案名词=子2 剥离不净，回子2）；"
+                    "放不进一句=未定义完。"
+                ),
+                input="step3.valued_goals",
+                record=True,
+                selfcheck=(
+                    "每条陈述单句只含 1 个独立目标吗（「和/以及/同时」连接多目标="
+                    "复合未拆净，回子1 重引）？脱离本会话可独立理解吗"
+                    "（主语+动词+约束自包含）？携带 must/nice 提案与 verdict 边界了吗？"
+                    "无方案名词残留吧？"
+                ),
+                gate=(
+                    "evidence/<name>.jsonl 含 kind=skill-trace、"
+                    "minor_stage=GoalsAndValue 且 sub_step==4 的记录；"
+                    "形式要件：子3 目标集每项各 ≤1 句且含主语+动词+约束（原子+去上下文）；"
+                    "陈述携带 must/nice 提案与边界。"
+                    "质量判据（从严裁量）：陈述集与子3 逐项一致——分层/边界不传导判 block；"
+                    "单句含多目标并列=复合未拆净判 block；"
+                    "含方案名词/实现动词=solutioneering 残留判 block。"
+                ),
+            ),
+            Step(
+                kind="skill",
+                ref="define-problem / AskUserQuestion",
+                short="读回确认",
+                # 带证据读回（同构 ProblemContext 子6）：只给结论不给依据地「通知」用户
+                # = 不信任甚至 backfire effect；本步是本子阶段唯一规范裁决点
+                # （must/nice 分层真值归用户，四桶分工）。
+                purpose=(
+                    "带证据的读回确认：向用户呈现 归一化目标陈述+追溯链+价值论证+"
+                    "must/nice 提案+不确定性（「不可量化」项显式暴露）；"
+                    "用户裁决 must/nice 分层（本子阶段唯一规范裁决点）；"
+                    "用户对各目标的认/否/调层记入 trace；"
+                    "多目标时用户圈定本实例处理范围，其余落 evidence + understand.md"
+                    "（供后续 dl 实例接续，不丢弃）。"
+                ),
+                input="step4.statements",
+                record=True,
+                selfcheck=(
+                    "呈现了陈述+追溯链+价值论证+分层提案+不确定性吗？"
+                    "「不可量化」项显式暴露了吗？用户对分层与各目标的裁决记入 trace 了吗？"
+                    "多目标时用户圈定本实例范围、其余落 evidence+understand.md 了吗？"
+                ),
+                gate=None,  # 交互步，gate 不跑 judge（trace 存在即过）
+            ),
+        ),
         minor_key="GoalsAndValue",
+        # 无 hold_for_gate（用户决议 2026-07-26）：保持「子阶段间无闸门」原设计；
+        # 子5 用户读回已含一层用户裁决，understand->plan 大闸门在 understand:4 后兜底。
     ),
     "understand:3": Node(
         label="确定范围与约束",
