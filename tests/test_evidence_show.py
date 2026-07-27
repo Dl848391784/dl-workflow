@@ -88,6 +88,36 @@ class TestRenderGate:
         assert "gate=passed" in out
         assert "attempts=1" in out
 
+    def test_gate_record_with_stage_fields(self, tmp_path):
+        # 2026-07-26 起的 gate 记录带 major_stage/minor_stage（与 skill-trace 对齐）
+        # -> minor_stage 经 minor_key_map 转中文展示
+        _write_ev(
+            tmp_path,
+            "t",
+            [
+                '{"kind":"gate","node":"understand:2","phase":"understand","sub":2,"label":"明确目标和价值",'
+                '"major_stage":"Understand","minor_stage":"GoalsAndValue","gate":"passed",'
+                '"gate_mech":"NONE","rubric":null,"attempts":0,"via":"auto-stop","ts":"2026-07-26"}',
+            ],
+        )
+        out = es.render(tmp_path, "t")
+        assert "[gate:understand:2]" in out
+        assert "GoalsAndValue（明确目标和价值）" in out
+
+    def test_gate_record_legacy_without_stage_fields(self, tmp_path):
+        # 旧记录无 major/minor_stage -> 回退 node/label 展示（不猜不崩）
+        _write_ev(
+            tmp_path,
+            "t",
+            [
+                '{"kind":"gate","node":"plan:0","phase":"plan","sub":0,"label":"生成执行计划","gate":"passed","rubric":null,"attempts":0}',
+            ],
+        )
+        out = es.render(tmp_path, "t")
+        assert "[gate:plan:0]" in out
+        assert "生成执行计划" in out
+        assert "None" not in out  # 缺失字段不得渲染成字面 None
+
 
 class TestEdgeCases:
     def test_missing_file(self, tmp_path):

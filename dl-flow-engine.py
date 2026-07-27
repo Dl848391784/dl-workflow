@@ -1025,7 +1025,10 @@ def write_gate_verdict(
     """gate pass 时写一笔裁决记录到 evidence/<name>.jsonl。
 
     记录：节点 + gate=passed + rubric（审据;None=仅机械过）+ attempts（重试次数）+
-    gate_mech（机械类型）+ ts + commit_sha（防腐锚点）。
+    gate_mech（机械类型）+ ts + commit_sha（防腐锚点）+
+    major_stage/minor_stage（2026-07-26：与 skill-trace 结构字段对齐——evidence
+    里所有记录都携带编排阶段标识，取值单源 = node.phase / node.minor_key；
+    整阶段节点 minor_key=None -> minor_stage 写 null，显式不猜）。
     sub_step 非 None 时记入（子步骤级裁决，如 /dl step-pass 手动放行，
     此时 via 标识裁决来源）。
     返回 True=写入成功;False=写失败（no silent fallback：失败留痕由调用方 log,不阻断）。
@@ -1036,6 +1039,8 @@ def write_gate_verdict(
         "phase": node.phase,
         "sub": node.sub,
         "label": node.label,
+        "major_stage": node.phase.capitalize(),
+        "minor_stage": node.minor_key,
         "gate": "passed",
         "gate_mech": node.gate_mech.value,
         "rubric": node.gate_rubric,  # None=仅机械过（无语义审）

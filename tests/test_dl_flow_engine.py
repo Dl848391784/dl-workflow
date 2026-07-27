@@ -709,6 +709,29 @@ class TestWriteGateVerdict:
         assert rec["gate_mech"] == "artifact_exists"
         assert "ts" in rec
 
+    def test_record_carries_stage_fields(self, tmp_path):
+        # 2026-07-26：gate 记录与 skill-trace 结构字段对齐——major_stage/minor_stage
+        # 取值单源 = node.phase / node.minor_key（与编排阶段对齐）
+        node = eng.get_node("understand", 2)  # GoalsAndValue
+        ok = eng.write_gate_verdict(tmp_path, "t", node, attempts=0, cwd=str(tmp_path))
+        assert ok is True
+        rec = json.loads(
+            eng._evidence_path(tmp_path, "t").read_text(encoding="utf-8").strip()
+        )
+        assert rec["major_stage"] == "Understand"
+        assert rec["minor_stage"] == "GoalsAndValue"
+
+    def test_record_minor_stage_none_for_whole_phase(self, tmp_path):
+        # 整阶段节点（plan:0）minor_key=None -> minor_stage 显式 null（不猜）
+        node = eng.get_node("plan", 0)
+        ok = eng.write_gate_verdict(tmp_path, "t", node, attempts=0, cwd=str(tmp_path))
+        assert ok is True
+        rec = json.loads(
+            eng._evidence_path(tmp_path, "t").read_text(encoding="utf-8").strip()
+        )
+        assert rec["major_stage"] == "Plan"
+        assert rec["minor_stage"] is None
+
     def test_rubric_none_for_mech_only_node(self, tmp_path):
         # rubric=None 的节点（understand 子 3）-> rubric 字段 None（仅机械过）
         # 注：understand:1 现有验真 rubric（§define-problem-verify-gate），用 understand:3 测无 rubric

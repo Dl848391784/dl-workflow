@@ -8,7 +8,9 @@
 - skill-trace(模型写): major_stage(首字母大写英文).lower() -> PHASE_LABELS -> 中文;
   minor_stage(英文标识,如 ProblemContext) -> minor_key_map -> 中文;sub_step 数字;
   purpose/q/a 字符串数组按序对齐。
-- gate(engine 写,write_gate_verdict): node(phase:sub) -> label;gate/rubric/attempts。
+- gate(engine 写,write_gate_verdict): node(phase:sub) -> label;gate/rubric/attempts;
+  2026-07-26 起也带 major_stage/minor_stage(与 skill-trace 结构字段对齐),
+  展示时 minor_stage 经 minor_key_map 转中文;旧记录无此字段 -> 回退 node/label 展示。
 
 用法:
   python3 evidence_show.py <name> [project_root]   # project_root 缺省取 cwd 的 git 根
@@ -56,7 +58,7 @@ def render(project_root: Path, name: str) -> str:
         if kind == "skill-trace":
             out.append(_render_skill_trace(rec, phase_labels, minor_map))
         elif kind == "gate":
-            out.append(_render_gate(rec, phase_labels))
+            out.append(_render_gate(rec, phase_labels, minor_map))
         else:
             out.append(
                 "  [未知 kind=%s] %s" % (kind, json.dumps(rec, ensure_ascii=False)[:80])
@@ -87,18 +89,25 @@ def _render_skill_trace(rec: dict, phase_labels: dict, minor_map: dict) -> str:
     return "\n".join(lines)
 
 
-def _render_gate(rec: dict, phase_labels: dict) -> str:
-    """gate 裁决记录 -> 中文一行 + rubric 摘要。"""
+def _render_gate(rec: dict, phase_labels: dict, minor_map: dict) -> str:
+    """gate 裁决记录 -> 中文一行 + rubric 摘要。
+
+    2026-07-26 起记录带 major_stage/minor_stage(与 skill-trace 对齐):minor_stage
+    经 minor_key_map 转中文展示;旧记录无此字段 -> 回退 node/label 展示(不猜)。
+    """
     node_id = rec.get("node", "?")  # "understand:1"
     label = rec.get("label", "")
     gate = rec.get("gate", "?")
     attempts = rec.get("attempts", "?")
     phase = rec.get("phase", "")
     phase_cn = phase_labels.get(phase, phase)
+    minor = rec.get("minor_stage")  # None=整阶段节点或旧记录
+    minor_cn = minor_map.get(minor, str(minor)) if minor else ""
+    minor_part = " · %s（%s）" % (minor, minor_cn) if minor else ""
     rubric = rec.get("rubric") or ""
     lines = [
-        "[gate:%s] %s（%s） gate=%s attempts=%s"
-        % (node_id, label, phase_cn, gate, attempts)
+        "[gate:%s] %s%s（%s） gate=%s attempts=%s"
+        % (node_id, label, minor_part, phase_cn, gate, attempts)
     ]
     if rubric:
         lines.append("      rubric: %s" % rubric[:80])
