@@ -1,6 +1,7 @@
 # plan:3「选择能力与工具」子步骤编排设计（CapabilityToolSelection）
 
-> 状态：**已确认**（2026-07-28 用户三连决议：①会话确认 **6 步**结构；②**hold_for_gate 加**——隔离测试语义，同 understand:3/4、plan:1/2 先例，门栏变六处；③**gate_mech 保持 ARTIFACT_EXISTS**——补查发现 `gate_verdict_mech` 机械门**全类型未实现**（dl-flow-engine.py:409-418 一律 return None，「暂不实现文件查找，留 §8.3」），ARTIFACT_CONTAINS 无现成文件查找可挂，新机制路径连带 ARTIFACT_EXISTS 的 TODO 一起做属独立项；能力节落地 guard = 子5 judge 验五字段 + 禁二次创作 + 用户读回 + S13/S15 围栏，同 plan:2 风险 #8 论证）
+> 状态：**已实现（v2.20，2026-07-28）**——§6 checklist 全项落地：plan:3 Node（6 步）+ plan:2 advance phase→sub + phase-rules plan:3 段 + skill 摘要块（关键不对称第七种）+ 401 tests 全绿 + 注入三态/render 冒烟通过。机制走查④结论：`phase_done_channel_open` 对 advance="sub" 恒 False（engine:584），plan:2 改 sub 后 `artifact_on_release` 不被读取（不再显式声明）；plan:3 放行后第三态文案走 artifact_on_release=False 分支（「plan.md已在末子步骤装配完成」）冒烟验证正确。遗留：真实 TTY 全轮跑（隔离测试语义的第一轮实测）待用户发起 dl 实例验证。
+> 确认史（2026-07-28 用户三连决议）：①会话确认 **6 步**结构；②**hold_for_gate 加**——隔离测试语义，同 understand:3/4、plan:1/2 先例，门栏变六处；③**gate_mech 保持 ARTIFACT_EXISTS**——补查发现 `gate_verdict_mech` 机械门**全类型未实现**（dl-flow-engine.py:409-418 一律 return None，「暂不实现文件查找，留 §8.3」），ARTIFACT_CONTAINS 无现成文件查找可挂，新机制路径连带 ARTIFACT_EXISTS 的 TODO 一起做属独立项；能力节落地 guard = 子5 judge 验五字段 + 禁二次创作 + 用户读回 + S13/S15 围栏，同 plan:2 风险 #8 论证
 > 父文档：`node-step-orchestration-design.md`（子步骤编排机制）、`task-breakdown-substeps-design.md`（最近范式 + plan:2 产物即本节点输入）、`design-solution-substeps-design.md`（编程工作流定位 + 消费契约倒推锚点法）、`scope-and-constraints-substeps-design.md`（本地单层源压缩原则）、`workflow-creation` SKILL.md §3.5（rubric 方法论）/ §3.8（拆步方法论）
 > 外部取证：本文 §4（Tavily 检索，2026-07-28，设计期调研——用户明示允许；与运行期 understand:1 子3「禁 tavily/WebSearch」约束无关）
 

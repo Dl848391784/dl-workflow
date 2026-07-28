@@ -74,7 +74,7 @@
 - **此阶段完成后是闸门**：你不会自动进入 plan，需用户 `/dl gate` 放行。
 
 ### plan（生成执行计划）
-- 拆 **2 子阶段**，依次完成（plan:1/plan:2 均有子步骤编排逐步门控、末步门栏扣留等 `/dl gate`）：
+- 拆 **3 子阶段**，依次完成（plan:1/plan:2/plan:3 均有子步骤编排逐步门控、末步门栏扣留等 `/dl gate`）：
   1. **设计解决方案**（**子步骤编排，6 步逐步 STEP_DONE 门控**，严格时序不可乱序）：
      - 编排强制语义与 understand:1 **完全相同**（①横幅后按「▶ 当前子步骤」块逐步执行；②写 evidence 是 STEP_DONE 前置（append-trace 两动作）；③输完 STEP_DONE 即 end_turn；④S15/S10/S13/阶段写围栏；⑤连续 block 3 次升级用户裁决）——见上方 understand:1 各条，不再重复。
      - **skill 步 invoke 时序**：子5/子6 ref 含 define-problem，进入该步后立即、在其它任何动作之前 invoke。
@@ -94,11 +94,22 @@
 （本段由 dl-launch.sh 调 dl-flow-engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
 <!-- END GENERATED sub_steps plan:2 -->
      - **子5 产物装配**：子5 用户拍板后**装配 `plan.md`**（= 子4 归一化执行步骤 + 用户裁决记录的直接装配，**禁二次创作**）——在写子5 trace 前完成；阶段写围栏已放行 plan.md。
-     - **子阶段门栏（hold_for_gate，advance="phase" 门栏节点，同 understand:4）**：末子步骤(5) 通过门控后**推进被扣留**——plan 第二个编排节点隔离测试（2026-07-28 用户决议）。等用户 `/dl gate` 放行（用户也可 /dl back 回退、/dl step-reset <n> 重测）。**扣留期间不要做收尾外的事**；`/dl step-pass` 末步放行 ≠ 门栏放行。
-     - **门栏放行后（与 plan:1 不同——本节点放行 ≠ 推进）**：`/dl gate` 放行门栏后你**仍在本子阶段**——此时输出 `### PHASE_DONE: plan` 撞 plan->execute 大闸门——大闸门仍需用户**第二次 `/dl gate`** 放行才进 execute（两次连拍是设计内行为，同 understand:4）。plan.md 已在子5 装配完成，不要重做已通过的子步骤。
+     - **子阶段门栏（hold_for_gate，advance="sub" 门栏节点，同 understand:2/3、plan:1）**：末子步骤(5) 通过门控后**推进被扣留，不自动进 plan:3**——隔离测试（2026-07-28 用户决议）。等用户 `/dl gate` 放行（用户也可 /dl back 回退、/dl step-reset <n> 重测）。**扣留期间不要做下一子阶段的事**；`/dl step-pass` 末步放行 ≠ 门栏放行（步的放行与子阶段的放行是两个独立的用户决定）。
+     - **门栏放行后（与 understand:2/3、plan:1 相同——放行即推进）**：`/dl gate` 放行门栏后自动进 plan:3 并**当轮续轮开做其子1**（跨子阶段自动续轮，无门栏的边界不是检查点）。不要输出 `### PHASE_DONE: plan`——plan 还有 plan:3 未完成。
+  3. **选择能力与工具**（**子步骤编排，6 步逐步 STEP_DONE 门控**，严格时序不可乱序）：
+     - 编排强制语义与 understand:1 **完全相同**（①横幅后按「▶ 当前子步骤」块逐步执行；②写 evidence 是 STEP_DONE 前置（append-trace 两动作）；③输完 STEP_DONE 即 end_turn；④S15/S10/S13/阶段写围栏；⑤连续 block 3 次升级用户裁决）——见上方 understand:1 各条，不再重复。
+     - **skill 步 invoke 时序**：子5 ref 含 define-problem，进入该步后立即、在其它任何动作之前 invoke。
+     - **编程工作流定位**：能力空间 = **本会话真实注册表**（available-skills 列表/磁盘 skill 目录/MCP 配置/CLI）——能力名逐字引用注册表出处，**禁凭训练记忆引用能力名**（幽灵能力是本节点最高危失效）；强制路由（CLAUDE.md §2 触发词/H15/superpowers 触发）逐任务核对；最小集——无绑定 = 不加载。
+     - 全 6 子步骤 purpose（engine 渲染，与注入逐字同源）：
+<!-- BEGIN GENERATED sub_steps plan:3 -->
+（本段由 dl-launch.sh 调 dl-flow-engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
+<!-- END GENERATED sub_steps plan:3 -->
+     - **子6 产物装配**：子6 用户拍板后**装配 `plan.md`「能力与工具」节**（= 子5 归一化能力包 + 用户裁决记录的直接装配，**禁二次创作**）——在写子6 trace 前完成；阶段写围栏已放行 plan.md。
+     - **子阶段门栏（hold_for_gate，advance="phase" 门栏节点，同 understand:4）**：末子步骤(6) 通过门控后**推进被扣留**——plan 第三个编排节点隔离测试（2026-07-28 用户决议）。等用户 `/dl gate` 放行（用户也可 /dl back 回退、/dl step-reset <n> 重测）。**扣留期间不要做收尾外的事**；`/dl step-pass` 末步放行 ≠ 门栏放行。
+     - **门栏放行后（与 plan:1/2 不同——本节点放行 ≠ 推进）**：`/dl gate` 放行门栏后你**仍在本子阶段**——此时输出 `### PHASE_DONE: plan` 撞 plan->execute 大闸门——大闸门仍需用户**第二次 `/dl gate`** 放行才进 execute（两次连拍是设计内行为，同 understand:4）。plan.md「能力与工具」节已在子6 装配完成，不要重做已通过的子步骤。
 - 允许：understand 的工具 + 起草 design.md（H8）。
 - 禁止：改源码。
-- 完成：plan:1/plan:2 用 `### STEP_DONE: <n>` 逐步推进（末步均门栏扣留等 `/dl gate`）；plan:2 子5 装配 `plan.md`（方案 + 步骤 + 验证方法），门栏放行后输出 `### PHASE_DONE: plan`。
+- 完成：plan:1/plan:2/plan:3 用 `### STEP_DONE: <n>` 逐步推进（末步均门栏扣留等 `/dl gate`）；plan:2 子5 装配 `plan.md`（方案 + 步骤 + 验证方法），plan:3 子6 追加装配 `plan.md`「能力与工具」节，plan:3 门栏放行后输出 `### PHASE_DONE: plan`。
 - **此阶段完成后是闸门**：需用户 `/dl gate` 放行才进 execute。
 
 ### execute（执行）

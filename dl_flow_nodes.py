@@ -89,8 +89,8 @@ class Node:
     hold_for_gate: bool = False
     # 产物装配时机（仅 advance="phase" 编排末节点的注入第三态用）：
     # True=门栏放行后写产物（understand:4——4 子阶段陈述放行后才汇总装配）；
-    # False=末子步骤内已装配（plan:2——plan.md 在子5 拍板后装配，
-    # hold 前已落地，放行后只需 PHASE_DONE）。
+    # False=末子步骤内已装配（plan:3——plan.md「能力与工具」节在子6 拍板后装配，
+    # hold 前已落地，放行后只需 PHASE_DONE）。advance="sub" 节点此字段不被读取。
     artifact_on_release: bool = True
 
 
@@ -244,6 +244,50 @@ _TB_STEP2_FORM_REQUIREMENTS = (
     "或②「单阶段不可拆」的论证（H9 内一次可完）；"
     "设计包字段⑧已预选切片的精化不重做，q/a 按序对齐；"
     "只提案不拍板（断点位置是用户风险偏好，子5 裁决）"
+)
+
+# plan:3 子1 的形式要件（单源：purpose 模型侧与 gate judge 侧都引用）。
+# 对齐原则同 _TB_STEP1_FORM_REQUIREMENTS：形式要件披露降形式性返工，
+# 质量判据（非二次创作/非编造）只留 gate 黑盒。
+# judge 输入面（§3.5 #11）：plan.md 文件 judge 读不到——需求原文必须
+# 引用进 trace 正文，judge 从 evidence 判（plan:2 子1 同款）。
+_CTS_STEP1_FORM_REQUIREMENTS = (
+    "逐任务操作类型需求清单齐备：每任务/阶段标注操作类型"
+    "（代码改动[改 .py=H15 触发信号]/测试执行/长 pipeline[后台禁 pipe 信号]/"
+    "外部检索/数据读取[parquet 等]/子代理扇出/文档装配）；"
+    "每条附任务 ID 出处且 plan.md 原文引用进 trace 正文；"
+    "新增候选（plan.md 没有的需求）显式标注或显式「无」，q/a 按序对齐；"
+    "只提取不创作（本步是全节点保真判定基线）"
+)
+
+# plan:3 子2 的形式要件（单源，对齐原则同上）。
+# 双结论制（§3.5 #3）：「内置工具足够、零 skill」是合法结论——但须逐任务说明，
+# 无说明的「零绑定」= 懒得盘点，不算（防偷懒出口，同 _TB_STEP2_FORM_REQUIREMENTS）。
+# 幽灵能力防御（capability-tool-selection-substeps-design §1.3 C1）：
+# 能力名必须逐字引用注册表出处——训练记忆里的名字不算数。
+_CTS_STEP2_FORM_REQUIREMENTS = (
+    "能力注册表三通道清单齐备：①skill 注册表（会话 available-skills 列表+"
+    "磁盘用户级 ~/.claude/skills/项目级 .claude/skills/ 目录）；"
+    "②工具/CLI/MCP（内置工具集+codegraph CLI+MCP server 列表）；"
+    "③强制路由核对（CLAUDE.md §2 触发词逐任务匹配+H15 改 .py 前 codegraph 留痕+"
+    "superpowers 触发[写代码前 TDD/测试失败 systematic-debugging/任何编码 "
+    "karpathy-guidelines]）；"
+    "能力名逐字引用注册表出处（列表行/文件路径），禁凭训练记忆；"
+    "②「内置工具足够、零 skill」的逐任务说明或显式 skill 候选，q/a 按序对齐"
+)
+
+# plan:3 子3 的形式要件（单源，对齐原则同上）。
+# tool overload 防线（design §4 实证：选择准确率随工具数坍塌 95%→71%）：
+# 最小集判据——无绑定=不加载，不加载什么与加载什么同等重要。
+_CTS_STEP3_FORM_REQUIREMENTS = (
+    "需求×能力映射：每条绑定附理由（覆盖判据引用子2 trigger/description 出处，"
+    "禁凭名字猜）+被否替代；"
+    "最小集（每能力绑定 ≥1 需求，无绑定=不加载）；"
+    "重型手段（Workflow 多 agent/子代理扇出/长 pipeline）附成本相称辩护；"
+    "强制项优先（项目强制项不可被「更顺手」的非强制项替代）；"
+    "双向追溯矩阵（每需求有绑定或显式「内置足够」；每能力绑定到需求，双向无漏）；"
+    "红队留痕或条件未触发声明，q/a 按序对齐；"
+    "只提案不拍板（映射取舍是用户偏好，子6 裁决）"
 )
 
 _NODES: dict[str, Node] = {
@@ -1325,7 +1369,9 @@ _NODES: dict[str, Node] = {
         # 逐步 gate（①②③→子2/3/4 判据；④一致性→子1 基线+子4 传导+子5 禁二次
         # 创作）；plan->execute 大闸门只跑 ARTIFACT_EXISTS 机械门（design §3）。
         gate_rubric=None,  # 子阶段级 rubric 删除（被 sub_steps 逐步门控取代）
-        advance="phase",  # 末子阶段 -> 推进到 execute（过 plan->execute 闸门）
+        # advance="sub"（v2.20 plan:3 加入后本节点不再是 plan 末子阶段）：
+        # 末子步骤 STEP_DONE:5 通过即推进 sub_index 进 plan:3（跨子阶段自动续轮）。
+        advance="sub",
         sub_steps=(
             Step(
                 kind="tool",
@@ -1498,12 +1544,236 @@ _NODES: dict[str, Node] = {
         minor_key="TaskBreakdown",
         # §subphase-hold-gate（用户决议 2026-07-28，同 understand:3/4、plan:1
         # 隔离测试语义）：plan 第二个编排节点，末子步过后扣留等 /dl gate。
-        # advance="phase" hold 与 understand:4 完全同构——无新机制路径
-        # （phase_done_channel_open 已被 understand:4 pinning 覆盖）。
-        # 放行后模型 PHASE_DONE: plan 撞 plan->execute 大闸门（第二次 /dl gate）。
+        # v2.20 起 advance="sub"（plan:3 加入）——hold 语义转为与 understand:2/3
+        # 同构（advance="sub" hold，机制已 pin）：放行后自动续轮进 plan:3 子1，
+        # 不再有 PHASE_DONE 通道（phase_done_channel_open 对 advance="sub" 恒 False，
+        # artifact_on_release 字段对 sub 节点不被读取，故不再显式声明）。
         # 门栏位置现状：understand:1=无，understand:2/3/4=有，plan:1/2=有（本节点）。
         hold_for_gate=True,
-        artifact_on_release=False,  # plan.md 子5 内装配（hold 前已落地）
+    ),
+    # ---------- plan:3 选择能力与工具（v2.20，capability-tool-selection-substeps-design）----------
+    "plan:3": Node(
+        label="选择能力与工具",
+        phase="plan",
+        sub=3,
+        skill=None,  # 编排节点 skill 走 Step ref（同 plan:1/2；define-problem 在子5 ref）
+        artifact="plan.md",
+        # 声明式机械门（同 plan:2）：gate_verdict_mech 全类型未实现
+        # （engine:409-418 一律 return None 留 §8.3）——能力节落地 guard =
+        # 子5 judge 验五字段 + 子6 禁二次创作 + 用户读回 + S13/S15 围栏
+        # （design §5 #9：ARTIFACT_CONTAINS 已否决，用户决议 2026-07-28）。
+        gate_mech=GateMech.ARTIFACT_EXISTS,
+        # 节点级 rubric 置 None（understand:4/plan:2 先例第三次）：
+        # 语义全部下沉逐步 gate，plan->execute 大闸门只跑机械门。
+        gate_rubric=None,  # 子阶段级 rubric 删除（被 sub_steps 逐步门控取代）
+        advance="phase",  # plan 末子阶段 -> 推进到 execute（过 plan->execute 闸门）
+        sub_steps=(
+            Step(
+                kind="tool",
+                ref="Read(plan.md) / Bash(grep evidence TaskBreakdown trace)",
+                short="需求清点",
+                # 保真基线（同构 plan:2 子1）：本节点输入是要被「映射」的结构化
+                # 对象（plan.md 任务集）——需求失真（C6）防御 = 任务 ID 基线 +
+                # 原文入 trace；检出 plan 没有的需求=二次创作信号。
+                purpose=(
+                    f"需求清点与追溯基线：{_CTS_STEP1_FORM_REQUIREMENTS}。"
+                    "检出 plan.md 没有的需求=二次创作信号，显式列「新增候选」"
+                    "待子6 用户裁决（禁静默混入）。"
+                ),
+                input="plan.md + evidence(TaskBreakdown 子4/子5 trace)",
+                record=True,
+                fence_allow=("Bash",),  # grep evidence jsonl；Read 在常驻集
+                selfcheck=(
+                    "逐任务操作类型清单齐了吗（代码改动/测试/长 pipeline/检索/"
+                    "数据读取/子代理/装配，无遗漏）？每条都附任务 ID 出处且 "
+                    "plan.md 原文引用进 trace 正文了吗（judge 读不到 plan.md 文件本身）？"
+                    "新增候选显式标注或显式「无」了吗？"
+                    "有静默新增 plan 没有的需求吗（那是二次创作）？"
+                ),
+                gate=(
+                    "evidence/<name>.jsonl 含 kind=skill-trace、"
+                    "minor_stage=CapabilityToolSelection 且 sub_step==1 的记录；"
+                    f"形式要件：{_CTS_STEP1_FORM_REQUIREMENTS}。"
+                    "质量判据（从严裁量）：需求无出处=编造判 block；"
+                    "静默新增 plan 没有的需求=二次创作判 block；"
+                    "大段改写需求措辞致语义偏移=失真判 block；"
+                    "需求原文未引用进 trace 正文（judge 无从核对）判 block。"
+                ),
+            ),
+            Step(
+                kind="tool",
+                ref="Read(CLAUDE.md §2/§3 / 相关 SKILL.md frontmatter) / "
+                "Bash(ls ~/.claude/skills + .claude/skills、MCP 配置、which codegraph)",
+                short="能力盘点",
+                # 幽灵能力防御核心（本节点最高危失效 C1）：能力空间=有限可枚举
+                # 注册表，非生成空间——名称逐字引用注册表出处，训练记忆不算数；
+                # 强制路由核对=编程域一等约束源（understand:3 先例）。
+                purpose=(
+                    f"能力盘点与强制路由核对：{_CTS_STEP2_FORM_REQUIREMENTS}。"
+                    "双结论制——「内置工具足够、零 skill」是合法结论"
+                    "（小改动无触发命中），但须逐任务说明，防逼编造 skill 绑定凑数。"
+                ),
+                input="step1.need_baseline",
+                record=True,
+                fence_allow=("Bash",),
+                selfcheck=(
+                    "三通道清单都齐了吗（skill 注册表/工具·CLI·MCP/强制路由核对）？"
+                    "能力名逐字引用注册表出处了吗（还是凭训练记忆写的）？"
+                    "强制路由逐任务核对留痕了吗（§2 触发词/H15/superpowers 触发）？"
+                    "②逐任务说明了吗（或给出了显式 skill 候选）？"
+                ),
+                gate=(
+                    "evidence/<name>.jsonl 含 kind=skill-trace、"
+                    "minor_stage=CapabilityToolSelection 且 sub_step==2 的记录；"
+                    f"形式要件：{_CTS_STEP2_FORM_REQUIREMENTS}。"
+                    "质量判据（从严裁量）：能力名与注册表出处不符=幽灵能力判 block；"
+                    "强制路由漏核=漏配判 block；"
+                    "功能描述无 SKILL.md/listing 出处=凭记忆编造判 block；"
+                    "②无逐任务说明=偷懒判 block。"
+                ),
+            ),
+            Step(
+                kind="skill",
+                ref="推理(需求×能力映射) / Agent(条件红队)",
+                short="匹配选型",
+                # 本节点存在的理由：映射决策独立 gate（design §5 #1——并入归一化
+                # 步=选型理由无人核）。四判据：覆盖（引用 trigger 原文）/最小集
+                # （无绑定=不加载，tool overload 防线）/成本相称（重型手段辩护）/
+                # 强制优先（强制项不可替代）。
+                purpose=(
+                    f"匹配选型提案：{_CTS_STEP3_FORM_REQUIREMENTS}。"
+                    "条件红队（绑定数超阈值或含高成本项时触发，独立上下文反驳映射）。"
+                ),
+                input="step2.capability_registry + step1.need_baseline",
+                record=True,
+                fence_allow=("Agent",),  # 条件红队，同 DesignSolution 子4
+                selfcheck=(
+                    "双向追溯矩阵齐了吗（每需求有绑定或显式「内置足够」；"
+                    "每能力绑定到需求，无无绑定能力残留）？"
+                    "每条绑定附理由+子2 出处+被否替代了吗？"
+                    "重型手段附成本辩护了吗？红队留痕或条件未触发声明了吗？"
+                    "是「提案-待用户裁决」语义吗？"
+                ),
+                gate=(
+                    "evidence/<name>.jsonl 含 kind=skill-trace、"
+                    "minor_stage=CapabilityToolSelection 且 sub_step==3 的记录；"
+                    f"形式要件：{_CTS_STEP3_FORM_REQUIREMENTS}。"
+                    "质量判据（从严裁量）：无绑定能力残留=过载判 block；"
+                    "绑定理由无出处=凭名字猜判 block；"
+                    "强制项被非强制项替代且无辩护判 block；"
+                    "重型手段无成本辩护判 block；"
+                    "替用户拍板映射=无「提案-待裁决」语义判 block。"
+                ),
+            ),
+            Step(
+                kind="tool",
+                ref="Bash(which/版本冒烟/MCP 连接确认/venv 依赖) / Read",
+                short="可用性核验",
+                # 本地单层源压缩原则（第五次否决取证+质检双步）：注册表有条目
+                # ≠ 环境可用（C5，solvability awareness）——Bash 单层可验，
+                # 无「五层源过程质量」可判。只标注不裁决。
+                purpose=(
+                    "可用性核验与假设标注：逐绑定核验四类——"
+                    "①skill 条目真实存在（注册表列表行/磁盘路径）；"
+                    "②CLI 可用（which codegraph + 版本/新鲜度冒烟）；"
+                    "③MCP server 实际连接（配置 + 会话工具面）；"
+                    "④环境前提（venv/依赖/API key 存在性——只验存在不验密值）。"
+                    "三态标注：已验证（附出处）/假设（置信度+错误时影响）/"
+                    "证伪（回子3 换绑，附理由）。只标注不裁决——"
+                    "假设的接受留子6 用户裁决。"
+                ),
+                input="step3.binding_proposals",
+                record=True,
+                fence_allow=("Bash",),
+                selfcheck=(
+                    "每绑定四类核验都做了吗（skill 存在/CLI 可用/MCP 连接/环境前提，"
+                    "无遗漏）？三态逐绑定标注了吗？"
+                    "已验证附出处、假设含置信度+错误时影响、证伪附理由了吗？"
+                ),
+                gate=(
+                    "evidence/<name>.jsonl 含 kind=skill-trace、"
+                    "minor_stage=CapabilityToolSelection 且 sub_step==4 的记录；"
+                    "形式要件：每绑定四类核验留痕；三态逐绑定标注；"
+                    "出处/置信度+影响/理由齐备。"
+                    "质量判据（从严裁量）：声称可用无出处=编造判 block；"
+                    "全绑定无差别「已验证」=没真核验判 block；"
+                    "假设项缺置信度或影响判 block。"
+                ),
+            ),
+            Step(
+                kind="skill",
+                ref="define-problem(归一化)",
+                short="归一化能力包",
+                # claim normalization 职能第八次复用（ProblemContext 子5 /
+                # GoalsAndValue 子4 / ScopeAndConstraints 子4 / SuccessCriteria 子4 /
+                # DesignSolution 子5 / TaskBreakdown 子4 同构）。
+                # 能力包五字段倒推自消费契约（design §0 表）：execute:0 逐条核 /
+                # using-superpowers 必先 invoke / H15+执行映射 / Agent 成本决策 /
+                # overload 防线。
+                purpose=(
+                    "归一化能力包：①原子（单句 ≤1 个独立配置断言）；"
+                    "②去上下文（零上下文执行者照做：能力名逐字+触发依据自包含，"
+                    "禁「同上」「类似任务 N」）；"
+                    "③携带能力包五字段——必先 skill（名+触发依据引用）/"
+                    "工具与 CLI 清单（含子4 可用性状态）/强制门禁对齐项"
+                    "（H15 codegraph 前置、长 pipeline 后台禁 pipe 等执行映射条目）/"
+                    "子代理策略（扇出/模型/隔离，无则显式「单线程」）/"
+                    "显式不加载清单（抗 overload 承诺）；"
+                    "④假设传导（子4 假设项原样携带，不丢不淡化）。"
+                    "放不进一句=未定义完。"
+                ),
+                input="step4.verified_bindings",
+                record=True,
+                selfcheck=(
+                    "每任务 ≤1 句且自包含（零上下文执行者照做）吗？"
+                    "五字段都携带了吗（必先 skill/工具清单/强制门禁对齐/子代理策略/"
+                    "不加载清单）？字段与子3/子4 已定内容一致吗（无丢失无篡改无新增）？"
+                    "能力名与子2 注册表出处逐字一致吗？假设传导了吗？"
+                ),
+                gate=(
+                    "evidence/<name>.jsonl 含 kind=skill-trace、"
+                    "minor_stage=CapabilityToolSelection 且 sub_step==5 的记录；"
+                    "形式要件：每任务五字段齐备；与需求双向覆盖无漏；"
+                    "不加载清单显式或显式「无」；假设传导。"
+                    "质量判据（从严裁量）：字段与子3/子4 已定内容不一致="
+                    "丢失/篡改/新增判 block；复合句判 block；"
+                    "能力名与子2 注册表出处不符=幽灵回潮判 block；"
+                    "不加载清单缺失且无声明判 block。"
+                ),
+            ),
+            Step(
+                kind="skill",
+                ref="AskUserQuestion / Bash(plan.md 追加「能力与工具」节)",
+                short="读回装配",
+                # 带证据读回（同构 plan:2 子5）：只给结论不给依据地「通知」用户 =
+                # 无依据确认；plan.md「能力与工具」节 = 子5 能力包+裁决记录的
+                # 直接装配（禁二次创作）。
+                purpose=(
+                    "带证据读回与 plan.md 装配：呈现映射摘要+可用性状态+假设清单"
+                    "+不加载清单+新增候选（子1 检出若有）+不确定性；"
+                    "用户两裁决——①映射拍板（本节点唯一规范裁决点，"
+                    "含要求换绑/卸载/补绑的合法权利）；②假设接受（风险承担）；"
+                    "拍板后装配 plan.md「能力与工具」节（=子5 归一化能力包+裁决记录的"
+                    "直接装配，禁二次创作）；写 trace 记裁决原话 -> STEP_DONE。"
+                ),
+                input="step5.capability_packages",
+                record=True,
+                selfcheck=(
+                    "呈现了映射摘要+可用性状态+假设清单+不加载清单+新增候选吗？"
+                    "用户对映射/假设两项裁决都记入 trace 了吗？"
+                    "plan.md「能力与工具」节是装配而非二次创作吗？"
+                ),
+                gate=None,  # 交互步，gate 不跑 judge（trace 存在即过）
+            ),
+        ),
+        minor_key="CapabilityToolSelection",
+        # §subphase-hold-gate（用户决议 2026-07-28，隔离测试语义）：
+        # plan 第三个编排节点，末子步过后扣留等 /dl gate。门栏六处：
+        # understand:2/3/4 + plan:1/2/3（本节点）。
+        # advance="phase" hold 与 plan:2(v2.19)/understand:4 同构——无新机制路径。
+        # 放行后模型 PHASE_DONE: plan 撞 plan->execute 大闸门（第二次 /dl gate）。
+        hold_for_gate=True,
+        artifact_on_release=False,  # plan.md 能力节子6 内装配（hold 前已落地）
     ),
     # ---------- execute ----------
     "execute:0": Node(

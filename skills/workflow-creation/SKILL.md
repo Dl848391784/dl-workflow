@@ -35,8 +35,9 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
 **understand 含 4 子阶段**（依次自动推进，无子阶段闸门）：1.理解问题和背景 / 2.明确目标和价值 / 3.确定范围与约束 / 4.定义成功标准和验收方式。**4 个子阶段全部有编排**（v2.17 起），走 STEP_DONE 逐步门控；末子阶段(4) 门栏放行后写 understand.md + 输出 `### PHASE_DONE: understand` 触发 understand->plan 闸门。未走完子阶段直接 PHASE_DONE 会被守卫阻断。详见 `designs/understand-subphases-design.md`。
 **两级命名约定**：节点 id `<phase>:<sub_index>` 是**子阶段**（minor_state；sub_index=0 = 无子阶段的整阶段节点，如 execute:0）；子步骤是子阶段**内部**的「子N」（机制层 `sub_step_index` / evidence `sub_step` 字段），不用 `plan:N` 记号——「plan:2」= plan 的第二个子阶段，不是某子阶段的第 2 子步骤（2026-07-28 用户实测歧义一次，写死省澄清）。
 **推进**：自动 + 闸门。`understand->plan`、`plan->execute` 需 `/dl gate` 放行；其余自动推进。
+**plan 含 3 子阶段**（v2.20 起全部有编排）：1.设计解决方案（6 步）/ 2.拆解任务与阶段（5 步）/ 3.选择能力与工具（6 步）；末子阶段(3) 门栏放行后输出 `### PHASE_DONE: plan` 撞 plan->execute 闸门。详见 `designs/capability-tool-selection-substeps-design.md`。
 
-**各编排节点子步骤摘要**（understand:1 6 步 / understand:2-4 各 5 步 / plan:1 6 步 / plan:2 5 步；purpose 第三通道）+ 拆步方法论 → `references/node-design.md`。改 engine Step.purpose 实质内容后须手工同步该文件摘要块。
+**各编排节点子步骤摘要**（understand:1 6 步 / understand:2-4 各 5 步 / plan:1 6 步 / plan:2 5 步 / plan:3 6 步；purpose 第三通道）+ 拆步方法论 → `references/node-design.md`。改 engine Step.purpose 实质内容后须手工同步该文件摘要块。
 
 ## 路由表（触发 → Read 哪个 reference）
 

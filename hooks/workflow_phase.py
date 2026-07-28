@@ -302,7 +302,7 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
                 "（仍需用户 `/dl gate` 放行才进下一阶段）。不要重做已通过的子步骤。"
             )
         else:
-            # 产物已在末子步骤内装配（plan:2 plan.md）——放行后只差完成信号
+            # 产物已在末子步骤内装配（plan:3 plan.md 能力节）——放行后只差完成信号
             lines.append(
                 f"- ✓ 本子阶段全部子步骤已通过门控，门栏已放行——"
                 f"{node.artifact or '阶段产物'}已在末子步骤装配完成，"
