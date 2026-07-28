@@ -152,7 +152,11 @@ _G2_STEP1_FORM_REQUIREMENTS = (
 # KAOS 否定提问留痕，「未做过否定提问的无约束」= 懒得想，不算（防偷懒出口）。
 _S3_STEP1_FORM_REQUIREMENTS = (
     "对 GoalsAndValue 每个 must 目标做否定提问「什么会使它失败」（KAOS 障碍分析）"
-    "引出约束候选；约束类型覆盖 ≥3 类（数据/环境/权限/时间/资源/外部依赖），"
+    "引出约束候选；约束类型覆盖 ≥3 类，分类按编程域（编程专用工作流，2026-07-27 修订）："
+    "代码库结构（模块边界/数据契约/接口签名）/ 项目硬规则（CLAUDE.md/PROJECT.md/"
+    "MODULE.md 的 H 规则与模块边界——编程工作流独有的一等约束源）/ "
+    "数据契约（schema/字段/freshness）/ 环境工具链（venv/依赖/退出码语义）/ "
+    "外部依赖 / 时间资源，"
     "q/a 按序对齐，用户侧约束（deadline/人力/权限）缺口用 AskUserQuestion 补问"
     "（优先上下文已有原话，禁重问已答内容）；"
     "结论二选一：①约束成立=每 must 目标 ≥1 约束候选或显式「无约束+理由」；"
@@ -164,8 +168,10 @@ _S3_STEP1_FORM_REQUIREMENTS = (
 # understand:4 子1 的形式要件（单源：purpose 模型侧与 gate judge 侧都引用）。
 # 对齐原则同 _STEP1_FORM_REQUIREMENTS：形式要件披露降形式性返工，
 # 质量判据（非空泛/非脑补/追溯放水）只留 gate 黑盒。
-# 双结论制（§3.5 #3）：「目标只能定性验收」是合法结论——但须逐目标留痕理由，
-# 无理由的「不可检验」= 懒得想，不算（防偷懒出口，同 _S3_STEP1_FORM_REQUIREMENTS）。
+# 双结论制（§3.5 #3）编程域收紧（编程专用工作流，2026-07-27 修订）：
+# 代码行为几乎总是可执行验证——「目标只能定性验收」是稀有合法结论，须逐目标
+# 留痕理由且理由须说明「为何不可执行验证」（合法剩余 ≈ UX/可读性/架构审美类）；
+# 可执行验证的目标标定性 = 偷懒出口（防双结论制被滥用）。
 _S4_STEP1_FORM_REQUIREMENTS = (
     "对 GoalsAndValue 每个 must 目标做验收视角提问「怎么知道它达成了」"
     "（INCOSE verification point-of-view：想象自己在执行验收事件）引出成功标准候选；"
@@ -174,7 +180,8 @@ _S4_STEP1_FORM_REQUIREMENTS = (
     "用户侧期望（「什么结果你会满意」）缺口用 AskUserQuestion 补问"
     "（优先上下文已有原话，禁重问已答内容）；"
     "结论二选一：①标准候选成立=每 must 目标 ≥1 候选或显式定性+理由；"
-    "②目标只能定性验收=合法，但须逐目标留痕理由。"
+    "②目标只能定性验收=稀有合法结论（编程域代码行为几乎总是可执行验证），"
+    "须逐目标留痕理由且理由须说明「为何不可执行验证」。"
     "结论逐句须有出处（用户原话/会话事实）：无出处的推断禁止写进结论，"
     "只能标注「推测」另列"
 )
@@ -673,7 +680,10 @@ _NODES: dict[str, Node] = {
                 purpose=(
                     "约束验证与假设标注：对子1 约束候选逐条定真伪，三态输出——"
                     "①已验证约束（项目内部事实用工具验证：数据文件存在性/新鲜度、"
-                    "接口签名、权限、环境配置，附工具留痕出处）；"
+                    "接口签名、权限、环境配置，附工具留痕出处；"
+                    "硬规则类约束的合法验证源 = Read 规范文档（CLAUDE.md/PROJECT.md/"
+                    "MODULE.md）原文引用，禁拿训练记忆里的「项目惯例」冒充；"
+                    "codegraph 断言前置新鲜度检查，索引过期先 sync）；"
                     "②假设（无法低成本验证 → 显式标注「假设+置信度+错误时的影响」，"
                     "PMBOK：assumption stated without proof；「预算是事实，"
                     "预算够用是假设」）；③证伪剔除（附证据）。"
@@ -707,11 +717,17 @@ _NODES: dict[str, Node] = {
                     "范围界定：从 must/nice 裁决 + GoalsAndValue 子5 用户圈定范围"
                     "派生 in-scope / out-of-scope 双侧清单（PMI：只有 in 侧 = "
                     "scope creep 温床，52% 项目经历 scope creep；out 侧显式列举"
-                    "「看似该做但不做」的项）；双向追溯：每个 in-scope 项回溯 ≥1 "
+                    "「看似该做但不做」的项）——编程域操作化（2026-07-27 修订）："
+                    "in/out 落到改动面，in-scope = 允许改动的文件/模块/symbol 集合"
+                    "（用 codegraph impact 取证改动面，附留痕），out-of-scope = "
+                    "显式禁改的文件/模块清单（特性级条目可保留作注释，但尽量落到"
+                    "路径/模块级才机械可核查）；双向追溯：每个 in-scope 项回溯 ≥1 "
                     "must 目标（backward，防镀金），每个 must 目标有范围覆盖或"
                     "显式搁置+理由（forward，防漏）；约束回写：已验证约束/已标注"
                     "假设迫使缩小范围处显式记录（obstacle resolution = "
-                    "alternative scope，KAOS）。只提案不拍板（裁决权留子5）。"
+                    "alternative scope，KAOS——编程域实例：项目硬规则如"
+                    "「单次改动 ≤3 文件」直接圈定 in 侧上界）。"
+                    "只提案不拍板（裁决权留子5）。"
                     "trace 须含完整矩阵（目标×范围项逐项），汇总声明不算记录。"
                 ),
                 input="step2.verified_constraints + GoalsAndValue.step5.user_decisions",
@@ -845,7 +861,8 @@ _NODES: dict[str, Node] = {
                     "质量判据（从严裁量）：标准候选非空泛复述"
                     "（「系统变快」「体验好」无度量对象判 block）；"
                     "脑补候选挂无关目标（追溯放水——明显无关联的目标-标准硬连）判 block；"
-                    "②的「只能定性验收」缺逐目标理由 = 偷懒判 block；"
+                    "②的「只能定性验收」缺逐目标理由、或理由未说明「为何不可执行验证」"
+                    " = 偷懒判 block（编程域收紧：可执行验证的目标标定性判 block）；"
                     "方案名词/实现动词残留 = solutioneering 判 block。"
                 ),
             ),
@@ -864,10 +881,14 @@ _NODES: dict[str, Node] = {
                     "②三要素齐备：度量指标 + 基线（Bash 实测现状——查数据/日志/耗时，"
                     "附工具留痕出处；不可测显式标「无基线+原因」= 合法留痕）"
                     "+ 阈值提案（只提案不拍板——阈值是风险偏好，裁决权留子5）；"
+                    "编程域规范形式（2026-07-27 修订）：可执行验收优先——每条标准的 "
+                    "fit criterion 尽量落成 failing test / 验证脚本断言 / 命令+退出码"
+                    "（specification by example；落成失败测试的标准直接与 TDD 衔接，"
+                    "review 判定可机械复现），落不成可执行形式的须说明原因；"
                     "③不可检验化 = 合法退回信号（Volere：找不到 fit criterion → "
                     "标准模糊/目标理解不足 → 退回子1 重引或显式标记回退 GoalsAndValue；"
                     "禁止硬编假指标——假指标 = 度量对象与目标 outcome 不相关，"
-                    "如拿「代码行数」度量「体验」）。"
+                    "如拿「代码行数」度量「体验」、拿「编译无报错」度量「功能达成」）。"
                 ),
                 input="step1.criteria_candidates",
                 record=True,
@@ -900,10 +921,14 @@ _NODES: dict[str, Node] = {
                     "①方法选择（INCOSE 四法：test 测试/analysis 数据分析/"
                     "inspection 审查/demonstration 演示，附选择理由——经典映射："
                     "功能→demonstration、性能→test、设计约束→inspection、"
-                    "质量属性→analysis）；"
+                    "质量属性→analysis；编程域映射（2026-07-27 修订）："
+                    "test→pytest/验证脚本，analysis→数据/log 对比查询，"
+                    "inspection→review checklist 逐项核查，"
+                    "demonstration→跑起来看实际行为输出）；"
                     "②可行性三态处置（本地单层源）：手段存在（测试框架/数据源/"
                     "契约检查脚本在本仓，Bash/codegraph/Read 验证附出处）/ "
-                    "验收手段待建（不存在 → 显式标注 = 进 plan 的任务项，不静默略过）/ "
+                    "验收手段待建（不存在 → 显式标注 = 进 plan 的任务项，不静默略过；"
+                    "编程域实例 = 测试框架/fixture/验证脚本缺失）/ "
                     "不可行剔除（附理由）；"
                     "③验收时机标注（triggered = review 一次性判 vs continuous = "
                     "持续监控，fitness function 概念；只能在事后验证的显式标注风险——"

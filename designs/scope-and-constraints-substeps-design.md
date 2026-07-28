@@ -1,6 +1,7 @@
 # understand:3「确定范围与约束」子步骤编排设计（ScopeAndConstraints）
 
 > 状态：**已确认**（2026-07-27 用户三决议：5 步 / **加 hold_for_gate** / 先拆 engine 再加 sub_steps）
+> **修订（2026-07-27，用户决议）**：本工作流定位 = **编程专用工作流**（非通用工作流）。骨架不动（5 步/门控/命题三分领域无关），修订三处领域参数：①子1 约束分类从 PMBOK 通用六类改为编程域分类（项目硬规则升为一等约束源）；②子2 补「读规范文档」为一等验证动作 + codegraph 新鲜度前置；③子3 范围从特性级清单操作化为**改动面清单**（文件/模块/symbol 级，codegraph impact 可机械核查）。
 > 父文档：`node-step-orchestration-design.md`（子步骤编排机制）、`understand-subphases-design.md`（4 子阶段划分）、`goals-and-value-substeps-design.md`（GoalsAndValue 5 步范式 + obstacle analysis 划给本子阶段的接口约定）、`step3-verify-redesign-design.md` + `step5-step6-statement-readback-redesign-design.md`（ProblemContext 6 步范式）、`workflow-creation` SKILL.md §3.5（rubric 方法论）/ §3.7（四桶分工）
 > 外部取证：本文 §4（Tavily 检索，2026-07-27，设计期调研——用户明示允许；与运行期 understand:1 子3「禁 tavily/WebSearch」约束无关）
 
@@ -31,9 +32,9 @@ understand:3（ScopeAndConstraints）当前无 `sub_steps` 编排——模型自
 
 三类命题分开处理：
 
-- **约束（constraint）= 事实性命题**：存在于代码库/数据/权限/环境/时间中，可被本地证据验证或证伪。但取证源是**项目内部事实**（Bash 验证文件/数据存在性、codegraph 验证结构约束、Read 验证接口），不是 ProblemContext 的五层外部源——发现与验证深度浅，可压缩为一步，不需要独立质检裁决步。
+- **约束（constraint）= 事实性命题**：存在于代码库/数据/权限/环境/时间中，可被本地证据验证或证伪。但取证源是**项目内部事实**（Bash 验证文件/数据存在性、codegraph 验证结构约束、Read 验证接口与规范文档），不是 ProblemContext 的五层外部源——发现与验证深度浅，可压缩为一步，不需要独立质检裁决步。**编程域特化（2026-07-27 修订）**：编程工作流的约束有具体形态——代码库结构（模块边界/接口签名）、**项目硬规则（CLAUDE.md/PROJECT.md/MODULE.md 的 H 规则与模块边界——编程工作流独有的一等约束源，通用工作流不存在此类，不引出则 execute 期必撞规则返工）**、数据契约（schema/字段/freshness）、环境工具链（venv/依赖/退出码语义），外加通用的时间/资源/外部依赖。
 - **假设（assumption）= 中间态**：「未被证明但被当作真」（PMBOK：assumptions stated without proof；LUC：「预算是事实，预算够用是假设」）。必须显式标注 + 评估（置信度 × 错误时影响），**接受与否 = 风险承担，是规范裁决，归用户**——模型无权替用户接受一个「假设够用」。
-- **范围（scope）= 规范性命题**：in/out 拍板归用户，模型只提案（从 must/nice 裁决 + 用户已圈定范围派生）。
+- **范围（scope）= 规范性命题**：in/out 拍板归用户，模型只提案（从 must/nice 裁决 + 用户已圈定范围派生）。**编程域特化（2026-07-27 修订）**：通用域的 in/out 是特性级清单；编程域的 in/out 天然是**改动面清单**——in-scope = 允许改动的文件/模块/symbol 集合（可用 `codegraph impact` 取证改动面），out-of-scope = 显式禁改清单（如「web_ui 只读不改后端」）。文件级 out 侧可机械核查，比特性级更防 scope creep 流于形式（§7 风险 5）。
 
 ### 1.3 失效模式分析
 
@@ -60,7 +61,7 @@ judge 调用 4 次（子5 gate=None）。按失效模式族拆步：子1=发现�
 ### 子1 障碍分析与约束引出（kind=tool）
 
 - **ref**：`推理(KAOS 障碍分析) / AskUserQuestion(补问)`
-- **purpose**：对每个 must 目标做否定提问「什么会使它失败」（obstacle = goal 的对偶，KAOS）引出约束候选；覆盖类型 ≥3 类（数据/环境/权限/时间/资源/外部依赖）；用户侧约束（deadline/人力/权限）缺口走 AskUserQuestion 事实性补问（沿用 ProblemContext 子1 取证纪律：优先上下文已有原话，禁重问已答内容）。**双结论制**：①约束成立=每 must 目标 ≥1 约束候选或显式「无约束+理由」；②「除已列外无实质约束」是合法结论，但须每个 must 目标都做过否定提问留痕——「未做过否定提问的『无约束』」= 懒得想，不算（防双结论制被滥用为偷懒出口，同 ProblemContext 子1）。
+- **purpose**：对每个 must 目标做否定提问「什么会使它失败」（obstacle = goal 的对偶，KAOS）引出约束候选；覆盖类型 ≥3 类，分类按编程域（2026-07-27 修订，自 PMBOK 通用六类改）：**代码库结构**（模块边界/数据契约/接口签名）/ **项目硬规则**（CLAUDE.md/PROJECT.md/MODULE.md 的 H 规则与模块边界——编程工作流独有的一等约束源）/ **数据契约**（schema/字段/freshness）/ **环境工具链**（venv/依赖/退出码语义）/ 外部依赖 / 时间资源；用户侧约束（deadline/人力/权限）缺口走 AskUserQuestion 事实性补问（沿用 ProblemContext 子1 取证纪律：优先上下文已有原话，禁重问已答内容）。**双结论制**：①约束成立=每 must 目标 ≥1 约束候选或显式「无约束+理由」；②「除已列外无实质约束」是合法结论，但须每个 must 目标都做过否定提问留痕——「未做过否定提问的『无约束』」= 懒得想，不算（防双结论制被滥用为偷懒出口，同 ProblemContext 子1）。
 - **input**：`GoalsAndValue.step4.statements`（跨节点引用：读 evidence 里 minor_stage=GoalsAndValue 最新归一化目标陈述 trace，取 must 目标集）
 - **record**：True；**fence_allow**：无（AskUserQuestion 在常驻集）
 - **gate**：trace 存在；形式要件（must 目标全覆盖否定提问；覆盖类型 ≥3 类；q/a 对齐；补问原话出处）；质量判据黑盒（约束候选非空泛复述——「数据可能不准」无具体对象判 block；否定提问形式主义——每目标同一句套话判 block）。
@@ -68,7 +69,7 @@ judge 调用 4 次（子5 gate=None）。按失效模式族拆步：子1=发现�
 ### 子2 约束验证与假设标注（kind=tool）
 
 - **ref**：`Bash(本地验证) / codegraph(结构约束) / Read`
-- **purpose**：对子1 约束候选逐条定真伪，**三态输出**：①已验证约束（项目内部事实用工具验证——数据文件存在性/新鲜度、接口签名、权限、环境配置，附工具留痕出处）；②假设（无法低成本验证 → 显式标注「假设+置信度+错误时的影响」，LUC 的 impact-of-incorrect-assumption 分析）；③证伪剔除（附证据）。不可验证又不标假设 = 静默兜底（no silent fallback 同构）。本步是 ProblemContext 子3+子4 的**压缩版**——取证源是本地单层、真伪判断浅，一步完成，无独立质检裁决步。
+- **purpose**：对子1 约束候选逐条定真伪，**三态输出**：①已验证约束（项目内部事实用工具验证——数据文件存在性/新鲜度、接口签名、权限、环境配置，附工具留痕出处；**硬规则类约束的合法验证源 = Read 规范文档（CLAUDE.md/PROJECT.md/MODULE.md）原文引用，禁拿训练记忆里的「项目惯例」冒充**——2026-07-27 修订升为一等验证动作；codegraph 断言前置新鲜度检查，索引过期先 sync）；②假设（无法低成本验证 → 显式标注「假设+置信度+错误时的影响」，LUC 的 impact-of-incorrect-assumption 分析）；③证伪剔除（附证据）。不可验证又不标假设 = 静默兜底（no silent fallback 同构）。本步是 ProblemContext 子3+子4 的**压缩版**——取证源是本地单层、真伪判断浅，一步完成，无独立质检裁决步。
 - **input**：`step1.constraint_candidates`
 - **record**：True；**fence_allow**：`("Bash",)`（本地验证；codegraph/Read 在常驻集）
 - **gate**：trace 存在；形式要件（子1 候选逐条三态处置；已验证项附工具出处；假设项含置信度+影响）；质量判据黑盒（已验证项无工具出处=编造判 block；「未验证」直接进约束集（假设未标注）判 block；训练记忆冒充项目事实判 block）。
@@ -76,7 +77,7 @@ judge 调用 4 次（子5 gate=None）。按失效模式族拆步：子1=发现�
 ### 子3 范围界定（kind=tool）
 
 - **ref**：`推理(双向追溯矩阵+约束回写)`
-- **purpose**：从 must/nice 裁决 + GoalsAndValue 子5 用户圈定范围派生 **in-scope / out-of-scope 双侧清单**（PMI：只有 in 侧 = scope creep 温床；out 侧显式列举「看似该做但不做」的项）；双向追溯：每个 in-scope 项回溯 ≥1 must 目标（backward，防镀金），每个 must 目标有范围覆盖或显式搁置+理由（forward，防漏）；**约束回写**：已验证约束/已标注假设迫使缩小范围处显式记录（obstacle resolution = alternative scope，KAOS）。**只提案不拍板**（裁决权留子5）。trace 须含完整矩阵（目标×范围项逐项），汇总声明不算记录。
+- **purpose**：从 must/nice 裁决 + GoalsAndValue 子5 用户圈定范围派生 **in-scope / out-of-scope 双侧清单**（PMI：只有 in 侧 = scope creep 温床；out 侧显式列举「看似该做但不做」的项）——**编程域操作化（2026-07-27 修订）**：in/out 落到改动面，in-scope = 允许改动的文件/模块/symbol 集合（用 `codegraph impact` 取证改动面，附留痕），out-of-scope = 显式禁改的文件/模块清单（特性级条目可保留作注释，但每条特性级 out 尽量落到路径/模块级才机械可核查）；双向追溯：每个 in-scope 项回溯 ≥1 must 目标（backward，防镀金），每个 must 目标有范围覆盖或显式搁置+理由（forward，防漏）；**约束回写**：已验证约束/已标注假设迫使缩小范围处显式记录（obstacle resolution = alternative scope，KAOS——编程域实例：项目硬规则如「单次改动 ≤3 文件」直接圈定 in 侧上界）。**只提案不拍板**（裁决权留子5）。trace 须含完整矩阵（目标×范围项逐项），汇总声明不算记录。
 - **input**：`step2.verified_constraints` + `GoalsAndValue.step5.user_decisions`
 - **record**：True；**fence_allow**：无（纯推理 + 读 evidence，Read 在常驻集）
 - **gate**：trace 存在；形式要件（in/out 双侧清单；双向矩阵完备；孤儿项显式处置；约束回写已记录）；质量判据黑盒（out-of-scope 空清单=无真实取舍从严裁量；矩阵放水——明显无关联的目标-范围硬连判 block；替用户拍板范围（无「提案-待用户裁决」语义）判 block）。

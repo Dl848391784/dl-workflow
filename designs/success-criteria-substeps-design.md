@@ -1,6 +1,7 @@
 # understand:4「定义成功标准与验收方式」子步骤编排设计（SuccessCriteria）
 
 > 状态：**已确认**（2026-07-27 用户两决议：5 步 / **加 hold_for_gate**）
+> **修订（2026-07-27，用户决议）**：本工作流定位 = **编程专用工作流**（非通用工作流）。骨架不动（5 步/门控/四成分划分领域无关），修订三处领域参数：①子1 双结论制口径收紧——编程域代码行为几乎总是可执行验证，「只能定性验收」从合法结论降为**须更强理由的稀有结论**（合法剩余 ≈ UX/可读性/架构审美）；②子2 可检验化的规范形式 = **可执行验收**（failing test/脚本断言/命令+退出码，specification by example，接 TDD）；③子3 INCOSE 四法给编程映射表。失效模式表补两条编程实例。
 > 父文档：`node-step-orchestration-design.md`（子步骤编排机制）、`understand-subphases-design.md`（4 子阶段划分 + sub4->成功标准+验收+汇总 understand.md 接口约定）、`goals-and-value-substeps-design.md`（GoalsAndValue 5 步范式）、`scope-and-constraints-substeps-design.md`（ScopeAndConstraints 5 步范式 + 本地单层源压缩原则）、`step3-verify-redesign-design.md` + `step5-step6-statement-readback-redesign-design.md`（ProblemContext 6 步范式）、`workflow-creation` SKILL.md §3.5（rubric 方法论）/ §3.8（拆步方法论）
 > 外部取证：本文 §4（Tavily 检索，2026-07-27，设计期调研——用户明示允许；与运行期 understand:1 子3「禁 tavily/WebSearch」约束无关）
 
@@ -35,7 +36,7 @@ understand:4（SuccessCriteria）当前无 `sub_steps` 编排——模型自由�
 四类成分分开处理：
 
 - **标准-目标对齐 = 结构性**：双向追溯（无孤儿标准/无漏目标），judge 可判（同构 GoalsAndValue 子2）。
-- **可检验化 = 技术性转换**：Volere 核心判据——「找不到 fit criterion 的标准 = 模糊或理解不足」（If a fit criterion cannot be found for a requirement, then the requirement is either ambiguous or poorly understood）。这是本阶段的核心工作：**把规范性目标转成可检验命题**。不可检验化 = 合法退回信号（退回引出步或标记回退 GoalsAndValue），不是硬编假指标的理由。
+- **可检验化 = 技术性转换**：Volere 核心判据——「找不到 fit criterion 的标准 = 模糊或理解不足」（If a fit criterion cannot be found for a requirement, then the requirement is either ambiguous or poorly understood）。这是本阶段的核心工作：**把规范性目标转成可检验命题**。不可检验化 = 合法退回信号（退回引出步或标记回退 GoalsAndValue），不是硬编假指标的理由。**编程域特化（2026-07-27 修订）**：代码行为几乎总是可执行验证的——fit criterion 的规范形式默认是**可执行验收**（failing test / 验证脚本断言 / 命令+退出码，即 specification by example，与 TDD 天然衔接：成功标准直接转成先写的失败测试）；「只能定性验收」因此从通用域的常见合法结论收紧为**须更强理由的稀有结论**——合法剩余基本只有 UX/可读性/架构审美这类不可执行验证项，「跑个测试就能验」的目标标定性 = 偷懒出口（judge 黑盒抓）。
 - **验收方式可行性 = 事实性命题**：验收手段（测试框架/数据源/契约检查脚本）在本仓是否存在，**本地单层源**（Bash/codegraph/Read）可验——沿用 ScopeAndConstraints 子2 压缩原则，一步完成，无独立质检裁决步。
 - **阈值/验收取舍 = 规范性命题**：「多高算够」是风险偏好，外部证据无权证伪「我满意的标准」；「验收手段待建」是否接受为本实例任务项 = 给 plan 埋任务，须用户知情拍板。真值源只有用户。
 
@@ -43,12 +44,12 @@ understand:4（SuccessCriteria）当前无 `sub_steps` 编排——模型自由�
 
 | # | 失效模式 | 外部出处（§4） |
 |---|---|---|
-| S1 | 模糊不可检验标准（「系统变快」「体验好」）→ review 无法判定，验收流于叙事 | INCOSE 模糊词禁令（some/any/several/many/significant/adequate/efficient…）；Wiegers「unverifiable = wish」 |
+| S1 | 模糊不可检验标准（「系统变快」「体验好」）→ review 无法判定，验收流于叙事。**编程变体：「编译/运行无报错」冒充成功标准——无报错 ≠ 需求达成** | INCOSE 模糊词禁令（some/any/several/many/significant/adequate/efficient…）；Wiegers「unverifiable = wish」 |
 | S2 | 标准-目标脱节：凭空标准（镀金）/ must 目标无标准承接（漏） | 双向可追溯（同构 GoalsAndValue 子2） |
 | S3 | solutioneering 残留：标准写成「实现了 X 功能」而非 outcome 度量 | INCOSE implementation-free |
 | S4 | 有方向无门槛（「IC 越高越好」）→ 达标线缺失；或模型自定阈值 = 越权裁决 | Volere：fit criterion 必须量化；四桶分工（认不认归用户） |
 | S5 | 标准可检验但没说怎么验 → review 临时找证据，判定不可复现 | INCOSE A2：每条需求须声明主验证方法（test/analysis/inspection/demonstration 四法） |
-| S6 | 验收方式纸面可行实际不可行（手段在本仓不存在/数据不可得） | INCOSE feasibility；fitness function「may not be implementable in software」（Neal Ford） |
+| S6 | 验收方式纸面可行实际不可行（手段在本仓不存在/数据不可得）。**编程变体：验收测试只覆盖 happy path，边界/失败路径无验证** | INCOSE feasibility；fitness function「may not be implementable in software」（Neal Ford） |
 | S7 | 验收时机错位：只能在事后（不可逆点后）验证的未标注；该 continuous 的只设 triggered | fitness functions triggered vs continuous（Neal Ford） |
 | S8 | 复合/模糊陈述脱离上下文不可解 | INCOSE atomic/singular |
 
@@ -65,15 +66,15 @@ judge 调用 4 次（子5 gate=None）。
 ### 子1 成功标准引出（kind=tool）
 
 - **ref**：`推理(验收视角提问) / AskUserQuestion(补问)`
-- **purpose**：对每个 must 目标做验收视角提问「怎么知道它达成了」（INCOSE verification point-of-view：写标准时想象自己在执行验收事件，「How will I know if the requirement has been met?」）引出标准候选；双向追溯（每 must 目标 ≥1 标准候选或显式「纯定性目标+理由」；每候选回溯 ≥1 目标，孤儿候选剔除或退回补问）；solutioneering 剥离（标准含方案名词/实现动词 → 剥到 outcome 度量，纪律同 GoalsAndValue 子2）；用户侧期望（「什么结果你会满意」）缺口走 AskUserQuestion 补问（取证纪律同前：优先上下文已有原话，禁重问已答内容）。**双结论制**：①标准候选成立；②「目标只能定性验收」是合法结论，但须逐目标留痕理由——「无理由的不可检验」= 懒得想，不算。
+- **purpose**：对每个 must 目标做验收视角提问「怎么知道它达成了」（INCOSE verification point-of-view：写标准时想象自己在执行验收事件，「How will I know if the requirement has been met?」）引出标准候选；双向追溯（每 must 目标 ≥1 标准候选或显式「纯定性目标+理由」；每候选回溯 ≥1 目标，孤儿候选剔除或退回补问）；solutioneering 剥离（标准含方案名词/实现动词 → 剥到 outcome 度量，纪律同 GoalsAndValue 子2）；用户侧期望（「什么结果你会满意」）缺口走 AskUserQuestion 补问（取证纪律同前：优先上下文已有原话，禁重问已答内容）。**双结论制（编程域收紧，2026-07-27 修订）**：①标准候选成立；②「目标只能定性验收」是**稀有**合法结论——编程域代码行为几乎总是可执行验证，②须逐目标留痕理由且理由须说明「为何不可执行验证」（合法剩余 ≈ UX/可读性/架构审美类）；「跑个测试/脚本就能验」的目标标定性 = 偷懒出口，judge 判 block。
 - **input**：`GoalsAndValue.step4.statements`（must 目标集）+ `ScopeAndConstraints.step4.statements`（已验证约束过滤不可行的验收方向）
 - **record**：True；**fence_allow**：无（AskUserQuestion 在常驻集）
-- **gate**：trace 存在；形式要件（must 目标全覆盖验收视角提问；双向追溯逐项列出；q/a 对齐；补问原话出处）；质量判据黑盒（空泛标准无度量对象判 block；脑补标准挂无关目标判 block；②缺逐目标理由 = 偷懒判 block；方案名词残留判 block）。
+- **gate**：trace 存在；形式要件（must 目标全覆盖验收视角提问；双向追溯逐项列出；q/a 对齐；补问原话出处）；质量判据黑盒（空泛标准无度量对象判 block；脑补标准挂无关目标判 block；②缺逐目标理由、或理由未说明「为何不可执行验证」= 偷懒判 block——编程域收紧，可执行验证的目标标定性判 block；方案名词残留判 block）。
 
 ### 子2 可检验化（kind=tool）
 
 - **ref**：`推理(Volere fit criterion + INCOSE 模糊词清单) / Bash(条件性基线测量)`
-- **purpose**：对子1 标准候选逐条做 fit criterion 转换——①模糊词扫描改写（INCOSE vague terms：some/any/several/many/a lot of/significant/adequate/efficient/effective/reasonable…，改写为量化表述）；②三要素齐备：**度量指标 + 基线**（Bash 实测现状——查数据/日志/耗时，附工具留痕出处；不可测显式标「无基线+原因」= 合法留痕）**+ 阈值提案**（只提案不拍板——阈值是风险偏好，裁决权留子5）；③**不可检验化 = 合法退回信号**（Volere：找不到 fit criterion → 标准模糊/目标理解不足 → 退回子1 重引或显式标记回退 GoalsAndValue；禁止硬编假指标——假指标 = 度量对象与目标 outcome 不相关，如拿「代码行数」度量「体验」）。
+- **purpose**：对子1 标准候选逐条做 fit criterion 转换——①模糊词扫描改写（INCOSE vague terms：some/any/several/many/a lot of/significant/adequate/efficient/effective/reasonable…，改写为量化表述）；②三要素齐备：**度量指标 + 基线**（Bash 实测现状——查数据/日志/耗时，附工具留痕出处；不可测显式标「无基线+原因」= 合法留痕）**+ 阈值提案**（只提案不拍板——阈值是风险偏好，裁决权留子5）；**编程域规范形式（2026-07-27 修订）：可执行验收优先——每条标准的 fit criterion 尽量落成 failing test / 验证脚本断言 / 命令+退出码**（specification by example；落成失败测试的标准直接与 TDD 衔接，review 判定可机械复现），落不成可执行形式的须说明原因；③**不可检验化 = 合法退回信号**（Volere：找不到 fit criterion → 标准模糊/目标理解不足 → 退回子1 重引或显式标记回退 GoalsAndValue；禁止硬编假指标——假指标 = 度量对象与目标 outcome 不相关，如拿「代码行数」度量「体验」、拿「编译无报错」度量「功能达成」）。
 - **input**：`step1.criteria_candidates`
 - **record**：True；**fence_allow**：`("Bash",)`（条件性基线测量）
 - **gate**：trace 存在；形式要件（每条候选有指标+基线（或「无基线+原因」）+阈值提案；模糊词扫描留痕；退回项显式标注）；质量判据黑盒（基线数字无工具出处 = 拍脑袋编造判 block；假指标——度量对象与目标 outcome 不相关判 block；替用户拍板阈值——无「提案-待用户裁决」语义判 block；改写后仍含模糊词判 block）。
@@ -81,7 +82,7 @@ judge 调用 4 次（子5 gate=None）。
 ### 子3 验收方式设计与可行性验证（kind=tool）
 
 - **ref**：`推理(INCOSE 四法) / Bash / codegraph / Read(手段存在性)`
-- **purpose**：对每条可检验标准定验收方式——①方法选择（INCOSE 四法：test 测试 / analysis 数据分析 / inspection 审查 / demonstration 演示，附选择理由——类型×方法有经典映射：功能→demonstration、性能→test、设计约束→inspection、质量属性→analysis）；②**可行性三态处置**（同构 ScopeAndConstraints 子2 压缩版，本地单层源）：手段存在（测试框架/数据源/契约检查脚本在本仓存在，Bash/codegraph/Read 验证附出处）/ **验收手段待建**（不存在 → 显式标注 = 进 plan 的任务项，不静默略过）/ 不可行剔除（附理由）；③**验收时机标注**（triggered = review 一次性判 vs continuous = 持续监控，fitness function 概念；**只能在事后验证的显式标注风险**——如 T+1 实战效果只能事后验，review 期只能用回测代理指标，代理与真值的关系显式说明）；④**证据形式锚定**（review 判 solved/partial/not 时拿什么：file:line/测试输出/数据查询——直接对接 review:0 rubric「附 file:line 证据」）。
+- **purpose**：对每条可检验标准定验收方式——①方法选择（INCOSE 四法：test 测试 / analysis 数据分析 / inspection 审查 / demonstration 演示，附选择理由——类型×方法有经典映射：功能→demonstration、性能→test、设计约束→inspection、质量属性→analysis；**编程域映射（2026-07-27 修订）：test→pytest/验证脚本，analysis→数据/log 对比查询，inspection→review checklist 逐项核查，demonstration→跑起来看实际行为输出**）；②**可行性三态处置**（同构 ScopeAndConstraints 子2 压缩版，本地单层源）：手段存在（测试框架/数据源/契约检查脚本在本仓存在，Bash/codegraph/Read 验证附出处）/ **验收手段待建**（不存在 → 显式标注 = 进 plan 的任务项，不静默略过；编程域实例 = 测试框架/fixture/验证脚本缺失）/ 不可行剔除（附理由）；③**验收时机标注**（triggered = review 一次性判 vs continuous = 持续监控，fitness function 概念；**只能在事后验证的显式标注风险**——如 T+1 实战效果只能事后验，review 期只能用回测代理指标，代理与真值的关系显式说明）；④**证据形式锚定**（review 判 solved/partial/not 时拿什么：file:line/测试输出/数据查询——直接对接 review:0 rubric「附 file:line 证据」）。
 - **input**：`step2.testable_criteria`
 - **record**：True；**fence_allow**：`("Bash",)`（手段存在性验证；codegraph/Read 在常驻集）
 - **gate**：trace 存在；形式要件（每条标准有四法之一+选择理由；可行性三态处置（存在附出处/待建标注/剔除附理由）；时机标注；证据形式）；质量判据黑盒（手段声称存在无工具出处 = 编造判 block；全选同一方法无真实选择理由判 block；事后验证未标注风险判 block）。
@@ -112,7 +113,7 @@ judge 调用 4 次（子5 gate=None）。
 
 ## 3. 门控设计要点（§3.5 对齐）
 
-- **双结论制 ×2**（#3）：子1 接受「只能定性验收」为合法结论（须逐目标理由）；子2 接受「不可检验化退回」为合法出口（Volere 退回信号）——否则逼模型硬编假指标（同 ProblemContext 子1 逼编造痛点机制）。
+- **双结论制 ×2（#3）**：子1 接受「只能定性验收」为合法结论（须逐目标理由；**编程域收紧——须说明为何不可执行验证，可执行验证的目标标定性 = 偷懒**，2026-07-27 修订）；子2 接受「不可检验化退回」为合法出口（Volere 退回信号）——否则逼模型硬编假指标（同 ProblemContext 子1 逼编造痛点机制）。
 - **Goodhart 分层**（#2）：形式要件（覆盖度/双向追溯/三要素/三态处置/六字段验收包/单句）披露进 purpose；质量判据（非空泛/非编造/假指标/非放水/非越权拍板）只留 gate 黑盒。
 - **四桶分工**：标准候选/可检验化/验收设计 = 模型（写什么）；trace 落库 = append-trace 脚本（怎么写）；结构完整性 = judge（过不过）；阈值拍板/验收方式认可/退回项处置 = 用户（认不认）。
 - **judge 不判「阈值定多少合适」**——只判「三要素齐备 + 基线有出处 + 只提案未拍板」。阈值高低的真值源只有用户（子5）。
