@@ -166,7 +166,7 @@ understand 拆 4 子阶段（1.理解问题和背景 / 2.明确目标和价值 /
 
 有 `sub_steps` 的节点（当前 understand:1）**推进走 Stop hook**（§substep-gate-at-stop，2026-07-25 起；旧 3a「走 UserPromptSubmit」已废止）。触发 = evidence 里当前子步骤**最新 trace 行 hash 有变化**（state.last_judged_trace 游标比对），不是 transcript。
 
-**「没推进」主诉先分诊推进失败 vs 停轮检查点**（2026-07-27，demo 907fee09）：state.json 的 sub_index **已翻**但模型不动 = 停轮检查点（末步停轮/门栏扣留，设计行为），不是推进失败——检查日志会有 `sub_step_gate_pass|step=末|to=1`；sub_index **未翻**才按下方日志链排查。同理「没进下一子阶段」：state 已进 + 模型停轮 = 旧规则末步停轮（2026-07-27 起无门栏边界已改自动续轮；该日前建的会话仍可能停在边界，发「继续」即走）。再同理「understand:4 门栏放行后没推进」：**放行 ≠ 推进是设计行为**（首个 advance="phase" 门栏节点，v2.17）——subgate-pass 只清 held 不 advance_state，state 停在 understand:4 等模型写 understand.md + PHASE_DONE 撞大闸门（需第二次 /dl gate）；注入第三态（✓ 放行待产物）是正常显示，别当卡死排查。
+**「没推进」主诉先分诊推进失败 vs 停轮检查点**（2026-07-27，demo 907fee09）：state.json 的 sub_index **已翻**但模型不动 = 停轮检查点（末步停轮/门栏扣留，设计行为），不是推进失败——检查日志会有 `sub_step_gate_pass|step=末|to=1`；sub_index **未翻**才按下方日志链排查。同理「没进下一子阶段」：state 已进 + 模型停轮 = 旧规则末步停轮（2026-07-27 起无门栏边界已改自动续轮；该日前建的会话仍可能停在边界，发「继续」即走）。再同理「plan:4 门栏放行后没推进」：**放行 ≠ 推进是设计行为**（门栏唯一处 = plan:4，2026-07-28 起——understand:2/3/4、plan:1/2/3 门栏与 understand->plan 闸门已全部撤除）——subgate-pass 只清 held 不 advance_state，state 停在 plan:4 等模型 PHASE_DONE: plan 撞 plan->execute 大闸门（需第二次 /dl gate）；注入第三态（✓ 放行待产物）是正常显示，别当卡死排查。
 
 **先确认协议边界**：模型输 STEP_DONE -> end_turn -> Stop hook 立即判：非末步 pass 推进 + **当轮自动续轮**（additionalContext 指令开做下一子步骤），末步 pass 时——无门栏且下一子阶段有编排则**跨子阶段自动续轮**进其子1（2026-07-27 起），门栏节点末步扣留停轮（等 /dl gate），无编排边界停轮，block 则模型**当轮**收到原因返工。**无需用户再发消息**（这是与旧 3a 的核心差别；2026-07-25 起 pass 也不再等用户发「继续」）。两个相关强制：
 - **S13 参与围栏**（2026-07-25 起）：当前子步骤**从未写过 trace** 就结束回合 -> `sub_step_engage_block` 强制续轮（「简单查询不走编排」之类的拒执被机械封堵；问用户必须走 AskUserQuestion 回合内完成）。

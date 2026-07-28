@@ -51,7 +51,7 @@ PHASE_RULES = {
         "allow": "Read/Grep/Glob/codegraph 查证/AskUserQuestion 澄清",
         "deny": "Edit/Write 任何源码",
         "artifact": "understand.md（真实问题重述 + 边界 + 成功标准）",
-        "advance": "闸门：完成后需用户 /dl gate 放行才进 plan",
+        "advance": "自动推进到 plan（无闸门——2026-07-28 起围栏只设在 plan 完成）",
     },
     "plan": {
         "goal": "针对真实问题设计实现方案",

@@ -2529,10 +2529,22 @@ class TestStateReset:
         st = eng.load_state(tmp_path, "t")
         st["gate"] = "passed"
         st["history"] = [
-            {"phase": "understand", "sub": i, "entered_at": "x", "exited_at": "y", "via": "auto"}
+            {
+                "phase": "understand",
+                "sub": i,
+                "entered_at": "x",
+                "exited_at": "y",
+                "via": "auto",
+            }
             for i in (1, 2, 3, 4)
         ] + [
-            {"phase": "plan", "sub": 1, "entered_at": "z", "exited_at": None, "via": "auto"},
+            {
+                "phase": "plan",
+                "sub": 1,
+                "entered_at": "z",
+                "exited_at": None,
+                "via": "auto",
+            },
         ]
         wt = tmp_path / "wt"
         wt.mkdir()
@@ -2558,7 +2570,11 @@ class TestStateReset:
         ok, msg = eng.reset_state(tmp_path, "t", "understand:SuccessCriteria:5")
         assert ok is True, msg
         st = eng.load_state(tmp_path, "t")
-        assert (st["phase"], st["sub_index"], st["sub_step_index"]) == ("understand", 4, 5)
+        assert (st["phase"], st["sub_index"], st["sub_step_index"]) == (
+            "understand",
+            4,
+            5,
+        )
         assert st["gate"] == "pending"
         assert [(h["phase"], h["sub"]) for h in st["history"]] == [
             ("understand", i) for i in (1, 2, 3, 4)
@@ -2572,7 +2588,9 @@ class TestStateReset:
         ):
             assert not p.exists(), f"产物未删: {p}"
         assert "plan:4" not in eng.read_evidence(tmp_path, "t")
-        assert "understand:4" not in eng.read_evidence(tmp_path, "t")  # T 节点级裁决也删
+        assert "understand:4" not in eng.read_evidence(
+            tmp_path, "t"
+        )  # T 节点级裁决也删
 
     def test_reset_rejects_forward_target(self, tmp_path):
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
@@ -2604,7 +2622,11 @@ class TestStateReset:
         ok, msg = eng.reset_state(tmp_path, "t", "UNDERSTAND:2:3")
         assert ok is True, msg
         st = eng.load_state(tmp_path, "t")
-        assert (st["phase"], st["sub_index"], st["sub_step_index"]) == ("understand", 2, 3)
+        assert (st["phase"], st["sub_index"], st["sub_step_index"]) == (
+            "understand",
+            2,
+            3,
+        )
 
     def test_node_without_sub_steps_two_part_only(self, tmp_path):
         # 无子步骤节点两段式可用（sub_step_index=0），三段式报错

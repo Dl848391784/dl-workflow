@@ -13,9 +13,9 @@
 - **每轮首步顺序（硬性）**：每条回复**首步**=①对齐原生 TaskList 清单（用 TaskList/TaskUpdate 工具，**不需 Bash 查 status**；缺则首轮一次性建齐，**之后不重建**避免落底部）-> ②再做实际工作。**禁临时占位**（如"确认阶段中…"）--当前阶段以本轮注入的「## WORKFLOW 当前阶段」attachment 为准；若需取阶段真值，`bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh status` 末尾输出一行当前阶段/子阶段/子步骤数据（**非进度树展示，展示靠 TUI TaskList**），**一次即得，勿反复 Bash 找 state 文件**。
 - **阶段进度展示**：由原生 TUI TaskList 组件负责渲染（模型建齐的 9 项任务清单，见上「常驻阶段清单」）。**不再输出 checklist 文本**（原方案A 弃用，见 banner-tree-design.md）。
 - **阶段可有子阶段**（understand 拆 4 子阶段）：
-  - **understand:1（理解问题和背景）、understand:2（明确目标和价值）、understand:3（确定范围与约束）与 understand:4（定义成功标准和验收方式）均有子步骤编排**：按注入的「▶ 当前子步骤」块逐子步骤执行，每子步骤完成输出 `### STEP_DONE: <n>`（Stop hook 逐步门控）；understand:1 末步通过自动推进下一子阶段，understand:2/3/4 末步门栏扣留等 `/dl gate`；understand:4 门栏放行后写阶段产物（**写主仓 `.claude/understands/<name>.md`**——注入「产物路径」行给绝对路径，worktree 归档删除即丢）+ 输出 `### PHASE_DONE: understand`。**禁输出 SUB_DONE**（与 STEP_DONE 互斥）。
+  - **understand:1（理解问题和背景）、understand:2（明确目标和价值）、understand:3（确定范围与约束）与 understand:4（定义成功标准和验收方式）均有子步骤编排**：按注入的「▶ 当前子步骤」块逐子步骤执行，每子步骤完成输出 `### STEP_DONE: <n>`（Stop hook 逐步门控）；各子阶段末步通过门控后**自动推进下一子阶段**（understand 无门栏、无阶段闸门——2026-07-28 起围栏只设在 plan 完成）；understand:4 子5 内装配阶段产物 understand.md（**写主仓 `.claude/understands/<name>.md`**——注入「产物路径」行给绝对路径，worktree 归档删除即丢），末步通过门控后自动进 plan:1（**不输出 PHASE_DONE: understand**）。**禁输出 SUB_DONE**（与 STEP_DONE 互斥）。
   - **未走完子阶段直接输出 PHASE_DONE 会被守卫阻断**（强制依次）。当前子阶段名/序号以每轮注入的「子阶段」块为准。
-- 无子阶段的阶段：完成即输出 `### PHASE_DONE: <phase>`（phase 为英文标识，如 `### PHASE_DONE: understand`）。
+- 无子阶段的阶段：完成即输出 `### PHASE_DONE: <phase>`（phase 为英文标识，如 `### PHASE_DONE: execute`）。
 - **只在（子）阶段目标真正达成时**输出对应标记；未达成绝不输出。
 - 阶段切换由系统推进（自动 + 闸门），你不要假设已进入下一阶段--以下一轮注入为准。
 - **plan mode 互斥**：plan mode 的只读探查语义与本编排冲突。发现自己处于 plan mode 时，**不要**在 plan mode 里工作，也**不要**调用 EnterPlanMode 主动进入（会被围栏拒绝）——直接用文本告知用户「请 shift+tab 切回 default 模式后重新提问」，然后 end_turn 等待。plan mode 下你的提问会被拒、工具调用会被围栏硬拒，唯一出口是用户切回 default。
@@ -23,7 +23,7 @@
 ## 各阶段行为
 
 ### understand（理解和求证问题）
-- 拆 **4 子阶段**，依次完成（understand:1/2/3/4 均有子步骤编排逐步门控，子阶段间无闸门；understand:2/3/4 末步门栏扣留等 `/dl gate`）：
+- 拆 **4 子阶段**，依次完成（understand:1/2/3/4 均有子步骤编排逐步门控，子阶段间无闸门无门栏——末步通过门控即自动续轮进下一子阶段）：
   1. **理解问题和背景**（**子步骤编排，逐步 STEP_DONE 门控**，严格时序不可乱序）：
      - **① 先出阶段横幅**（`## PHASE: ...` + 子阶段标记），横幅后**按注入的「▶ 当前子步骤」块逐子步骤执行**（当前步 purpose 全文在注入置顶；全 6 步 purpose 见下方生成段，与注入同源）。
      - **skill 步 invoke 时序**：子步骤 ref 为 skill 名的（子1 define-problem / 子2 causal-inference-root-cause / 子5、子6 define-problem），横幅后立即、在其它任何动作之前 invoke；`### STEP_DONE` / 探查证据（Bash/Read/Grep/Glob/codegraph）**一律不得在 invoke 之前或与之并行**。
@@ -31,7 +31,7 @@
 <!-- BEGIN GENERATED sub_steps understand:1 -->
 （本段由 dl-launch.sh 调 dl-flow-engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
 <!-- END GENERATED sub_steps understand:1 -->
-     - **末步自动推进（无门栏）**：末子步骤(6) 通过门控后**自动推进并续轮开做 understand:2 子1**（2026-07-27 起门栏移到 GoalsAndValue——「问题+目标价值」一次跑完再停）。
+     - **末步自动推进（无门栏）**：末子步骤(6) 通过门控后**自动推进并续轮开做 understand:2 子1**（2026-07-28 起 understand 全部子阶段边界无门栏——围栏只设在 plan 完成）。
      - **逐步执行 + 逐步 STEP_DONE**（**写 evidence 是 STEP_DONE 前置，STEP_DONE 后 end_turn**）：
        每个子步骤达目的后，**先落 evidence 再输出 `### STEP_DONE: <n>`**。落法（两动作——你定内容，脚本管格式）：① Write 载荷 `{"purpose":"<该步目的>","q":[...],"a":[...]}`（只含 3 个内容字段，q/a 一一按序对齐 `q[i]`↔`a[i]`，单问单答也用数组；结构字段脚本从 state 自动填，不要写）到注入给的载荷路径（`.claude/evidence/.trace-payload-<name>.json`）；② Bash `python3 ~/.dl-workflow/dl-flow-engine.py append-trace --from-file <载荷路径>`（脚本校验+单行 append 到主仓 evidence；校验失败当场报错，按报错改载荷重跑）。**禁止绕过 append-trace 手写 evidence jsonl**（手写 JSON 跨行/字面 \" = trace 隐形；直写 jsonl 会被 S14 围栏 deny 指回）。确认/裁决留痕由 /dl 命令自动写（kind=gate），不用手写其它 kind 的记录。**输完 STEP_DONE 即 end_turn 结束本轮**--不连续做下个子步骤、不继续探查；**end_turn 时 Stop hook 立即门控**（读 evidence 新 trace 判定）：**非末步 pass 则当轮收到下一子步骤指令（自动续轮，直接开做下一步，无需等用户发话）**；末步 pass 时——本节点无门栏且下一子阶段有编排，**同样自动续轮进下一子阶段子1**（2026-07-27 起：无门栏的子阶段边界不是检查点，门栏才是）；门栏节点末步则扣留停轮（等用户 `/dl gate`）；block 则当轮收到原因并返工（**返工重新走①②落新行**——hook 以新 trace 为返工信号）。
        例：子步骤1 逼问到位 -> Write 载荷 -> Bash append-trace -> `### STEP_DONE: 1` -> end_turn -> Stop hook 判：过则当轮收到「执行子步骤2」指令直接开做；block 则当轮返工子步骤1。每步 purpose 见注入「▶ 当前子步骤」块。
@@ -50,7 +50,7 @@
 <!-- BEGIN GENERATED sub_steps understand:2 -->
 （本段由 dl-launch.sh 调 dl-flow-engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
 <!-- END GENERATED sub_steps understand:2 -->
-     - **子阶段门栏（hold_for_gate）**：末子步骤(5) 通过门控后**推进被扣留，不自动进 understand:3**——「问题 + 目标价值」是 understand 的地基组，完成点 = 显式用户裁决点。等用户 `/dl gate` 放行（用户也可 /dl back 回退、/dl state-reset <n> 重测）。**扣留期间不要做下一子阶段的事**；`/dl step-pass` 末步放行 ≠ 门栏放行（步的放行与子阶段的放行是两个独立的用户决定）。
+     - **末步自动推进（无门栏）**：末子步骤(5) 通过门控后**自动推进并续轮开做 understand:3 子1**（2026-07-28 起 understand 全部子阶段边界无门栏）。
   3. **确定范围与约束**（**子步骤编排，5 步逐步 STEP_DONE 门控**，严格时序不可乱序）：
      - 编排强制语义与 understand:1 **完全相同**（①横幅后按「▶ 当前子步骤」块逐步执行；②写 evidence 是 STEP_DONE 前置（append-trace 两动作）；③输完 STEP_DONE 即 end_turn；④S15/S10/S13/阶段写围栏；⑤连续 block 3 次升级用户裁决）——见上方 understand:1 各条，不再重复。
      - **skill 步 invoke 时序**：子4/子5 ref 含 define-problem，进入该步后立即、在其它任何动作之前 invoke。
@@ -58,7 +58,7 @@
 <!-- BEGIN GENERATED sub_steps understand:3 -->
 （本段由 dl-launch.sh 调 dl-flow-engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
 <!-- END GENERATED sub_steps understand:3 -->
-     - **子阶段门栏（hold_for_gate）**：末子步骤(5) 通过门控后**推进被扣留，不自动进 understand:4**——新编排阶段隔离测试，跑完在此停（2026-07-27 用户决议）。等用户 `/dl gate` 放行（用户也可 /dl back 回退、/dl state-reset <n> 重测）。**扣留期间不要做下一子阶段的事**；`/dl step-pass` 末步放行 ≠ 门栏放行（步的放行与子阶段的放行是两个独立的用户决定）。
+     - **末步自动推进（无门栏）**：末子步骤(5) 通过门控后**自动推进并续轮开做 understand:4 子1**（2026-07-28 起 understand 全部子阶段边界无门栏）。
   4. **定义成功标准和验收方式**（**子步骤编排，5 步逐步 STEP_DONE 门控**，严格时序不可乱序）：
      - 编排强制语义与 understand:1 **完全相同**（①横幅后按「▶ 当前子步骤」块逐步执行；②写 evidence 是 STEP_DONE 前置（append-trace 两动作）；③输完 STEP_DONE 即 end_turn；④S15/S10/S13/阶段写围栏；⑤连续 block 3 次升级用户裁决）——见上方 understand:1 各条，不再重复。
      - **skill 步 invoke 时序**：子4/子5 ref 含 define-problem，进入该步后立即、在其它任何动作之前 invoke。
@@ -66,15 +66,15 @@
 <!-- BEGIN GENERATED sub_steps understand:4 -->
 （本段由 dl-launch.sh 调 dl-flow-engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
 <!-- END GENERATED sub_steps understand:4 -->
-     - **子阶段门栏（hold_for_gate，首个 advance="phase" 门栏节点）**：末子步骤(5) 通过门控后**推进被扣留**——新编排阶段隔离测试（2026-07-27 用户决议）。等用户 `/dl gate` 放行（用户也可 /dl back 回退、/dl state-reset <n> 重测）。**扣留期间不要做收尾外的事**；`/dl step-pass` 末步放行 ≠ 门栏放行。
-     - **门栏放行后（与 understand:2/3 不同——本节点放行 ≠ 推进）**：`/dl gate` 放行门栏后你**仍在本子阶段**——此时**汇总写 `understand.md`**（4 子阶段归一化陈述直接装配：真实问题重述 + 目标价值 + 范围约束 + 成功标准验收包；禁二次创作；若 ProblemContext 子2 拆出多个原子问题，未被选定的问题及其一句话陈述也须写入，供后续 dl 实例接续）**+ 输出 `### PHASE_DONE: understand`** 撞 understand->plan 大闸门——大闸门仍需用户**第二次 `/dl gate`** 放行才进 plan（两次连拍是设计内行为）。不要重做已通过的子步骤。
+     - **子5 产物装配**：子5 用户裁决（阈值拍板 + 验收方式认可）后**装配 understand.md**（= 4 子阶段归一化陈述 + 用户裁决记录的直接装配：真实问题重述 + 目标价值 + 范围约束 + 成功标准验收包；**禁二次创作**；未被选定的问题/目标/约束及其一句话陈述也须写入，供后续 dl 实例接续）——在写子5 trace 前完成；**写主仓 `.claude/understands/<name>.md`**（注入「产物路径」行给绝对路径——worktree 归档删除即丢，禁写 worktree 内）；阶段写围栏已放行。
+     - **末步自动推进（无门栏、无阶段闸门）**：末子步骤(5) 通过门控后**自动推进并续轮开做 plan:1 子1**（跨阶段自动续轮，2026-07-28 起 understand->plan 无闸门——围栏只设在 plan 完成）。**不要输出 `### PHASE_DONE: understand`**——推进已由 Stop 门控完成，输出它会撞守卫。
 - 允许：Read / Grep / Glob / codegraph 查证 / AskUserQuestion 澄清。
 - 禁止：Edit / Write 任何源码。
-- 完成：understand:1/2/3/4 用 `### STEP_DONE: <n>` 逐步推进（understand:1 末步通过自动进下一子阶段；understand:2/3/4 末步门栏扣留等 `/dl gate`）；understand:4 门栏放行后写出 `understand.md` 并输出 `### PHASE_DONE: understand`。
-- **此阶段完成后是闸门**：你不会自动进入 plan，需用户 `/dl gate` 放行。
+- 完成：understand:1/2/3/4 用 `### STEP_DONE: <n>` 逐步推进（各子阶段末步通过门控即自动进下一子阶段）；understand:4 子5 装配 `understand.md`（写主仓 `.claude/understands/<name>.md`），末步通过门控后自动进 plan:1（不输出 PHASE_DONE: understand）。
+- **此阶段无闸门**：understand 完成自动进入 plan（2026-07-28 起围栏只设在 plan 完成）。
 
 ### plan（生成执行计划）
-- 拆 **4 子阶段**，依次完成（plan:1/plan:2/plan:3/plan:4 均有子步骤编排逐步门控、末步门栏扣留等 `/dl gate`）：
+- 拆 **4 子阶段**，依次完成（plan:1/plan:2/plan:3/plan:4 均有子步骤编排逐步门控；plan:1/2/3 末步通过门控即自动续轮进下一子阶段（无门栏），**仅 plan:4 末步门栏扣留等 `/dl gate`**——2026-07-28 起围栏只设在 plan 完成）：
   1. **设计解决方案**（**子步骤编排，6 步逐步 STEP_DONE 门控**，严格时序不可乱序）：
      - 编排强制语义与 understand:1 **完全相同**（①横幅后按「▶ 当前子步骤」块逐步执行；②写 evidence 是 STEP_DONE 前置（append-trace 两动作）；③输完 STEP_DONE 即 end_turn；④S15/S10/S13/阶段写围栏；⑤连续 block 3 次升级用户裁决）——见上方 understand:1 各条，不再重复。
      - **skill 步 invoke 时序**：子5/子6 ref 含 define-problem，进入该步后立即、在其它任何动作之前 invoke。
@@ -84,7 +84,7 @@
 （本段由 dl-launch.sh 调 dl-flow-engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
 <!-- END GENERATED sub_steps plan:1 -->
      - **子6 产物装配**：子6 用户拍板后**装配 `designs/<主题>-design.md`**（H8 产物 = 子5 归一化设计包 + 用户裁决记录的直接装配，**禁二次创作**）——在写子6 trace 前完成；阶段写围栏已放行 designs/*.md。
-     - **子阶段门栏（hold_for_gate）**：末子步骤(6) 通过门控后**推进被扣留，不自动进 plan:2**——plan 首个编排节点隔离测试（2026-07-27 用户决议）。等用户 `/dl gate` 放行（用户也可 /dl back 回退、/dl state-reset <n> 重测）。**扣留期间不要做下一子阶段的事**；`/dl step-pass` 末步放行 ≠ 门栏放行（步的放行与子阶段的放行是两个独立的用户决定）。
+     - **末步自动推进（无门栏）**：末子步骤(6) 通过门控后**自动推进并续轮开做 plan:2 子1**（2026-07-28 起 plan:1/2/3 边界无门栏——围栏只设在 plan 完成）。
   2. **拆解任务与阶段**（**子步骤编排，5 步逐步 STEP_DONE 门控**，严格时序不可乱序）：
      - 编排强制语义与 understand:1 **完全相同**（①横幅后按「▶ 当前子步骤」块逐步执行；②写 evidence 是 STEP_DONE 前置（append-trace 两动作）；③输完 STEP_DONE 即 end_turn；④S15/S10/S13/阶段写围栏；⑤连续 block 3 次升级用户裁决）——见上方 understand:1 各条，不再重复。
      - **skill 步 invoke 时序**：子2/子4 ref 含 superpowers:writing-plans、子4 含 define-problem，进入该步后立即、在其它任何动作之前 invoke。
@@ -94,8 +94,7 @@
 （本段由 dl-launch.sh 调 dl-flow-engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
 <!-- END GENERATED sub_steps plan:2 -->
      - **子5 产物装配**：子5 用户拍板后**装配 plan.md**（= 子4 归一化执行步骤 + 用户裁决记录的直接装配，**禁二次创作**）——在写子5 trace 前完成；**写主仓 `.claude/plans/<name>.md`**（注入「产物路径」行给绝对路径——worktree 归档删除即丢，禁写 worktree 内）；阶段写围栏已放行。
-     - **子阶段门栏（hold_for_gate，advance="sub" 门栏节点，同 understand:2/3、plan:1）**：末子步骤(5) 通过门控后**推进被扣留，不自动进 plan:3**——隔离测试（2026-07-28 用户决议）。等用户 `/dl gate` 放行（用户也可 /dl back 回退、/dl state-reset <n> 重测）。**扣留期间不要做下一子阶段的事**；`/dl step-pass` 末步放行 ≠ 门栏放行（步的放行与子阶段的放行是两个独立的用户决定）。
-     - **门栏放行后（与 understand:2/3、plan:1 相同——放行即推进）**：`/dl gate` 放行门栏后自动进 plan:3 并**当轮续轮开做其子1**（跨子阶段自动续轮，无门栏的边界不是检查点）。不要输出 `### PHASE_DONE: plan`——plan 还有 plan:3 未完成。
+     - **末步自动推进（无门栏）**：末子步骤(5) 通过门控后**自动推进并续轮开做 plan:3 子1**（2026-07-28 起 plan:1/2/3 边界无门栏）。不要输出 `### PHASE_DONE: plan`——plan 还有 plan:3 未完成。
   3. **选择能力与工具**（**子步骤编排，6 步逐步 STEP_DONE 门控**，严格时序不可乱序）：
      - 编排强制语义与 understand:1 **完全相同**（①横幅后按「▶ 当前子步骤」块逐步执行；②写 evidence 是 STEP_DONE 前置（append-trace 两动作）；③输完 STEP_DONE 即 end_turn；④S15/S10/S13/阶段写围栏；⑤连续 block 3 次升级用户裁决）——见上方 understand:1 各条，不再重复。
      - **skill 步 invoke 时序**：子5 ref 含 define-problem，进入该步后立即、在其它任何动作之前 invoke。
@@ -105,8 +104,7 @@
 （本段由 dl-launch.sh 调 dl-flow-engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
 <!-- END GENERATED sub_steps plan:3 -->
      - **子6 产物装配**：子6 用户拍板后**装配 plan.md「能力与工具」节**（= 子5 归一化能力包 + 用户裁决记录的直接装配，**禁二次创作**）——在写子6 trace 前完成；**写主仓 `.claude/plans/<name>.md`**（同 plan:2，禁写 worktree 内）；阶段写围栏已放行。
-     - **子阶段门栏（hold_for_gate，advance="sub" 门栏节点，同 understand:2/3、plan:1/2）**：末子步骤(6) 通过门控后**推进被扣留，不自动进 plan:4**——隔离测试（2026-07-28 用户决议）。等用户 `/dl gate` 放行（用户也可 /dl back 回退、/dl state-reset <n> 重测）。**扣留期间不要做下一子阶段的事**；`/dl step-pass` 末步放行 ≠ 门栏放行（步的放行与子阶段的放行是两个独立的用户决定）。
-     - **门栏放行后（与 understand:2/3、plan:1/2 相同——放行即推进）**：`/dl gate` 放行门栏后自动进 plan:4 并**当轮续轮开做其子1**（跨子阶段自动续轮，无门栏的边界不是检查点）。不要输出 `### PHASE_DONE: plan`——plan 还有 plan:4 未完成。
+     - **末步自动推进（无门栏）**：末子步骤(6) 通过门控后**自动推进并续轮开做 plan:4 子1**（2026-07-28 起 plan:1/2/3 边界无门栏）。不要输出 `### PHASE_DONE: plan`——plan 还有 plan:4 未完成。
   4. **制定执行计划和检查点**（**子步骤编排，5 步逐步 STEP_DONE 门控**，严格时序不可乱序）：
      - 编排强制语义与 understand:1 **完全相同**（①横幅后按「▶ 当前子步骤」块逐步执行；②写 evidence 是 STEP_DONE 前置（append-trace 两动作）；③输完 STEP_DONE 即 end_turn；④S15/S10/S13/阶段写围栏；⑤连续 block 3 次升级用户裁决）——见上方 understand:1 各条，不再重复。
      - **skill 步 invoke 时序**：子4 ref 含 define-problem，进入该步后立即、在其它任何动作之前 invoke。
@@ -116,11 +114,11 @@
 （本段由 dl-launch.sh 调 dl-flow-engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
 <!-- END GENERATED sub_steps plan:4 -->
      - **子5 产物装配**：子5 用户拍板后**装配 plan.md「执行计划与检查点」节**（= 子4 归一化执行计划包 + 用户裁决记录的直接装配，**禁二次创作**）——在写子5 trace 前完成；**写主仓 `.claude/plans/<name>.md`**（同 plan:2，禁写 worktree 内）；阶段写围栏已放行。
-     - **子阶段门栏（hold_for_gate，advance="phase" 门栏节点，同 understand:4）**：末子步骤(5) 通过门控后**推进被扣留**——plan 第四个编排节点隔离测试（2026-07-28 用户决议）。等用户 `/dl gate` 放行（用户也可 /dl back 回退、/dl state-reset <n> 重测）。**扣留期间不要做收尾外的事**；`/dl step-pass` 末步放行 ≠ 门栏放行。
-     - **门栏放行后（与 plan:1/2/3 不同——本节点放行 ≠ 推进）**：`/dl gate` 放行门栏后你**仍在本子阶段**——此时输出 `### PHASE_DONE: plan` 撞 plan->execute 大闸门——大闸门仍需用户**第二次 `/dl gate`** 放行才进 execute（两次连拍是设计内行为，同 understand:4）。plan.md「执行计划与检查点」节已在子5 装配完成，不要重做已通过的子步骤。
+     - **子阶段门栏（hold_for_gate，全工作流唯一门栏——围栏只设在 plan 完成，2026-07-28 用户决议）**：末子步骤(5) 通过门控后**推进被扣留**。等用户 `/dl gate` 放行（用户也可 /dl back 回退、/dl state-reset <n> 重测）。**扣留期间不要做收尾外的事**；`/dl step-pass` 末步放行 ≠ 门栏放行。
+     - **门栏放行后（本节点放行 ≠ 推进）**：`/dl gate` 放行门栏后你**仍在本子阶段**——此时输出 `### PHASE_DONE: plan` 撞 plan->execute 大闸门——大闸门仍需用户**第二次 `/dl gate`** 放行才进 execute（两次连拍是设计内行为）。plan.md「执行计划与检查点」节已在子5 装配完成，不要重做已通过的子步骤。
 - 允许：understand 的工具 + 起草 design.md（H8）。
 - 禁止：改源码。
-- 完成：plan:1/plan:2/plan:3/plan:4 用 `### STEP_DONE: <n>` 逐步推进（末步均门栏扣留等 `/dl gate`）；plan:2 子5 装配 `plan.md`（方案 + 步骤 + 验证方法），plan:3 子6 追加装配 `plan.md`「能力与工具」节，plan:4 子5 追加装配 `plan.md`「执行计划与检查点」节，plan:4 门栏放行后输出 `### PHASE_DONE: plan`。
+- 完成：plan:1/plan:2/plan:3/plan:4 用 `### STEP_DONE: <n>` 逐步推进（plan:1/2/3 末步通过门控自动进下一子阶段；**plan:4 末步门栏扣留等 `/dl gate`**）；plan:2 子5 装配 `plan.md`（方案 + 步骤 + 验证方法），plan:3 子6 追加装配 `plan.md`「能力与工具」节，plan:4 子5 追加装配 `plan.md`「执行计划与检查点」节，plan:4 门栏放行后输出 `### PHASE_DONE: plan`。
 - **此阶段完成后是闸门**：需用户 `/dl gate` 放行才进 execute。
 
 ### execute（执行）

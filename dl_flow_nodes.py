@@ -97,8 +97,11 @@ class Node:
 # 节点表。<node_id> -> Node。node_id = f"{phase}:{sub}"。
 # 闸门 GATED_AFTER：这些 phase 的末节点完成需用户 /dl gate 放行才进下一 phase。
 #   继承现有 workflow_advance.py:39 GATED_AFTER 语义,收口到 engine 一份。
-#   用 tuple 保序（显示用自然顺序 understand,plan）;is_gated_after 成员判定 O(n) 可接受（5 阶段）。
-GATED_AFTER: tuple[str, ...] = ("understand", "plan")
+#   用 tuple 保序（显示用自然顺序）;is_gated_after 成员判定 O(n) 可接受（5 阶段）。
+# 2026-07-28 用户决议：围栏只设在 plan 完成——understand 移出 GATED_AFTER
+# （understand:4 末步过门控自动进 plan:1，无 understand->plan 大闸门）；
+# 唯一用户裁决点 = plan:4 门栏 + plan->execute 大闸门。
+GATED_AFTER: tuple[str, ...] = ("plan",)
 
 
 # understand:1 子1 的形式要件（单源：purpose 模型侧与 gate judge 侧都引用）。
@@ -572,9 +575,8 @@ _NODES: dict[str, Node] = {
             ),
         ),
         minor_key="ProblemContext",  # evidence minor_stage 值（结构标识,模型照抄注入给的当前值）
-        # 无 hold_for_gate（用户决议 2026-07-27）：门栏移到 understand:2——
-        # 完整跑「开始 -> 明确目标和价值」中途不扣留；ProblemContext 子6 读回确认
-        # 已守「陈述的认可」，子阶段边界不再是显式用户裁决点。
+        # 无 hold_for_gate（用户决议 2026-07-28）：围栏只设在 plan 完成，
+        # understand 全部子阶段末步过门控即自动推进，中途不停。
     ),
     "understand:2": Node(
         label="明确目标和价值",
@@ -763,11 +765,8 @@ _NODES: dict[str, Node] = {
             ),
         ),
         minor_key="GoalsAndValue",
-        # §subphase-hold-gate（用户决议 2026-07-27，自 understand:1 移来）：
-        # 门栏守住「进不进 understand:3」——「问题 + 目标价值」是 understand 的地基组，
-        # 跑完GoalsAndValue = 显式用户裁决点（一轮完整跑 ProblemContext+GoalsAndValue
-        # 后在此停，用户 /dl gate 放行才进范围与约束）。
-        hold_for_gate=True,
+        # 无 hold_for_gate（用户决议 2026-07-28）：围栏只设在 plan 完成，
+        # 末步过门控自动续轮进 understand:3（同 understand:1 边界语义）。
     ),
     "understand:3": Node(
         label="确定范围与约束",
@@ -952,10 +951,8 @@ _NODES: dict[str, Node] = {
             ),
         ),
         minor_key="ScopeAndConstraints",
-        # §subphase-hold-gate（用户决议 2026-07-27）：新编排阶段隔离测试——
-        # 本子阶段跑完扣留等 /dl gate，验证没问题再流入 understand:4。
-        # 门栏位置现状：understand:1=无，understand:2=有，understand:3=有（本节点）。
-        hold_for_gate=True,
+        # 无 hold_for_gate（用户决议 2026-07-28）：围栏只设在 plan 完成，
+        # 末步过门控自动续轮进 understand:4（同 understand:1 边界语义）。
     ),
     "understand:4": Node(
         label="定义成功标准和验收方式",
@@ -965,7 +962,7 @@ _NODES: dict[str, Node] = {
         artifact="understand.md",  # 末子阶段写产物
         gate_mech=GateMech.ARTIFACT_EXISTS,
         gate_rubric=None,  # 子阶段级 rubric 删除（被 sub_steps 逐步门控取代）
-        advance="phase",  # 末子阶段 -> 推进到 plan（过 understand->plan 闸门）
+        advance="phase",  # 末子阶段 -> 末步过门控自动推进 plan:1（understand 无闸门）
         # designs/success-criteria-substeps-design.md（2026-07-27 用户确认 5 步 + hold）。
         # 关键不对称（第四种）：混合命题，轴心 = 规范性目标的可检验化转换——
         # 对齐=结构性，可检验化=技术转换（Volere fit criterion），
@@ -1149,6 +1146,11 @@ _NODES: dict[str, Node] = {
                     "不可检验退回项显式暴露由用户裁决"
                     "（降低标准/回退目标定义/接受定性验收）；"
                     "用户认/否/调整记入 trace。"
+                    "裁决完成后装配 understand.md（写主仓 "
+                    ".claude/understands/<name>.md——产物落主仓，worktree 归档删除即丢）："
+                    "4 子阶段归一化陈述+本轮裁决直接装配（真实问题重述 + 目标价值 + "
+                    "范围约束 + 成功标准验收包；禁二次创作；"
+                    "未被选定的问题/目标/约束及其一句话陈述也须写入，供后续 dl 实例接续）。"
                 ),
                 input="step4.statements",
                 record=True,
@@ -1156,17 +1158,18 @@ _NODES: dict[str, Node] = {
                     "呈现了归一化标准+验收包+退回项+「验收手段待建」清单+不确定性吗？"
                     "用户对阈值拍板与验收方式认可的两项裁决都记入 trace 了吗？"
                     "退回项显式暴露了吗？"
+                    "understand.md 已写主仓 .claude/understands/、是装配而非二次创作吗？"
                 ),
                 gate=None,  # 交互步，gate 不跑 judge（trace 存在即过）
             ),
         ),
         minor_key="SuccessCriteria",
-        # §subphase-hold-gate（用户决议 2026-07-27）：新编排阶段隔离测试——
-        # 末子步过后扣留等 /dl gate。**首个 advance="phase" 的 hold 节点**：
-        # 门栏放行 ≠ 阶段推进（release_subgate 对 advance="phase" 节点只放行不推进），
-        # 放行后模型写 understand.md + PHASE_DONE 撞 understand->plan 大闸门
-        # （第二次 /dl gate，两次连拍是用户已接受的代价）。
-        hold_for_gate=True,
+        # 无 hold_for_gate（用户决议 2026-07-28）：围栏只设在 plan 完成——
+        # understand 移出 GATED_AFTER，末子步过门控自动续轮进 plan:1
+        # （跨阶段自动续轮，同构子阶段边界；无 PHASE_DONE: understand 通道）。
+        # understand.md 在子5 内装配（hold 前已落地，同 plan:2/3/4 产物节模式），
+        # 不再有「放行后写产物」窗口。
+        artifact_on_release=False,  # 产物子5 内装配
     ),
     # ---------- plan ----------
     # designs/design-solution-substeps-design.md（2026-07-27 用户确认 6 步）。
@@ -1377,11 +1380,8 @@ _NODES: dict[str, Node] = {
             ),
         ),
         minor_key="DesignSolution",
-        # §subphase-hold-gate（用户决议 2026-07-27，同 understand:3/4 隔离测试
-        # 语义）：plan 首个编排节点，末子步过后扣留等 /dl gate。
-        # advance="sub" hold 与 understand:2/3 同构——无新机制路径。
-        # 门栏位置现状：understand:1=无，understand:2/3/4=有，plan:1=有（本节点）。
-        hold_for_gate=True,
+        # 无 hold_for_gate（用户决议 2026-07-28）：围栏只设在 plan 完成，
+        # 末步过门控自动续轮进 plan:2（同 understand:1 边界语义）。
     ),
     # designs/task-breakdown-substeps-design.md（2026-07-28 用户确认 5 步 +
     # hold + label 改名「拆解任务与阶段」）。
@@ -1579,14 +1579,8 @@ _NODES: dict[str, Node] = {
             ),
         ),
         minor_key="TaskBreakdown",
-        # §subphase-hold-gate（用户决议 2026-07-28，同 understand:3/4、plan:1
-        # 隔离测试语义）：plan 第二个编排节点，末子步过后扣留等 /dl gate。
-        # v2.20 起 advance="sub"（plan:3 加入）——hold 语义转为与 understand:2/3
-        # 同构（advance="sub" hold，机制已 pin）：放行后自动续轮进 plan:3 子1，
-        # 不再有 PHASE_DONE 通道（phase_done_channel_open 对 advance="sub" 恒 False，
-        # artifact_on_release 字段对 sub 节点不被读取，故不再显式声明）。
-        # 门栏位置现状：understand:1=无，understand:2/3/4=有，plan:1/2=有（本节点）。
-        hold_for_gate=True,
+        # 无 hold_for_gate（用户决议 2026-07-28）：围栏只设在 plan 完成，
+        # 末步过门控自动续轮进 plan:3（同 understand:1 边界语义）。
     ),
     # ---------- plan:3 选择能力与工具（v2.20，capability-tool-selection-substeps-design）----------
     "plan:3": Node(
@@ -1810,10 +1804,8 @@ _NODES: dict[str, Node] = {
             ),
         ),
         minor_key="CapabilityToolSelection",
-        # §subphase-hold-gate（用户决议 2026-07-28，隔离测试语义）：
-        # plan 第三个编排节点，末子步过后扣留等 /dl gate。
-        # v2.21 起 advance="sub"（plan:4 加入）——放行后自动续轮进 plan:4 子1。
-        hold_for_gate=True,
+        # 无 hold_for_gate（用户决议 2026-07-28）：围栏只设在 plan 完成，
+        # 末步过门控自动续轮进 plan:4（同 understand:1 边界语义）。
     ),
     # ---------- plan:4 制定执行计划和检查点（ExecutionPlanCheckpoints）----------
     # 关键不对称（第八种）：时序控制 × 风险配平——首个运行时控制结构设计节点
@@ -2035,9 +2027,9 @@ _NODES: dict[str, Node] = {
             ),
         ),
         minor_key="ExecutionPlanCheckpoints",
-        # §subphase-hold-gate（隔离测试语义，门栏七处：understand:2/3/4 +
-        # plan:1/2/3/4）。advance="phase" hold 与 understand:4/plan:3(v2.20)
-        # 同构——无新机制路径。放行后模型 PHASE_DONE: plan 撞 plan->execute
+        # §subphase-hold-gate（门栏唯一处，用户决议 2026-07-28：围栏只设在
+        # plan 完成——understand:2/3/4、plan:1/2/3 门栏全部撤除，末步过门控
+        # 自动推进）。本节点放行后模型 PHASE_DONE: plan 撞 plan->execute
         # 大闸门（第二次 /dl gate）。
         hold_for_gate=True,
         artifact_on_release=False,  # 产物节子5 内装配（hold 前已落地）

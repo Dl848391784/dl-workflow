@@ -74,8 +74,8 @@ dl <name>  ──►  scripts/workflow/dl-launch.sh  (repo 内, 版本化)
 
 ### 闸门机制（用户选择：自动 + 闸门）
 
-- **闸门位置**：`understand->plan`、`plan->execute` 两处必须用户 `/dl gate` 放行才进。
-  - 理由：理解清楚才设计、设计批准才动手——这两步是"认知/决策"关口，不应自动跳过。
+- **闸门位置**：仅 `plan->execute` 一处必须用户 `/dl gate` 放行才进（2026-07-28 用户决议：围栏只设在 plan 完成——understand->plan 闸门撤除，understand 走完自动进 plan；plan 完成点 = plan:4 子阶段门栏 + 本大闸门，两次 /dl gate）。
+  - 理由：设计批准才动手——这是"认知/决策"关口，不应自动跳过。
 - **自动推进**：`execute->review`、`review->evolution` 检到 `### PHASE_DONE` 标记即自动推进。
 - **手动覆盖**：用户随时可 `/dl jump <phase>` 强制跳转到任意阶段（含回退）。
 

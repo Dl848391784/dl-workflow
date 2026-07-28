@@ -2,6 +2,7 @@
 
 > 状态：**已实施**（2026-07-26；engine/hooks/dl-cmd/phase-rules/SKILL/tests 已同步）
 > **适用节点变更（2026-07-27 用户决议）**：门栏自 understand:1（ProblemContext）**移至 understand:2（GoalsAndValue）**——「问题+目标价值」作为地基组一轮跑完再扣留；ProblemContext 不再单独扣留（子6 读回已守「陈述的认可」，两个相邻裁决点冗余）。机制本身不变（Node.hold_for_gate 是声明式开关）。
+> **适用节点变更（2026-07-28 用户决议）**：围栏只设在 plan 完成——understand:2/3/4、plan:1/2/3 门栏全部撤除（末步过门控自动续轮进下一节点），**唯一门栏 = plan:4**（advance="phase" hold：放行 ≠ 推进，放行后 PHASE_DONE: plan 撞 plan->execute 大闸门，两次 /dl gate）。配套：understand 移出 GATED_AFTER（understand->plan 无闸门，understand:4 末步过门控直接自动进 plan:1，无 PHASE_DONE: understand 通道）；understand:4 的 understand.md 改子5 内装配（artifact_on_release=False，同 plan:2/3/4 产物节模式）。机制（hold_for_gate/release_subgate/phase_done_channel_open/注入三态）全部保留，仅服务 plan:4。
 > 父文档：`node-step-orchestration-design.md`（子步骤编排）、`substep-gate-at-stop-design.md`（Stop 门控）、`tui-state-machine-design.md`（GATED_AFTER 阶段闸门）
 
 ## 0. 动因：子6 读回确认守住「陈述的认可」，没守住「进不进下一子阶段」

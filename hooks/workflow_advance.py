@@ -364,13 +364,18 @@ def main() -> int:
                 )
                 return 0
             new_sub = (st or {}).get("sub_index", cur_sub)
-            if new_sub != cur_sub:
-                # 末步通过 -> 跨子阶段。无门栏的边界不是检查点（门栏才是——
-                # 2026-07-27 用户预期「无门栏一路跑到门栏再停」）：
-                # 下一子阶段有编排则自动续轮进其子1；无编排/不存在才停轮等用户。
+            new_phase = (st or {}).get("phase", cur_phase)
+            if (new_phase, new_sub) != (cur_phase, cur_sub):
+                # 末步通过 -> 跨子阶段（含跨阶段：understand:4 无门栏后末步
+                # 直接推进 plan:1，2026-07-28 围栏只设 plan 完成）。无门栏的
+                # 边界不是检查点（门栏才是——2026-07-27 用户预期「无门栏一路
+                # 跑到门栏再停」）：下一节点有编排则自动续轮进其子1；
+                # 无编排/不存在才停轮等用户。
+                # ⚠ 节点查找必须用推进后的 new_phase（旧 cur_phase 会把
+                # understand:4->plan:1 错查成 understand:1）。
                 nxt_node = None
                 try:
-                    nxt_node = engine.get_node(cur_phase, new_sub)
+                    nxt_node = engine.get_node(new_phase, new_sub)
                 except KeyError:
                     nxt_node = None
                 if nxt_node is not None and nxt_node.sub_steps:

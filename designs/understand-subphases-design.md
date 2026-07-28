@@ -1,6 +1,7 @@
 # understand 阶段子阶段（Design-First，H8）
 
 > 状态：已实现（2026-07-23）。本文件为 H8 Design-First 产物。
+> **变更（2026-07-28 用户决议）**：understand->plan 闸门撤除（围栏只设在 plan 完成）——understand:4 末步过门控自动进 plan:1，无 `### PHASE_DONE: understand` 通道；understand.md 改在 understand:4 子5 内装配。本文 §24/45/57 的 PHASE_DONE: understand + 闸门描述已被该决议取代。
 > 真源父文档：`designs/workflow-system-design.md`。本文件记录「understand 拆 4 子阶段」这一增量，子阶段推进机制与大阶段同构。
 
 ## 0. 背景

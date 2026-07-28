@@ -777,7 +777,10 @@ def _parse_reset_target(
     if len(parts) == 1:
         # 节点内回退：旧 step-reset 语义
         if not cur_node.sub_steps:
-            return None, f"节点 {node_id(cur_node.phase, cur_node.sub)} 无子步骤编排，state-reset <n> 不适用"
+            return (
+                None,
+                f"节点 {node_id(cur_node.phase, cur_node.sub)} 无子步骤编排，state-reset <n> 不适用",
+            )
         if not parts[0].isdigit():
             return None, (
                 f"寻址 '{target}' 非法——用法: state-reset <n> | <phase>:<minor>[:<step>]"
@@ -788,7 +791,10 @@ def _parse_reset_target(
             return None, f"子步骤 {step} 越界（本节点 1..{total}）"
         return cur_node, step
     if len(parts) not in (2, 3):
-        return None, f"寻址 '{target}' 非法——用法: state-reset <n> | <phase>:<minor>[:<step>]"
+        return (
+            None,
+            f"寻址 '{target}' 非法——用法: state-reset <n> | <phase>:<minor>[:<step>]",
+        )
     phase = parts[0].lower()
     if phase not in PHASES:
         return None, f"phase '{parts[0]}' 不存在（合法: {', '.join(PHASES)}）"
@@ -809,20 +815,29 @@ def _parse_reset_target(
                 node = cand
                 break
     if node is None:
-        valid = ", ".join(
-            f"{cand.sub}={cand.minor_key}"
-            for cand in _NODES.values()
-            if cand.phase == phase and cand.minor_key
-        ) or "（该 phase 无子阶段，用 <phase>:0）"
+        valid = (
+            ", ".join(
+                f"{cand.sub}={cand.minor_key}"
+                for cand in _NODES.values()
+                if cand.phase == phase and cand.minor_key
+            )
+            or "（该 phase 无子阶段，用 <phase>:0）"
+        )
         return None, f"子阶段 '{minor}' 不存在于 {phase}（合法: {valid}）"
     if not node.sub_steps:
         if len(parts) == 3:
-            return None, f"节点 {node_id(node.phase, node.sub)} 无子步骤编排，三段式 step 无意义（用 {phase}:{minor} 两段式）"
+            return (
+                None,
+                f"节点 {node_id(node.phase, node.sub)} 无子步骤编排，三段式 step 无意义（用 {phase}:{minor} 两段式）",
+            )
         return node, 0
     step = 1 if len(parts) == 2 else (int(parts[2]) if parts[2].isdigit() else -1)
     total = len(node.sub_steps)
     if not (1 <= step <= total):
-        return None, f"子步骤 {parts[2] if len(parts) == 3 else step} 越界（节点 {node_id(node.phase, node.sub)} 1..{total}）"
+        return (
+            None,
+            f"子步骤 {parts[2] if len(parts) == 3 else step} 越界（节点 {node_id(node.phase, node.sub)} 1..{total}）",
+        )
     return node, step
 
 
@@ -983,9 +998,7 @@ def reset_state(project_root: Path, name: str, target: str) -> tuple[bool, str]:
         legacy_name = f"{ph}.md"
         if isinstance(wt_root, str) and wt_root:
             candidates.append(Path(wt_root) / legacy_name)
-        candidates.append(
-            project_root / ".claude" / "worktrees" / name / legacy_name
-        )
+        candidates.append(project_root / ".claude" / "worktrees" / name / legacy_name)
         seen: set[str] = set()
         for p in candidates:
             key = str(p)

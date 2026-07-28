@@ -59,14 +59,16 @@ def wf_repo(tmp_path: Path):
     return tmp_path
 
 
-def _write_state(repo: Path, sub_step: int, sub_index: int = 1) -> None:
+def _write_state(
+    repo: Path, sub_step: int, sub_index: int = 1, phase: str = "understand"
+) -> None:
     state = {
         "name": "t",
-        "phase": "understand",
-        "index": 1,
+        "phase": phase,
+        "index": {"understand": 1, "plan": 2}[phase],
         "sub_index": sub_index,
         "sub_total": 4,
-        "node": f"understand:{sub_index}",
+        "node": f"{phase}:{sub_index}",
         "sub_step_index": sub_step,
         "gate": "pending",
         "node_attempts": 0,
@@ -82,16 +84,23 @@ def _write_state(repo: Path, sub_step: int, sub_index: int = 1) -> None:
     )
 
 
-# sub_index -> evidence minor_stage（与 engine 节点表 minor_key 对齐）
-_MINOR = {1: "ProblemContext", 2: "GoalsAndValue", 4: "SuccessCriteria"}
+# (phase, sub_index) -> evidence minor_stage（与 engine 节点表 minor_key 对齐）
+_MINOR = {
+    ("understand", 1): "ProblemContext",
+    ("understand", 2): "GoalsAndValue",
+    ("understand", 4): "SuccessCriteria",
+    ("plan", 4): "ExecutionPlanCheckpoints",
+}
 
 
-def _write_trace(repo: Path, sub_step: int, sub_index: int = 1) -> None:
+def _write_trace(
+    repo: Path, sub_step: int, sub_index: int = 1, phase: str = "understand"
+) -> None:
     trace = json.dumps(
         {
             "kind": "skill-trace",
             "major_stage": "Understand",
-            "minor_stage": _MINOR[sub_index],
+            "minor_stage": _MINOR[(phase, sub_index)],
             "sub_step": sub_step,
             "skill": "x",
             "purpose": "p",
@@ -150,16 +159,16 @@ class TestStopStdoutPureJson:
 
     def test_final_pass_no_json_stops_turn(self, wf_repo, monkeypatch, capsys):
         # 末步 pass -> §subphase-hold-gate 门栏扣留停轮：stdout 无 JSON 指令（纯文本）
-        # （门栏 2026-07-27 起在 understand:2 GoalsAndValue 末步=子5）
-        _write_state(wf_repo, sub_step=5, sub_index=2)
-        _write_trace(wf_repo, sub_step=5, sub_index=2)
+        # （门栏唯一处 = plan:4 ExecutionPlanCheckpoints 末步=子5，2026-07-28 用户决议）
+        _write_state(wf_repo, sub_step=5, sub_index=4, phase="plan")
+        _write_trace(wf_repo, sub_step=5, sub_index=4, phase="plan")
         mod = _load_hook()
         out, _err = _run_hook(mod, wf_repo, monkeypatch, capsys)
         assert "hookSpecificOutput" not in out
         assert "门栏" in out
         assert "/dl gate" in out
         st = json.loads((wf_repo / ".claude/workflows/t/state.json").read_text())
-        assert st["sub_index"] == 2  # 扣留：不推进
+        assert st["sub_index"] == 4  # 扣留：不推进
         assert st["held_for_gate"] is True
 
     def test_cross_subphase_auto_continue(self, wf_repo, monkeypatch, capsys):
@@ -258,20 +267,20 @@ class TestContinueCarriesFenceNotice:
         assert "本步自查：" in ctx and "who/pain/why-now" in ctx
 
 
-class TestU4PhaseDoneFallthrough:
-    """understand:4（首个 advance="phase" 编排节点）的 PHASE_DONE fall-through。
+class TestP4PhaseDoneFallthrough:
+    """plan:4（门栏唯一处，advance="phase" 编排节点）的 PHASE_DONE fall-through。
 
-    success-criteria-substeps-design §2：末步已判过 + 门栏放行后，模型写
-    understand.md + PHASE_DONE -> Stop hook 落到阶段大闸门店径（判据单源
-    engine.phase_done_channel_open）。
+    2026-07-28 用户决议（围栏只设在 plan 完成）：末步已判过 + 门栏放行后，
+    模型 PHASE_DONE: plan -> Stop hook 落到 plan->execute 阶段大闸门路径
+    （判据单源 engine.phase_done_channel_open）。
     """
 
-    def _judged_u4(self, mod, repo: Path, held: bool = False, gate: str = "pending"):
-        _write_state(repo, sub_step=5, sub_index=4)
-        _write_trace(repo, sub_step=5, sub_index=4)
+    def _judged_p4(self, mod, repo: Path, held: bool = False, gate: str = "pending"):
+        _write_state(repo, sub_step=5, sub_index=4, phase="plan")
+        _write_trace(repo, sub_step=5, sub_index=4, phase="plan")
         st = json.loads((repo / ".claude/workflows/t/state.json").read_text())
-        sha = mod.engine.latest_trace_sha1(repo, "t", 5, "SuccessCriteria")
-        st["last_judged_trace"] = {"understand:4#5": sha}
+        sha = mod.engine.latest_trace_sha1(repo, "t", 5, "ExecutionPlanCheckpoints")
+        st["last_judged_trace"] = {"plan:4#5": sha}
         st["gate"] = gate
         if held:
             st["held_for_gate"] = True
@@ -282,58 +291,58 @@ class TestU4PhaseDoneFallthrough:
     ):
         # 门栏已放行 + PHASE_DONE + 大闸门未放行 -> 闸门待放行横幅，不推进
         mod = _load_hook()
-        self._judged_u4(mod, wf_repo)
+        self._judged_p4(mod, wf_repo)
         out, _err = _run_hook(
             mod,
             wf_repo,
             monkeypatch,
             capsys,
-            transcript_text="understand.md 已汇总写完。\n### PHASE_DONE: understand",
+            transcript_text="plan.md 已装配完。\n### PHASE_DONE: plan",
         )
         assert "闸门待放行" in out
         st = json.loads((wf_repo / ".claude/workflows/t/state.json").read_text())
-        assert st["phase"] == "understand"
+        assert st["phase"] == "plan"
         assert st["sub_index"] == 4
 
     def test_phase_done_advances_when_gate_passed(self, wf_repo, monkeypatch, capsys):
-        # 大闸门已放行（/dl gate 第二次）+ PHASE_DONE -> 推进 plan
+        # 大闸门已放行（/dl gate 第二次）+ PHASE_DONE -> 推进 execute
         mod = _load_hook()
-        self._judged_u4(mod, wf_repo, gate="passed")
+        self._judged_p4(mod, wf_repo, gate="passed")
         out, _err = _run_hook(
             mod,
             wf_repo,
             monkeypatch,
             capsys,
-            transcript_text="### PHASE_DONE: understand",
+            transcript_text="### PHASE_DONE: plan",
         )
         assert "阶段切换" in out
         st = json.loads((wf_repo / ".claude/workflows/t/state.json").read_text())
-        assert st["phase"] == "plan"
+        assert st["phase"] == "execute"
 
     def test_no_fallthrough_when_held(self, wf_repo, monkeypatch, capsys):
         # 门栏扣留中 PHASE_DONE 无效（唯一出口 /dl gate）：不落 PHASE_DONE 分支
         mod = _load_hook()
-        self._judged_u4(mod, wf_repo, held=True)
+        self._judged_p4(mod, wf_repo, held=True)
         out, _err = _run_hook(
             mod,
             wf_repo,
             monkeypatch,
             capsys,
-            transcript_text="### PHASE_DONE: understand",
+            transcript_text="### PHASE_DONE: plan",
         )
         assert "闸门待放行" not in out
         assert "阶段切换" not in out
         st = json.loads((wf_repo / ".claude/workflows/t/state.json").read_text())
-        assert st["phase"] == "understand"
+        assert st["phase"] == "plan"
         assert st["held_for_gate"] is True
 
     def test_no_fallthrough_without_marker(self, wf_repo, monkeypatch, capsys):
         # 通道打开但模型没输出 PHASE_DONE -> 静默（no_done_marker），不推进
         mod = _load_hook()
-        self._judged_u4(mod, wf_repo)
+        self._judged_p4(mod, wf_repo)
         out, _err = _run_hook(
-            mod, wf_repo, monkeypatch, capsys, transcript_text="还在写 understand.md"
+            mod, wf_repo, monkeypatch, capsys, transcript_text="还在收尾"
         )
         assert "阶段切换" not in out
         st = json.loads((wf_repo / ".claude/workflows/t/state.json").read_text())
-        assert st["phase"] == "understand"
+        assert st["phase"] == "plan"

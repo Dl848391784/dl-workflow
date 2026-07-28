@@ -44,3 +44,16 @@ dl <name> --done          # 归档（删 worktree+分支+元数据）
 | `~/.claude/output-styles/` | `workflow.md` | 横幅 + 常驻 TaskList 首要规则 |
 | `~/.claude/commands/` | `dl.md` | `/dl` slash 命令入口（调 dl-workflow 内 dl-cmd.sh） |
 
+
+### 1.4 增/改/废 `/dl` 子命令 checklist（2026-07-28 v2.22 state-reset 替代 step-reset 实证）
+
+改「用户可见子命令」的完整改动面（比 §SKILL 不要做的事里的批量重命名 checklist 小一号，子命令级）：
+
+1. `dl-flow-engine.py`：业务函数 + argparse `choices` + `if args.cmd ==` 分发（**废命令 = 直接删 choices 项**，旧命令撞 argparse usage 错，不留别名）。
+2. `scripts/workflow/dl-cmd.sh`：case 分支 + **头部用法注释** + 末尾「未知子命令」提示串（三处易漏后两处）。
+3. `commands/dl.md`：frontmatter description 用法串（/dl 帮助页唯一入口）。
+4. 文案引用面 grep：`grep -rn "<旧命令名>" hooks/ scripts/ skills/ --include="*.py" --include="*.sh" --include="*.md"`——门栏/错误提示里引导用户调旧命令的文案全要换（phase-rules.md、workflow_phase.py、workflow_advance.py 是重灾区；**历史 designs/*.md 不换**，保持决策当时记录）。
+5. `tests/`：旧命令用例改新命令 + 新语义新用例。
+6. `install.sh` + **重启会话**（commands/*.md copy 才能注册新用法串）；hooks 文案源直引即生效，无需 install。
+
+**engine 数据形态注意**：`Node.sub_steps` 无编排节点是 **`None` 不是 `[]`**——`len(node.sub_steps)` 直接 TypeError（v2.22 TDD 红阶段抓到），遍历/计长前必须 `node.sub_steps or []` 或 `if not node.sub_steps` 先判。
