@@ -290,6 +290,43 @@ _CTS_STEP3_FORM_REQUIREMENTS = (
     "只提案不拍板（映射取舍是用户偏好，子6 裁决）"
 )
 
+# plan:4 子1 的形式要件（单源，对齐原则同 _CTS_STEP1_FORM_REQUIREMENTS）。
+# 本节点是首个四源聚合节点（execution-plan-checkpoints-substeps-design §1.2
+# 关键不对称第八种）——聚合失真（E7）防御 = 五类清单基线 + 原文入 trace；
+# judge 输入面（§3.5 #11）：design.md/plan.md/understand.md 三个文件 judge
+# 都读不到——四源原文必须引用进 trace 正文，judge 从 evidence 判。
+_EPC_STEP1_FORM_REQUIREMENTS = (
+    "控制结构输入五类清单齐备：①任务 DAG 与阶段边界（plan.md 执行步骤节："
+    "任务 ID/依赖/阶段分组）；②能力绑定（plan.md 能力节：必先 skill/子代理策略）；"
+    "③验收包（understand.md 六字段，时机=triggered 项显式标注——"
+    "其落点即检查点候选）；④假设清单汇总（design.md + plan.md 假设项）；"
+    "⑤不可逆操作候选（执行步骤中含删改/外发/force 语义的改动点）；"
+    "每条附源出处且四源原文引用进 trace 正文；"
+    "新增候选（四源没有的对象）显式标注或显式「无」，q/a 按序对齐；"
+    "只提取不创作（本步是全节点保真判定基线）"
+)
+
+# plan:4 子2 的形式要件（单源，对齐原则同上）。
+# execute 愿景（2026-07-28 用户决议）：executor 不再自行分析 + 多 subagent
+# 并行——任何需要"执行时想"的东西都是 plan 漏项：失败路由必须预定义、
+# 判据必须零判断词（executor 无判断能力，「确认/检查/合理」式判据=检查点
+# 虚设 E1）、并行分组与互斥面必须 plan 期定死。
+_EPC_STEP2_FORM_REQUIREMENTS = (
+    "调度与检查点方案：①调度四件——并行分组（任务 DAG 拓扑分层，同层无依赖"
+    "可并行派发）/文件互斥面（各 worker 改动文件清单从执行包改动点字段计算，"
+    "组内交集须为空）/worker 任务包映射（任务 ID→派发单元，零上下文可执行）/"
+    "subagent 返回契约（测试输出/改动文件清单/file:line 证据形式清单）；"
+    "②检查点三属性——通过判据（零判断词：命令+退出码/断言，承接验收包 ID，"
+    "禁「确认/检查/合理」类动词）/失败路由（返工本组/回滚至上一检查点/"
+    "升级用户，三选一预定义，禁「视情况」）/类型（自动继续 vs 用户暂停；"
+    "不可逆操作前的检查点强制用户暂停）；"
+    "③每检查点 goal anchoring 重述句（原目标+当前位置两成分）；"
+    "④密度论证（按可逆性×爆炸半径逐检查点给类型建议）或「零用户检查点」"
+    "复利论证（逐步成功率估计+整体下界+全链可逆声明）；"
+    "红队留痕或条件未触发声明，q/a 按序对齐；"
+    "只提案不拍板（密度与类型是用户风险裁决，子5 拍板）"
+)
+
 _NODES: dict[str, Node] = {
     # ---------- understand（含 4 子阶段;design §3 / workflow_advance.py:47 SUBPHASES 同源）----------
     "understand:1": Node(
@@ -1566,7 +1603,13 @@ _NODES: dict[str, Node] = {
         # 节点级 rubric 置 None（understand:4/plan:2 先例第三次）：
         # 语义全部下沉逐步 gate，plan->execute 大闸门只跑机械门。
         gate_rubric=None,  # 子阶段级 rubric 删除（被 sub_steps 逐步门控取代）
-        advance="phase",  # plan 末子阶段 -> 推进到 execute（过 plan->execute 闸门）
+        # advance="sub"（v2.21 plan:4 加入后本节点不再是 plan 末子阶段）：
+        # hold 语义转为与 understand:2/3、plan:2(v2.20) 同构（advance="sub"
+        # hold，机制已 pin）：放行后自动续轮进 plan:4 子1，不再有 PHASE_DONE
+        # 通道（phase_done_channel_open 对 advance="sub" 恒 False）；
+        # artifact_on_release 不再显式声明（字段仅 advance="phase" 编排末节点
+        # 注入第三态读取，sub 节点不被读取）。
+        advance="sub",
         sub_steps=(
             Step(
                 kind="tool",
@@ -1768,12 +1811,236 @@ _NODES: dict[str, Node] = {
         ),
         minor_key="CapabilityToolSelection",
         # §subphase-hold-gate（用户决议 2026-07-28，隔离测试语义）：
-        # plan 第三个编排节点，末子步过后扣留等 /dl gate。门栏六处：
-        # understand:2/3/4 + plan:1/2/3（本节点）。
-        # advance="phase" hold 与 plan:2(v2.19)/understand:4 同构——无新机制路径。
-        # 放行后模型 PHASE_DONE: plan 撞 plan->execute 大闸门（第二次 /dl gate）。
+        # plan 第三个编排节点，末子步过后扣留等 /dl gate。
+        # v2.21 起 advance="sub"（plan:4 加入）——放行后自动续轮进 plan:4 子1。
         hold_for_gate=True,
-        artifact_on_release=False,  # plan.md 能力节子6 内装配（hold 前已落地）
+    ),
+    # ---------- plan:4 制定执行计划和检查点（ExecutionPlanCheckpoints）----------
+    # 关键不对称（第八种）：时序控制 × 风险配平——首个运行时控制结构设计节点
+    # （plan:1/2/3 产物全是静态内容，本节点设计控制流：何时停/验什么/失败后
+    # 去哪/谁可并行）+ 首个四源聚合节点（design.md+plan.md+understand.md+
+    # evidence）。主敌=检查点虚设（E1 fabricated success）/误差复利（E2
+    # Lusser's Law）/密度失配（E4）/失败处置缺失（E6）/聚合失真（E7）/
+    # 并行冲突（E8）/返回物无验收（E9）。design：execution-plan-checkpoints-
+    # substeps-design.md（2026-07-28 用户确认 5 步 + execute 愿景双对象修订）。
+    "plan:4": Node(
+        label="制定执行计划和检查点",
+        phase="plan",
+        sub=4,
+        skill=None,  # 编排节点 skill 走 Step ref（同 plan:1/2/3；define-problem 在子4 ref）
+        artifact="plan.md",
+        # gate_mech=NONE（有意偏离 plan:2/3 的 ARTIFACT_EXISTS，design §5 #7）：
+        # ARTIFACT_EXISTS 对 plan.md 在本节点语义恒真（文件自 plan:2 起存在），
+        # 保留=虚假防线暗示（H13 精神：不挂无功能配置）；且机械门全类型未实现
+        # （engine gate_verdict_mech 一律 return None 留 §8.3）。实际 guard 链 =
+        # 子4 judge 验十字段 + 子5 禁二次创作 + 用户读回 + S13/S15 围栏。
+        # §8.3 实现时正解 = ARTIFACT_CONTAINS（节存在检查），属该独立项连带工作。
+        gate_mech=GateMech.NONE,
+        # 节点级 rubric 置 None（understand:4/plan:2/plan:3 先例第四次）：
+        # 语义全部下沉逐步 gate，plan->execute 大闸门只跑机械门（本节点亦无）。
+        gate_rubric=None,
+        advance="phase",  # plan 末子阶段 -> 推进到 execute（过 plan->execute 闸门）
+        sub_steps=(
+            Step(
+                kind="tool",
+                ref="Read(design.md / plan.md / understand.md) / "
+                "Bash(grep evidence plan:1/2/3 trace)",
+                short="四源清点",
+                # 首个四源聚合节点的保真基线（同构 plan:2/3 子1）：聚合失真（E7）
+                # 防御 = 五类清单 + 四源原文入 trace；triggered 验收项是检查点
+                # 候选（understand:4 时机字段的消费闭合）。
+                purpose=(
+                    f"四源清点与追溯基线：{_EPC_STEP1_FORM_REQUIREMENTS}。"
+                    "检出四源没有的对象=二次创作信号，显式列「新增候选」"
+                    "待子5 用户裁决（禁静默混入）。"
+                ),
+                input="design.md + plan.md + understand.md + "
+                "evidence(plan:1/2/3 末步 trace)",
+                record=True,
+                fence_allow=("Bash",),  # grep evidence jsonl；Read 在常驻集
+                selfcheck=(
+                    "五类清单都齐了吗（任务 DAG/能力绑定/验收包/假设汇总/"
+                    "不可逆操作候选，无遗漏）？每条都附源出处且四源原文引用进 "
+                    "trace 正文了吗（judge 读不到三个文件本身）？"
+                    "triggered 验收项显式标注了吗？"
+                    "新增候选显式标注或显式「无」了吗？"
+                    "有静默新增四源没有的对象吗（那是二次创作）？"
+                ),
+                gate=(
+                    "evidence/<name>.jsonl 含 kind=skill-trace、"
+                    "minor_stage=ExecutionPlanCheckpoints 且 sub_step==1 的记录；"
+                    f"形式要件：{_EPC_STEP1_FORM_REQUIREMENTS}。"
+                    "质量判据（从严裁量）：清单项无出处=编造判 block；"
+                    "四源之一缺失且无说明=漏源判 block；"
+                    "静默新增=二次创作判 block；"
+                    "大段改写致语义偏移=聚合失真判 block；"
+                    "原文未引用进 trace 正文（judge 无从核对）判 block。"
+                ),
+            ),
+            Step(
+                kind="skill",
+                ref="推理(DAG 拓扑分层 + 控制结构设计) / Agent(条件红队)；"
+                "对齐源 superpowers:writing-plans / executing-plans（checkpoint 语义真源）",
+                short="调度与检查点",
+                # 本节点存在的理由：把任务 DAG 转成运行时控制结构（design §2）。
+                # execute 愿景=无判断 executor——判据零判断词/失败路由预定义/
+                # 并行分组 plan 期定死全是硬约束不是建议。布点默认=并行组/阶段
+                # 边界（E2 复利截断）；不可逆操作强制用户暂停（E5 硬条款）。
+                purpose=(
+                    f"调度与检查点方案提案：{_EPC_STEP2_FORM_REQUIREMENTS}。"
+                    "布点默认=并行组/阶段边界，任务级加密须辩护；"
+                    "条件红队（并行组数或检查点数超阈值时触发，独立上下文"
+                    "反驳分组与布点）。"
+                ),
+                input="step1.control_baseline",
+                record=True,
+                fence_allow=("Agent",),  # 条件红队，同 plan:1 子4/plan:3 子3
+                selfcheck=(
+                    "调度四件都齐了吗（并行分组/文件互斥面/worker 任务包映射/"
+                    "返回契约）？互斥面是从执行包改动点计算的吗（还是拍脑袋分的）？"
+                    "每检查点三属性都齐了吗（零判断词判据/三选一失败路由/类型）？"
+                    "不可逆操作前的检查点类型=用户暂停了吗？"
+                    "goal anchoring 重述句逐检查点都有了吗（含原目标+当前位置）？"
+                    "密度论证或「零用户检查点」复利论证了吗？"
+                    "红队留痕或条件未触发声明了吗？是「提案-待用户裁决」语义吗？"
+                ),
+                gate=(
+                    "evidence/<name>.jsonl 含 kind=skill-trace、"
+                    "minor_stage=ExecutionPlanCheckpoints 且 sub_step==2 的记录；"
+                    f"形式要件：{_EPC_STEP2_FORM_REQUIREMENTS}。"
+                    "质量判据（从严裁量）：判据含「确认/检查/合理」类判断词="
+                    "虚设判 block；失败路由缺或「视情况」=即兴路由判 block；"
+                    "互斥面未从改动点计算=拍脑袋分组判 block；"
+                    "返回契约缺证据形式=无验收门判 block；"
+                    "密度无论证=逃避论证判 block；"
+                    "替用户拍板密度/类型=越权判 block。"
+                ),
+            ),
+            Step(
+                kind="tool",
+                ref="Bash(判据命令 dry-run / 互斥面交集机械核验 / "
+                "codegraph 锚点存在性)",
+                short="锚点核验",
+                # 本地单层源压缩原则（第六次否决取证+质检双步）：判据 dry-run/
+                # 交集实算/锚点存在性全是本机事实，Bash 单层可验。只标注不裁决。
+                purpose=(
+                    "锚点核验与假设标注：逐对象核验四类——"
+                    "①判据可执行性（每检查点通过判据的命令实际 dry-run——"
+                    "存在且可运行，不验结果对错）；"
+                    "②互斥面机械核验（并行组内各 worker 改动文件清单集合交集"
+                    "实算——交集非空=分组证伪，回子2）；"
+                    "③锚点存在性（检查点位置引用的任务 ID/阶段边界/验收包 ID "
+                    "在四源中真实存在，codegraph/Read 出处）；"
+                    "④验证手段有绑定（判据所需工具/skill 在能力包里有绑定且"
+                    "无「显式不加载」冲突）。"
+                    "三态标注：已验证（附出处）/假设（置信度+错误时影响）/"
+                    "证伪（回子2，附理由）。只标注不裁决——"
+                    "假设的接受留子5 用户裁决。"
+                ),
+                input="step2.control_proposals",
+                record=True,
+                fence_allow=("Bash",),
+                selfcheck=(
+                    "四类核验逐对象都做了吗（dry-run/交集实算/锚点存在/"
+                    "验证手段绑定，无遗漏）？交集实算的命令+输出进 trace 了吗？"
+                    "三态逐对象标注了吗？"
+                    "已验证附出处、假设含置信度+错误时影响、证伪附理由了吗？"
+                ),
+                gate=(
+                    "evidence/<name>.jsonl 含 kind=skill-trace、"
+                    "minor_stage=ExecutionPlanCheckpoints 且 sub_step==3 的记录；"
+                    "形式要件：四类核验逐对象留痕；互斥面交集实算结果"
+                    "（命令+输出）进 trace；三态逐对象标注；"
+                    "出处/置信度+影响/理由齐备。"
+                    "质量判据（从严裁量）：声称可执行无 dry-run 留痕=编造判 block；"
+                    "交集核验无实算输出=没真核验判 block；"
+                    "全对象无差别「已验证」=没真核验判 block；"
+                    "假设项缺置信度或影响判 block。"
+                ),
+            ),
+            Step(
+                kind="skill",
+                ref="define-problem(归一化)",
+                short="归一化计划包",
+                # claim normalization 职能第九次复用（ProblemContext 子5 /
+                # GoalsAndValue 子4 / ScopeAndConstraints 子4 / SuccessCriteria
+                # 子4 / DesignSolution 子5 / TaskBreakdown 子4 /
+                # CapabilityToolSelection 子5 同构）。
+                # 执行计划包十字段（调度四+检查点六）倒推自消费契约（design
+                # §0 表）：execute:0 orchestrator 愿景/rubric 逐条核/
+                # understand:4 时机字段/review:0 证据需求/用户密度裁决五方。
+                purpose=(
+                    "归一化执行计划包：①原子（单句 ≤1 个独立控制断言）；"
+                    "②去上下文（零上下文 orchestrator 照做：任务 ID/文件清单/"
+                    "判据命令自包含，禁「同上」「如前所述」）；"
+                    "③携带执行计划包十字段——调度节四字段：并行分组（DAG 层）/"
+                    "文件互斥面（含交集=空核验状态）/worker 任务包映射/"
+                    "返回契约（证据形式清单）；检查点节六字段（per checkpoint）："
+                    "位置锚/通过判据（零判断词）/失败路由/类型/验收包映射"
+                    "（含任务 ID 追溯锚）/goal anchoring 重述句；"
+                    "④假设传导（子3 假设项原样携带，不丢不淡化）。"
+                    "放不进一句=未定义完。"
+                ),
+                input="step3.verified_controls",
+                record=True,
+                selfcheck=(
+                    "每断言 ≤1 句且自包含（零上下文 orchestrator 照做）吗？"
+                    "十字段都携带了吗（调度四+检查点六）？"
+                    "字段与子2/子3 已定内容一致吗（无丢失无篡改无新增）？"
+                    "每 triggered 验收项有检查点落点（或显式「continuous 覆盖」"
+                    "声明）吗？判据零判断词保持了吗？假设传导了吗？"
+                ),
+                gate=(
+                    "evidence/<name>.jsonl 含 kind=skill-trace、"
+                    "minor_stage=ExecutionPlanCheckpoints 且 sub_step==4 的记录；"
+                    "形式要件：调度四字段+检查点六字段齐备；与四源双向覆盖无漏"
+                    "（每 triggered 验收项有检查点落点或显式「continuous 覆盖」"
+                    "声明）；假设传导。"
+                    "质量判据（从严裁量）：字段与子2/子3 已定内容不一致="
+                    "丢失/篡改/新增判 block；复合句判 block；"
+                    "判据判断词回潮判 block；"
+                    "triggered 验收项无落点且无声明=漏配判 block。"
+                ),
+            ),
+            Step(
+                kind="skill",
+                ref="AskUserQuestion / Edit(plan.md 追加「执行计划与检查点」节)",
+                short="读回装配",
+                # 带证据读回（同构 plan:2 子5/plan:3 子6）。三裁决点的第三个
+                # （冻结策略）是制度裁决：进 execute 前拍板 plan.md 的合同
+                # 语义——judge 逐条核的对象不能是执行期可随手改的。
+                purpose=(
+                    "带证据读回与 plan.md 装配：呈现并行分组+互斥面核验状态"
+                    "+检查点清单（位置/判据/路由/类型）+假设清单+新增候选"
+                    "（子1 检出若有）+不确定性；"
+                    "用户三裁决——①密度与类型拍板（本节点核心规范裁决："
+                    "每检查点自动继续 vs 用户暂停，风险承担归用户，"
+                    "含要求加密/减密的合法权利）；②假设接受（风险承担）；"
+                    "③plan.md 冻结策略拍板（默认：小偏离=留痕理由"
+                    "[commit message+execute 完成时偏离清单]，大改=/dl back "
+                    "回 plan 修订重过闸门；禁 execute 内直接改 plan.md——"
+                    "judge 逐条核的对象不能是执行期可随手改的）；"
+                    "拍板后装配 plan.md「执行计划与检查点」节（=子4 归一化"
+                    "执行计划包+裁决记录的直接装配，禁二次创作）；"
+                    "写 trace 记裁决原话 -> STEP_DONE。"
+                ),
+                input="step4.execution_plan_packages",
+                record=True,
+                selfcheck=(
+                    "呈现了分组+互斥面核验状态+检查点清单+假设清单+新增候选吗？"
+                    "用户对密度与类型/假设/冻结策略三项裁决都记入 trace 了吗？"
+                    "plan.md「执行计划与检查点」节是装配而非二次创作吗？"
+                ),
+                gate=None,  # 交互步，gate 不跑 judge（trace 存在即过）
+            ),
+        ),
+        minor_key="ExecutionPlanCheckpoints",
+        # §subphase-hold-gate（隔离测试语义，门栏七处：understand:2/3/4 +
+        # plan:1/2/3/4）。advance="phase" hold 与 understand:4/plan:3(v2.20)
+        # 同构——无新机制路径。放行后模型 PHASE_DONE: plan 撞 plan->execute
+        # 大闸门（第二次 /dl gate）。
+        hold_for_gate=True,
+        artifact_on_release=False,  # 产物节子5 内装配（hold 前已落地）
     ),
     # ---------- execute ----------
     "execute:0": Node(
