@@ -48,7 +48,7 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
 | 改判据 / 改 rubric / 一过率低 / judge 判得不对 / 审计一轮运行（可避免的 error/返工/token） | `references/rubric-design.md`（§3.5+§3.6） |
 | 写/改任何喂给模型的文案（注入块 / phase-rules / judge prompt / 让模型产出记录） | `references/prompt-engineering.md`（§3.7） |
 | 设计新编排节点 / 拆子步骤 / 查某节点子步骤摘要 | `references/node-design.md`（§0 摘要块+§3.8） |
-| 新建/改工作流脚本·hook·command、install 机制、关键文件职责 | `references/build-and-modify.md`（§1.1–1.3） |
+| 新建/改工作流脚本·hook·command、install 机制、关键文件职责 | `references/build-and-modify.md`（§1.1–1.4） |
 | 另一会话在改同仓库 / 文件被外部修改 / 两批改动拆分 commit / 测试全红归因 | `references/collab.md`（§1.4+§3.9） |
 
 ## 4. 不要做的事
