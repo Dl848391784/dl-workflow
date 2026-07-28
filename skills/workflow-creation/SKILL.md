@@ -36,7 +36,7 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
 **两级命名约定**：节点 id `<phase>:<sub_index>` 是**子阶段**（minor_state；sub_index=0 = 无子阶段的整阶段节点，如 execute:0）；子步骤是子阶段**内部**的「子N」（机制层 `sub_step_index` / evidence `sub_step` 字段），不用 `plan:N` 记号——「plan:2」= plan 的第二个子阶段，不是某子阶段的第 2 子步骤（2026-07-28 用户实测歧义一次，写死省澄清）。
 **推进**：自动 + 闸门。`understand->plan`、`plan->execute` 需 `/dl gate` 放行；其余自动推进。
 
-**各编排节点子步骤摘要**（understand:1 6 步 / understand:2-4 各 5 步 / plan:1 6 步；purpose 第三通道）+ 拆步方法论 → `references/node-design.md`。改 engine Step.purpose 实质内容后须手工同步该文件摘要块。
+**各编排节点子步骤摘要**（understand:1 6 步 / understand:2-4 各 5 步 / plan:1 6 步 / plan:2 5 步；purpose 第三通道）+ 拆步方法论 → `references/node-design.md`。改 engine Step.purpose 实质内容后须手工同步该文件摘要块。
 
 ## 路由表（触发 → Read 哪个 reference）
 
@@ -82,6 +82,6 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
 - "工具被围栏拒绝 / PreToolUse deny / 围栏没拦" → references/diagnostics.md 症状 O
 - "跑太慢 / 耗时长 / token 消耗大 / 程序应该毫秒级 / 成本审计" → references/diagnostics.md 症状 R
 - "审计这轮运行 / 符合预期吗 / 哪些 error 返工可避免 / judge 输入膨胀 / 重建丢弃" → references/rubric-design.md §3.6
-- "设计新编排节点 / 拆几个子步骤 / 每步什么目的 / 要不要取证步 / 步数怎么定 / 代码设计拆步" → references/node-design.md §3.8
+- "设计新编排节点 / 拆几个子步骤 / 每步什么目的 / 要不要取证步 / 步数怎么定 / 代码设计拆步 / 拆解任务 / 任务切分 / 执行计划 plan.md" → references/node-design.md §3.8
 - "另一会话在改同仓库 / 文件被外部修改 / 两批改动怎么分开 commit / 测试全红是不是我的问题" → references/collab.md
 - "证据链 / evidence / no_markers / evidence.jsonl 不生成 / 证据不落地" → references/diagnostics.md 症状 I

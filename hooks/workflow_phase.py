@@ -294,12 +294,21 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
         and engine.phase_done_channel_open(project_root, name, state, node)
     )
     if phase_done_open:
-        lines.append(
-            f"- ✓ 本子阶段全部子步骤已通过门控，门栏已放行——**汇总写 "
-            f"{node.artifact or '阶段产物'}（4 子阶段归一化陈述直接装配，禁二次创作）"
-            f"+ 输出 `### PHASE_DONE: {node.phase}`** 触发阶段大闸门"
-            "（仍需用户 `/dl gate` 放行才进下一阶段）。不要重做已通过的子步骤。"
-        )
+        if node.artifact_on_release:
+            lines.append(
+                f"- ✓ 本子阶段全部子步骤已通过门控，门栏已放行——**汇总写 "
+                f"{node.artifact or '阶段产物'}（各子阶段归一化陈述直接装配，禁二次创作）"
+                f"+ 输出 `### PHASE_DONE: {node.phase}`** 触发阶段大闸门"
+                "（仍需用户 `/dl gate` 放行才进下一阶段）。不要重做已通过的子步骤。"
+            )
+        else:
+            # 产物已在末子步骤内装配（plan:2 plan.md）——放行后只差完成信号
+            lines.append(
+                f"- ✓ 本子阶段全部子步骤已通过门控，门栏已放行——"
+                f"{node.artifact or '阶段产物'}已在末子步骤装配完成，"
+                f"**输出 `### PHASE_DONE: {node.phase}`** 触发阶段大闸门"
+                "（仍需用户 `/dl gate` 放行才进下一阶段）。不要重做已通过的子步骤。"
+            )
     if node and node.sub_steps and not held_for_gate and not phase_done_open:
         cur_step = state.get("sub_step_index", 1)
         total_steps = len(node.sub_steps)
