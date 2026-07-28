@@ -393,6 +393,7 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
    - **机制组合语义走查**（2026-07-27 understand:4 实例）：hold × advance="phase" 是此前不存在的属性组合，release_subgate 的隐含假设（hold 节点都是 sub-advance）被打破——大闸门被静默吸收。新节点属性组合与既有机制的组合语义必须逐函数走查，清单见 §3.8 #6。
    - **模块拆分后 re-export 会被 ruff --fix 当 F401 误删**（2026-07-27 拆 dl_flow_nodes.py 实例）：engine `from dl_flow_nodes import minor_key_map` 在 engine 内未直接使用（tests 经 `eng.minor_key_map` 访问），ruff --fix 删掉 → 9 tests 挂。教训两条：①re-export 处加 `# noqa: F401  # re-export：<谁经此访问>` 注释；②**ruff --fix 后必重跑 pytest 再 commit**——ruff → commit 连跑会把误删固化进历史（当日靠 amend 救回）。
    - **节点重编号（renumber）专项**（2026-07-28 plan:0→plan:2，系统首次 breaking 重编号）：(a) 存量 state 撞已消失的旧节点会 `get_node` 报错暴露——符合 no silent fallback 设计，但设计文档必须写迁移说明（`/dl jump` 重置或手改 state.json）；(b) **legacy 格式测试 fixture 保留旧节点名是合法的**——test_evidence_show 测的就是「旧记录无新字段」的容错，旧 evidence 本来就引用旧节点名，无脑全替换反而失真；要替换的是「拿旧节点当现行节点用」的 fixture；(c) 重编号后全仓 grep 旧节点名逐处过（本次 hooks/scripts 零引用，tests ~20 处 + SKILL 1 处）。
+   - **SKILL §0 摘要是 purpose 的「第三通道」，不会自动同步**（2026-07-28 实例）：Step.purpose 改动经 GENERATED 渲染自动同步 phase-rules + 注入双通道，但 §0 的子步骤摘要行是**手工副本**——改既有节点 purpose 的实质内容（判据口径/分类清单/裁决点）后必须同步摘要行，否则 skill 读者拿到过期契约。当日实例：plan 会话更新了 plan:1 摘要却没同步另一会话的 understand:3/4 编程域修订，靠收尾核对才发现。
 
 ### 症状 G：install.sh 后 hook 没触发
 
@@ -507,6 +508,17 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 5. **每个新节点先写「关键不对称」**：与前序节点的差异即设计轴心（ProblemContext=纯事实、GoalsAndValue=纯规范、ScopeAndConstraints=混合[约束事实+范围规范]、SuccessCriteria=混合[轴心=规范性目标的可检验化转换；**消费契约倒推**——产物字段从下游消费方（review:0 rubric 判定需求）倒推，不是拍的]、DesignSolution=混合[**创造性生成×代码接地双轴心**——首个创造性生成节点：对象不存在须发散（防 design fixation），解必须锚定本仓代码现实须勘察（防凭空 API/重复造轮子）；消费契约倒推同 SuccessCriteria，下游=plan:2/execute:0/review:0]）——照抄前节点步数/结构而不重做失效模式分析 = 设计事故温床（各 design 文档「否决的替代方案」节都否过一个「全对称版」）。
 6. **机制适配走查（内容设计之外的第二轴，2026-07-27 understand:4 沉淀）**：#1-5 定的是「内容编排」（几步/每步干什么/判据），但新节点的**属性组合**（advance 类型 × hold × artifact × gate_mech）可能与机制函数的隐含假设冲突——understand:4 实例：hold 机制为 advance="sub" 设计（release_subgate 无条件 advance_state），直接套到首个 advance="phase" 的 hold 节点会把 phase 大闸门**静默吸收**（一次 /dl gate 穿两道门 + 产物 understand.md 失去写入窗口）；且编排节点 Stop hook 在子步骤门控分支即返回，PHASE_DONE 不可达。设计文档只写「需 pinning 测试」这种抽象预见不够——**设计期逐函数走查一遍**（读代码，不是读设计）：①末步推进（`_advance_sub_step` 对该 advance 类型的行为）；②门栏放行（`release_subgate` 推进否、推进后闸门语义）；③完成信号通道（STEP_DONE/PHASE_DONE 哪个对该节点可达）；④注入状态机（编排中/扣留/放行后每态模型看到什么）；⑤/dl 命令路由（held 检测与 phase gate 的次序）；⑥**judge 输入面**（每条 rubric 判据的佐证 judge 读得到吗——`rubric_needs_evidence` 关键词开关、judge 读不到的文件，§3.5 #11）。缺口修正后**补记回设计文档**（设计文档是下次实施的真源）。**正面案例（2026-07-28 plan:1 首次完整执行）**：写节点前走查当场避免两个设计事故——ARTIFACT_EXISTS 不支持含 `/` 动态文件名（`gate_verdict_mech` 报错）→ design.md 产物强制改三层兜底；rubric 关键词开关 → plan:2 ④一致性检查改走 evidence 路径。
 
+7. **设计文档的修订留痕格式**（2026-07-28 understand:3/4 编程域修订惯例）：已确认的设计文档做定位级修订时——头部加一行 `> 修订（日期，用户决议）：定位 + 改动点清单`，正文修改处嵌「（日期 修订）」标记——让后续读者分清原始设计与后补修订，且修订决议本身可溯源。
+
+## 3.9 多会话同仓协作（并发编辑信号 / commit 拆分 / 时序验证）
+
+2026-07-28 实例：本会话做 understand:3/4 编程域修订时，另一会话同仓做 plan:1 编排——两批改动交织进同一文件（dl_flow_nodes.py / SKILL.md），完整走完「发现并发 → 分工 → 拆分提交」全流程，沉淀四步：
+
+1. **另一写者的早期信号，任一出现先停手问用户**：Edit 工具提示「file modified on disk since you last read it」；两次 `git status` 之间文件列表/mtime 变化；目标文件 mtime 就是当前时刻。**绝不双写同一文件**——当日 test 文件差点两会话同时编辑。
+2. **大批量测试失败的归因法**：先 `git stash` 跑基线——基线绿 = 失败全来自工作区改动而非你的编辑；再把 FAILED 清单归并到单一根因（重编号/拆分类 breaking 改动 = N 失败一根因，逐个修是误诊）。归因后才决定：自己的失败修，别人的失败留。
+3. **同一文件交织两批改动时的 commit 拆分（重建法）**：本环境无交互式 `git add -p`，替代 5 步——①两批终态文件 cp 到 /tmp；②`git checkout HEAD -- <混合文件>`；③重放己方编辑（Edit 工具按已知 old/new 逐处，重放后 `diff` 对照终态，**只在对方区域有 hunk** 才算重放正确）；④跑「HEAD 版测试 + 己方改动」验证绿 → 提交己方；⑤cp 回终态 → 全量验证 → 提交对方。
+4. **提交时序的验证错觉**：先提交的 engine 改动配「来自未来的已迁移测试」跑会红一片——这不是回归，是测试与代码的时序错位；正确验证 = `git checkout HEAD -- tests/` 跑绿再恢复（③的验证步）。**别把时序错位当 bug 修**。
+
 ## 4. 不要做的事
 
 - ❌ **手改 hook 逻辑**：应直接改 `~/.dl-workflow/hooks/*.py`（git 跟踪），`git pull` 即生效，无副本同步。
@@ -535,4 +547,5 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 - "跑太慢 / 耗时长 / token 消耗大 / 程序应该毫秒级 / 成本审计" → §2 症状 R
 - "审计这轮运行 / 符合预期吗 / 哪些 error 返工可避免 / judge 输入膨胀 / 重建丢弃" → §3.6
 - "设计新编排节点 / 拆几个子步骤 / 每步什么目的 / 要不要取证步 / 步数怎么定 / 设计方案阶段 / 代码设计拆步" → §3.8
+- "另一会话在改同仓库 / 文件被外部修改 / 两批改动怎么分开 commit / 测试全红是不是我的问题" → §3.9
 - "证据链 / evidence / no_markers / evidence.jsonl 不生成 / 证据不落地" -> §2 症状 I
