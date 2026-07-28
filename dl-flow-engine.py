@@ -1044,6 +1044,17 @@ _PHASE_WRITE_NAMES: dict[str, frozenset[str] | None] = {
     "evolution": frozenset({"evolution.md"}),
 }
 
+# 阶段产物规范位置（2026-07-28 用户决议）：主仓 .claude/<dir>/<name>.md，
+# 与 evidence 同级同语义——worktree 归档删除时分支上产物一起丢，主仓
+# .claude/ 才存活（可手动 git add 提交留存）。basename=<name>.md 不在
+# _PHASE_WRITE_NAMES，靠本目录规则放行；限本阶段写（它阶段误写/覆盖仍 deny）。
+_PHASE_ARTIFACT_DIRS: dict[str, str] = {
+    "understand": "understands",
+    "plan": "plans",
+    "review": "reviews",
+    "evolution": "evolutions",
+}
+
 
 def _phase_write_path_ok(phase: str, file_path: str) -> bool:
     """路径是否命中该 phase 的写白名单（§S11）。"""
@@ -1058,11 +1069,9 @@ def _phase_write_path_ok(phase: str, file_path: str) -> bool:
         return True  # H8 design 文档各阶段可起草/补
     if ".claude" in parts and "evidence" in parts:
         return True  # evidence 任何阶段可写（子步骤编排/裁决留痕）
-    if phase == "plan" and ".claude" in parts and "plans" in parts:
-        return True  # plan.md 规范位置=主仓 .claude/plans/<name>.md（2026-07-28
-        # 用户决议：与 evidence 同级——worktree 归档删除时分支上产物一起丢，
-        # 主仓 .claude/ 才存活）。basename=<name>.md 不在白名单，靠本路径规则；
-        # 限 plan 阶段写（它阶段误写/覆盖合同仍 deny）
+    artifact_dir = _PHASE_ARTIFACT_DIRS.get(phase)
+    if artifact_dir and ".claude" in parts and artifact_dir in parts:
+        return True  # 本阶段产物目录（主仓 .claude/<dir>/<name>.md，归档存活）
     if phase == "evolution":
         if ".claude" in parts:
             return True  # 更新 skill（.claude/skills/）
@@ -1087,9 +1096,11 @@ def phase_write_denial(project_root: Path, name: str, file_path: str) -> str | N
         return None
     names = _PHASE_WRITE_NAMES.get(phase) or frozenset()
     allow = "、".join(sorted(names)) if names else "（无）"
+    artifact_dir = _PHASE_ARTIFACT_DIRS.get(phase)
+    dir_hint = f"、.claude/{artifact_dir}/" if artifact_dir else ""
     return (
         f"当前阶段「{PHASE_LABELS.get(phase, phase)}」禁止写源码/实现"
-        f"（phase-rules 硬约束）。可写：{allow}、designs/*.md、.claude/evidence/。"
+        f"（phase-rules 硬约束）。可写：{allow}{dir_hint}、designs/*.md、.claude/evidence/。"
         f"被拒路径：{file_path}"
     )
 

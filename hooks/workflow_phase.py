@@ -266,14 +266,21 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
         lines.append(
             f"- 技能: 当前节点应载 skill `{node.skill}`，请用 Skill 工具 invoke 它（已载则继续遵循）"
         )
-    # plan.md 规范位置（2026-07-28 用户决议）：主仓 .claude/plans/<name>.md，
+    # 阶段产物规范位置（2026-07-28 用户决议）：主仓 .claude/<dir>/<name>.md，
     # 与 evidence 同级——worktree 归档删除时分支上产物一起丢，主仓 .claude/ 才存活。
     # 注入给绝对路径（同 evidence 载荷路径模式），防模型写 worktree 位置分裂。
-    if node and node.artifact == "plan.md" and project_root is not None:
+    _ARTIFACT_DIRS = {
+        "plan.md": "plans",
+        "understand.md": "understands",
+        "review.md": "reviews",
+        "evolution.md": "evolutions",
+    }
+    if node and node.artifact in _ARTIFACT_DIRS and project_root is not None:
+        extra = "；execute 首步也从这里读" if node.artifact == "plan.md" else ""
         lines.append(
-            f"- 产物路径: `{project_root}/.claude/plans/{state.get('name', '')}.md`"
-            "（写主仓此绝对路径——worktree 删除即丢，禁写 worktree 内 plan.md；"
-            "execute 首步也从这里读）"
+            f"- 产物路径: `{project_root}/.claude/"
+            f"{_ARTIFACT_DIRS[node.artifact]}/{state.get('name', '')}.md`"
+            f"（写主仓此绝对路径——worktree 删除即丢，禁写 worktree 内{extra}）"
         )
     # §orchestration v2 D6 + §substep-gate-at-stop：节点有 sub_steps 时，注入子步骤清单 +
     # 逐步 purpose + STEP_DONE 格式 + evidence 写法（修复 commit4 遗漏：understand:1 现靠

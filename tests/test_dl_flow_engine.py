@@ -3343,6 +3343,33 @@ class TestPhaseWriteDenial:
         )
         assert self._deny(tmp_path, "review", 0, "/repo/.claude/plans/t.md") is not None
 
+    def test_phase_artifact_dirs_scoped(self, tmp_path):
+        # understand/review/evolution 产物同法迁移主仓（2026-07-28 用户决议，
+        # 与 plan.md 同模式）：各阶段只放行自己的产物目录，跨阶段 deny
+        assert (
+            self._deny(tmp_path, "understand", 1, "/repo/.claude/understands/t.md")
+            is None
+        )
+        assert (
+            self._deny(tmp_path, "understand", 1, "/repo/.claude/reviews/t.md")
+            is not None
+        )
+        assert self._deny(tmp_path, "review", 0, "/repo/.claude/reviews/t.md") is None
+        assert (
+            self._deny(tmp_path, "review", 0, "/repo/.claude/understands/t.md")
+            is not None
+        )
+        assert (
+            self._deny(tmp_path, "evolution", 0, "/repo/.claude/evolutions/t.md")
+            is None
+        )
+        # evolution 例外：既有语义放行整个 .claude/（skills 更新职责所需，
+        # 先于本迁移存在）——不为本次迁移收窄（surgical change）；
+        # understand/review/plan 各阶段跨目录仍 deny（上方断言已覆盖）
+        assert (
+            self._deny(tmp_path, "evolution", 0, "/repo/.claude/reviews/t.md") is None
+        )
+
     def test_plan_allows_design_md(self, tmp_path):
         # plan:1 子6 装配 design.md（H8 产物）——designs/*.md 全阶段放行
         assert self._deny(tmp_path, "plan", 1, "/repo/designs/x-design.md") is None

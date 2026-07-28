@@ -97,7 +97,8 @@ dl <name>  ──►  scripts/workflow/dl-launch.sh  (repo 内, 版本化)
 | 维度 | 路径 | 说明 |
 |---|---|---|
 | **代码隔离** | `.claude/worktrees/<name>` (git worktree, 分支 `wf/<name>`) | launcher `cd` 进此目录再起 claude -> 所有 Edit 落在隔离分支，永不碰主 checkout。从当前 HEAD 分叉（可 `--base <ref>` 覆盖）。不用 claude 自带 `-w`（匿名 per-session，无法命名/恢复） |
-| **元数据隔离** | `.claude/workflows/<name>/` | `state.json` + `settings.json` + `understand.md`/`plan.md`/`review.md`/`evolution.md`(各阶段产物) |
+| **元数据隔离** | `.claude/workflows/<name>/` | `state.json` + `settings.json`（gitignored） |
+| **阶段产物** | `.claude/{understands,plans,reviews,evolutions}/<name>.md` | 各阶段产物（2026-07-28 决议：主仓留存——worktree 归档删除时分支上产物一起丢；未 gitignore，可手动 git add 提交） |
 | **会话隔离** | state.json 内 `session_id` | `--resume` 用钉死的 session 续上，阶段不丢 |
 
 ### state.json 结构

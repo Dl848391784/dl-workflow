@@ -165,7 +165,7 @@ class TestCorruptFormatRedline:
 
 
 class TestPlanArtifactPath:
-    """plan.md 规范位置注入（2026-07-28 用户决议）：主仓 .claude/plans/<name>.md，
+    """阶段产物规范位置注入（2026-07-28 用户决议）：主仓 .claude/<dir>/<name>.md，
     与 evidence 同级——worktree 归档删除时分支上产物一起丢，主仓才存活。"""
 
     def test_plan_phase_injects_artifact_path(self):
@@ -179,3 +179,25 @@ class TestPlanArtifactPath:
     def test_understand_phase_no_plan_path(self):
         ctx = wp._format_injection(_state(1), PROJECT_ROOT)
         assert ".claude/plans/" not in ctx
+
+    def test_all_phase_artifact_paths(self):
+        # understand/review/evolution 同法迁移（与 plan.md 同模式）：
+        # 各阶段注入自己产物的主仓路径
+        cases = [
+            ("understand", 4, "understand:4", 5, "understands"),
+            ("review", 0, "review:0", 0, "reviews"),
+            ("evolution", 0, "evolution:0", 0, "evolutions"),
+        ]
+        for phase, sub, node_id, step, d in cases:
+            ctx = wp._format_injection(
+                _state(
+                    step,
+                    phase=phase,
+                    sub_index=sub,
+                    node=node_id,
+                    sub_total=4 if phase == "understand" else 0,
+                ),
+                PROJECT_ROOT,
+            )
+            assert f"{PROJECT_ROOT}/.claude/{d}/demo.md" in ctx, node_id
+            assert "禁写 worktree" in ctx or "worktree 删除即丢" in ctx

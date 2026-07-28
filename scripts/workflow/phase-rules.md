@@ -13,7 +13,7 @@
 - **每轮首步顺序（硬性）**：每条回复**首步**=①对齐原生 TaskList 清单（用 TaskList/TaskUpdate 工具，**不需 Bash 查 status**；缺则首轮一次性建齐，**之后不重建**避免落底部）-> ②再做实际工作。**禁临时占位**（如"确认阶段中…"）--当前阶段以本轮注入的「## WORKFLOW 当前阶段」attachment 为准；若需取阶段真值，`bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh status` 末尾输出一行当前阶段/子阶段/子步骤数据（**非进度树展示，展示靠 TUI TaskList**），**一次即得，勿反复 Bash 找 state 文件**。
 - **阶段进度展示**：由原生 TUI TaskList 组件负责渲染（模型建齐的 9 项任务清单，见上「常驻阶段清单」）。**不再输出 checklist 文本**（原方案A 弃用，见 banner-tree-design.md）。
 - **阶段可有子阶段**（understand 拆 4 子阶段）：
-  - **understand:1（理解问题和背景）、understand:2（明确目标和价值）、understand:3（确定范围与约束）与 understand:4（定义成功标准和验收方式）均有子步骤编排**：按注入的「▶ 当前子步骤」块逐子步骤执行，每子步骤完成输出 `### STEP_DONE: <n>`（Stop hook 逐步门控）；understand:1 末步通过自动推进下一子阶段，understand:2/3/4 末步门栏扣留等 `/dl gate`；understand:4 门栏放行后写阶段产物 + 输出 `### PHASE_DONE: understand`。**禁输出 SUB_DONE**（与 STEP_DONE 互斥）。
+  - **understand:1（理解问题和背景）、understand:2（明确目标和价值）、understand:3（确定范围与约束）与 understand:4（定义成功标准和验收方式）均有子步骤编排**：按注入的「▶ 当前子步骤」块逐子步骤执行，每子步骤完成输出 `### STEP_DONE: <n>`（Stop hook 逐步门控）；understand:1 末步通过自动推进下一子阶段，understand:2/3/4 末步门栏扣留等 `/dl gate`；understand:4 门栏放行后写阶段产物（**写主仓 `.claude/understands/<name>.md`**——注入「产物路径」行给绝对路径，worktree 归档删除即丢）+ 输出 `### PHASE_DONE: understand`。**禁输出 SUB_DONE**（与 STEP_DONE 互斥）。
   - **未走完子阶段直接输出 PHASE_DONE 会被守卫阻断**（强制依次）。当前子阶段名/序号以每轮注入的「子阶段」块为准。
 - 无子阶段的阶段：完成即输出 `### PHASE_DONE: <phase>`（phase 为英文标识，如 `### PHASE_DONE: understand`）。
 - **只在（子）阶段目标真正达成时**输出对应标记；未达成绝不输出。
@@ -41,7 +41,7 @@
      - **前置参与围栏（PreToolUse，S15）**：当前子步骤**落 evidence 前**（零 trace 窗口），仅编排工具可用——AskUserQuestion / Skill / Task* / Read / Grep / Glob / codegraph / dl-cmd / 写 evidence（Write 载荷 + append-trace 落库），外加当前子步骤注入清单声明的额外工具；**为用户任务探查（其它 Bash/WebFetch/WebSearch/Agent 等）会被 deny 指回当前子步骤**。「先快速回答用户的问题再走编排」不存在——当前子步骤就是你要做的事，用户对原问题的答案会随编排推进自然获得。
      - **硬围栏（PreToolUse，S10）**：写完当前子步骤 evidence 后、Stop 门控判决前，**工具调用会被围栏拒绝**（deny 提示「等待门控判决」；**清单记账工具 TaskCreate/TaskUpdate/TaskList/TaskGet 豁免**——同步 TaskList 随时可做）--这是硬约束不是建议。被拒后唯一正确动作：输出 `### STEP_DONE: <n>` 并 end_turn。**禁止**绕过（换工具/换说法重试=违规）。用户可随时 `/dl fence off` 关闭此围栏（回文案约束）、`/dl fence on` 重新开启。
      - **参与围栏（Stop）**：当前子步骤**没写 evidence 就结束回合 = 违规**，Stop hook 会强制你继续（deny 续轮）--「这是简单查询所以不走编排」之类的判断不成立，走不走编排**不是你的选择**。中途需要用户输入：**必须用 AskUserQuestion 工具**（回合内完成），禁止「文本提问 + 结束回合等回复」。
-     - **阶段写围栏（PreToolUse，系统硬约束无开关）**：understand/plan 阶段 Edit/Write/MultiEdit/NotebookEdit **只能写白名单路径**（本阶段产物 .md、designs/*.md、.claude/evidence/、plan 阶段加 .claude/plans/），写源码/实现会被 deny--「禁止改源码」是硬约束。已知限制：Bash 写（重定向/sed -i）不在围栏内，但用 Bash 写源码 = 违规（文案约束仍有效）。
+     - **阶段写围栏（PreToolUse，系统硬约束无开关）**：understand/plan 阶段 Edit/Write/MultiEdit/NotebookEdit **只能写白名单路径**（本阶段产物 .md、designs/*.md、.claude/evidence/、.claude/{understands,plans,reviews,evolutions}/（各限本阶段）），写源码/实现会被 deny--「禁止改源码」是硬约束。已知限制：Bash 写（重定向/sed -i）不在围栏内，但用 Bash 写源码 = 违规（文案约束仍有效）。
      - > 若注入 attachment（`## WORKFLOW 当前阶段` 含「▶ 当前子步骤」块）没到，本 system-prompt 段即替代通道，强制力等同。
   2. **明确目标和价值**（**子步骤编排，5 步逐步 STEP_DONE 门控**，严格时序不可乱序）：
      - 编排强制语义与 understand:1 **完全相同**（①横幅后按「▶ 当前子步骤」块逐步执行；②写 evidence 是 STEP_DONE 前置（append-trace 两动作）；③输完 STEP_DONE 即 end_turn；④S15/S10/S13/阶段写围栏；⑤连续 block 3 次升级用户裁决）——见上方 understand:1 各条，不再重复。
@@ -131,13 +131,13 @@
 ### review（审核结果）
 - 目标：对照 understand.md 的真实问题 + 成功标准，判定 solved / partial / not。
 - 允许：起评审 subagent（Agent 工具）/ codegraph impact / 跑测试。禁止改实现。
-- 完成：写出 `review.md`（结论 + 证据 file:line / 测试输出），然后输出 `### PHASE_DONE: review`。
+- 完成：写出 review.md（结论 + 证据 file:line / 测试输出）——**写主仓 `.claude/reviews/<name>.md`**（注入「产物路径」行给绝对路径，禁写 worktree 内）——然后输出 `### PHASE_DONE: review`。
 - 自动推进到 evolution（无闸门）。
 
 ### evolution（进化）
 - 目标：沉淀本次经验。
 - 允许：写 memory 事实（仅非显然的、可复用的）/ 更新 skill / 补 design。
-- 完成：写出 `evolution.md`，然后输出 `### PHASE_DONE: evolution`（终结）。
+- 完成：写出 evolution.md——**写主仓 `.claude/evolutions/<name>.md`**（注入「产物路径」行给绝对路径，禁写 worktree 内）——然后输出 `### PHASE_DONE: evolution`（终结）。
 
 ## 显示约束（output style）
 
