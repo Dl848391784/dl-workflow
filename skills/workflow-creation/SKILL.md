@@ -33,6 +33,7 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
 
 **5 阶段**：understand 理解和求证问题（禁改源码）-> plan 生成执行计划（禁改源码）-> execute 执行 -> review 审核结果 -> evolution 进化。显示用中文名，逻辑层（state/PHASE_DONE/jump）用英文标识。
 **understand 含 4 子阶段**（依次自动推进，无子阶段闸门）：1.理解问题和背景 / 2.明确目标和价值 / 3.确定范围与约束 / 4.定义成功标准和验收方式。**4 个子阶段全部有编排**（v2.17 起），走 STEP_DONE 逐步门控；末子阶段(4) 门栏放行后写 understand.md + 输出 `### PHASE_DONE: understand` 触发 understand->plan 闸门。未走完子阶段直接 PHASE_DONE 会被守卫阻断。详见 `designs/understand-subphases-design.md`。
+**两级命名约定**：节点 id `<phase>:<sub_index>` 是**子阶段**（minor_state；sub_index=0 = 无子阶段的整阶段节点，如 execute:0）；子步骤是子阶段**内部**的「子N」（机制层 `sub_step_index` / evidence `sub_step` 字段），不用 `plan:N` 记号——「plan:2」= plan 的第二个子阶段，不是某子阶段的第 2 子步骤（2026-07-28 用户实测歧义一次，写死省澄清）。
 **推进**：自动 + 闸门。`understand->plan`、`plan->execute` 需 `/dl gate` 放行；其余自动推进。
 
 **子步骤编排（v2.7，§node-step-orchestration + §substep-gate-at-stop）**：某些子阶段（当前 understand:1/2/3）声明 `sub_steps`--有序子步骤序列（调 skill / 调工具，各有 purpose + record + gate）。**门控单位 = 子步骤**（不是子阶段级 rubric）；**skill 内部 Q/A 不门控**只 record。understand:1 = 6 子步骤（子1 逼问定义 / 子2 拆解深挖[MECE 原子问题清单 + 根因因果链 + 竞争假设，invoke causal-inference-root-cause] / 子3 双向取证[主张可检验化→证伪优先→五层源(OpenAlex/arXiv/SE/HN/GitHub API/WebFetch/内部仓库)→codegraph 新鲜度前置；禁 tavily/WebSearch；禁训练记忆冒充外部证据] / 子4 质检裁决[三关质检(针对性/独立性/可追溯)+条件触发红队(独立上下文)+四态 verdict(证实/证伪/部分成立/证据不足)] / 子5 归一化陈述[原子(单句≤1独立痛点)+去上下文(主语+动词+约束自包含)+携带 verdict 边界/置信度；陈述集与子4 verdict 逐项一致——证伪项不进陈述集、部分成立项不超已证实边界] / 子6 带证据读回确认[呈现陈述+verdict+证据指针+置信度；证据不足显式暴露由用户裁决；多问题选定本实例处理项，其余落 evidence 供后续 dl 实例]），子1/2/3/4/5 gate 跑 judge 校验 evidence 里的 skill-trace，子6 gate=None（trace 存在即过）。v2.6（2026-07-25）：4→5 子步骤，插入子2 拆解深挖——复合问题 MECE 切分不丢弃 + 纵向挖根因防叙事式深挖。v2.7（2026-07-26，`designs/step3-verify-redesign-design.md`）：5→6 子步骤，旧子3 单步「验真」拆为子3 双向取证 + 子4 质检裁决——第一性原理消 F1 主张不可检验/F2 确认偏误/F5 证据不可追溯/F7 单视角四类失效；拆步按失效模式族（取证过程 vs 判断质量），一步内可编排多工具（ref 是声明式标签，engine 不限数量）。v2.8（2026-07-26，`designs/step5-step6-statement-readback-redesign-design.md`）：子4 加④按 verdict 处置问题集、子5 一句话陈述重定义为归一化陈述（claim normalization，消「裁决不传导」缺口）、子6 读回确认升级为带证据读回（消「无依据确认」缺口）——ProblemContext 终态三属性：内容正确(子1-4)/形式可移植(子5)/用户认可(子6)。**推进走 Stop hook**：模型完成一步 **Write 载荷（purpose/q/a）+ Bash `append-trace` 落 evidence（v2.14 起；格式/路径/结构字段归脚本）-> 输 `### STEP_DONE: <n>` -> end_turn**；Stop hook 比对 evidence 当前子步骤最新 trace 行 hash 与 state.last_judged_trace 游标--有变化才判（区分「完成」vs「中途暂停等用户」，也防覆盖写漏判）：pass 推进 + **非末步自动续轮**（2026-07-25 决议：pass 也返 additionalContext 指令模型当轮开做下一子步骤，免用户每步发「继续」；2026-07-27 起**跨子阶段同样自动续轮**——无门栏的边界不是检查点，门栏才是：末步 pass 且下一子阶段有编排 -> 当轮开做其子1；仅门栏节点末步扣留停轮）/ block 当轮 `_block_continue` 返工（返工须 append 新 trace 行）/ 连续 block 3 次升级为 AskUserQuestion 用户裁决。有 sub_steps 节点不用 SUB_DONE（互斥）。**反复重测某子步骤**：`/dl step-reset <n>`（engine reset_sub_step）——回退 sub_step_index=n、删 evidence 里 sub_step>=n 的 skill-trace + gate 行（**仅本节点**：trace 按 minor_stage、gate 按 node 归属，v2.15 起；前序步骤留痕与节点级裁决保留）、清 last_judged_trace 游标与 node_attempts；只在本节点内回退，跨子阶段用 `/dl back`。v2.9（2026-07-26，`designs/subphase-hold-gate-design.md`）：**子阶段门栏 hold_for_gate**（当前 understand:2 + understand:3——2026-07-27 用户决议：understand:2 自 understand:1 移来（「问题+目标价值」一轮跑完再停）；understand:3 新编排阶段隔离测试（跑完扣留验证没问题再进 understand:4））——末子步骤过门控后**无条件扣留不推进**（state.held_for_gate；不读 state.gate 防中途 /dl gate 预放行泄漏穿栏），唯一出口 `/dl gate`（dl-cmd 检测 held 路由 engine `subgate-pass`：写 manual-subgate-pass 裁决留痕 + 清标记 + 推进）；`/dl step-pass` 末步同被扣（步的放行 ≠ 子阶段的放行）；`step-reset` 清标记。
@@ -82,6 +83,16 @@ dl <name> --done          # 归档（删 worktree+分支+元数据）
 | ↑ | `codegraph_audit.py` | PostToolUse 记 codegraph 查询 |
 | `~/.claude/output-styles/` | `workflow.md` | 横幅 + 常驻 TaskList 首要规则 |
 | `~/.claude/commands/` | `dl.md` | `/dl` slash 命令入口（调 dl-workflow 内 dl-cmd.sh） |
+
+### 1.4 多会话并发维护（单人 ≠ 单会话，2026-07-28 实测）
+
+系统文档写「单人维护直接在 main 开发」，但**单人 ≠ 单会话**：两个 Claude 会话可在同一 `~/.dl-workflow` 并行作业。当日实测：一方 `git reset --hard`/restore 把另一方**未提交**的改动抹掉（两文件全失），残留文件与新状态不一致（tests 期待新节点而节点树被回退，46 failed）。
+
+- **防御**：未提交工作 = 丢失面 + hunk 混合冲突源。**完成一个逻辑单元就 commit**（frequent small commits 对共享 repo 是防撞保护，不只是整洁）；知道另一会话在同 repo 作业时更要即改即提——攒到「划分 commit」才提就是给冲突留窗口。
+- **诊断**（发现改动消失，别急着重做）：`git status`（文件还在不在 M 列表）→ `git log`（**HEAD 前进 = 对方已提交你的工作，转验收；HEAD 不动 = 被回退**）→ `git reflog`（reset 事件留痕）→ grep 文件内容确认。关键分叉：被提交（好消息）vs 被回退（需裁决）。
+- **恢复纪律**：先 surface 给用户——回退可能是对方有意，盲目重做会制造第二轮冲突；若对方已提交，**全量验收代替重做**（pytest 全绿 + ruff + grep 关键标识 + install copy diff + render/注入冒烟）。
+
+（并发进行中的写者侧协议——早期信号/失败归因/commit 拆分重建法/时序错位——见 §3.9；本节是被回退侧的恢复视角。）
 
 ## 2. ⚠️ 运行诊断手册（按症状查）
 
@@ -511,6 +522,8 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 7. **设计文档的修订留痕格式**（2026-07-28 understand:3/4 编程域修订惯例）：已确认的设计文档做定位级修订时——头部加一行 `> 修订（日期，用户决议）：定位 + 改动点清单`，正文修改处嵌「（日期 修订）」标记——让后续读者分清原始设计与后补修订，且修订决议本身可溯源。
 
 ## 3.9 多会话同仓协作（并发编辑信号 / commit 拆分 / 时序验证）
+
+（被回退侧的恢复协议——诊断分叉「被提交 vs 被回退」+ 全量验收代替重做——见 §1.4；本节是并发进行中的写者侧视角。）
 
 2026-07-28 实例：本会话做 understand:3/4 编程域修订时，另一会话同仓做 plan:1 编排——两批改动交织进同一文件（dl_flow_nodes.py / SKILL.md），完整走完「发现并发 → 分工 → 拆分提交」全流程，沉淀四步：
 
