@@ -74,10 +74,22 @@
 - **此阶段完成后是闸门**：你不会自动进入 plan，需用户 `/dl gate` 放行。
 
 ### plan（生成执行计划）
-- 目标：针对真实问题设计实现方案。
+- 拆 **2 子阶段**，依次完成（plan:1 有子步骤编排逐步门控、末步门栏扣留等 `/dl gate`；plan:2 无编排）：
+  1. **设计解决方案**（**子步骤编排，6 步逐步 STEP_DONE 门控**，严格时序不可乱序）：
+     - 编排强制语义与 understand:1 **完全相同**（①横幅后按「▶ 当前子步骤」块逐步执行；②写 evidence 是 STEP_DONE 前置（append-trace 两动作）；③输完 STEP_DONE 即 end_turn；④S15/S10/S13/阶段写围栏；⑤连续 block 3 次升级用户裁决）——见上方 understand:1 各条，不再重复。
+     - **skill 步 invoke 时序**：子5/子6 ref 含 define-problem，进入该步后立即、在其它任何动作之前 invoke。
+     - **编程工作流定位**：候选方案必须是**代码级设计**（改哪个模块/哪个函数/新增什么文件），从子1 代码现状勘察生长——禁理论方案空谈、禁凭空 API。
+     - 全 6 子步骤 purpose（engine 渲染，与注入逐字同源）：
+<!-- BEGIN GENERATED sub_steps plan:1 -->
+（本段由 dl-launch.sh 调 dl-flow-engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
+<!-- END GENERATED sub_steps plan:1 -->
+     - **子6 产物装配**：子6 用户拍板后**装配 `designs/<主题>-design.md`**（H8 产物 = 子5 归一化设计包 + 用户裁决记录的直接装配，**禁二次创作**）——在写子6 trace 前完成；阶段写围栏已放行 designs/*.md。
+     - **子阶段门栏（hold_for_gate）**：末子步骤(6) 通过门控后**推进被扣留，不自动进 plan:2**——plan 首个编排节点隔离测试（2026-07-27 用户决议）。等用户 `/dl gate` 放行（用户也可 /dl back 回退、/dl step-reset <n> 重测）。**扣留期间不要做下一子阶段的事**；`/dl step-pass` 末步放行 ≠ 门栏放行（步的放行与子阶段的放行是两个独立的用户决定）。
+  2. **生成执行计划**（无子步骤编排）：
+     - 基于 plan:1 的 design.md（归一化设计包：改动清单 + H9 执行单元划分 + 验收包映射）生成逐步执行计划；步骤须与设计包一致——大闸门 judge 对照 evidence 里 DesignSolution 设计包校验，脱节/二次创作判 block。
 - 允许：understand 的工具 + 起草 design.md（H8）。
 - 禁止：改源码。
-- 完成：写出 `plan.md`（方案 + 步骤 + 验证方法），然后输出 `### PHASE_DONE: plan`。
+- 完成：plan:1 用 `### STEP_DONE: <n>` 逐步推进（末步门栏扣留等 `/dl gate`）；plan:2 写出 `plan.md`（方案 + 步骤 + 验证方法），然后输出 `### PHASE_DONE: plan`。
 - **此阶段完成后是闸门**：需用户 `/dl gate` 放行才进 execute。
 
 ### execute（执行）

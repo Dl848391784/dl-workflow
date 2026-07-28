@@ -186,6 +186,32 @@ _S4_STEP1_FORM_REQUIREMENTS = (
     "只能标注「推测」另列"
 )
 
+# plan:1 子1 的形式要件（单源：purpose 模型侧与 gate judge 侧都引用）。
+# 对齐原则同 _STEP1_FORM_REQUIREMENTS：形式要件披露降形式性返工，
+# 质量判据（非编造/非漫游）只留 gate 黑盒。
+_DS_STEP1_FORM_REQUIREMENTS = (
+    "现状地图四要素：①涉及模块与现有实现（codegraph 定位+Read 核实）；"
+    "②可复用点与扩展点（已有可复用函数/类，禁凭印象）；"
+    "③调用方与影响面（codegraph callers/impact）；"
+    "④数据契约现状（paths.py/schema/跨模块数据格式，Bash/Read 核实）；"
+    "codegraph 新鲜度前置留痕（>72h 先 sync）；"
+    "每条事实附 codegraph 原始输出或 file:line 出处，q/a 按序对齐；"
+    "勘察不到的显式标「未知」，范围由 understand.md 问题陈述+范围清单框定"
+)
+
+# plan:1 子2 的形式要件（单源，对齐原则同上）。
+# 双结论制（§3.5 #3）：「设计空间唯一」是合法结论——但须逐维度论证，
+# 无论证的「唯一」= 懒得发散，不算（防偷懒出口，同 _S3_STEP1_FORM_REQUIREMENTS）。
+_DS_STEP2_FORM_REQUIREMENTS = (
+    "≥3 个代码级候选方案（每个=改哪个模块/哪个函数/新增什么文件/复用哪个"
+    "现有实现），或②「设计空间唯一」的逐维度唯一性论证；"
+    "每候选锚定子1 事实条目（禁凭空 API）；"
+    "候选间架构维度实质差异声明（换模块归属/换数据结构/复用 vs 新建/"
+    "换执行时机/换数据流——换皮不换骨=一个方案）；"
+    "禁评估禁排序（评估是子4 的事），q/a 按序对齐；"
+    "用户既有想法平权入列（不预设首选）"
+)
+
 _NODES: dict[str, Node] = {
     # ---------- understand（含 4 子阶段;design §3 / workflow_advance.py:47 SUBPHASES 同源）----------
     "understand:1": Node(
@@ -1028,14 +1054,237 @@ _NODES: dict[str, Node] = {
         hold_for_gate=True,
     ),
     # ---------- plan ----------
-    "plan:0": Node(
+    # designs/design-solution-substeps-design.md（2026-07-27 用户确认 6 步）。
+    # 关键不对称（第五种）：创造性生成×代码接地双轴心——首个创造性生成节点
+    # （对象不存在于任何状态，须发散，防 design fixation）且解必须锚定本仓
+    # 代码现实（须勘察，防凭空设计）。混合命题：方案生成=创作，可行性=事实性
+    # （本地单层源压缩），选型/权重=规范性（子6 用户裁决），假设=中间态。
+    "plan:1": Node(
+        label="设计解决方案",
+        phase="plan",
+        sub=1,
+        skill=None,
+        # design.md 文件名动态（designs/<主题>-design.md），ARTIFACT_EXISTS
+        # 不支持含 "/" 路径（gate_verdict_mech）；产物强制三层兜底见 design §3。
+        artifact=None,
+        gate_mech=GateMech.NONE,
+        gate_rubric=None,  # 子阶段级 rubric 删除（被 sub_steps 逐步门控取代）
+        advance="sub",
+        sub_steps=(
+            Step(
+                kind="tool",
+                ref="codegraph callers/impact / Read / Grep / Bash(新鲜度+数据契约)",
+                short="现状勘察",
+                purpose=(
+                    f"代码现状勘察：{_DS_STEP1_FORM_REQUIREMENTS}。"
+                    "编程工作流定位（本节点元约束）：方案必须从代码现实生长——"
+                    "LLM 凭训练记忆描述代码结构是最强编造区（不存在的接口/"
+                    "凭印象的模块归属/漏检的重复实现），"
+                    "接地是本节点双轴心之一。"
+                ),
+                input="understand.md（问题陈述+范围约束+成功标准）",
+                record=True,
+                fence_allow=("Bash",),
+                selfcheck=(
+                    "codegraph 新鲜度检查留痕了吗（>72h 先 sync）？"
+                    "四要素都覆盖了吗（或显式「无+理由」）？"
+                    "每条事实都附 codegraph 原始输出或 file:line 了吗，"
+                    "还是有凭训练记忆写的？勘察范围与 understand.md 对齐吗？"
+                ),
+                gate=(
+                    "evidence/<name>.jsonl 含 kind=skill-trace、"
+                    "minor_stage=DesignSolution 且 sub_step==1 的记录；"
+                    f"形式要件：{_DS_STEP1_FORM_REQUIREMENTS}。"
+                    "质量判据（从严裁量）：凭训练记忆描述代码结构无工具出处"
+                    "=编造判 block；引用不存在接口/模块判 block；"
+                    "勘察与 understand.md 范围明显脱节=漫游判 block。"
+                ),
+            ),
+            Step(
+                kind="tool",
+                ref="推理(架构维度变换) / AskUserQuestion(用户既有想法)",
+                short="方案发散",
+                purpose=(
+                    f"方案发散：{_DS_STEP2_FORM_REQUIREMENTS}。"
+                    "design fixation 防御核心：禁评估禁排序——混入评估=发散被"
+                    "收敛污染；对自己最初想法的固化是最强固化源（Leahy et al.），"
+                    "用户既有想法平权入列不预设首选。"
+                    "双结论制：②「设计空间唯一」合法（约束钉死全部维度，"
+                    "如纯机械重命名），但须逐维度论证——防逼编造伪候选凑数。"
+                ),
+                input="step1.terrain_map",
+                record=True,
+                selfcheck=(
+                    "≥3 个候选吗，还是走了②（走了②有逐维度论证吗）？"
+                    "每个候选都锚定子1 事实条目了吗（有凭空 API 吗）？"
+                    "候选间是架构维度实质差异还是措辞变体？"
+                    "有评估/排序性措辞混入吗（评估是子4 的事）？"
+                ),
+                gate=(
+                    "evidence/<name>.jsonl 含 kind=skill-trace、"
+                    "minor_stage=DesignSolution 且 sub_step==2 的记录；"
+                    f"形式要件：{_DS_STEP2_FORM_REQUIREMENTS}。"
+                    "质量判据（从严裁量）：伪候选=同一方案的措辞变体判 block；"
+                    "候选含子1 未证实的接口/模块=凭空设计判 block；"
+                    "提前收敛排序判 block；②无逐维度论证=偷懒判 block。"
+                ),
+            ),
+            Step(
+                kind="tool",
+                ref="codegraph / Bash / Read(接口存在性+影响面+重复实现)",
+                short="可行性验证",
+                # 本地单层源压缩原则（同 ScopeAndConstraints 子2）：
+                # 可行性=本仓内部事实，无独立质检裁决步。
+                purpose=(
+                    "可行性验证与假设标注：对存活候选逐一做代码现实核验五项——"
+                    "①接口/模块存在性复核（候选引用的每个符号 file:line 核实）；"
+                    "②重复造轮子检查（codegraph 查同功能实现，"
+                    "有则改复用路径或标淘汰）；"
+                    "③影响面量化（codegraph impact 受影响 callers 数）；"
+                    "④项目硬规则兼容（H1/H1.1 模块边界、H7 路径只 from paths import、"
+                    "H8 2+文件需 design.md、H9 单次 ≤3 文件 ≤200 行可分解性、"
+                    "H11-H13）；⑤可测试性（TDD 前置：改动点是否存在可挂测试的接缝）。"
+                    "三态标注：可行（附出处）/假设（置信度+错误时影响）/"
+                    "证伪剔除（附理由）。只标注不裁决——假设的接受留子6 用户裁决。"
+                ),
+                input="step2.candidates + step1.terrain_map",
+                record=True,
+                fence_allow=("Bash",),
+                selfcheck=(
+                    "每个存活候选都做了五项核验吗（存在性/重复实现/影响面/"
+                    "硬规则/可测试性，无遗漏）？三态逐候选标注了吗？"
+                    "可行项附出处、假设项含置信度+错误时影响、剔除项附理由了吗？"
+                ),
+                gate=(
+                    "evidence/<name>.jsonl 含 kind=skill-trace、"
+                    "minor_stage=DesignSolution 且 sub_step==3 的记录；"
+                    "形式要件：每候选五项核验留痕；三态逐候选标注；"
+                    "出处/置信度+影响/理由齐备。"
+                    "质量判据（从严裁量）：声称存在无出处=编造判 block；"
+                    "影响面拍脑袋无 impact 输出判 block；"
+                    "全候选无差别「可行」=没真核验判 block；重复实现漏检判 block。"
+                ),
+            ),
+            Step(
+                kind="tool",
+                ref="推理(Pugh 矩阵) / Agent(条件红队)",
+                short="评估提案",
+                purpose=(
+                    "评估收敛与选型提案：Pugh 矩阵——判据=成功标准验收包指标"
+                    "承接度+改动面（文件数/行数估计，对 H9）+影响面（子3 callers 数）"
+                    "+复用度+可测试性+硬规则兼容，datum=最小改动候选；"
+                    "逐格 +/S/− 附理由，理由须引用子3 核验事实（禁空泛）；"
+                    "双向追溯（每方案要素回溯 ≥1 must 目标防镀金；"
+                    "每 must 目标 ≥1 要素承接防漏）；"
+                    "条件红队：候选分差小或改动跨模块时 Agent 独立上下文攻击"
+                    "领先方案，触发/未触发均留痕；"
+                    "产出排序+推荐提案——只提案不拍板，权重与选型是用户风险偏好"
+                    "（Pugh 单人权重偏见实证），留子6 裁决。"
+                ),
+                input="step3.feasibility_verdicts",
+                record=True,
+                fence_allow=("Agent",),
+                selfcheck=(
+                    "矩阵逐格评分都附理由了吗？理由都引用子3 核验事实了吗？"
+                    "双向追溯两向都无漏吗？红队触发/未触发留痕了吗？"
+                    "是「提案-待用户裁决」语义吗（没有替用户拍板）？"
+                ),
+                gate=(
+                    "evidence/<name>.jsonl 含 kind=skill-trace、"
+                    "minor_stage=DesignSolution 且 sub_step==4 的记录；"
+                    "形式要件：矩阵逐格评分+理由；理由引用子3 事实；"
+                    "双向追溯矩阵；红队触发/未触发留痕。"
+                    "质量判据（从严裁量）：评分理由空泛不引事实判 block；"
+                    "替用户拍板=无「提案-待裁决」语义判 block；"
+                    "矩阵结论与评分矛盾=凑结论判 block；追溯漏项判 block。"
+                ),
+            ),
+            Step(
+                kind="skill",
+                ref="define-problem",
+                short="归一化陈述",
+                # claim normalization 职能第六次复用（ProblemContext 子5 /
+                # GoalsAndValue 子4 / ScopeAndConstraints 子4 / SuccessCriteria 子4 同构）。
+                purpose=(
+                    "归一化设计陈述：①原子（单句 ≤1 个独立设计决策，"
+                    "「和/以及/同时」连接多项=复合未拆净，回子4）；"
+                    "②去上下文（主语+动词+约束自包含）；"
+                    "③携带代码设计包八字段——改动清单（file→function→改动类型："
+                    "改/增/删）/接口签名/数据契约变更/受影响 callers 清单"
+                    "（codegraph 出处）/被否方案+逐项否决理由（ADR）/"
+                    "假设清单+置信度×影响/验收包映射（每条 SuccessCriteria "
+                    "验收包由哪个设计要素承接）/H9 执行单元划分；"
+                    "④携带 verdict 边界（部分成立目标只覆盖已证实边界——裁决传导）。"
+                    "放不进一句=未定义完。"
+                ),
+                input="step4.recommendation",
+                record=True,
+                selfcheck=(
+                    "每项 ≤1 句且自包含（主语+动词+约束）吗？"
+                    "八字段都携带了吗（改动清单/接口签名/数据契约/callers 清单/"
+                    "被否方案+理由/假设清单/验收包映射/H9 单元划分）？"
+                    "字段与子3/子4 已定内容一致吗（无丢失无篡改无新增）？"
+                ),
+                gate=(
+                    "evidence/<name>.jsonl 含 kind=skill-trace、"
+                    "minor_stage=DesignSolution 且 sub_step==5 的记录；"
+                    "形式要件：每项 ≤1 句且自包含；八字段齐备。"
+                    "质量判据（从严裁量）：设计包字段不传导——子3/子4 已定的"
+                    "出处/假设/否决理由在陈述中丢失或篡改判 block；"
+                    "复合句判 block；凭空新增子4 未评估的要素判 block。"
+                ),
+            ),
+            Step(
+                kind="skill",
+                ref="define-problem / AskUserQuestion / Write(designs/*-design.md)",
+                short="读回确认",
+                # 带证据读回（同构 ProblemContext 子6）：只给结论不给依据地「通知」
+                # 用户 = 无依据确认；design.md 装配 = 子5 设计包+裁决记录的直接
+                # 装配（禁二次创作，同 understand.md 装配原则）。
+                purpose=(
+                    "带证据读回与产物装配：呈现推荐方案+设计包+被否方案+假设清单"
+                    "+不确定性；用户三裁决——①选型拍板（唯一规范裁决点，"
+                    "含复活被否方案的合法权利，矩阵只是输入）；"
+                    "②评估权重认可（Pugh 单人权重偏见防御）；"
+                    "③假设接受（风险承担）；"
+                    "拍板后装配 designs/<主题>-design.md（H8 产物=子5 设计包+"
+                    "裁决记录的直接装配，禁二次创作）；"
+                    "写 trace 记裁决原话 -> STEP_DONE。"
+                ),
+                input="step5.design_statements",
+                record=True,
+                selfcheck=(
+                    "呈现了推荐方案+设计包+被否方案+假设清单+不确定性吗？"
+                    "用户对选型/权重/假设三项裁决都记入 trace 了吗？"
+                    "design.md 是装配而非二次创作吗？"
+                ),
+                gate=None,  # 交互步，gate 不跑 judge（trace 存在即过）
+            ),
+        ),
+        minor_key="DesignSolution",
+        # §subphase-hold-gate（用户决议 2026-07-27，同 understand:3/4 隔离测试
+        # 语义）：plan 首个编排节点，末子步过后扣留等 /dl gate。
+        # advance="sub" hold 与 understand:2/3 同构——无新机制路径。
+        # 门栏位置现状：understand:1=无，understand:2/3/4=有，plan:1=有（本节点）。
+        hold_for_gate=True,
+    ),
+    # 原 plan:0（2026-07-27 重编号：plan 拆两子阶段——plan:1 设计解决方案 +
+    # 本子阶段，顺延为 plan:2；label/artifact/gate_mech/advance 不变）。
+    "plan:2": Node(
         label="生成执行计划",
         phase="plan",
-        sub=0,
+        sub=2,
         skill="superpowers:using-superpowers",
         artifact="plan.md",
         gate_mech=GateMech.ARTIFACT_EXISTS,
-        gate_rubric="plan 是否针对真实问题设计：①步骤可执行 ②验证方法明确 ③守 H8/H9。",
+        # ④一致性检查经 evidence 判（rubric 含 "evidence/" -> rubric_needs_evidence
+        # 为 True，judge 可读到 DesignSolution 子5/子6 trace 的设计包全文；
+        # design.md 本身 judge 读不到，判据合法性走 evidence 路径，design §3）。
+        gate_rubric=(
+            "plan 是否针对真实问题设计：①步骤可执行 ②验证方法明确 ③守 H8/H9；"
+            "④plan.md 步骤与 evidence/<name>.jsonl 里 minor_stage=DesignSolution "
+            "的设计包（归一化设计陈述+用户选型裁决）一致，无脱节无二次创作。"
+        ),
         advance="phase",  # -> execute（过 plan->execute 闸门）
     ),
     # ---------- execute ----------

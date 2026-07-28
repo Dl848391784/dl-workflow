@@ -53,7 +53,7 @@ class TestNodeId:
 
     def test_current_node_id_whole_phase(self):
         # 无子阶段 phase sub_index=0 -> 整阶段节点
-        assert eng.current_node_id("plan", 0) == "plan:0"
+        assert eng.current_node_id("execute", 0) == "execute:0"
 
     def test_current_node_id_subphase(self):
         assert eng.current_node_id("understand", 2) == "understand:2"
@@ -91,8 +91,9 @@ class TestNodeTable:
         assert eng.get_node("understand", 4).advance == "phase"
 
     def test_whole_phase_advance_phase(self):
-        # plan/execute/review 整阶段 advance="phase"
-        for phase in ("plan", "execute", "review"):
+        # execute/review 整阶段 advance="phase"（plan 自 2026-07-27 拆两子阶段，
+        # 末子阶段 plan:2 advance="phase" 由 TestPlan1Orchestration 覆盖）
+        for phase in ("execute", "review"):
             assert eng.get_node(phase, 0).advance == "phase"
 
     def test_node_id_matches_phase_sub(self):
@@ -111,15 +112,16 @@ class TestNodeTable:
         ]
 
     def test_subphase_labels_no_sub(self):
-        # 无子阶段 phase -> []
-        assert eng.subphase_labels("plan") == []
+        # 无子阶段 phase -> []；plan 自 2026-07-27 拆两子阶段
+        assert eng.subphase_labels("plan") == ["设计解决方案", "生成执行计划"]
         assert eng.subphase_labels("execute") == []
 
     def test_sub_total_derived_from_nodes(self):
         # sub_total 从 _NODES 推导（不再 _SUB_TOTAL 副本）,与 subphase_labels 长度一致
         assert eng.sub_total("understand") == 4
         assert len(eng.subphase_labels("understand")) == 4
-        assert eng.sub_total("plan") == 0
+        assert eng.sub_total("plan") == 2
+        assert eng.sub_total("execute") == 0
 
     def test_minor_key_on_subphases(self):
         # understand 4 子阶段各持英文标识(首字母大写,evidence minor_stage 值)
@@ -129,8 +131,8 @@ class TestNodeTable:
         assert eng._NODES["understand:4"].minor_key == "SuccessCriteria"
 
     def test_minor_key_none_for_whole_phase(self):
-        # 无子阶段节点(sub=0)无 minor_key
-        assert eng._NODES["plan:0"].minor_key is None
+        # 无子阶段节点(sub=0)无 minor_key；plan:2 无编排子阶段同（无 trace 归属需求）
+        assert eng._NODES["plan:2"].minor_key is None
         assert eng._NODES["execute:0"].minor_key is None
 
     def test_minor_key_map(self):
@@ -138,7 +140,8 @@ class TestNodeTable:
         m = eng.minor_key_map()
         assert m["ProblemContext"] == "理解问题和背景"
         assert m["SuccessCriteria"] == "定义成功标准和验收方式"
-        assert len(m) == 4
+        assert m["DesignSolution"] == "设计解决方案"
+        assert len(m) == 5
 
 
 # ---------- 推进链 ----------
@@ -150,12 +153,13 @@ class TestNextNode:
         assert eng.next_node_id("understand", 1) == ("understand", 2)
 
     def test_last_subphase_advances_to_next_phase(self):
-        # understand:4 -> plan:0（下一 phase 首节点,plan 无子阶段=sub=0）
-        assert eng.next_node_id("understand", 4) == ("plan", 0)
+        # understand:4 -> plan:1（下一 phase 首子阶段,plan 拆两子阶段后 sub=1）
+        assert eng.next_node_id("understand", 4) == ("plan", 1)
 
-    def test_whole_phase_advances_to_next_phase(self):
-        # plan:0 -> execute:0
-        assert eng.next_node_id("plan", 0) == ("execute", 0)
+    def test_plan_subphase_chain(self):
+        # plan:1 -> plan:2 -> execute:0
+        assert eng.next_node_id("plan", 1) == ("plan", 2)
+        assert eng.next_node_id("plan", 2) == ("execute", 0)
 
     def test_done_returns_none(self):
         # evolution:0 -> None（终结）
@@ -176,7 +180,8 @@ class TestNextNode:
             "understand:2",
             "understand:3",
             "understand:4",
-            "plan:0",
+            "plan:1",
+            "plan:2",
             "execute:0",
             "review:0",
             "evolution:0",
@@ -207,7 +212,7 @@ class TestPhaseHelpers:
 
     def test_sub_total(self):
         assert eng.sub_total("understand") == 4
-        assert eng.sub_total("plan") == 0
+        assert eng.sub_total("plan") == 2
 
 
 # ---------- normalize_state（旧 state 兼容 + 不一致报错）----------
@@ -233,17 +238,17 @@ class TestNormalizeState:
             eng.normalize_state(bad)
 
     def test_consistent_node_kept(self):
-        ok = {"phase": "plan", "sub_index": 0, "node": "plan:0"}
+        ok = {"phase": "plan", "sub_index": 2, "node": "plan:2"}
         norm = eng.normalize_state(dict(ok))
-        assert norm["node"] == "plan:0"
+        assert norm["node"] == "plan:2"
 
     def test_sub_step_index_defaults_zero_no_steps(self):
         # §orchestration v2：无 sub_steps 节点 -> sub_step_index 补 0
         old = {"phase": "review", "sub_index": 0}  # review:0 无 sub_steps
         norm = eng.normalize_state(dict(old))
         assert norm["sub_step_index"] == 0
-        # 整阶段节点同
-        norm2 = eng.normalize_state({"phase": "plan", "sub_index": 0})
+        # 无编排子阶段节点同（plan:2）
+        norm2 = eng.normalize_state({"phase": "plan", "sub_index": 2})
         assert norm2["sub_step_index"] == 0
 
     def test_sub_step_index_defaults_one_with_steps(self):
@@ -304,12 +309,13 @@ class TestStepDataclass:
 
 class TestNodeSubStepsField:
     def test_default_none(self):
-        # 未编排节点 sub_steps None（向后兼容）；understand:1 除外（有 6 子步骤）
+        # 未编排节点 sub_steps None（向后兼容）；编排首节点例外：
+        # understand:1 + plan:1（均 6 子步骤）
         for phase in eng.PHASES:
             total = eng.sub_total(phase)
             first_sub = 1 if total > 0 else 0
             node = eng.get_node(phase, first_sub)
-            if node.phase == "understand" and node.sub == 1:
+            if (node.phase, node.sub) in (("understand", 1), ("plan", 1)):
                 assert node.sub_steps is not None  # 编排节点
             else:
                 assert node.sub_steps is None
@@ -478,7 +484,7 @@ class TestHarnessPromptOptimization:
 
     def test_render_substeps_no_steps_raises(self):
         with pytest.raises(ValueError, match="无 sub_steps"):
-            eng.render_substeps_section("plan:0")
+            eng.render_substeps_section("plan:2")
 
     def test_render_substeps_bad_id_raises(self):
         with pytest.raises(ValueError, match="节点 id 非法"):
@@ -489,7 +495,7 @@ class TestHarnessPromptOptimization:
 
 class TestSubStepHelpers:
     def test_sub_step_total_no_steps(self):
-        assert eng.sub_step_total(eng.get_node("plan", 0)) == 0
+        assert eng.sub_step_total(eng.get_node("plan", 2)) == 0
         assert eng.sub_step_total(eng.get_node("review", 0)) == 0  # 无编排节点
         # understand:1 有 6 子步骤（2026-07-26 重设计：验真拆双向取证+质检裁决）
         assert eng.sub_step_total(eng.get_node("understand", 1)) == 6
@@ -498,6 +504,8 @@ class TestSubStepHelpers:
         # understand:3/4 各 5 子步骤（2026-07-27 scope / success-criteria designs）
         assert eng.sub_step_total(eng.get_node("understand", 3)) == 5
         assert eng.sub_step_total(eng.get_node("understand", 4)) == 5
+        # plan:1 有 6 子步骤（2026-07-27 design-solution-substeps-design）
+        assert eng.sub_step_total(eng.get_node("plan", 1)) == 6
 
     def test_sub_step_total_with_steps(self):
         s1 = eng.Step(
@@ -556,7 +564,7 @@ class TestSubStepHelpers:
         assert eng.sub_step_at(n, 2) is s2
 
     def test_sub_step_at_out_of_range_none(self):
-        n = eng.get_node("plan", 0)  # 无 sub_steps
+        n = eng.get_node("plan", 2)  # 无 sub_steps
         assert eng.sub_step_at(n, 1) is None
         s1 = eng.Step(
             kind="skill",
@@ -655,14 +663,15 @@ class TestAdvanceState:
         assert state["sub_total"] == 4
 
     def test_phase_advance_from_last_subphase(self, tmp_path):
-        # understand:4 -> plan:0,且因 understand in GATED_AFTER -> plan gate=passed
+        # understand:4 -> plan:1（plan 首子阶段）,且因 understand in GATED_AFTER
+        # -> plan gate=passed
         _write_state(tmp_path, "t", "understand", 4)
         state = eng.advance_state(tmp_path, "t", via="test")
         assert state["phase"] == "plan"
-        assert state["sub_index"] == 0
-        assert state["node"] == "plan:0"
+        assert state["sub_index"] == 1
+        assert state["node"] == "plan:1"
         assert state["gate"] == "passed"  # 跨闸门后新 phase gate=passed
-        assert state["sub_total"] == 0
+        assert state["sub_total"] == 2
 
     def test_phase_advance_no_gate(self, tmp_path):
         # execute:0 -> review:0,execute 不在 GATED_AFTER -> review gate=pending
@@ -725,14 +734,14 @@ class TestWriteGateVerdict:
         assert rec["minor_stage"] == "GoalsAndValue"
 
     def test_record_minor_stage_none_for_whole_phase(self, tmp_path):
-        # 整阶段节点（plan:0）minor_key=None -> minor_stage 显式 null（不猜）
-        node = eng.get_node("plan", 0)
+        # 整阶段节点（execute:0）minor_key=None -> minor_stage 显式 null（不猜）
+        node = eng.get_node("execute", 0)
         ok = eng.write_gate_verdict(tmp_path, "t", node, attempts=0, cwd=str(tmp_path))
         assert ok is True
         rec = json.loads(
             eng._evidence_path(tmp_path, "t").read_text(encoding="utf-8").strip()
         )
-        assert rec["major_stage"] == "Plan"
+        assert rec["major_stage"] == "Execute"
         assert rec["minor_stage"] is None
 
     def test_rubric_none_for_mech_only_node(self, tmp_path):
@@ -749,7 +758,7 @@ class TestWriteGateVerdict:
 
     def test_appends_multiple_records(self, tmp_path):
         # 多次 pass -> 多行追加（不覆盖）
-        node = eng.get_node("plan", 0)
+        node = eng.get_node("plan", 2)
         eng.write_gate_verdict(tmp_path, "t", node, attempts=1, cwd=str(tmp_path))
         eng.write_gate_verdict(tmp_path, "t", node, attempts=3, cwd=str(tmp_path))
         lines = (
@@ -894,8 +903,11 @@ class TestUnderstand1Orchestration:
 
     def test_other_phases_no_steps(self):
         # understand 4 子阶段自 2026-07-27 起全部有编排（1=6 步，2/3/4=5 步）；
-        # 无编排节点 = plan/execute/review/evolution 整阶段节点
-        for phase in ("plan", "execute", "review", "evolution"):
+        # plan:1 自 2026-07-27 起有编排（6 步，design-solution-substeps-design）；
+        # 无编排节点 = plan:2 + execute/review/evolution 整阶段节点
+        assert eng.get_node("plan", 1).sub_steps is not None
+        assert eng.get_node("plan", 2).sub_steps is None
+        for phase in ("execute", "review", "evolution"):
             assert eng.get_node(phase, 0).sub_steps is None, phase
 
 
@@ -1181,9 +1193,15 @@ class TestRubricNeedsEvidence:
         assert eng.rubric_needs_evidence(eng.get_node("understand", 3)) is False
 
     def test_rubric_without_evidence_keyword_false(self):
-        # plan:0 有 rubric / understand:4 rubric=None（被子步骤门控取代），均不依赖 evidence.jsonl -> False
-        assert eng.rubric_needs_evidence(eng.get_node("plan", 0)) is False
+        # execute:0 有 rubric（无 evidence 关键词）/ understand:4 rubric=None
+        # （被子步骤门控取代），均不依赖 evidence.jsonl -> False
+        assert eng.rubric_needs_evidence(eng.get_node("execute", 0)) is False
         assert eng.rubric_needs_evidence(eng.get_node("understand", 4)) is False
+
+    def test_plan2_rubric_needs_evidence_true(self):
+        # plan:2 rubric ④一致性检查含 "evidence"（对照 DesignSolution 设计包）
+        # -> judge 需读 evidence.jsonl -> True
+        assert eng.rubric_needs_evidence(eng.get_node("plan", 2)) is True
 
 
 class TestStepNeedsEvidenceForU1:
@@ -1435,7 +1453,7 @@ class TestSubStepBlockEscalation:
         assert reread["held_for_gate"] is True
 
     def test_force_pass_rejects_node_without_sub_steps(self, tmp_path):
-        _write_state_full(tmp_path, "t", "plan", 0)  # plan:0 无 sub_steps
+        _write_state_full(tmp_path, "t", "plan", 2)  # plan:2 无 sub_steps
         ok, msg = eng.force_pass_sub_step(tmp_path, "t", str(tmp_path))
         assert ok is False
         assert "无子步骤" in msg
@@ -1556,6 +1574,148 @@ class TestUnderstand4Orchestration:
         assert st["held_for_gate"] is True
 
 
+class TestPlan1Orchestration:
+    """plan:1 DesignSolution 6 子步骤编排
+    （designs/design-solution-substeps-design.md，2026-07-27 用户确认 6 步 + hold）。
+
+    关键不对称（第五种）：创造性生成×代码接地双轴心——首个创造性生成节点
+    （发散防 design fixation）且解必须锚定本仓代码现实（勘察防凭空设计）；
+    hold_for_gate=True（隔离测试语义，advance="sub" hold 与 understand:2/3 同构）。
+    """
+
+    def _steps(self):
+        node = eng.get_node("plan", 1)
+        assert node.sub_steps is not None and len(node.sub_steps) == 6
+        return node.sub_steps
+
+    def test_node_fields(self):
+        node = eng.get_node("plan", 1)
+        assert node.label == "设计解决方案"
+        assert node.gate_rubric is None  # 子阶段级 rubric 被子步骤门控取代
+        assert node.gate_mech == eng.GateMech.NONE  # design.md 动态文件名无机械门
+        assert node.artifact is None  # 产物强制三层兜底（design §3）
+        assert node.advance == "sub"
+        assert node.minor_key == "DesignSolution"
+        assert node.skill is None
+
+    def test_hold_for_gate_enabled(self):
+        # 隔离测试语义（2026-07-27 用户决议，同 understand:3/4）
+        assert eng.get_node("plan", 1).hold_for_gate is True
+
+    def test_shorts_order(self):
+        shorts = [s.short for s in self._steps()]
+        assert shorts == [
+            "现状勘察",
+            "方案发散",
+            "可行性验证",
+            "评估提案",
+            "归一化陈述",
+            "读回确认",
+        ]
+
+    def test_record_all_true(self):
+        assert all(s.record for s in self._steps())
+
+    def test_input_chain(self):
+        steps = self._steps()
+        assert "understand.md" in steps[0].input  # 跨阶段吃 understand 终态
+        assert steps[1].input == "step1.terrain_map"
+        assert steps[2].input == "step2.candidates + step1.terrain_map"
+        assert steps[3].input == "step3.feasibility_verdicts"
+        assert steps[4].input == "step4.recommendation"
+        assert steps[5].input == "step5.design_statements"
+
+    def test_step1_terrain_fence(self):
+        s1 = self._steps()[0]
+        assert s1.fence_allow == ("Bash",)  # S15：codegraph/新鲜度/数据契约核实
+        for needle in ("现状地图四要素", "新鲜度", "file:line", "接地"):
+            assert needle in s1.purpose, f"子1 purpose 缺 {needle}"
+        for needle in ("sub_step==1", "编造", "漫游", "训练记忆"):
+            assert needle in s1.gate, f"子1 gate 缺 {needle}"
+
+    def test_step2_diverge_dual_conclusion(self):
+        s2 = self._steps()[1]
+        for needle in ("≥3", "禁评估", "双结论", "平权", "设计空间唯一"):
+            assert needle in s2.purpose, f"子2 purpose 缺 {needle}"
+        for needle in ("sub_step==2", "伪候选", "凭空设计", "偷懒"):
+            assert needle in s2.gate, f"子2 gate 缺 {needle}"
+
+    def test_step3_feasibility_fence(self):
+        s3 = self._steps()[2]
+        assert s3.fence_allow == ("Bash",)  # S15：存在性/影响面本地核验
+        for needle in ("重复造轮子", "影响面", "三态", "H9", "可测试性", "H1"):
+            assert needle in s3.purpose, f"子3 purpose 缺 {needle}"
+        for needle in ("sub_step==3", "编造", "漏检", "拍脑袋"):
+            assert needle in s3.gate, f"子3 gate 缺 {needle}"
+
+    def test_step4_pugh_redteam(self):
+        s4 = self._steps()[3]
+        assert s4.fence_allow == ("Agent",)  # S15：条件红队
+        for needle in ("Pugh", "双向追溯", "条件红队", "只提案不拍板"):
+            assert needle in s4.purpose, f"子4 purpose 缺 {needle}"
+        for needle in ("sub_step==4", "拍板", "凑结论", "追溯漏项"):
+            assert needle in s4.gate, f"子4 gate 缺 {needle}"
+
+    def test_step5_normalization(self):
+        s5 = self._steps()[4]
+        assert s5.kind == "skill" and s5.ref == "define-problem"
+        for needle in ("原子", "去上下文", "改动清单", "验收包映射", "被否方案"):
+            assert needle in s5.purpose, f"子5 purpose 缺 {needle}"
+        assert "sub_step==5" in s5.gate and "不传导" in s5.gate
+
+    def test_step6_readback_gate_none(self):
+        s6 = self._steps()[5]
+        assert s6.gate is None  # 交互步，trace 存在即过
+        assert s6.record is True
+        for needle in ("选型拍板", "权重", "假设接受", "design.md", "禁二次创作"):
+            assert needle in s6.purpose, f"子6 purpose 缺 {needle}"
+
+    def test_selfcheck_no_quality_criteria_leak(self):
+        # Goodhart 分层守卫（同前四个节点）：gate 黑盒措辞不得进 checklist
+        for s in self._steps():
+            if not s.selfcheck:
+                continue
+            for banned in (
+                "从严裁量",
+                "拍脑袋",
+                "编造",
+                "伪候选",
+                "漫游",
+                "漏检",
+                "凑结论",
+            ):
+                assert banned not in s.selfcheck, f"{s.short} selfcheck 泄漏 {banned}"
+
+    def test_plan1_last_step_held_not_advanced(self, tmp_path):
+        # pinning（症状 M #7）：plan:1 末步（子6）pass -> 扣留不推进
+        _write_state_full(tmp_path, "t", "plan", 1, sub_step=6)
+        _write_evidence(tmp_path, "t", [_ds_trace_line(6)])
+        action, _, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
+        assert action == "advanced"
+        st = eng.load_state(tmp_path, "t")
+        assert st["phase"] == "plan"
+        assert st["sub_index"] == 1  # 扣留：不推进
+        assert st["held_for_gate"] is True
+
+    def test_plan1_release_advances_to_plan2(self, tmp_path):
+        # pinning：/dl gate 放行 plan:1 -> plan:2，跨节点 sub_step_index 重置
+        _write_state_full(tmp_path, "t", "plan", 1, sub_step=6)
+        st = eng.load_state(tmp_path, "t")
+        st["held_for_gate"] = True
+        eng.save_state(tmp_path, "t", st)
+        ok, _ = eng.release_subgate(tmp_path, "t", str(tmp_path))
+        assert ok is True
+        reread = eng.load_state(tmp_path, "t")
+        assert reread["sub_index"] == 2
+        assert reread["node"] == "plan:2"
+        assert reread["sub_step_index"] == 0  # plan:2 无编排 -> 0
+        assert "held_for_gate" not in reread
+        assert reread["gate"] == "pending"  # plan->execute 大闸门不叠加
+        rec = json.loads(eng.read_evidence(tmp_path, "t").strip().splitlines()[-1])
+        assert rec["via"] == "manual-subgate-pass"
+        assert rec["sub_step"] == 6
+
+
 class TestPhaseDoneChannelOpen:
     """phase_done_channel_open（understand:4 专属）：PHASE_DONE 通道打开判据。
 
@@ -1616,10 +1776,11 @@ class TestSubphaseHoldGate:
     def test_hold_field_only_on_gate_nodes(self):
         # 门栏（2026-07-27 用户决议）：understand:2（GoalsAndValue 地基组）+
         # understand:3（ScopeAndConstraints 隔离测试）+ understand:4
-        # （SuccessCriteria 隔离测试，首个 advance="phase" 的 hold 节点），
+        # （SuccessCriteria 隔离测试，首个 advance="phase" 的 hold 节点）+
+        # plan:1（DesignSolution 隔离测试，plan 首个编排节点），
         # 其余节点全 False（全量遍历 _NODES，禁抽样——症状 M #7）
         for nid, node in eng._NODES.items():
-            if nid in ("understand:2", "understand:3", "understand:4"):
+            if nid in ("understand:2", "understand:3", "understand:4", "plan:1"):
                 assert node.hold_for_gate is True, nid
             else:
                 assert node.hold_for_gate is False, nid
@@ -1724,7 +1885,9 @@ class TestSubphaseHoldGate:
         eng.save_state(tmp_path, "t", st2)
         new_state = eng.advance_state(tmp_path, "t", via="test")
         assert new_state["phase"] == "plan"
-        assert new_state["node"] == "plan:0"
+        assert new_state["node"] == "plan:1"
+        assert new_state["sub_index"] == 1
+        assert new_state["sub_total"] == 2
         assert new_state["gate"] == "passed"  # understand in GATED_AFTER
 
     def test_release_without_held_errors(self, tmp_path):
@@ -1796,7 +1959,7 @@ class TestResetSubStep:
         assert eng.load_state(tmp_path, "t")["last_judged_trace"] == {}
 
     def test_reset_rejects_node_without_sub_steps(self, tmp_path):
-        _write_state_full(tmp_path, "t", "plan", 0)
+        _write_state_full(tmp_path, "t", "plan", 2)
         ok, msg = eng.reset_sub_step(tmp_path, "t", 2)
         assert ok is False
         assert "无子步骤" in msg
@@ -1870,6 +2033,23 @@ def _sc_trace_line(sub_step: int, marker: str = "s") -> str:
     )
 
 
+def _ds_trace_line(sub_step: int, marker: str = "d") -> str:
+    """DesignSolution（plan:1）的 skill-trace 行。"""
+    return json.dumps(
+        {
+            "kind": "skill-trace",
+            "major_stage": "Plan",
+            "minor_stage": "DesignSolution",
+            "sub_step": sub_step,
+            "skill": "define-problem",
+            "purpose": "p",
+            "q": [f"q-{marker}"],
+            "a": [f"a-{marker}"],
+        },
+        ensure_ascii=False,
+    )
+
+
 class TestLatestTraceSha1:
     def test_no_file_none(self, tmp_path):
         assert eng.latest_trace_sha1(tmp_path, "t", 1) is None
@@ -1928,7 +2108,7 @@ class TestEvidenceMentionsSubStep:
 
 class TestGateSubStepAtStop:
     def test_none_without_sub_steps(self, tmp_path):
-        _write_state_full(tmp_path, "t", "plan", 0)
+        _write_state_full(tmp_path, "t", "plan", 2)
         action, _, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
         assert action == "none"
 
@@ -2332,7 +2512,7 @@ class TestPendingUnjudgedStep:
         assert eng.pending_unjudged_step(tmp_path, "t") is None
 
     def test_no_sub_steps_none(self, tmp_path):
-        _write_state_full(tmp_path, "t", "plan", 0)
+        _write_state_full(tmp_path, "t", "plan", 2)
         assert eng.pending_unjudged_step(tmp_path, "t") is None
 
     def test_no_trace_none(self, tmp_path):
@@ -2370,7 +2550,7 @@ class TestEngagementFenceState:
         assert eng.engagement_fence_state(tmp_path, "t") is None
 
     def test_no_sub_steps_none(self, tmp_path):
-        _write_state_full(tmp_path, "t", "plan", 0)
+        _write_state_full(tmp_path, "t", "plan", 2)
         assert eng.engagement_fence_state(tmp_path, "t") is None
 
     def test_zero_trace_returns_step(self, tmp_path):
@@ -2481,8 +2661,12 @@ class TestPhaseWriteDenial:
         )
 
     def test_plan_allows_plan_md_denies_source(self, tmp_path):
-        assert self._deny(tmp_path, "plan", 0, "/repo/plan.md") is None
-        assert self._deny(tmp_path, "plan", 0, "/repo/main.py") is not None
+        assert self._deny(tmp_path, "plan", 2, "/repo/plan.md") is None
+        assert self._deny(tmp_path, "plan", 2, "/repo/main.py") is not None
+
+    def test_plan_allows_design_md(self, tmp_path):
+        # plan:1 子6 装配 design.md（H8 产物）——designs/*.md 全阶段放行
+        assert self._deny(tmp_path, "plan", 1, "/repo/designs/x-design.md") is None
 
     def test_execute_unrestricted(self, tmp_path):
         assert self._deny(tmp_path, "execute", 0, "/repo/main.py") is None
@@ -2561,7 +2745,7 @@ class TestGateVerdictMech:
 
     def test_artifact_exists_not_yet_impl(self):
         # ARTIFACT_EXISTS 文件查找未实现（§8.3）-> 暂降级 None,不误 block
-        node = eng.get_node("plan", 0)
+        node = eng.get_node("plan", 2)
         assert eng.gate_verdict_mech(node, project_root=Path(".")) is None
 
 
@@ -2736,11 +2920,11 @@ class TestRunGate:
         assert called["n"] == 0  # judge 没被调
 
     def test_rubric_calls_judge_pass(self, monkeypatch):
-        # plan:0 有 rubric,机械降级过 -> 跑 judge -> pass
+        # plan:2 有 rubric,机械降级过 -> 跑 judge -> pass
         monkeypatch.setattr(
             eng.subprocess, "run", _fake_run_factory(0, _result_line('{"pass": true}'))
         )
-        node = eng.get_node("plan", 0)
+        node = eng.get_node("plan", 2)
         ok, _ = eng.run_gate(node, "一份计划")
         assert ok is True
 
@@ -2750,7 +2934,7 @@ class TestRunGate:
             "run",
             _fake_run_factory(0, _result_line('{"pass": false, "reason": "没步骤"}')),
         )
-        node = eng.get_node("plan", 0)
+        node = eng.get_node("plan", 2)
         ok, reason = eng.run_gate(node, "空话")
         assert ok is False
         assert "没步骤" in reason
@@ -2768,7 +2952,7 @@ class TestRunGate:
         monkeypatch.setattr(
             eng, "gate_verdict_mech", lambda n, project_root=None: "产物缺失：plan.md"
         )
-        node = eng.get_node("plan", 0)
+        node = eng.get_node("plan", 2)
         ok, reason = eng.run_gate(node, "输出")
         assert ok is False
         assert "产物缺失" in reason
@@ -2805,7 +2989,7 @@ class TestCLI:
 
     def test_status_prints_label(self, tmp_path, capsys):
         _init_git(tmp_path)
-        _write_state(tmp_path, "t", "plan", 0)
+        _write_state(tmp_path, "t", "plan", 2)
         rc = eng.main(["status", "t", "--cwd", str(tmp_path)])
         assert rc == 0
         assert "生成执行计划" in capsys.readouterr().out
@@ -2824,9 +3008,9 @@ class TestCLI:
             "确定范围与约束",
             "定义成功标准和验收方式",
         ]
-        assert out["subphases"]["plan"] == []
+        assert out["subphases"]["plan"] == ["设计解决方案", "生成执行计划"]
         assert out["sub_total"]["understand"] == 4
-        assert out["sub_total"]["plan"] == 0
+        assert out["sub_total"]["plan"] == 2
 
 
 class TestReadEvidenceForStep:
@@ -3105,7 +3289,7 @@ class TestAppendTrace:
         assert not ok and "读载荷失败" in msg
 
     def test_node_without_substeps_rejected(self, tmp_path):
-        _write_state_full(tmp_path, "t", "plan", 0)  # plan:0 无编排
+        _write_state_full(tmp_path, "t", "plan", 2)  # plan:2 无编排
         payload = tmp_path / "payload.json"
         self._write_payload(payload, {"purpose": "p", "q": ["q"], "a": ["a"]})
         ok, msg = eng.append_trace(tmp_path, "t", str(payload))
