@@ -1,0 +1,337 @@
+# 运行诊断手册（按症状查）
+
+> workflow-creation skill 按需参考（自 SKILL.md §2 整体迁出，节号原样保留以兼容「§3.5 #9」式交叉引用）。
+> 只在 SKILL.md 路由表命中时阅读。
+
+
+### 症状 A：注入没生效（`.wf_phase.log` 无 `injected` 行，或模型说"没有注入"）
+
+日志在**项目根** `<项目>/.claude/.wf_phase.log`（hook 从 payload cwd 反查项目根写入）。
+
+**先分清两种"没生效"**：
+- A1. hook **没被调用**（日志无任何新行）
+- A2. hook **被调用了**（日志有 `injected`/`no_state`），但模型说没收到
+
+**A1 诊断**：
+1. per-wf settings.json 是否含 hook 注册？
+   ```bash
+   cat <项目>/.claude/workflows/<name>/settings.json | python3 -c "import json,sys;d=json.load(sys.stdin);[print(h['command']) for v in d['hooks'].values() for g in v for h in g['hooks']]"
+   ```
+   应看到 4 个 `~/.dl-workflow/hooks/*.py` 命令（workflow_phase/workflow_advance/codegraph_gate/codegraph_audit；evidence_append 已于 §8.6c 删除）。缺失 -> `wf_write_settings` 没跑，用 `--resume` 重新起 launcher（会补写 settings）。
+2. `~/.dl-workflow/hooks/workflow_phase.py` 存在吗？
+   ```bash
+   ls -l ~/.dl-workflow/hooks/workflow_phase.py
+   ```
+   缺失 -> `~/.dl-workflow/install.sh` 没跑或跑失败。
+
+**A2 诊断（关键，易误判）**：注入走 `hook_additional_context` **attachment**，**不在 user message 文本里**。别在 user message 找注入。
+```bash
+# 查 session jsonl 的 attachment 行
+python3 -c "
+import json
+for line in open('~/.claude/projects/<proj>/<sid>.jsonl'.replace('~',__import__('os').path.expanduser('~'))):
+    ev=json.loads(line)
+    if ev.get('type')=='attachment':
+        a=ev.get('attachment',{})
+        if a.get('type')=='hook_additional_context': print('✓ 注入已投递:', str(a.get('content',[''])[0])[:100])
+"
+```
+- attachment 有 `## WORKFLOW 当前阶段` -> **hook 产出 + 投递成功**。但注意投递≠模型收到：ark-code-latest 实测 jsonl 有 attachment 却收不到（见症状 D，用 canary 验）。非 ark 模型此时确系模型遵从问题。
+- attachment 无 → hook 没输出 additionalContext，查日志 `workflow_phase.py` 是否走了 `no_state`/`no_project_root` 分支（见症状 C）。
+
+### 症状 B：阶段不自动推进（`### PHASE_DONE` 后没进下一阶段）
+
+**诊断**：看项目根 `.wf_advance.log`。
+```bash
+tail -5 <项目>/.claude/.wf_advance.log
+```
+- `no_done_marker|tlen=0` → Stop hook 跑了但 transcript 读出空。**`-p` 模式正常现象**（-p 下 transcript 字段可能空）；交互式应正常。别用 `-p` 验证推进。
+- `no_done_marker|tlen=N`（N>0）→ transcript 有内容但没 PHASE_DONE 标记。模型没输出标记。
+- `gated_block|phase=understand` → **闸门正常阻断**（understand/plan 需 `/dl gate` 放行）。这是设计行为，非 bug。
+- `no_state` → state 没读到（见症状 C）。
+- `no_project_root` → hook 没能反查到 git 项目根。检查 cwd 是否在 git 仓库内。
+
+**验证推进**：用真实交互式会话（非 `-p`），给模型可完成的小任务加 `### PHASE_DONE: <phase>`。
+
+### 症状 C：`/dl status` 或 hook 报 "state.json 缺失" / `no_state`
+
+hook 从 payload.cwd 用 `git rev-parse --git-common-dir` 反查主 repo 根。worktree 内 `--git-common-dir` 返回主 repo `.git` 绝对路径 -> `.parent` = 主 repo 根 -> `state.json` 在 `<主 repo>/.claude/workflows/<name>/`。
+
+- 报错 `state.json` 路径若含 `worktrees/<name>/.claude/workflows/` → 反查逻辑错，正确路径不应含 `worktrees/`。检查 `~/.dl-workflow/hooks/workflow_phase.py` 是否有 `_resolve_project_root` 函数（v2.0 引入）；缺失 -> 旧版遗留，在 `~/.dl-workflow` 跑 `git pull` 更新（hooks 不 copy，源即生效；**install.sh 不会更新 hook 脚本**，它只管 settings.json 注册）。
+- worktree 是手工建（不是 `dl`）-> state.json 从未建过。用 launcher 建。
+
+### 症状 D：模型否认收到注入（说"没有 hook 注入"/"不在工作流中"）/ 5 阶段横幅、清单不显示
+
+**这是最常踩的坑（ark-code-latest）。** 根因已坐实：**ark-code-latest 收不到 `hook_additional_context` attachment**——hook 触发正常、`injected` 留痕、jsonl 有 attachment 事件，但**内容没进模型上下文**（attachment 被端点/模型侧丢弃）。模型能看到 system-reminder（CLAUDE.md/MEMORY.md）和系统提示（output-style/phase-rules），唯独看不到 `## WORKFLOW 当前阶段` 段。
+
+**判定（canary 法，决定性）**：用 `-p` 直接问模型能否复述注入里的阶段名。
+```bash
+claude --settings <per-wf settings> --append-system-prompt-file phase-rules.md \
+  -p "只回答：你的上下文里是否有一段 '## WORKFLOW 当前阶段' 的注入？有则复述阶段名和 [n/5]，无则答 NO_INJECTION。只复述不调工具。"
+```
+- 答 `NO_INJECTION` -> **ark 收不到 attachment**（本症状）。别再怀疑 hook 没跑（日志 `injected` 已证 hook 正常）。
+- 能复述阶段名 -> attachment 投递正常，问题在 output-style 没加载（见症状 A1/G 查 per-wf settings 的 `outputStyle`）。
+
+**旧陷阱（已修，记录以防回退）**：原 output-style 有静默兜底"找不到 `## WORKFLOW 当前阶段` 就退正常风格"，模型据此假装不在工作流（违反 H13 静默兜底禁令）。**已删**。
+
+**已实现修复（commit f5a6eea，不改 hook、不写文件）**：
+1. `output-styles/workflow.md` + `phase-rules.md`：删静默兜底，改"output style 激活即在工作流中"；**看不到注入时模型用 Bash 跑 `bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh status` 自取阶段**（dl-cmd.sh 从 cwd 自动探测工作流名 + 读 state.json，输出 `阶段: 理解和求证问题 [1/5]`）。Bash 输出走模型必读通道，绕过 attachment 投递。
+2. `dl-lib.sh` 的 `wf_write_settings` 模板加 `permissions.allow`：`Bash(bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh status:*)` 免提示放行。
+
+**端到端验证**（session eb9749c3）：仅「你好呀」-> 模型自动跑 `dl-cmd.sh status`（allowlist 免提示）-> 输出 `## PHASE: 理解和求证问题 [1/5]` + TaskCreate ×5。
+
+**改 output-style/phase-rules 后生效**：跑 `install.sh` 同步 workflow.md 到 `~/.claude/output-styles/`；**须重启会话**（fresh，非 `--resume`，output-style/append-system-prompt 启动时载入）。旧工作流的 per-wf settings 若缺 allowlist，重新 `dl <name> --resume`（launcher 会用新 `wf_write_settings` 补）或手动加。
+### 症状 E：管道 `printf | claude` 测试出 `Execution error`
+- "证据链 / evidence / no_markers / evidence.jsonl 不生成 / 证据不落地" -> §2 症状 I
+- "子步骤 / sub_steps / STEP_DONE / 子步骤不推进 / evidence 有但不推进" -> §2 症状 J
+- "模型不写 evidence / 只输 STEP_DONE 不写 skill-trace / 模型跳过写 evidence" -> §2 症状 K
+- "evidence 写到 worktree / evidence 路径错位 / 主仓库无 evidence 但 worktree 有" -> §2 症状 L
+- "模型抢答 / 跳过编排 / 覆盖写 evidence / 编造痛点 / 反复确认 / 合并行 / who 出处" -> §2 症状 P（违规模式目录）
+- "改判据 / 改 rubric / 一过率低 / judge 判得不对 / 判据太严太松" -> §3.5（rubric 设计方法论）
+- "改编排 / SUB_DONE STEP_DONE 打架 / phase-rules 与注入矛盾 / 改门控 checklist" -> §2 症状 M
+
+**测试方法伪问题**，非工作流 bug。管道 EOF 触发 claude 异常。真实 TTY 交互不受影响。
+- **别用管道模拟交互会话验证**。用真实 TTY 或 `-p`（注意 -p 下 transcript 不可靠，见症状 B）。
+
+### 症状 F：置顶阶段清单没建 / 不同步（阶段/子阶段任务不显示或状态错）
+
+置顶清单机制：`workflow_phase.py` 每轮注入「任务清单目标状态」块，模型用 `TaskCreate`/`TaskUpdate` 镜像。源真值是 `state.json`（`phase`/`index`/`sub_index`/`sub_total`），任务只做镜像。
+清单结构：有子阶段的阶段(understand)紧跟其 1.1..1.N 子任务，共 9 项(1 + 1.1-1.4 + 2-5)；无子阶段的阶段 5 项。
+- **首轮无清单**：模型没执行 TaskCreate。检 `.wf_phase.log` 有 `injected` 行 -> 注入到位，问题在模型；`~/.claude/output-styles/workflow.md` 未加载则强规则失效（检 per-wf settings.json 的 `"outputStyle": "workflow"`）。
+- **清单状态与当前阶段/子阶段不符**：读注入段「任务清单」看 hook 给的目标状态，与实际 TaskList 对比。目标错 -> hook bug（查 state.json 的 index/sub_index）；目标对但清单错 -> 模型漏 TaskUpdate，用 `/dl status` 促模型下一轮对齐。
+- **execute 工作子任务把阶段任务顶掉**：模型违规改了阶段任务(含 1.1-1.4)的 subject/顺序。规则：工作子任务追加在下方，阶段任务及其子任务全程保留。
+- **1.1-1.4 顺序错乱**：首轮 TaskCreate 建齐顺序必须是 1, 1.1, 1.2, 1.3, 1.4, 2, 3, 4, 5（靠创建顺序）。旧工作流续接首次建子任务会落底部（边角，已知，用 `/dl jump understand` 触发重建注入无法修，需模型意识到）。
+- **显示细节时有时无（如 subject 编号有的会话带、有的不带）**：根因套路 = **subject 契约歧义**——注入（attachment）与 output-style（system-prompt）对 subject 写法措辞不一致时，模型各按各的解读，表现随会话漂移（2026-07-25 实例：注入写 `subject=各阶段中文名`、output-style 枚举却带 `1./1.1` 编号 -> 编号时有时无；修复 commit 5215b63 两通道统一为"编号是 subject 一部分"）。**诊断法（实证模型实际建了什么，别猜）**：
+  ```bash
+  # 1. 模型实际建的 subject（session jsonl 在 ~/.claude/projects/-...-worktrees-<name>/）
+  grep -o '"subject":"[^"]*"' <session>.jsonl | sort -u
+  # 2. 注入 attachment 里任务清单块原文（对比契约 vs 实际）
+  python3 -c "import json
+  for l in open('<session>.jsonl'):
+      ev=json.loads(l)
+      if ev.get('type')=='attachment' and '任务清单' in str(ev.get('attachment',{}).get('content','')):
+          c=str(ev['attachment']['content']); i=c.find('任务清单'); print(c[i:i+600]); break"
+  ```
+  契约要改时两通道同步改（症状 M checklist），subject 编号纯展示前缀、不动状态镜像逻辑。
+
+### 症状 H：understand 子阶段不推进 / SUB_DONE 无效 / 提前 PHASE_DONE 被阻断
+
+understand 拆 4 子阶段（1.理解问题和背景 / 2.明确目标和价值 / 3.确定范围与约束 / 4.定义成功标准和验收方式），机制与大阶段同构：state.json `sub_index`/`sub_total`；子 1-3 用 `### SUB_DONE: <n>` 推进 sub_index（无闸门）；末子阶段(4)用 `### PHASE_DONE: understand` 触发闸门；未走完子阶段直接 PHASE_DONE 被 Stop hook 守卫阻断。详见 `~/.dl-workflow/designs/understand-subphases-design.md`。
+
+**日志分诊**（项目根 `.wf_advance.log`）：
+- `sub_advanced|wf=X|phase=understand|frm=n|to=n+1` -> **正常推进**（子 n -> n+1）。
+- `sub_done_no_subphases|phase=<非 understand>` -> 该阶段无子阶段，SUB_DONE 被忽略（模型误用；正常防御）。
+- `sub_done_last_ignored|n=4|sub_total=4` -> 末子阶段误用 `SUB_DONE:4`；应用 `PHASE_DONE: understand`。下轮注入自纠。
+- `sub_done_mismatch|n=X|sub_index=Y` -> 序号不符（n≠sub_index）不推进，防跳步。看模型是否漏了某子阶段。
+- `phase_done_subphases_incomplete|sub_index=n|sub_total=4` -> **守卫正常阻断**：sub_index<4 时提前输出 PHASE_DONE。模型应先依次 SUB_DONE 走完再 PHASE_DONE。**这是设计行为，非 bug**。
+- 无子阶段推进相关日志 -> 检 state.json 是否含 sub_index/sub_total 字段（旧 state 无 -> 走无子阶段路径，向后兼容）。
+
+**验证子阶段注入到位**：真实交互 TTY 让模型跑 `bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh status`，输出应含 `子阶段: <label> [n/4]` 行（sub_total=4 时）。或读注入头行是否有 `| 子阶段: **<名>** [n/4]`。
+
+**旧 state.json 迁移**：旧 understand 工作流的 state 无 sub_index/sub_total（在本次改造前建的），hook 默认 sub_total=0 -> 走无子阶段路径（可直接 `PHASE_DONE: understand`）。想让旧工作流用上子阶段：手改 state.json 加 `"sub_index":1,"sub_total":4`，或跳过（新建工作流自然生效）。
+
+### 症状 I：~~证据链不落地~~ 已弃用（§8.6c）+ 新 gate 裁决记录机制 + 编排 skill-trace 证据
+
+> **旧系统已弃用**（2026-07-23）：`### EVIDENCE:{json}` 推理溯源（模型每轮自发记 claim/依赖/证据 + evidence_append.py 解析）已删除。用户决策弃用，理由：transcript 解析脆（no_markers debug 一整节）+ 与"gate 裁决"诉求不符。下列旧排查内容（transcript 目录 / 注入提示 / no_markers 判定）仅作历史记录，新系统不适用。
+
+**新机制（designs/tui-state-machine-design.md §8.6 + §step-advance-on-submit）**：evidence.jsonl 现有两类记录同文件：
+1. **gate 裁决**（engine.write_gate_verdict）：`kind=gate`，字段 node/phase/gate=passed/gate_mech/rubric/attempts/commit_sha + **major_stage/minor_stage**（2026-07-27 起，与 skill-trace 结构字段对齐；取值单源 node.phase/node.minor_key，整阶段节点 minor_stage=null）。block 不写（重试计数在 state.node_attempts，pass 时一并记入）。
+2. **skill-trace**（模型写，子步骤编排用）：`kind=skill-trace`，字段 `major_stage`(phase 英文首字母大写，如 Understand) / `minor_stage`(子阶段英文标识，首字母大写驼峰，如 ProblemContext) / `sub_step`(数字) / `skill`(子步骤调用的 skill/工具，Step.ref，模型照抄注入给的当前值) / `purpose` / `q`(字符串数组) / `a`(字符串数组，与 q 按序对齐)。Stop hook 门控时读此找当前 `sub_step==N` 的最新记录（hash 比对触发，症状 J/K/L）。展示用 `dl evidence show <name>`（英文标识转中文，映射 single source 在 engine）。
+两类都在主仓库 `<项目>/.claude/evidence/<name>.jsonl`。skill-trace **v2.14 起走 `append-trace`**：模型 Write 载荷（仅 purpose/q/a）到 `.claude/evidence/.trace-payload-<name>.json`，再 Bash `dl-flow-engine.py append-trace --from-file <载荷>`——结构字段（kind/major_stage/minor_stage/sub_step/skill）脚本从 state 填、格式/路径归脚本，手写 JSONL 的 5 类事故（相对路径/覆盖/合并行/写碎/结构字段抄错）根治；直写 jsonl 被 S14 围栏 deny（v2.14 收编）。旧「模型手写绝对路径」写法仅作历史（症状 L）。
+
+
+**验证 gate 裁决记录落地**：跑一轮让模型过 gate（如完成 understand:4 写 understand.md 后输出 `### PHASE_DONE: understand`），看：
+- `.wf_advance.log` 是否 `gate_verdict_written|ev_ok=True`
+- `<项目>/.claude/evidence/<name>.jsonl` 是否新增一行 `{"kind":"gate",...}`
+- 非该节点（无 gate_mech/gate_rubric 的子阶段）不写记录是正常的
+
+**旧系统残留引用**（designs/evidence-chain-design.md 整文档描述旧系统，已 deprecated；本文档顶部全景图已更新为 4 hook + dl-flow-engine）。
+
+**扩 evidence schema 时的 6 处同步清单**（每次改字段/新增记录 kind 前对照，漏一处即产生"模型按新写、gate 按旧验"半状态期）：
+
+| # | 文件 | 改什么 |
+|---|---|---|
+| 1 | `hooks/workflow_phase.py` `_format_injection` | 注入模板里的 JSON 示例（模板行 + ✓正例/✗反例，模型每轮看到的写法契约） |
+| 2 | `scripts/workflow/phase-rules.md` | phase-rules 里 evidence 写法示例（output-style，与注入互为补路径） |
+| 3 | `dl-flow-engine.py` `sub_step_has_trace` / 其它 evidence 校验函数 | 匹配字段 + docstring；**校验松匹配原则**：只匹 `kind + 关键定位字段`（如 sub_step），不校验其它字段结构 -> 加字段/改子结构不 crash（旧数据能读、新数据能验） |
+| 4 | `designs/step-advance-on-submit-design.md` §E4 / 相关设计文档 | 契约文本（H8 真源） |
+| 5 | `skills/workflow-creation/SKILL.md`（本文件）| 症状 I 里的字段清单（问题排查读物） |
+| 6 | `tests/test_dl_flow_engine.py` fixture | 至少一个新格式测例；旧格式测例保留一个作兼容回归（如 `test_old_step_field_ignored`） |
+
+**顺序建议**：先改 3（校验层松匹配对齐）-> 跑 pytest 确认兼容 -> 再改 1+2+4+5+6。反过来（先改注入不改校验）会让模型按新格式写、gate 读不到 -> block 循环。
+
+**验证**：`pytest -x -q` 全绿 + ruff clean + 项目 `.claude/evidence/<name>.jsonl` 手动重写一条新格式样本（`sub_step_has_trace` 能识别）。
+
+### 症状 J：子步骤编排--模型输 STEP_DONE 但没推进（有 sub_steps 节点专属）
+
+有 `sub_steps` 的节点（当前 understand:1）**推进走 Stop hook**（§substep-gate-at-stop，2026-07-25 起；旧 3a「走 UserPromptSubmit」已废止）。触发 = evidence 里当前子步骤**最新 trace 行 hash 有变化**（state.last_judged_trace 游标比对），不是 transcript。
+
+**「没推进」主诉先分诊推进失败 vs 停轮检查点**（2026-07-27，demo 907fee09）：state.json 的 sub_index **已翻**但模型不动 = 停轮检查点（末步停轮/门栏扣留，设计行为），不是推进失败——检查日志会有 `sub_step_gate_pass|step=末|to=1`；sub_index **未翻**才按下方日志链排查。同理「没进下一子阶段」：state 已进 + 模型停轮 = 旧规则末步停轮（2026-07-27 起无门栏边界已改自动续轮；该日前建的会话仍可能停在边界，发「继续」即走）。再同理「understand:4 门栏放行后没推进」：**放行 ≠ 推进是设计行为**（首个 advance="phase" 门栏节点，v2.17）——subgate-pass 只清 held 不 advance_state，state 停在 understand:4 等模型写 understand.md + PHASE_DONE 撞大闸门（需第二次 /dl gate）；注入第三态（✓ 放行待产物）是正常显示，别当卡死排查。
+
+**先确认协议边界**：模型输 STEP_DONE -> end_turn -> Stop hook 立即判：非末步 pass 推进 + **当轮自动续轮**（additionalContext 指令开做下一子步骤），末步 pass 时——无门栏且下一子阶段有编排则**跨子阶段自动续轮**进其子1（2026-07-27 起），门栏节点末步扣留停轮（等 /dl gate），无编排边界停轮，block 则模型**当轮**收到原因返工。**无需用户再发消息**（这是与旧 3a 的核心差别；2026-07-25 起 pass 也不再等用户发「继续」）。两个相关强制：
+- **S13 参与围栏**（2026-07-25 起）：当前子步骤**从未写过 trace** 就结束回合 -> `sub_step_engage_block` 强制续轮（「简单查询不走编排」之类的拒执被机械封堵；问用户必须走 AskUserQuestion 回合内完成）。
+- 模型 STEP_DONE 后 end_turn 但 evidence 没写/没新行 -> Stop 判「无新 trace」静默放行 -> 不推进（此时看症状 K/L）。
+
+**日志诊断**（项目根 `.wf_advance.log`，关注 `sub_step_gate_pass` / `sub_step_gate_block`）：
+```bash
+tail -10 <项目>/.claude/.wf_advance.log
+```
+- `sub_step_gate_pass|step=<N>|to=<N+1>` → **正常推进**。
+- `sub_step_gate_block|step=<N>|attempts=<X>|action=block` → judge 判 block，模型当轮返工。看 reason 明确差什么。
+- `sub_step_gate_block|...|action=escalate` → 连续 block 达 3 次，模型被指示 AskUserQuestion 请用户裁决（补充信息 / `dl-cmd.sh step-pass` / `/dl back`）。
+- 模型 STEP_DONE 后**没有任何** `sub_step_gate_*` 行 → Stop hook 判「无新 trace」：evidence 缺当前子步骤 sub_step==N 的 skill-trace 记录，或新行与已判 hash 相同（模型重写了一遍一字不差的内容）。查 evidence 是否落地 + 路径（症状 L）+ state.json 的 `last_judged_trace` 游标。
+  - **特例（v2.13 corrupt-rework-detect，2026-07-26，demo d59d05ea）**：模型返工把 trace **写碎**（shell 单引号内塞字面换行 -> JSON 跨两行；字面 `\"` 原样落盘）→ 最新**合法** trace 仍等于已判 hash。旧行为：同 hash 静默放行 -> 模型以为返工完成、流程看似卡死无日志。现行为：engine `corrupt_trace_after_latest` 检测「最新合法 trace 之后存在含 `"sub_step":N` 子串但解析不出的行」-> 判 block 并返格式修复指引（单行合法 JSON），计 attempts（连续损坏达阈值同样升级用户裁决）。**只数最新合法 trace 之后的损坏行**——之前的碎片是已处理历史，模型修好后不重复报警。诊断：`python3 -c "…engine.corrupt_trace_after_latest(root, name, N)"` 或看 `.wf_advance.log` 是否出现 `reason=evidence 写入损坏`。
+
+**验证 evidence 已落地**：
+```bash
+cat <项目>/.claude/evidence/<name>.jsonl | python3 -c "
+import json,sys
+for l in sys.stdin:
+    r=json.loads(l)
+    if r.get('kind')=='skill-trace': print(f\"sub_step={r.get('sub_step')} purpose={r.get('purpose','')[:40]}\")"
+```
+- 应看到 `sub_step=<当前 index>` 的行；返工后应看到**多行**同 sub_step（append 协议）。
+
+### 症状 Q：pass 自动续轮没生效（子步骤过了但模型停轮不动）
+
+**根因（2026-07-25 demo 实测）**：Stop hook 的 stdout 被 harness **整体按 JSON 解析**。pass 自动续轮路径若先 `_emit("✓ ...")` 写一行纯文本再写 JSON 指令，解析失败 → `additionalContext` 整段被丢弃（stdout 原文只作为 hook_success 文本展示），模型收不到续轮指令，停轮。block 路径一直是纯 JSON 所以从未暴露——**续轮类输出和 `_emit` 文本混写 stdout 必踩**。
+
+**判定**：session jsonl 里该 Stop 事件只有 `hook_success`（内容含 ✓ 行 + JSON 原文混在一起）、**没有** `hook_additional_context` attachment——对比 block 事件两者都有。
+
+**修复纪律**：Stop hook 里凡返 JSON 指令的路径（`_stop_continue`/`_block_continue`），**stdout 只许纯 JSON**；✓ 等人类可读文本一律走 stderr。防回归测试 `tests/test_workflow_advance.py::TestStopStdoutPureJson`（三路径 stdout 整体 `json.loads` 断言）。
+
+### 症状 K：模型不写 evidence 就输 STEP_DONE（遵从问题，同 attachment 弱遵从教训）
+
+**根因套路**：注入块（attachment）说了强制"写 evidence 再 STEP_DONE"，但模型遵从 attachment 弱于 system-prompt（`phase-rules.md`），跳过写 evidence 直接 STEP_DONE。同 §skill-injection-link §8 教训（"prose 建议被模型当可选"）。
+
+**修复方向（沿用同套路）**：把强制语义从 attachment（注入块）**提升到 phase-rules.md**（system-prompt 通道，遵从强）。当前 phase-rules understand:1 段已含：
+- **evidence 强制**：record 子步骤（understand:1 全部 6 步 record=True）必须写 evidence skill-trace 后才许输 STEP_DONE
+- **输完 STEP_DONE 即 end_turn**：不连续做下步（Stop hook 在 end_turn 时门控，模型须等判定结果：非末步 pass 则当轮收到下一子步骤指令自动续轮，末步 pass 时无门栏且下一子阶段有编排则跨子阶段自动续轮、门栏节点末步扣留停轮，block 则当轮返工）
+
+新加编排节点时，同样在 phase-rules 加"写 evidence 是 STEP_DONE 前置"强制，别只在注入里说。
+
+### 症状 O：模型工具调用被围栏拒绝（PreToolUse deny）
+
+围栏有五种（§substep-gate-at-stop S10/S11/S14，2026-07-25 起；S15，2026-07-26 起；另 plan mode 互斥拦 S12），都是**正常触发**不是 bug：
+
+**S15 前置参与围栏**（deny 提示「尚未开始...前置参与围栏窗口」，2026-07-26 起，designs/step-engage-prefence-design.md）：当前子步骤**零 trace 窗口**（一条 skill-trace 都没写）仅编排工具可用——常驻集 AskUserQuestion / Skill / Task* / Read / Grep / Glob / codegraph / dl-cmd / 写 evidence（主仓绝对路径），外加 engine `Step.fence_allow` 步骤声明（当前：子3=Bash/WebFetch、子4=Agent）。为用户任务探查（其它 Bash/WebFetch/WebSearch/Agent）首调即 deny 指回当前子步骤——把 S13 判据前置到工具调用级（demo b01d6507：MiniMax-M3 首回合 Bash 探查抢答，S13 因用户中断没机会开火）。附带拦症状 L：Bash 相对路径写 evidence 会被 deny 并给出绝对路径。与 S10 状态互斥（零 trace vs 未判决 trace）；纯 text 抢答（无工具）仍由 S13 在 Stop 兜底。新编排节点声明 sub_steps 时**必须显式给 fence_allow**（与 ref/purpose 同处，单源）。 v2.11（2026-07-26，designs/autocontinue-fence-notice-design.md）：围栏提示文本单源化到 engine `engagement_fence_notice()`，UserPromptSubmit 注入与 Stop pass/block 续轮双通道同文——此前续轮通道不带豁免文案，模型只在子1 见过无豁免版提示，到子4 臆断 Agent 被 deny 并编造留痕（demo 121320fe）。**模型声称「某工具被围栏 deny」时的验真法**：查 `.wf_fence.log` 有无对应 `engage_fence_deny|tool=<X>` 行 + transcript 有无该工具的 tool_use——都没有=未试先称，按编造处理。
+
+**S10 步骤围栏**（deny 提示「等待门控判决」）：模型写完当前子步骤 evidence 后未 end_turn 就继续调工具（典型：连做下一子步骤探查，demo 会话 3009550c 实录）。围栏与 Stop 门控共用 `last_judged_trace` 游标——judge 判完（pass/block 都记游标）围栏自动开。**Task\* 豁免**（2026-07-27，demo 907fee09）：TaskCreate/TaskUpdate/TaskList/TaskGet 是 output-style 强制每轮维护的清单记账工具，无法用于下一子步骤探查——deny 它不防违规，只制造「模型按 TaskList 强规则同步 -> 被 deny -> 弱遵从重试 9 次」的报错刷屏；与 S15 常驻集含 Task\* 同逻辑（TaskStop 不在豁免内）。**同类排查**：用户报「一堆 Error: ...等待 Stop 门控判决」时，先看 `.wf_fence.log` 的 `fence_deny|tool=<X>` 是什么工具——Task* = 本豁免前的历史现象（已修），其它工具 = 模型写完 evidence 未 end_turn 的正常拦截。
+
+**S11 阶段写围栏**（deny 提示「当前阶段禁止写源码/实现」）：understand/plan/review 阶段用 Edit/Write/MultiEdit/NotebookEdit 写白名单外路径（白名单 = 本阶段产物 .md + designs/*.md + .claude/evidence/，单源在 engine `_PHASE_WRITE_NAMES`）。已知限制：Bash 写（重定向/sed -i）不可拦。
+
+**S14 evidence 覆盖守卫**（deny 提示「会覆盖 evidence 丢失 N 行历史记录」）：模型用 Write 覆盖 evidence 而非 append（丢历史行 -> judge 看不到前几轮原话佐证 -> 连环 block + 用户被反复要求重新确认，demo e84aee6d 实录）。Write 目标的 content 必须原样包含全部已有行；正确做法：Bash `printf >>` 或 Read 后拼末尾 Write。
+
+**plan mode 互斥拦**（§S12）：三层防线——①per-wf settings 锁 `defaultMode=acceptEdits`（启动不进 plan；选 acceptEdits 而非 default 是兼顾摩擦——default 下每次 evidence 写/Bash 都弹审批，acceptEdits 写文件静默且 hook deny 优先于 auto-accept，S11 拦得住）②UserPromptSubmit 检测 `permission_mode=="plan"` -> **exit 2 拒掉提问**，stderr 提示用户 shift+tab 切回（用户是唯一能干净退出的人）③fence hook：plan mode 下 deny 一切工具（含 EnterPlanMode 入口本身；仅放行 ExitPlanMode）作 mid-turn 切换兜底。deny 文案引导模型**停止调工具、文本告知用户切模式后 end_turn**——不说「模型 ExitPlanMode」（它被拦得无法探查拿不出计划，会死锁连环拒，demo 61482dbe 实录「改走 plan mode Phase 1」）。
+
+**诊断**：
+```bash
+tail -5 <项目>/.claude/.wf_fence.log   # fence_deny（S10）/ phase_fence_deny（S11）/ engage_fence_deny（S15）
+```
+- S10 被拒后模型应输出 `### STEP_DONE: N` + end_turn -> Stop 判定 -> 放行/返工。
+- **S10 误伤排查**（模型确实在做当前子步骤的事却被拒）：说明它提前写了 evidence（trace 落盘即被视为完成信号）。纠正：让它输出 STEP_DONE 把这轮判掉（judge block 后游标更新、围栏开、可返工），或 `/dl fence off` 临时关闭。
+- **S11 误伤排查**（该写的产物被拒）：查白名单是否漏路径模式（如产物约定改了）-> 改 engine `_PHASE_WRITE_NAMES`（单源），别想着关它——S11 是系统硬约束（同 rubric 黑盒），无开关。
+- **确认围栏状态**：state.json `enforce_step_fence`（S10，默认 true，`/dl fence on|off` 切换）。S11 无开关。
+
+**「围栏没拦」分诊（2026-07-26 实录）**：用户报「模型抢答/围栏没生效」时先查两件事，别先怀疑机制——①**会话是否被用户中断**：transcript 有 `[Request interrupted by user]` = 中断不产生 Stop 事件，S13/Stop 门控等 **Stop 类围栏根本没开火**（demo b01d6507：S13 判据满足但用户中途打断，围栏无机会触发）；②**会话模型是谁**：`grep -o '"model":"[^"]*"' <session>.jsonl | sort | uniq -c`，与健康会话模型对照——弱遵从模型（MiniMax-M3）先怀疑遵从失效。机制是否正常的判据：`.wf_phase.log` 有 `injected` + jsonl 有 attachment + settings 齐全 = 机制侧无 bug。
+
+**围栏设计原则**（S15 沉淀，加新围栏前对照）：
+1. **触发点尽早**：回合末才拦 = 错误已完整暴露给用户才纠偏。Stop 判据能前置 PreToolUse 就前置（S15 = S13 判据前置，同判据单源在 engine，两处引用）。
+2. **白名单按步骤声明，单源在 engine**：黑名单无法定义——同一条命令在 A 步是合法探查、在 B 步是抢答（`ls` 于子3 vs 子1）。`fence_allow` 与 `ref`/`purpose` 同处声明，新编排节点被强制显式思考工具面。
+3. **只拦工具拦得住的通道**：text 抢答不可工具拦截（归 Stop 兜底）。为「形式严密」拦 Read 不多拦任何一类违规（模型不 Read 也能编答案），却误伤合法取证与红队子代理。
+4. **威胁模型 = 弱遵从而非对抗**：子串匹配级走私面（`codegraph sync && <任意>`）可接受——弱遵从模型不会刻意构造走私命令，只会「顺手跑个 ls」。别为对抗级严密牺牲误伤面。
+5. **相邻围栏判据互斥接力**：零 trace（S15 白名单）/ 未判决 trace（S10 全 deny）/ 已判决（自由）三态互斥无空隙——重叠 = 双重 deny 文案打架，空隙 = 无围栏窗口。
+6. **deny 某工具前先问「它与其它强规则打架吗」**（2026-07-27，demo 907fee09）：S10 全 deny 撞上 output-style「每轮对齐 TaskList」强规则 -> 模型按规则同步清单被 deny、弱遵从重试 9 次报错刷屏——**两个强规则冲突时模型必然反复违规，报错刷屏且无一处有 bug**。记账类工具（Task*，不能用于探查）应豁免；评判标准：deny 它防得住哪一类违规？答不上 = 不该拦。
+
+**旧工作流（fence 前建的）无围栏**：per-wf settings.json 是 launcher 写的模板，旧 settings 缺 workflow_step_fence.py 注册。`dl <name> --resume` 重起 launcher 会补写 settings（或手加）。
+
+### 症状 N：judge 递归爆炸（claude -p 进程堆积 / 连环 TimeoutExpired）
+
+**症状**：`ps aux | grep "claude -p"` 一堆 judge 进程；`.wf_advance.log` 连环 `gate_block|reason=judge 调用失败（TimeoutExpired）`；evidence 被返工连写多行。
+
+**根因**（2026-07-25 demo 实测）：`run_judge` 的 `claude -p` 子进程继承主会话 cwd（worktree），judge 会话启动加载用户级 hooks -> 它的 Stop 又触发 `gate_sub_step_at_stop` -> 游标未落盘期间看到「新 hash」-> 再生 judge -> 链式爆炸；每个 judge 等子 judge，全员 120s `JUDGE_TIMEOUT` 超时判 block -> 主会话返工写新 trace -> 更多 judge。
+
+**修复**（commit 见 git log「judge cwd」）：`run_judge` subprocess 加 `cwd=tempfile.gettempdir()`——非 git 目录下 hooks 反查不到项目根，静默退出。防回归测试 `TestRunJudgeIsolation::test_judge_cwd_cwd_outside_git_repo`。
+
+**急诊**：先 `pkill -f "claude -p --output-format json 你是工作流节点门控"` 止血，再修 cwd。judge 超时的 block 会计 node_attempts，事故后可用 `/dl step-pass` 或手改 state.json `node_attempts` 归零恢复。
+
+### 症状 P：模型违规模式目录（弱遵从模型实测，MiniMax-M3 @ 2026-07-25）
+
+**元教训：对弱遵从模型，一切关键规则必须硬化——文案=建议（概率遵从，当日实测合规率约 50%），hook=物理。** 当日全部机制（S1 门控 / S10-S15 围栏）都是这个原则的兑现。下表是实测出现的违规模式 → 对应机制（加新机制前先查是否已有覆盖）：
+
+**能力边界补充（2026-07-26「兼容度太低」之问）**：围栏硬化的是**遵从**（机械动作），硬化不了**能力**（根因分析/证据评估是工作本身）——能力不及的模型什么机制都救不了，其表现是 gate 持续 block 到升级。弱模型上的正确预期是**优雅降级**：质量底线由 judge 保证不变，代价是 block 率+用户裁决次数+墙钟上升；对用户的话术不是「必须用强模型」，是「弱模型上它会更频繁地向你求助」。MiniMax-M3 实测在能力下限之上（被指即修=会做不主动做）。
+
+| 违规模式 | 实录 | 对应机制 |
+|---|---|---|
+| 明示「简单查询不走流程」直接抢答 | 8c51c318 / b01d6507 | S15 前置参与围栏（零 trace 窗口探查工具首调即 deny）+ S13 参与围栏（无 trace 不许结束回合，纯 text 抢答兜底） |
+| plan mode 里「改走 plan mode Phase 1」适应而非退出 | 61482dbe | S12 拒提问 + deny 文案指路用户切模式 |
+| Write 覆盖 evidence（销毁前轮原话佐证） | e84aee6d | S14 覆盖守卫（全行包含检查） |
+| 把用户口语「润色」成书面语记录（判非原话） | bf2516ac | 取证指引（引用原话/会话事实） |
+| 知道要件后「填表」：推断补全字段 | e84aee6d | 质量判据黑盒（判「系自行推断」） |
+| 编造痛点（「好奇心缺口」「无法判断X」=复述提问） | 4f3d9754 等 | 双结论 rubric（②合法）+ judge 拦伪痛点 |
+| 把 ①/② 分支抛给用户投票（随手选与事实矛盾） | bf2516ac | 分支推导规则（事实推导，禁投票） |
+| Write 无尾换行 + printf 追加 = 合并行（trace 隐形） | 74f82d93 | raw_decode 容错解析 + S13 分诊；**v2.14 根治：append-trace（模型不再手写 JSONL）** |
+| printf 把单个 JSON 写碎（字面换行跨两行 / 字面 `\"`）= 返工 trace 隐形，流程看似卡死 | d59d05ea | corrupt-rework-detect（同 hash 分支检测损坏行 -> block 指 append-trace）；**v2.14 根治：append-trace + S14 直写 deny** |
+| who 拿仓库事实（CLAUDE.md/git config）充当身份出处 | 74f82d93/4f3d9754 | who 出处钉死：只认用户自述 |
+| 返工时重问用户已答内容（「一直被要求重新确认」） | e84aee6d/bf2516ac | 取证优先级：上下文原话直接用，真缺才问 |
+| 未试先称工具被围栏 deny（臆断无豁免，evidence 编造「Agent blocked by S15 fence」） | 121320fe | pass/block 续轮附 S15 围栏提示含 fence_allow 豁免（v2.11，engine `engagement_fence_notice` 单源）；验真伪：grep `.wf_fence.log` 有无对应 deny 行——无记录=编造 |
+
+### 症状 L：evidence 写到 worktree 路径错位（模型用相对路径）
+
+**根因**：worktree 内 cwd 是 worktree 根，模型用 Bash 相对路径 `cat >> .claude/evidence/<name>.jsonl` 会写到 worktree 内 `.claude/worktrees/<name>/.claude/evidence/<name>.jsonl`。但 **hook 读主仓库** `<主 repo>/.claude/evidence/<name>.jsonl`（evidence 是持久物，per design 进 repo）-> 读不到 -> 不推进。
+
+**诊断**：
+```bash
+ls -la <主 repo>/.claude/evidence/<name>.jsonl                              # hook 读这里
+ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # 模型易写错处
+```
+- 主仓无 + worktree 有 -> **确诊路径错位**。
+
+**修复**：注入 + phase-rules 双通道强化"必须用主仓库绝对路径，禁用相对路径"。当前 v2.4 已修（commit af69128）：注入块标"绝对路径"+ 写法示例含 `Bash printf >> <绝对路径>`；phase-rules evidence 强制段补"必须写到主仓库绝对路径，禁用相对路径"。
+
+**应急恢复**：把 worktree 的 evidence.jsonl 内容 append 到主仓库对应文件（用户手动或让模型跑 `cat worktree路径 >> 主仓路径`），模型下一轮 end_turn 时 Stop hook 即判到新 trace。
+
+### 症状 M：改编排/skill 强制语义，phase-rules 与注入打架
+
+**通用教训**：编排（engine + hook）改了完成信号/门控规则，`phase-rules.md`（system-prompt，模型必看、优先级高于 attachment）**必须同步改**。否则模型遵从 phase-rules 旧语义，无视新注入。
+
+**典型翻车**（session 5c00dde1）：编排改用 STEP_DONE，但 phase-rules 还说用 SUB_DONE -> 模型按 SUB_DONE 走，STEP_DONE 门控失效。
+
+**改编排 checklist**（每次改 engine sub_steps / gate 语义都过一遍）：
+1. `dl-flow-engine.py`：Node.sub_steps / Step.gate / advance 逻辑
+2. `workflow_phase.py`：`_format_injection` 的当前步块 + 骨架链 + 完成标记格式
+3. `workflow_advance.py`：Stop 检测的完成信号（若变）
+4. **`scripts/workflow/phase-rules.md`**（v2.12 起为模板）：子步骤 purpose 段是 GENERATED 标记（launcher 渲染，**改 engine Step.purpose 自动同步，无需手改**）；手维护范围只剩静态强制语义（围栏/invoke 时序/完成标记）-- 这些仍是**最易漏**项，system-prompt 通道优先级最高，漏改必打架
+5. **`output-styles/workflow.md`**：显示层契约（清单 subject 写法/横幅格式/建齐规则）-- 同为模型强遵从通道；改注入里 TaskList/横幅相关文案时漏改它，会出现"两通道措辞歧义 -> 模型解读随会话漂移"（症状 F 编号实例，commit 5215b63）
+6. 冒烟：拿真 worktree + 真 state 跑 `_format_injection` 看注入结构；跑 `dl-flow-engine.py render-phase-rules scripts/workflow/phase-rules.md` 看渲染产物（子步骤段应与 engine purpose 逐字一致）
+7. **新增/移动编排节点或门栏专项**（2026-07-27 GoalsAndValue + 门栏迁移 + ScopeAndConstraints 三轮沉淀）：
+   - **共享 evidence 串号防御**：第二个编排节点起，sub_step 都从 1 起——trace 匹配层（`_iter_trace_segments` 一族 + `reset_sub_step` + `redteam_prompt`）必须按 minor_stage 过滤，否则 ProblemContext 子1 的 trace 被新节点门控误读（门控误判/S15 窗口错位/step-reset 误删他节点留痕）。
+   - **新开通的推进路径必须有 pinning**：「路径第一次真正走到」是 latent bug 温床——advance_state 跨节点不重置 sub_step_index 藏了一个版本（此前无害纯因下一节点无编排），门栏移走后路径首次开通即爆（normalize_state 越界卡死）。改动让某条推进路径从「走不到」变「走得到」时，先写该路径的 pinning 测试。
+   - **测试 fixture 迁移**：fixture 里当「无编排节点」用的占位在节点编排化后全量换下一个无编排节点（understand:2 → understand:3 → understand:4 → plan:1 → **当前 plan:2**），逐处 grep 别漏（ScopeAndConstraints 编排迁 9 处；SuccessCriteria 编排迁 11 处 + 2 处注释残留——计数随编排节点增多只增不减）。
+   - **排他性/唯一性断言必须全量遍历，禁抽样**（2026-07-27 ScopeAndConstraints 实例）：`test_hold_field_only_on_goals_and_value` 只查「每 phase 首子节点」，understand:3 加了 hold_for_gate 它照样绿——**测试通过 ≠ 新节点被覆盖**。凡「仅 X 有某属性」的断言，遍历 `_NODES` 全表逐节点断言，别用「每 phase 第一个」式抽样。
+   - **机制组合语义走查**（2026-07-27 understand:4 实例）：hold × advance="phase" 是此前不存在的属性组合，release_subgate 的隐含假设（hold 节点都是 sub-advance）被打破——大闸门被静默吸收。新节点属性组合与既有机制的组合语义必须逐函数走查，清单见 §3.8 #6。
+   - **模块拆分后 re-export 会被 ruff --fix 当 F401 误删**（2026-07-27 拆 dl_flow_nodes.py 实例）：engine `from dl_flow_nodes import minor_key_map` 在 engine 内未直接使用（tests 经 `eng.minor_key_map` 访问），ruff --fix 删掉 → 9 tests 挂。教训两条：①re-export 处加 `# noqa: F401  # re-export：<谁经此访问>` 注释；②**ruff --fix 后必重跑 pytest 再 commit**——ruff → commit 连跑会把误删固化进历史（当日靠 amend 救回）。
+   - **节点重编号（renumber）专项**（2026-07-28 plan:0→plan:2，系统首次 breaking 重编号）：(a) 存量 state 撞已消失的旧节点会 `get_node` 报错暴露——符合 no silent fallback 设计，但设计文档必须写迁移说明（`/dl jump` 重置或手改 state.json）；(b) **legacy 格式测试 fixture 保留旧节点名是合法的**——test_evidence_show 测的就是「旧记录无新字段」的容错，旧 evidence 本来就引用旧节点名，无脑全替换反而失真；要替换的是「拿旧节点当现行节点用」的 fixture；(c) 重编号后全仓 grep 旧节点名逐处过（本次 hooks/scripts 零引用，tests ~20 处 + SKILL 1 处）。
+   - **SKILL §0 摘要是 purpose 的「第三通道」，不会自动同步**（2026-07-28 实例）：Step.purpose 改动经 GENERATED 渲染自动同步 phase-rules + 注入双通道，但 §0 的子步骤摘要行是**手工副本**——改既有节点 purpose 的实质内容（判据口径/分类清单/裁决点）后必须同步摘要行，否则 skill 读者拿到过期契约。当日实例：plan 会话更新了 plan:1 摘要却没同步另一会话的 understand:3/4 编程域修订，靠收尾核对才发现。
+
+### 症状 G：install.sh 后 hook 没触发
+
+- `~/.claude/settings.json` 是否含 dl-workflow hook 注册？`grep -c workflow_phase.py ~/.claude/settings.json`。
+- Claude Code 会话是**在 install.sh 之前**起的？settings.json 读一次就缓存，需重启会话。
+- 项目自己的 `.claude/settings.json` 里有旧的 `python3 .claude/hooks/x.py` 相对路径？会 override 用户级。删项目那份或改为绝对路径。
+
+### 症状 R：「工作流跑太慢 / 程序不应该毫秒级吗」——耗时与 token 审计
+
+**先给概念纠正再给数字**：工作流的确定性程序部分（hooks/engine/围栏/evidence/state）全程 <1s，慢的杠杆永远不在程序优化。实测分解（demo 121320fe ProblemContext，41 分钟工作墙钟）：
+
+| 成分 | 占比 | 性质 |
+|---|---|---|
+| LLM 生成（48 轮 × 中位 29s，~67 tok/s） | ~71% | 产出物本身就是模型逐字写的分析 |
+| judge 判决（11 次） | ~13% | 同为 LLM 推理 |
+| 工具执行 + 子代理串行段 | ~15% | 秒级累加 |
+| 确定性程序 | <1s | 毫秒级，无可压 |
+
+**交互步墙钟 = 用户时间，别算进系统开销**（2026-07-27，demo 2e0f41dc）：读回确认类子步骤（ProblemContext 子6/GoalsAndValue 子5，gate=None）的耗时大头是**用户看材料做裁决**——该轮子6 占 66 分钟全是用户时间，机械层与模型都在等。耗时分解先把交互步的用户等待单列，再对剩余部分按上表归集；「GoalsAndValue 5 步全自动段 10.5 分钟」这类数字才是系统水位。
+
+**审计方法**：§3 #8（transcript 位置/去重/窗口归集/生成速率）+ §3 #11（报错盘点）。**优化排序**：①消浪费（假冲突循环/子代理嵌套/盲猜/撞围栏——通常占 20-30%，先于一切结构调整）；②轮数（block 循环 = +1-2 轮/次，自查提示 §3.5 #9 前移到自查抓）；③输出冗长度（墙钟 ≈ 输出 token ÷ 生成速率，线性）。**底线**：给定模型的 tok/s 与遵从率决定水位（ark 实测 6 步带门控 ~25-35m 属正常）；要数量级提速只有换更快/更强模型，不是调程序。
+

@@ -1,0 +1,46 @@
+# 建工作流 / 改工作流
+
+> workflow-creation skill 按需参考（自 SKILL.md §1.1–1.3 整体迁出，节号原样保留以兼容「§3.5 #9」式交叉引用）。
+> 只在 SKILL.md 路由表命中时阅读。
+
+
+### 1.1 新建一个工作流（用户侧）
+两种入口（都拦 `--dl` 参数转交 launcher）：
+```bash
+dl <name>                 # 独立 dl 命令
+ac-ark --dl <name>        # provider 函数（需在 ac-ark 里加 --dl 拦截，见 README）
+# 通用参数
+dl <name> --resume        # 续接
+dl <name> --phase <p>     # 跳阶段
+dl <name> --base <ref>    # 指定基线
+dl list                   # 列举
+dl <name> --done          # 归档（删 worktree+分支+元数据）
+```
+- `<name>` 仅小写字母/数字/连字符/下划线，≤64（`dl-lib.sh` 校验）。
+- 必须在 git repo 内运行（launcher 用 `git rev-parse` 反查项目根）。
+- provider env：launcher 永远 `exec claude`，env 由调用方 shell 继承。`ac-ark --dl` 因 ac-ark 已 export env 而走 ark；`dl` 用当前 shell env。不用 `@provider`（provider 是函数时 launcher 子进程 exec 不到）。
+
+### 1.2 改工作流脚本/hook/command 后
+- 改 `~/.dl-workflow/hooks/*.py` -> **无需 install.sh**（settings.json 直接引用源），下轮 hook 触发即最新版（无需重建 worktree）。
+- 改 `~/.dl-workflow/output-styles/*.md` 或 `commands/*.md` 或 `skills/` -> 跑 `~/.dl-workflow/install.sh` copy 到 `~/.claude/`，再**重启会话**加载（output-style / slash command 在会话启动时载入）。
+- 改 `~/.dl-workflow/scripts/workflow/*.sh` -> 无需 install（launcher 直接从 dl-workflow 内跑），下次 `dl <name> --resume` 或新建即最新。
+- 改 `phase-rules.md`（append-system-prompt）-> 仅新开会话生效（append-system-prompt 是启动时载入）；已有会话不同步。**v2.12 起 phase-rules.md 是模板**：understand:1 的 6 条子步骤 purpose 段是 `<!-- BEGIN/END GENERATED sub_steps -->` 标记占位，launcher 每次启动调 `dl-flow-engine.py render-phase-rules` 渲染到 per-wf `phase-rules.rendered.md`（渲染失败中止启动）——**改 engine 的 Step.purpose 即自动同步双通道，新启动会话即生效，无需 install、无需手改 phase-rules**；phase-rules 静态部分（围栏/强制语义/完成标记）仍手维护。
+- per-wf `settings.json`（在项目 `.claude/workflows/<name>/`，非快照）改了要重启会话加载。
+
+**与 v1.x 项目内嵌版本对比**：v1.x 里 hook 在 `<项目>/.claude/hooks/` 是 git 快照，改后必须 commit + 重建 worktree；本版本 hook 在 `~/.dl-workflow/hooks/` 直接引用（不 copy），无此约束。
+
+### 1.3 关键文件职责（改前必读）
+| 位置 | 文件 | 职责 |
+|---|---|---|
+| `~/.dl-workflow/scripts/workflow/` | `dl-launch.sh` | 建/续 worktree+state+settings，起 claude |
+| ↑ | `dl-lib.sh` | 阶段定义 + state 读写 + `wf_write_settings` + 路径反查 |
+| ↑ | `dl-cmd.sh` | `/dl` 子命令逻辑 |
+| ↑ | `phase-rules.md` | append-system-prompt，各阶段行为规则 |
+| `~/.dl-workflow/hooks/`            | `workflow_phase.py` | UserPromptSubmit 注入当前阶段 |
+| ↑ | `workflow_advance.py` | Stop 检 PHASE_DONE 推进 + sub_steps 门控（evidence hash 触发） |
+| ↑ | `workflow_step_fence.py` | PreToolUse S15 前置参与围栏（零 trace 白名单）+ S10 步骤围栏（未判决 trace 时 deny） |
+| ↑ | `codegraph_gate.py` | PreToolUse H15 门禁（改已有 .py 前先查 codegraph） |
+| ↑ | `codegraph_audit.py` | PostToolUse 记 codegraph 查询 |
+| `~/.claude/output-styles/` | `workflow.md` | 横幅 + 常驻 TaskList 首要规则 |
+| `~/.claude/commands/` | `dl.md` | `/dl` slash 命令入口（调 dl-workflow 内 dl-cmd.sh） |
+

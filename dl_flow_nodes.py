@@ -47,7 +47,7 @@ class Step:
     )
     # 骨架短名（注入「子步骤链」用，harness-prompt-optimization P0）。
     # 声明式数据：不采用「从 purpose 冒号前缀推导」（脆弱且隐式）。
-    # 词表与 workflow-creation SKILL.md §0 的子步骤摘要一致。
+    # 词表与 workflow-creation skill references/node-design.md 的子步骤摘要一致。
     short: str
     purpose: str  # 本子步骤目的（注入模型 + gate 校验依据）。声明式,单源在 engine。
     input: str | None  # 引用上子步骤产出（"step1.real_problem"）；None=无依赖（首步）

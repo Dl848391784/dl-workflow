@@ -48,9 +48,12 @@ install_files() {
   # hooks 不 copy：直接引用源 ~/.dl-workflow/hooks/*.py（settings.json 里写 ~ 路径，
   # shell 执行时展开）。改 hook 后 git pull 即生效，无同步副本开销。
   # 只 copy Claude Code 硬编码加载路径的文件（skills/output-styles/commands）。
-  # skill（整个子目录）
-  mkdir -p "$CLAUDE_HOME/skills/workflow-creation"
+  # skill（整个子目录，含 references/ 按需参考文件——SKILL.md 已拆瘦路由+重型参考外置）
+  mkdir -p "$CLAUDE_HOME/skills/workflow-creation/references"
   copy_with_backup "$SRC_DIR/skills/workflow-creation/SKILL.md" "$CLAUDE_HOME/skills/workflow-creation/SKILL.md"
+  for f in "$SRC_DIR/skills/workflow-creation/references/"*.md; do
+    copy_with_backup "$f" "$CLAUDE_HOME/skills/workflow-creation/references/$(basename "$f")"
+  done
   # output-style
   copy_with_backup "$SRC_DIR/output-styles/workflow.md" "$CLAUDE_HOME/output-styles/workflow.md"
   # command
