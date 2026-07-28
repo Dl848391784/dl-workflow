@@ -298,7 +298,7 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
     if held_for_gate:
         lines.append(
             "- ⛔ 子阶段门栏：本子阶段全部子步骤已通过门控，**推进被扣留**——"
-            "等用户 `/dl gate` 放行（用户也可 /dl back 回退、/dl step-reset <n> 重测）。"
+            "等用户 `/dl gate` 放行（用户也可 /dl back 回退、/dl state-reset <n> 重测）。"
             "**不要做下一子阶段的事**；用户放行前，回答仅限本子阶段收尾/答疑。"
         )
     # §success-criteria-orchestration：advance="phase" 编排末节点（understand:4）

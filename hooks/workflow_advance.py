@@ -360,7 +360,7 @@ def main() -> int:
                 _emit(
                     f"✓ 子步骤 {judged_step} 通过门控 —— {cur_node0.label} 全部子步骤完成\n"
                     "⛔ 子阶段门栏：进下一子阶段需用户裁决。\n"
-                    "  输入 /dl gate 放行；或 /dl back 回退、/dl step-reset <n> 重测。"
+                    "  输入 /dl gate 放行；或 /dl back 回退、/dl state-reset <n> 重测。"
                 )
                 return 0
             new_sub = (st or {}).get("sub_index", cur_sub)

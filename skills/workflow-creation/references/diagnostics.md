@@ -305,7 +305,7 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 5. **`output-styles/workflow.md`**：显示层契约（清单 subject 写法/横幅格式/建齐规则）-- 同为模型强遵从通道；改注入里 TaskList/横幅相关文案时漏改它，会出现"两通道措辞歧义 -> 模型解读随会话漂移"（症状 F 编号实例，commit 5215b63）
 6. 冒烟：拿真 worktree + 真 state 跑 `_format_injection` 看注入结构；跑 `dl-flow-engine.py render-phase-rules scripts/workflow/phase-rules.md` 看渲染产物（子步骤段应与 engine purpose 逐字一致）
 7. **新增/移动编排节点或门栏专项**（2026-07-27 GoalsAndValue + 门栏迁移 + ScopeAndConstraints 三轮沉淀）：
-   - **共享 evidence 串号防御**：第二个编排节点起，sub_step 都从 1 起——trace 匹配层（`_iter_trace_segments` 一族 + `reset_sub_step` + `redteam_prompt`）必须按 minor_stage 过滤，否则 ProblemContext 子1 的 trace 被新节点门控误读（门控误判/S15 窗口错位/step-reset 误删他节点留痕）。
+   - **共享 evidence 串号防御**：第二个编排节点起，sub_step 都从 1 起——trace 匹配层（`_iter_trace_segments` 一族 + `reset_state` + `redteam_prompt`）必须按 minor_stage 过滤，否则 ProblemContext 子1 的 trace 被新节点门控误读（门控误判/S15 窗口错位/state-reset 误删他节点留痕）。
    - **新开通的推进路径必须有 pinning**：「路径第一次真正走到」是 latent bug 温床——advance_state 跨节点不重置 sub_step_index 藏了一个版本（此前无害纯因下一节点无编排），门栏移走后路径首次开通即爆（normalize_state 越界卡死）。改动让某条推进路径从「走不到」变「走得到」时，先写该路径的 pinning 测试。
    - **测试 fixture 迁移**：fixture 里当「无编排节点」用的占位在节点编排化后全量换下一个无编排节点（understand:2 → understand:3 → understand:4 → plan:1 → plan:2，均已编排）；**当前占位 = execute/review/evolution 整阶段节点**（understand/plan 已无无编排子阶段，v2.20 起），逐处 grep 别漏（ScopeAndConstraints 编排迁 9 处；SuccessCriteria 编排迁 11 处 + 2 处注释残留——计数随编排节点增多只增不减）。
    - **排他性/唯一性断言必须全量遍历，禁抽样**（2026-07-27 ScopeAndConstraints 实例）：`test_hold_field_only_on_goals_and_value` 只查「每 phase 首子节点」，understand:3 加了 hold_for_gate 它照样绿——**测试通过 ≠ 新节点被覆盖**。凡「仅 X 有某属性」的断言，遍历 `_NODES` 全表逐节点断言，别用「每 phase 第一个」式抽样。

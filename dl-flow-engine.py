@@ -753,38 +753,136 @@ def force_pass_sub_step(project_root: Path, name: str, cwd: str) -> tuple[bool, 
     return True, f"末子步骤 {cur} 已手动放行 -> 子阶段推进"
 
 
-def reset_sub_step(project_root: Path, name: str, step: int) -> tuple[bool, str]:
-    """回退到子步骤 step 重测（/dl step-reset <n>；反复测试某子步骤的出口）。
+# ---------- state-reset：整体回滚到任意历史子步骤（designs/state-reset-command-design.md）----------
+
+
+def _node_order() -> dict[str, int]:
+    """节点 id -> 线性序（_NODES 声明序 = 编排推进序）。"""
+    return {nid: i for i, nid in enumerate(_NODES)}
+
+
+def _parse_reset_target(
+    state: dict[str, Any], target: str
+) -> tuple[Node, int] | tuple[None, str]:
+    """解析 state-reset 寻址 -> (目标节点, step) 或 (None, 错误信息)。
+
+    三种形态（design §2）：
+      "<n>"                     当前节点内回退到子步骤 n（兼容旧 step-reset 语义）
+      "<phase>:<minor>"         跨节点回退到子阶段首步（无子步骤节点唯一合法形态）
+      "<phase>:<minor>:<step>"  跨节点回退到子阶段子步骤 step（含 step 作废）
+    minor = 子阶段序号或 minor_key（大小写不敏感）。
+    """
+    cur_node = get_node(state["phase"], state["sub_index"])
+    parts = target.split(":")
+    if len(parts) == 1:
+        # 节点内回退：旧 step-reset 语义
+        if not cur_node.sub_steps:
+            return None, f"节点 {node_id(cur_node.phase, cur_node.sub)} 无子步骤编排，state-reset <n> 不适用"
+        if not parts[0].isdigit():
+            return None, (
+                f"寻址 '{target}' 非法——用法: state-reset <n> | <phase>:<minor>[:<step>]"
+            )
+        step = int(parts[0])
+        total = len(cur_node.sub_steps)
+        if not (1 <= step <= total):
+            return None, f"子步骤 {step} 越界（本节点 1..{total}）"
+        return cur_node, step
+    if len(parts) not in (2, 3):
+        return None, f"寻址 '{target}' 非法——用法: state-reset <n> | <phase>:<minor>[:<step>]"
+    phase = parts[0].lower()
+    if phase not in PHASES:
+        return None, f"phase '{parts[0]}' 不存在（合法: {', '.join(PHASES)}）"
+    minor = parts[1]
+    node: Node | None = None
+    if minor.isdigit():
+        try:
+            node = get_node(phase, int(minor))
+        except KeyError:
+            node = None
+    else:
+        for cand in _NODES.values():
+            if (
+                cand.phase == phase
+                and cand.minor_key
+                and cand.minor_key.lower() == minor.lower()
+            ):
+                node = cand
+                break
+    if node is None:
+        valid = ", ".join(
+            f"{cand.sub}={cand.minor_key}"
+            for cand in _NODES.values()
+            if cand.phase == phase and cand.minor_key
+        ) or "（该 phase 无子阶段，用 <phase>:0）"
+        return None, f"子阶段 '{minor}' 不存在于 {phase}（合法: {valid}）"
+    if not node.sub_steps:
+        if len(parts) == 3:
+            return None, f"节点 {node_id(node.phase, node.sub)} 无子步骤编排，三段式 step 无意义（用 {phase}:{minor} 两段式）"
+        return node, 0
+    step = 1 if len(parts) == 2 else (int(parts[2]) if parts[2].isdigit() else -1)
+    total = len(node.sub_steps)
+    if not (1 <= step <= total):
+        return None, f"子步骤 {parts[2] if len(parts) == 3 else step} 越界（节点 {node_id(node.phase, node.sub)} 1..{total}）"
+    return node, step
+
+
+def _reset_target_owner(rec: dict[str, Any]) -> str | None:
+    """evidence 记录归属的节点 id（反查不到 -> None，调用方按「暴露而非吞掉」保留）。
+
+    skill-trace 按 minor_stage 反查 minor_key；gate 行优先 phase+sub 字段，
+    缺时回落 node 字段（旧记录可能无 phase/sub）。
+    """
+    if rec.get("kind") == "skill-trace":
+        mk = rec.get("minor_stage")
+        if not isinstance(mk, str):
+            return None
+        for nid, cand in _NODES.items():
+            if cand.minor_key == mk:
+                return nid
+        return None
+    if rec.get("kind") == "gate":
+        ph, sb = rec.get("phase"), rec.get("sub")
+        if isinstance(ph, str) and isinstance(sb, int):
+            nid = node_id(ph, sb)
+            if nid in _NODES:
+                return nid
+        nid = rec.get("node")
+        return nid if isinstance(nid, str) and nid in _NODES else None
+    return None
+
+
+def reset_state(project_root: Path, name: str, target: str) -> tuple[bool, str]:
+    """整体回滚到目标子步骤（/dl state-reset，designs/state-reset-command-design.md）。
 
     三件事（都落盘才算完成，无 silent fallback）：
-    1. evidence：删 sub_step >= step 的 skill-trace 行 + gate 裁决行（保留前序步骤留痕；
-       无 sub_step 字段的 gate 行=节点级裁决，保留）。
-    2. state：sub_step_index=step、node_attempts=0、last_judged_trace 清掉
-       「<node>#<k>」(k>=step) 游标（不清会让同内容 trace 被判「无新产出」静默跳过）。
-    3. 不改 phase/sub_index（只在本节点子步骤内回退，跨子阶段用 /dl back）。
+    1. evidence 纯硬删：目标节点 T 的 sub_step>=n 行 + T 自身节点级 gate 裁决行 +
+       所有线性序在 T 之后节点的 trace/gate 行（坏行/归属不明行保留，暴露而非吞掉）。
+    2. state 回滚：phase/sub_index/node/index/sub_total=T、sub_step_index=n、
+       node_attempts=0、held_for_gate 删、gate 按 advance_state 同规则重算、
+       last_judged_trace 清 T(k>=n) 与后序节点游标、history 截断到 T（T 条目重开）。
+    3. 阶段产物直接删除：T.phase 及之后所有 phase 的产物（主仓 .claude/<dir>s/<name>.md
+       + worktree 根 legacy <phase>.md）；文件不存在非错误。不动 designs/*.md 与
+       worktree 代码/commit（design §3.3）。
     """
     state = load_state(project_root, name)
     if state is None:
         return False, f"工作流 {name} 的 state.json 缺失"
     state = normalize_state(state)
-    try:
-        node = get_node(state["phase"], state["sub_index"])
-    except KeyError:
-        return False, f"节点 {state['phase']}:{state['sub_index']} 不存在"
-    if not node.sub_steps:
-        return (
-            False,
-            f"节点 {node_id(node.phase, node.sub)} 无子步骤编排，step-reset 不适用",
+    parsed = _parse_reset_target(state, target.strip())
+    if parsed[0] is None:
+        return False, parsed[1]
+    t_node, step = parsed
+    t_nid = node_id(t_node.phase, t_node.sub)
+    order = _node_order()
+    cur_nid = node_id(state["phase"], state["sub_index"])
+    t_ord, cur_ord = order[t_nid], order[cur_nid]
+    if t_ord > cur_ord:
+        return False, (
+            f"目标 {t_nid} 是前向节点（当前 {cur_nid}）——state-reset 只回退，"
+            "往前用 /dl next|jump"
         )
-    total = len(node.sub_steps)
-    if not (1 <= step <= total):
-        return False, f"子步骤 {step} 越界（本节点 1..{total}）"
 
-    # 1. evidence 过滤（删 sub_step >= step 的 trace/gate 行；坏行原样保留不吞）
-    # 多编排节点共用 evidence（goals-and-value-substeps-design）：只删**本节点**的行——
-    # skill-trace 按 minor_stage、gate 按 node 归属判定；归属不明（缺字段）的行
-    # 与坏行同原则保留（暴露而非吞掉），防 step-reset 误删他节点（如 ProblemContext）留痕。
-    nid = node_id(node.phase, node.sub)
+    # 1. evidence 过滤
     removed = 0
     path = _evidence_path(project_root, name)
     if path.exists():
@@ -795,42 +893,118 @@ def reset_sub_step(project_root: Path, name: str, step: int) -> tuple[bool, str]
             try:
                 rec = json.loads(line)
             except json.JSONDecodeError:
-                kept.append(line)  # 坏行不属于任何子步骤，保留（暴露而非吞掉）
+                kept.append(line)  # 坏行不属于任何节点，保留（暴露而非吞掉）
                 continue
-            if not (isinstance(rec.get("sub_step"), int) and rec["sub_step"] >= step):
-                kept.append(line)
+            owner = _reset_target_owner(rec)
+            if owner is None:
+                kept.append(line)  # 归属不明：保留（暴露而非吞掉）
                 continue
-            if (
-                rec.get("kind") == "skill-trace"
-                and rec.get("minor_stage") == node.minor_key
-            ):
-                removed += 1
+            o = order[owner]
+            if o > t_ord:
+                removed += 1  # 后序节点整行作废
                 continue
-            if rec.get("kind") == "gate" and rec.get("node") == nid:
-                removed += 1
-                continue
-            kept.append(line)  # 他节点的行 / 归属不明的行：保留
+            if o == t_ord:
+                ss = rec.get("sub_step")
+                if isinstance(ss, int) and ss >= step:
+                    removed += 1  # T 节点内 sub_step>=n 作废
+                    continue
+                if rec.get("kind") == "gate" and ss is None:
+                    removed += 1  # T 自身节点级裁决已失效（回退到中段）
+                    continue
+            kept.append(line)
         path.write_text("".join(line + "\n" for line in kept), encoding="utf-8")
 
-    # 2. state 回退
-    state["sub_step_index"] = step
+    # 2. state 回滚
+    state["phase"] = t_node.phase
+    state["index"] = phase_index(t_node.phase)
+    state["sub_index"] = t_node.sub
+    state["sub_total"] = sub_total(t_node.phase)
+    state["node"] = t_nid
+    state["sub_step_index"] = step if t_node.sub_steps else 0
     state["node_attempts"] = 0
-    state.pop("held_for_gate", None)  # §subphase-hold-gate：回退重测时门栏状态同步失效
+    state.pop("held_for_gate", None)  # 门栏状态同步失效（同旧 step-reset）
+    # gate 重算（advance_state 同规则）：进入 T 跨过的前驱节点是阶段出口且
+    # 其 phase 在 GATED_AFTER -> 进入已是放行后。
+    prev = list(_NODES.values())[t_ord - 1] if t_ord > 0 else None
+    state["gate"] = (
+        "passed"
+        if prev is not None and prev.advance == "phase" and is_gated_after(prev.phase)
+        else "pending"
+    )
     judged = state.get("last_judged_trace", {})
     for k in list(judged):
-        if not k.startswith(f"{nid}#"):
-            continue
+        owner, _, num = k.rpartition("#")
         try:
-            n = int(k.rsplit("#", 1)[1])
+            n = int(num)
         except ValueError:
-            continue  # 畸形 key 不属于本节点子步骤游标，保留（暴露而非吞掉）
-        if n >= step:
+            continue  # 畸形 key 保留（暴露而非吞掉）
+        if owner not in order:
+            continue  # 归属不明游标保留
+        if order[owner] > t_ord or (order[owner] == t_ord and n >= step):
             del judged[k]
+    # history 截断：删 entered 节点序 > T 的条目；T 条目重开（exited_at=None）
+    hist = state.get("history", [])
+    new_hist: list[dict[str, Any]] = []
+    t_found = False
+    for h in hist:
+        try:
+            h_nid = node_id(h["phase"], int(h["sub"]))
+        except (KeyError, TypeError, ValueError):
+            new_hist.append(h)  # 畸形条目保留（暴露而非吞掉）
+            continue
+        if h_nid not in order or order[h_nid] > t_ord:
+            continue  # 后序节点条目截掉（含畸形 node id 之外的未知节点）
+        if order[h_nid] == t_ord:
+            h["exited_at"] = None  # 重开
+            t_found = True
+        new_hist.append(h)
+    if not t_found:
+        new_hist.append(
+            {
+                "phase": t_node.phase,
+                "sub": t_node.sub,
+                "entered_at": _now(),
+                "exited_at": None,
+                "via": "state-reset",
+            }
+        )
+    state["history"] = new_hist
     state["updated_at"] = _now()
     save_state(project_root, name, state)
+
+    # 3. 阶段产物删除（T.phase 及之后；缺失非错误）
+    deleted_files: list[str] = []
+    wt_root = state.get("worktree_path")
+    for ph in PHASES[phase_index(t_node.phase) - 1 :]:
+        candidates: list[Path] = []
+        adir = _PHASE_ARTIFACT_DIRS.get(ph)
+        if adir:
+            candidates.append(project_root / ".claude" / adir / f"{name}.md")
+        legacy_name = f"{ph}.md"
+        if isinstance(wt_root, str) and wt_root:
+            candidates.append(Path(wt_root) / legacy_name)
+        candidates.append(
+            project_root / ".claude" / "worktrees" / name / legacy_name
+        )
+        seen: set[str] = set()
+        for p in candidates:
+            key = str(p)
+            if key in seen:
+                continue
+            seen.add(key)
+            try:
+                if p.exists():
+                    p.unlink()
+                    deleted_files.append(key)
+            except OSError as e:
+                return False, f"产物删除失败 {p}: {e}（state 已回滚，产物残留需手工清）"
+
+    total = len(t_node.sub_steps or [])
+    step_desc = f"子步骤 {step}/{total}" if total else "（无子步骤节点）"
     return (
         True,
-        f"已回退到子步骤 {step}/{total}（删 evidence 行 {removed} 条，游标/重试计数已清）",
+        f"已回退到 {t_nid} {step_desc}（删 evidence 行 {removed} 条，"
+        f"删产物 {len(deleted_files)} 个，游标/重试计数/门栏已清）",
     )
 
 
@@ -1769,7 +1943,7 @@ def main(argv: list[str] | None = None) -> int:
             "progress",
             "meta",
             "step-pass",
-            "step-reset",
+            "state-reset",
             "subgate-pass",
             "fence",
             "render-phase-rules",
@@ -1783,7 +1957,7 @@ def main(argv: list[str] | None = None) -> int:
         help="工作流名（不填则从 cwd 反查）；render-phase-rules 时为 phase-rules 模板路径",
     )
     parser.add_argument(
-        "value", nargs="?", help="fence 的值（on|off）/ step-reset 的子步骤号"
+        "value", nargs="?", help="fence 的值（on|off）/ state-reset 的回退目标"
     )
     parser.add_argument("--cwd", help="覆盖 cwd（默认进程 cwd）")
     parser.add_argument(
@@ -1859,15 +2033,15 @@ def main(argv: list[str] | None = None) -> int:
         ok, msg = release_subgate(project_root, name, cwd)
         print(("✓ " if ok else "✗ ") + msg, file=sys.stdout if ok else sys.stderr)
         return 0 if ok else 1
-    if args.cmd == "step-reset":
-        try:
-            n = int(args.value or "")
-        except ValueError:
+    if args.cmd == "state-reset":
+        if not args.value:
             print(
-                "✗ 用法: step-reset <name> <n>（n=回退到的子步骤号）", file=sys.stderr
+                "✗ 用法: state-reset <name> <n | phase:minor[:step]>"
+                "（含目标 step 作废，回到 step-1 已完成）",
+                file=sys.stderr,
             )
             return 1
-        ok, msg = reset_sub_step(project_root, name, n)
+        ok, msg = reset_state(project_root, name, args.value)
         print(("✓ " if ok else "✗ ") + msg, file=sys.stdout if ok else sys.stderr)
         return 0 if ok else 1
     if args.cmd == "fence":
