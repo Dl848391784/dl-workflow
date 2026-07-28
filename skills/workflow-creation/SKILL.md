@@ -81,6 +81,7 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
 - "evidence 写到 worktree / 路径错位" → references/diagnostics.md 症状 L
 - "改编排 / SUB_DONE STEP_DONE 打架 / phase-rules 与注入矛盾 / 改门控 checklist" → references/diagnostics.md 症状 M
 - "工具被围栏拒绝 / PreToolUse deny / 围栏没拦" → references/diagnostics.md 症状 O
+- "门栏 / 闸门 / 扣留 / 停在某阶段不走 / 改围栏位置（哪个围栏？先消歧：工具围栏=症状 O；推进围栏=门栏/闸门）" → references/diagnostics.md 症状 M「门栏/闸门位置变更专项」
 - "跑太慢 / 耗时长 / token 消耗大 / 程序应该毫秒级 / 成本审计" → references/diagnostics.md 症状 R
 - "审计这轮运行 / 符合预期吗 / 哪些 error 返工可避免 / judge 输入膨胀 / 重建丢弃" → references/rubric-design.md §3.6
 - "设计新编排节点 / 拆几个子步骤 / 每步什么目的 / 要不要取证步 / 步数怎么定 / 代码设计拆步 / 拆解任务 / 任务切分 / 执行计划 plan.md" → references/node-design.md §3.8
