@@ -162,3 +162,20 @@ class TestCorruptFormatRedline:
         ctx = wp._format_injection(_state(3), PROJECT_ROOT)
         assert "禁止绕过" in ctx
         assert "trace 隐形" in ctx
+
+
+class TestPlanArtifactPath:
+    """plan.md 规范位置注入（2026-07-28 用户决议）：主仓 .claude/plans/<name>.md，
+    与 evidence 同级——worktree 归档删除时分支上产物一起丢，主仓才存活。"""
+
+    def test_plan_phase_injects_artifact_path(self):
+        ctx = wp._format_injection(
+            _state(1, phase="plan", sub_index=2, node="plan:2", sub_total=4),
+            PROJECT_ROOT,
+        )
+        assert f"{PROJECT_ROOT}/.claude/plans/demo.md" in ctx
+        assert "禁写 worktree" in ctx or "worktree 删除即丢" in ctx
+
+    def test_understand_phase_no_plan_path(self):
+        ctx = wp._format_injection(_state(1), PROJECT_ROOT)
+        assert ".claude/plans/" not in ctx

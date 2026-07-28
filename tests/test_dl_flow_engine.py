@@ -3328,6 +3328,21 @@ class TestPhaseWriteDenial:
         assert self._deny(tmp_path, "plan", 2, "/repo/plan.md") is None
         assert self._deny(tmp_path, "plan", 2, "/repo/main.py") is not None
 
+    def test_plan_allows_plans_dir(self, tmp_path):
+        # plan.md 规范位置=主仓 .claude/plans/<name>.md（2026-07-28 用户决议：
+        # 与 evidence 同级——worktree 归档删除时分支上产物一起丢，
+        # 主仓 .claude/ 才存活）。basename=<name>.md 不在白名单，须路径规则放行
+        assert self._deny(tmp_path, "plan", 2, "/repo/.claude/plans/t.md") is None
+        assert self._deny(tmp_path, "plan", 4, "/repo/.claude/plans/t.md") is None
+
+    def test_other_phases_deny_plans_dir(self, tmp_path):
+        # plans 目录是 plan 阶段专属写域（防它阶段误写/覆盖合同）
+        assert (
+            self._deny(tmp_path, "understand", 1, "/repo/.claude/plans/t.md")
+            is not None
+        )
+        assert self._deny(tmp_path, "review", 0, "/repo/.claude/plans/t.md") is not None
+
     def test_plan_allows_design_md(self, tmp_path):
         # plan:1 子6 装配 design.md（H8 产物）——designs/*.md 全阶段放行
         assert self._deny(tmp_path, "plan", 1, "/repo/designs/x-design.md") is None

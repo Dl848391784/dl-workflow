@@ -1058,6 +1058,11 @@ def _phase_write_path_ok(phase: str, file_path: str) -> bool:
         return True  # H8 design 文档各阶段可起草/补
     if ".claude" in parts and "evidence" in parts:
         return True  # evidence 任何阶段可写（子步骤编排/裁决留痕）
+    if phase == "plan" and ".claude" in parts and "plans" in parts:
+        return True  # plan.md 规范位置=主仓 .claude/plans/<name>.md（2026-07-28
+        # 用户决议：与 evidence 同级——worktree 归档删除时分支上产物一起丢，
+        # 主仓 .claude/ 才存活）。basename=<name>.md 不在白名单，靠本路径规则；
+        # 限 plan 阶段写（它阶段误写/覆盖合同仍 deny）
     if phase == "evolution":
         if ".claude" in parts:
             return True  # 更新 skill（.claude/skills/）
