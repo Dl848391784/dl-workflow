@@ -140,7 +140,7 @@ judge 调用 4 次（子5 gate=None）。
 - **judge 不判「布点最优」**——只判「追溯真实 + 判据零判断词 + 互斥面实算 + 三态核验真做 + 只提案未拍板」。密度取舍的真值源只有用户（子5）。
 - **判据合法获取路径**（#7）：子1/3 fence_allow=("Bash",)（dry-run/交集实算/grep 全是低成本合法路径）；子2 fence_allow=("Agent",)（红队合法通道）——每条判据要求的佐证都存在合法获取路径，不逼编造。
 - **消费契约倒推**（锚点法第六次使用）：十字段倒推自 execute:0 orchestrator 愿景/execute:0 rubric/understand:4 时机字段/review:0 证据需求/用户密度裁决五方（§0 表）——缺① orchestrator 执行期自行分组 = 违背「不自行分析」愿景；缺④ worker 返回物无验收门 = E9 失守；缺⑥ 检查点 = 虚设（E1）。
-- **gate_mech 置 None**（有意偏离 plan:2/3 先例）：ARTIFACT_EXISTS 对 plan.md 在本节点**语义恒真**（文件自 plan:2 起存在）——保留 = 虚假防线暗示，违背 H13 精神（不挂无功能配置）。且机械门当前全类型未实现（`gate_verdict_mech` dl-flow-engine.py:409-418 一律 return None，留 §8.3）。实际 guard 链 = 子4 judge 验十字段 + 子5 禁二次创作 + 用户读回 + S13/S15 围栏（同 plan:2 风险 #8 论证）。§8.3 实现时本节点的正解 = ARTIFACT_CONTAINS（「执行计划与检查点」节存在检查），属该独立项的连带工作。**gate_rubric 置 None**（understand:4/plan:2/plan:3 先例第四次）：语义全部下沉逐步 gate，大闸门只跑机械门（本节点机械门亦无）。
+- **gate_mech 置 None**（有意偏离 plan:2/3 先例）：ARTIFACT_EXISTS 对 plan.md 在本节点**语义恒真**（文件自 plan:2 起存在）——保留 = 虚假防线暗示，违背 H13 精神（不挂无功能配置）。且机械门当前全类型未实现（`gate_verdict_mech` dl_flow_engine.py:409-418 一律 return None，留 §8.3）。实际 guard 链 = 子4 judge 验十字段 + 子5 禁二次创作 + 用户读回 + S13/S15 围栏（同 plan:2 风险 #8 论证）。§8.3 实现时本节点的正解 = ARTIFACT_CONTAINS（「执行计划与检查点」节存在检查），属该独立项的连带工作。**gate_rubric 置 None**（understand:4/plan:2/plan:3 先例第四次）：语义全部下沉逐步 gate，大闸门只跑机械门（本节点机械门亦无）。
 - **judge 输入面**（#11）：子1 gate 的佐证走 evidence 路径——design.md/plan.md/understand.md 三个文件 judge 都读不到，四源原文必须引用进子1 trace 正文；rubric 文本含 `evidence/` 关键词触发 `rubric_needs_evidence`（plan:1 §3 实现注同款教训）。
 
 ## 4. 外部实证出处（2026-07-28 Tavily 取证留痕）

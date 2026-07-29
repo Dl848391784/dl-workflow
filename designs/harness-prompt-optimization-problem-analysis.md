@@ -36,8 +36,8 @@ Claude Code harness（Claude 自身 system prompt + 工具描述 + system-remind
 |---|---|---|---|
 | ① | 静态规则与动态状态分通道：稳定规则进 system prompt（吃 prompt cache），每轮注入只带 delta | ❌ 最差项：64% 静态内容（6 步 purpose 全文）每轮重发 | `hooks/workflow_phase.py:295-303` |
 | ② | 关键信息置顶（primacy）：当前任务放注入最前 | ❌ `【当前】` 埋在列表行尾 | 实测注入第 ~2,600 字符处 |
-| ③ | 正反例替代元叙述：工具描述用 usage example，不用多段散文警告；执行文本不含维护者考古 | ❌ evidence 块 3 行散文警告；purpose 内嵌 `（demo fbdb6ebd 实录…）` `（实录：嵌套层 61 次 Read 全空）` 等考古 | `hooks/workflow_phase.py:336-355`；`dl-flow-engine.py:237,279-283` |
-| ④ | 一条规则说一次；多通道必须同源生成 | ❌ 子步骤 purpose 有两份异文副本：engine（注入）vs phase-rules.md（system-prompt）——症状 M/F 记录的「两通道措辞漂移」病根的现存病灶 | `dl-flow-engine.py:165-351` vs `scripts/workflow/phase-rules.md:30-35` |
+| ③ | 正反例替代元叙述：工具描述用 usage example，不用多段散文警告；执行文本不含维护者考古 | ❌ evidence 块 3 行散文警告；purpose 内嵌 `（demo fbdb6ebd 实录…）` `（实录：嵌套层 61 次 Read 全空）` 等考古 | `hooks/workflow_phase.py:336-355`；`dl_flow_engine.py:237,279-283` |
+| ④ | 一条规则说一次；多通道必须同源生成 | ❌ 子步骤 purpose 有两份异文副本：engine（注入）vs phase-rules.md（system-prompt）——症状 M/F 记录的「两通道措辞漂移」病根的现存病灶 | `dl_flow_engine.py:165-351` vs `scripts/workflow/phase-rules.md:30-35` |
 | ⑤ | 强调信号经济学：IMPORTANT/NEVER 用得越少越有效 | ⚠️ 单轮注入 ~15 处强信号，弱遵从模型习惯性忽略 | 实测注入全文 |
 | ⑥ | 给 rationale 防合理化绕过 | ✅ 已做好（如「相对路径会写到 worktree，hook 读不到」），保留 | `hooks/workflow_phase.py:357` |
 

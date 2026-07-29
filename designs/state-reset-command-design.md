@@ -5,7 +5,7 @@
 
 ## 1. 背景与目标
 
-现 `/dl step-reset <n>`（`dl-flow-engine.py reset_sub_step`）只能回退**当前节点内**的子步骤（明确「不改 phase/sub_index」），跨子阶段只有 `/dl back`——但 back 只挪指针，不清 evidence / 游标 / 产物，回溯重跑时旧证据残留会污染 judge 输入（`read_evidence_for_step` 喂前序 trace）与门控判定。
+现 `/dl step-reset <n>`（`dl_flow_engine.py reset_sub_step`）只能回退**当前节点内**的子步骤（明确「不改 phase/sub_index」），跨子阶段只有 `/dl back`——但 back 只挪指针，不清 evidence / 游标 / 产物，回溯重跑时旧证据残留会污染 judge 输入（`read_evidence_for_step` 喂前序 trace）与门控判定。
 
 `state-reset` = 定位任意历史节点 + **整体回滚**：state 指针、evidence 证据链、阶段产物一并作废，工作流回到「目标子步骤前一步刚完成」的干净状态。
 
@@ -65,7 +65,7 @@
 
 | 文件 | 改动 |
 |---|---|
-| `dl-flow-engine.py` | 新增 `reset_state()`；删 `reset_sub_step()`（逻辑被 reset_state 单节点分支吸收）；CLI `step-reset` 子命令改 `state-reset` |
+| `dl_flow_engine.py` | 新增 `reset_state()`；删 `reset_sub_step()`（逻辑被 reset_state 单节点分支吸收）；CLI `step-reset` 子命令改 `state-reset` |
 | `scripts/workflow/dl-cmd.sh` | case `step-reset)` 改 `state-reset)`，注释/usage 同步 |
 | `commands/dl.md` | description 用法串同步 |
 | `scripts/workflow/phase-rules.md` | §117 门栏提示 `/dl step-reset <n>` -> `/dl state-reset <n>` |

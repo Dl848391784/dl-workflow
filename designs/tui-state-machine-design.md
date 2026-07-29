@@ -1,7 +1,7 @@
-# dl-flow-engine 设计：TUI 原生 + 单源编排内核
+# dl_flow_engine 设计：TUI 原生 + 单源编排内核
 
 > 状态：设计中（2026-07-23 起）。本文件为 H8 Design-First 产物，也是工作流编排子系统重构的真源。
-> 对应实现（待建）：`dl-flow-engine.py`（一级目录）、`hooks/workflow_phase.py`（瘦化）、`hooks/workflow_advance.py`（瘦化 + 真 gate）。
+> 对应实现（待建）：`dl_flow_engine.py`（一级目录）、`hooks/workflow_phase.py`（瘦化）、`hooks/workflow_advance.py`（瘦化 + 真 gate）。
 > 替代/演进：`designs/workflow-system-design.md`（架构层不变，本文聚焦控制面重构）。
 
 ## 0. 背景与目标
@@ -28,7 +28,7 @@
 
 ### 0.3 目标
 
-1. **单源编排内核** `dl-flow-engine.py`（一级目录，最核心脚本）：节点树 + skill 映射 + gate 判据 + 推进逻辑**唯一真源**，hook 瘦化为"事件检测 -> 委托 engine"。
+1. **单源编排内核** `dl_flow_engine.py`（一级目录，最核心脚本）：节点树 + skill 映射 + gate 判据 + 推进逻辑**唯一真源**，hook 瘦化为"事件检测 -> 委托 engine"。
 2. **真门控**：每节点过 gate（机械项 + 语义项），机械不过短路 block、语语义过则推进。
 3. **可靠证据**：gate 过则 engine 直接写 evidence jsonl，绕过 transcript 解析脆层。
 4. **TUI 保留**：不弃交互式回合（用户补信息 + Edit 审批照常）。
@@ -57,7 +57,7 @@
 ## 2. 架构总览
 
 ```
-~/.dl-workflow/dl-flow-engine.py          ← 唯一真源（一级目录，最核心）
+~/.dl-workflow/dl_flow_engine.py          ← 唯一真源（一级目录，最核心）
   ├─ 节点树（大节点 + 子节点，数据化声明）
   │    每节点：{skill, gate_mech, gate_semantic_rubric, artifact}
   ├─ current_node(name) -> 读 state.json -> 当前节点定义
@@ -217,7 +217,7 @@ gate block(reason)
 |---|---|---|
 | `workflow_advance.py` (Stop) | **瘦化**：删 PHASES/GATED_AFTER/SUBPHASES 副本 + `_advance` 逻辑，委托 engine | 事件检测（读 transcript 取输出）-> `engine.run_gate()` -> pass 推进/block 续轮 |
 | `workflow_phase.py` (UserPromptSubmit) | **瘦化**：删副本，委托 engine.current_node | 注入当前节点 skill + 规则 + 完成判定 |
-| `dl-lib.sh` | **保留 state 读写**（bash 侧 wf-cmd 手动覆盖仍需），但**删 PHASES/GATED_AFTER/SUBPHASES 副本**，改调 `python3 dl-flow-engine.py <cmd>` | 手动 `/dl` 覆盖 + worktree/settings 管理 |
+| `dl-lib.sh` | **保留 state 读写**（bash 侧 wf-cmd 手动覆盖仍需），但**删 PHASES/GATED_AFTER/SUBPHASES 副本**，改调 `python3 dl_flow_engine.py <cmd>` | 手动 `/dl` 覆盖 + worktree/settings 管理 |
 | `dl-cmd.sh` | `next`/`back`/`jump`/`gate` 改调 engine CLI | 手动覆盖入口 |
 | `phase-rules.md` | 保留（append-system-prompt 行为约束） | 行为约束文本（与 engine 节点 skill 映射协同） |
 | `output-styles/workflow.md` | 保留 | 横幅 + TaskList 清单 |
@@ -247,7 +247,7 @@ gate block(reason)
 
 ## 8. 实施步骤（小 commit，守 H9）
 
-1. `dl-flow-engine.py` 骨架：节点树数据结构 + current_node/run_gate（机械项）+ advance + CLI（`python3 dl-flow-engine.py status|current|advance`）。纯库，无 hook 接入。单测节点树推导。
+1. `dl_flow_engine.py` 骨架：节点树数据结构 + current_node/run_gate（机械项）+ advance + CLI（`python3 dl_flow_engine.py status|current|advance`）。纯库，无 hook 接入。单测节点树推导。
 2. judge 接入：`run_judge`（stateless claude -p + JSON 输出）+ compound gate 短路。
 3. `workflow_advance.py` 瘦化：删副本，委托 engine.run_gate + additionalContext 续轮。冒烟验 Stop block 续轮（待确认项 #4）。
 4. `workflow_phase.py` 瘦化：删副本，委托 engine.current_node 注入。
@@ -257,7 +257,7 @@ gate block(reason)
 
 ## 8.1 实现状态（2026-07-23 完成，待续轮验证）
 
-§8.1-§8.6 全部落地（分支 `feat/dl-flow-engine`，未 push）。78 测试通过。唯一待验 = §7 #4 Stop 续轮端到端（用户真会话进行中）。
+§8.1-§8.6 全部落地（分支 `feat/dl_flow_engine`，未 push）。78 测试通过。唯一待验 = §7 #4 Stop 续轮端到端（用户真会话进行中）。
 
 ### gate 裁决记录 schema（§8.6 新机制，替代旧 ### EVIDENCE 溯源）
 

@@ -5,8 +5,8 @@
 
 ## 前置：当前未提交状态
 
-刚发布的 understand:1 验真门（4 文件改 + 1 design，未提交，在 `feat/dl-flow-engine` 分支）：
-- `dl-flow-engine.py`：understand:1.gate_rubric + `read_evidence()` + `rubric_needs_evidence()`
+刚发布的 understand:1 验真门（4 文件改 + 1 design，未提交，在 `feat/dl_flow_engine` 分支）：
+- `dl_flow_engine.py`：understand:1.gate_rubric + `read_evidence()` + `rubric_needs_evidence()`
 - `hooks/workflow_advance.py`：`_evidence_artifact()` + 两处 run_gate 传 artifact_content
 - `hooks/workflow_phase.py`：`_format_injection(state, project_root)` + trace 注入块
 - `tests/test_dl_flow_engine.py`：+11 例
@@ -19,7 +19,7 @@
 ### Commit 1：engine schema（Step + Node.sub_steps + state.sub_step_index）
 
 文件（3）：
-- `dl-flow-engine.py`
+- `dl_flow_engine.py`
 - `tests/test_dl_flow_engine.py`
 - `designs/node-step-orchestration-design.md`（标实施进度）
 
@@ -37,7 +37,7 @@
 - `sub_step_total`/`sub_step_rubrics` 对 None/有 steps 节点。
 - 全量现有测试不破（sub_steps=None 行为不变）。
 
-H15：改 `dl-flow-engine.py` 前先 `codegraph affected ~/.dl-workflow/dl-flow-engine.py` 留痕。
+H15：改 `dl_flow_engine.py` 前先 `codegraph affected ~/.dl-workflow/dl_flow_engine.py` 留痕。
 
 ### Commit 2：workflow_phase.py 注入子步骤清单
 
@@ -72,7 +72,7 @@ H15：改 `dl-flow-engine.py` 前先 `codegraph affected ~/.dl-workflow/dl-flow-
 ### Commit 4：understand:1 切换 + 删过渡形态
 
 文件（2）：
-- `dl-flow-engine.py`
+- `dl_flow_engine.py`
 - `tests/test_dl_flow_engine.py`
 
 改动：

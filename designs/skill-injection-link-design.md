@@ -9,7 +9,7 @@
 
 **实测确认（2026-07-23）：engine NODES.skill 是死字段——**
 
-- `dl-flow-engine.py:122` plan 节点 `skill="superpowers:using-superpowers"` 声明存在。
+- `dl_flow_engine.py:122` plan 节点 `skill="superpowers:using-superpowers"` 声明存在。
 - 但 `hooks/workflow_phase.py` `_format_injection`（195-297 行）**不消费 `node.skill`**，只拼 `PHASE_RULES` 的目标/允许/禁止文本，无任何 "invoke skill" 指令。
 - `scripts/workflow/phase-rules.md` / `output-styles/workflow.md` grep `using-superpowers`/`invoke`/`载入.*skill` **零匹配**。
 - => plan 的 skill 字段声明了没人读；模型是否载 `using-superpowers` 靠模型自选 / CLAUDE.md §2，非 engine 驱动。
@@ -28,7 +28,7 @@
 |---|---|---|---|
 | 1 | `~/.dl-workflow/designs/skill-injection-link-design.md` | 本文（H8） | 本 commit |
 | 2 | `~/.claude/skills/define-problem/SKILL.md` | copy 自 github `drmarceloclipi-star/define-problem` | 重启会话 |
-| 3 | `~/.dl-workflow/dl-flow-engine.py:81` | `NODES["understand:1"].skill: None -> "define-problem"` | 下轮注入（hook 跑源，无需 install） |
+| 3 | `~/.dl-workflow/dl_flow_engine.py:81` | `NODES["understand:1"].skill: None -> "define-problem"` | 下轮注入（hook 跑源，无需 install） |
 | 4 | `~/.dl-workflow/hooks/workflow_phase.py` `_format_injection` | 加 skill 注入分支（通用） | 下轮注入（hook 跑源） |
 
 ## 3. 注入分支设计（核心）
@@ -57,7 +57,7 @@ if node_skill:
 
 - **H8**：本文先于改 2 文件（engine + phase hook）。
 - **H9**：分 commit（design / 装 skill / engine / phase hook / 验证），每 ≤3 文件。
-- **H15**：改 `dl-flow-engine.py` + `workflow_phase_phase.py` 前先 `codegraph impact` 留痕（dl-workflow .py 弱门禁：挡零查询不挡查错 symbol）。
+- **H15**：改 `dl_flow_engine.py` + `workflow_phase_phase.py` 前先 `codegraph impact` 留痕（dl-workflow .py 弱门禁：挡零查询不挡查错 symbol）。
 - **no silent fallback**：`get_node` 非法节点 raise（engine 已守，line 197）；注入侧 try/except 降级不阻断。
 - **verify before claiming done**：新建工作流真实验证 skill 真载入。
 

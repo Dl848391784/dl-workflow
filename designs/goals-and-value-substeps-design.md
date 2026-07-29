@@ -124,7 +124,7 @@ judge 调用 4 次（子5 gate=None）。按失效模式族拆步：子2=结构�
 
 ## 6. 实施 checklist（改编排必过，症状 M + §3.7）
 
-1. `dl-flow-engine.py`：`understand:2` Node 加 `sub_steps`（5 个 Step 定义，含 short/purpose/input/record/gate/fence_allow/selfcheck）；形式要件单源常量（`_STEP*_FORM_REQUIREMENTS` 同构）；**自查 checklist 只列已披露形式要件**（test_selfcheck_no_quality_criteria_leak 同构钉死）
+1. `dl_flow_engine.py`：`understand:2` Node 加 `sub_steps`（5 个 Step 定义，含 short/purpose/input/record/gate/fence_allow/selfcheck）；形式要件单源常量（`_STEP*_FORM_REQUIREMENTS` 同构）；**自查 checklist 只列已披露形式要件**（test_selfcheck_no_quality_criteria_leak 同构钉死）
 2. `hooks/workflow_phase.py` `_format_injection`：**预期无需改**（子步骤清单动态读 Step.purpose）——冒烟验证
 3. `scripts/workflow/phase-rules.md`：understand:2 段 GENERATED 标记段（launcher 渲染自动同步）+ 静态强制语义（写 evidence 是 STEP_DONE 前置/输完即 end_turn）
 4. `skills/workflow-creation/SKILL.md`：§0 子步骤摘要（understand:2 5 步）+ 版本标注

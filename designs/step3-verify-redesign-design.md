@@ -6,7 +6,7 @@
 
 ## 0. 动因：现版子3 的四类失效无防御
 
-现版子3（`dl-flow-engine.py` understand:1 sub_step 3）是单步「搜证据」，第一性原理推导出的 7 种验真失效模式中 4 种无机制防御：
+现版子3（`dl_flow_engine.py` understand:1 sub_step 3）是单步「搜证据」，第一性原理推导出的 7 种验真失效模式中 4 种无机制防御：
 
 | # | 失效模式 | 现版 | 外部实证 |
 |---|---|---|---|
@@ -86,7 +86,7 @@
 
 ## 5. 实施 checklist（改编排必过，症状 M + evidence schema 6 处）
 
-1. `dl-flow-engine.py`：原子3 Step 替换为 2 个 Step（子5/6 顺移）
+1. `dl_flow_engine.py`：原子3 Step 替换为 2 个 Step（子5/6 顺移）
 2. `hooks/workflow_phase.py` `_format_injection`：注入模板子步骤清单 + trace JSON 示例
 3. `scripts/workflow/phase-rules.md`：understand:1 段完成标记 + 强制语义（system-prompt 通道，漏改必打架）
 4. `output-styles/workflow.md`：清单 subject 契约（如需）

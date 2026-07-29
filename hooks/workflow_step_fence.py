@@ -29,7 +29,6 @@ sed -i）无法可靠判定写意图，不在围栏内（phase-rules 文案仍�
 deny 留痕 <project>/.claude/.wf_fence.log（观测性）。
 """
 
-import importlib.util
 import json
 import re
 import subprocess
@@ -37,13 +36,10 @@ import sys
 import time
 from pathlib import Path
 
+# repo 根不在 sys.path（hook 以脚本方式执行），先补再 import。
 _DLWF_ROOT = Path(__file__).resolve().parents[1]  # ~/.dl-workflow/
-_spec = importlib.util.spec_from_file_location(
-    "dl_flow_engine", _DLWF_ROOT / "dl-flow-engine.py"
-)
-engine = importlib.util.module_from_spec(_spec)  # type: ignore[arg-type]
-sys.modules["dl_flow_engine"] = engine  # dataclass 探测类型注解要查此表
-_spec.loader.exec_module(engine)  # type: ignore[union-attr]
+sys.path.insert(0, str(_DLWF_ROOT))
+import dl_flow_engine as engine  # noqa: E402
 
 
 def _resolve_project_root(cwd: str) -> Path | None:
@@ -131,7 +127,7 @@ def _s15_bash_orchestration(cmd: str, ev_file: Path) -> bool:
         return True
     if str(ev_file) in cmd:
         return True
-    if "dl-flow-engine.py" in cmd and (
+    if "dl_flow_engine.py" in cmd and (
         "append-trace" in cmd or "redteam-prompt" in cmd
     ):
         return True
@@ -240,7 +236,7 @@ def main() -> int:
             return _deny(
                 "evidence 落库走 append-trace（你定内容，脚本管格式/路径/结构字段）：\n"
                 f'① Write 载荷 {{"purpose":...,"q":[...],"a":[...]}} 到 {payload_path}\n'
-                "② Bash `python3 ~/.dl-workflow/dl-flow-engine.py append-trace "
+                "② Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace "
                 f"--from-file {payload_path}`\n"
                 "直写 evidence jsonl（含覆盖/编辑旧行）一律禁止——修正旧记录的方式是"
                 "用 append-trace 追加新行（judge 以最后一条为准）。"
@@ -281,7 +277,7 @@ def main() -> int:
                 return _deny(
                     "evidence 落库走 append-trace（脚本管路径/格式，相对路径事故不存在）：\n"
                     f"① Write 载荷到 {project_root}/.claude/evidence/.trace-payload-{name}.json\n"
-                    "② Bash `python3 ~/.dl-workflow/dl-flow-engine.py append-trace "
+                    "② Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace "
                     "--from-file <载荷>`"
                 )
         if not _s15_allowed(tool, ti, ev_file, step_obj, cwd):

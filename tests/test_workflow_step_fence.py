@@ -260,8 +260,8 @@ class TestS15EngagePreFence:
         _write_state(wf_repo, sub_step=1)
         mod = _load_hook()
         for cmd in (
-            "python3 ~/.dl-workflow/dl-flow-engine.py append-trace --from-file /tmp/p.json",
-            "python3 ~/.dl-workflow/dl-flow-engine.py redteam-prompt",
+            "python3 ~/.dl-workflow/dl_flow_engine.py append-trace --from-file /tmp/p.json",
+            "python3 ~/.dl-workflow/dl_flow_engine.py redteam-prompt",
         ):
             decision, _ = _run_hook(
                 mod, wf_repo, monkeypatch, capsys, "Bash", {"command": cmd}

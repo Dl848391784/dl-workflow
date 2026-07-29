@@ -35,7 +35,7 @@ WF_WT_ROOT="$WF_REPO_ROOT/.claude/worktrees"
 # 不再各持 PHASES/GATED_AFTER/SUBPHASES 副本（避免三处同步）。source 时调 engine
 # meta 取一次常量缓存到 bash 变量。engine 是真源,bash 仅为显示/手动覆盖用。
 # engine 路径：dl-workflow 一级目录（与 scripts/workflow/ 同级）。
-WF_ENGINE="$(cd "$WF_LIB_DIR/../.." && pwd)/dl-flow-engine.py"
+WF_ENGINE="$(cd "$WF_LIB_DIR/../.." && pwd)/dl_flow_engine.py"
 if [ -f "$WF_ENGINE" ]; then
   _meta_json="$(python3 "$WF_ENGINE" meta 2>/dev/null || echo '{}')"
   # 解析到 bash 数组/变量（python 一次产出,避免每函数都起进程）。
@@ -47,7 +47,7 @@ if [ -f "$WF_ENGINE" ]; then
   # phase_labels / subphases 按需查（函数内 python 取,避免大 declare）。
 else
   # engine 缺失（dl-workflow 损坏）-> 退化为空,各函数返回空串（no silent fallback：不假数据）。
-  echo "⚠ dl-flow-engine.py 缺失（$WF_ENGINE），阶段常量不可用。" >&2
+  echo "⚠ dl_flow_engine.py 缺失（$WF_ENGINE），阶段常量不可用。" >&2
   WF_PHASES=()
   WF_GATED_AFTER=""
 fi

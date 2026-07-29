@@ -68,7 +68,7 @@
 
 ## 5. 实施 checklist（改编排必过，症状 M；本次只改文案不动步骤数/机械层，风险低于子3/子4 拆步）
 
-1. `dl-flow-engine.py`：子4 purpose+gate 加④处置；子5 purpose/gate 重写；子6 purpose 重写（gate=None、record=True 不动）
+1. `dl_flow_engine.py`：子4 purpose+gate 加④处置；子5 purpose/gate 重写；子6 purpose 重写（gate=None、record=True 不动）
 2. `hooks/workflow_phase.py` `_format_injection`：**无需改**——子步骤清单动态读 `Step.purpose`，engine 文案自动流入注入通道（本次无结构变更）
 3. `scripts/workflow/phase-rules.md`：子步骤4 行加④处置；**补子步骤5/6 行**（上次拆步漏补，system-prompt 通道只有子1-4 描述）
 4. `skills/workflow-creation/SKILL.md`：§0 子步骤清单更新子5/6 描述 + v2.8 标注；修「record 子步骤（子1/2/3）」残留（现 6 步全 record=True）

@@ -137,7 +137,7 @@ understand 拆 4 子阶段（1.理解问题和背景 / 2.明确目标和价值 /
 **新机制（designs/tui-state-machine-design.md §8.6 + §step-advance-on-submit）**：evidence.jsonl 现有两类记录同文件：
 1. **gate 裁决**（engine.write_gate_verdict）：`kind=gate`，字段 node/phase/gate=passed/gate_mech/rubric/attempts/commit_sha + **major_stage/minor_stage**（2026-07-27 起，与 skill-trace 结构字段对齐；取值单源 node.phase/node.minor_key，整阶段节点 minor_stage=null）。block 不写（重试计数在 state.node_attempts，pass 时一并记入）。
 2. **skill-trace**（模型写，子步骤编排用）：`kind=skill-trace`，字段 `major_stage`(phase 英文首字母大写，如 Understand) / `minor_stage`(子阶段英文标识，首字母大写驼峰，如 ProblemContext) / `sub_step`(数字) / `skill`(子步骤调用的 skill/工具，Step.ref，模型照抄注入给的当前值) / `purpose` / `q`(字符串数组) / `a`(字符串数组，与 q 按序对齐)。Stop hook 门控时读此找当前 `sub_step==N` 的最新记录（hash 比对触发，症状 J/K/L）。展示用 `dl evidence show <name>`（英文标识转中文，映射 single source 在 engine）。
-两类都在主仓库 `<项目>/.claude/evidence/<name>.jsonl`。skill-trace **v2.14 起走 `append-trace`**：模型 Write 载荷（仅 purpose/q/a）到 `.claude/evidence/.trace-payload-<name>.json`，再 Bash `dl-flow-engine.py append-trace --from-file <载荷>`——结构字段（kind/major_stage/minor_stage/sub_step/skill）脚本从 state 填、格式/路径归脚本，手写 JSONL 的 5 类事故（相对路径/覆盖/合并行/写碎/结构字段抄错）根治；直写 jsonl 被 S14 围栏 deny（v2.14 收编）。旧「模型手写绝对路径」写法仅作历史（症状 L）。
+两类都在主仓库 `<项目>/.claude/evidence/<name>.jsonl`。skill-trace **v2.14 起走 `append-trace`**：模型 Write 载荷（仅 purpose/q/a）到 `.claude/evidence/.trace-payload-<name>.json`，再 Bash `dl_flow_engine.py append-trace --from-file <载荷>`——结构字段（kind/major_stage/minor_stage/sub_step/skill）脚本从 state 填、格式/路径归脚本，手写 JSONL 的 5 类事故（相对路径/覆盖/合并行/写碎/结构字段抄错）根治；直写 jsonl 被 S14 围栏 deny（v2.14 收编）。旧「模型手写绝对路径」写法仅作历史（症状 L）。
 
 
 **验证 gate 裁决记录落地**：跑一轮让模型过 gate（如完成 understand:4 写 understand.md 后输出 `### PHASE_DONE: understand`），看：
@@ -145,7 +145,7 @@ understand 拆 4 子阶段（1.理解问题和背景 / 2.明确目标和价值 /
 - `<项目>/.claude/evidence/<name>.jsonl` 是否新增一行 `{"kind":"gate",...}`
 - 非该节点（无 gate_mech/gate_rubric 的子阶段）不写记录是正常的
 
-**旧系统残留引用**（designs/evidence-chain-design.md 整文档描述旧系统，已 deprecated；本文档顶部全景图已更新为 4 hook + dl-flow-engine）。
+**旧系统残留引用**（designs/evidence-chain-design.md 整文档描述旧系统，已 deprecated；本文档顶部全景图已更新为 4 hook + dl_flow_engine）。
 
 **扩 evidence schema 时的 6 处同步清单**（每次改字段/新增记录 kind 前对照，漏一处即产生"模型按新写、gate 按旧验"半状态期）：
 
@@ -153,7 +153,7 @@ understand 拆 4 子阶段（1.理解问题和背景 / 2.明确目标和价值 /
 |---|---|---|
 | 1 | `hooks/workflow_phase.py` `_format_injection` | 注入模板里的 JSON 示例（模板行 + ✓正例/✗反例，模型每轮看到的写法契约） |
 | 2 | `scripts/workflow/phase-rules.md` | phase-rules 里 evidence 写法示例（output-style，与注入互为补路径） |
-| 3 | `dl-flow-engine.py` `sub_step_has_trace` / 其它 evidence 校验函数 | 匹配字段 + docstring；**校验松匹配原则**：只匹 `kind + 关键定位字段`（如 sub_step），不校验其它字段结构 -> 加字段/改子结构不 crash（旧数据能读、新数据能验） |
+| 3 | `dl_flow_engine.py` `sub_step_has_trace` / 其它 evidence 校验函数 | 匹配字段 + docstring；**校验松匹配原则**：只匹 `kind + 关键定位字段`（如 sub_step），不校验其它字段结构 -> 加字段/改子结构不 crash（旧数据能读、新数据能验） |
 | 4 | `designs/step-advance-on-submit-design.md` §E4 / 相关设计文档 | 契约文本（H8 真源） |
 | 5 | `skills/workflow-creation/SKILL.md`（本文件）| 症状 I 里的字段清单（问题排查读物） |
 | 6 | `tests/test_dl_flow_engine.py` fixture | 至少一个新格式测例；旧格式测例保留一个作兼容回归（如 `test_old_step_field_ignored`） |
@@ -300,12 +300,12 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 **典型翻车**（session 5c00dde1）：编排改用 STEP_DONE，但 phase-rules 还说用 SUB_DONE -> 模型按 SUB_DONE 走，STEP_DONE 门控失效。
 
 **改编排 checklist**（每次改 engine sub_steps / gate 语义都过一遍）：
-1. `dl-flow-engine.py`：Node.sub_steps / Step.gate / advance 逻辑
+1. `dl_flow_engine.py`：Node.sub_steps / Step.gate / advance 逻辑
 2. `workflow_phase.py`：`_format_injection` 的当前步块 + 骨架链 + 完成标记格式
 3. `workflow_advance.py`：Stop 检测的完成信号（若变）
 4. **`scripts/workflow/phase-rules.md`**（v2.12 起为模板）：子步骤 purpose 段是 GENERATED 标记（launcher 渲染，**改 engine Step.purpose 自动同步，无需手改**）；手维护范围只剩静态强制语义（围栏/invoke 时序/完成标记）-- 这些仍是**最易漏**项，system-prompt 通道优先级最高，漏改必打架
 5. **`output-styles/workflow.md`**：显示层契约（清单 subject 写法/横幅格式/建齐规则）-- 同为模型强遵从通道；改注入里 TaskList/横幅相关文案时漏改它，会出现"两通道措辞歧义 -> 模型解读随会话漂移"（症状 F 编号实例，commit 5215b63）
-6. 冒烟：拿真 worktree + 真 state 跑 `_format_injection` 看注入结构；跑 `dl-flow-engine.py render-phase-rules scripts/workflow/phase-rules.md` 看渲染产物（子步骤段应与 engine purpose 逐字一致）
+6. 冒烟：拿真 worktree + 真 state 跑 `_format_injection` 看注入结构；跑 `dl_flow_engine.py render-phase-rules scripts/workflow/phase-rules.md` 看渲染产物（子步骤段应与 engine purpose 逐字一致）
 7. **新增/移动编排节点或门栏专项**（2026-07-27 GoalsAndValue + 门栏迁移 + ScopeAndConstraints 三轮沉淀）：
    - **共享 evidence 串号防御**：第二个编排节点起，sub_step 都从 1 起——trace 匹配层（`_iter_trace_segments` 一族 + `reset_state` + `redteam_prompt`）必须按 minor_stage 过滤，否则 ProblemContext 子1 的 trace 被新节点门控误读（门控误判/S15 窗口错位/state-reset 误删他节点留痕）。
    - **新开通的推进路径必须有 pinning**：「路径第一次真正走到」是 latent bug 温床——advance_state 跨节点不重置 sub_step_index 藏了一个版本（此前无害纯因下一节点无编排），门栏移走后路径首次开通即爆（normalize_state 越界卡死）。改动让某条推进路径从「走不到」变「走得到」时，先写该路径的 pinning 测试。（2026-07-28 又一实例：门栏撤除开通 understand:4→plan:1 **跨阶段**续轮路径，workflow_advance 续轮分支 `get_node(cur_phase, new_sub)` 拿**推进前** phase 查**推进后**节点，首走即错查 understand:1——凡「拿推进前 state 查推进后节点」的查找都是嫌疑点。）

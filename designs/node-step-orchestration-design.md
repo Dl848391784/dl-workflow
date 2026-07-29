@@ -34,7 +34,7 @@
 
 | # | 决策 | 理由 |
 |---|---|---|
-| D1 | **声明式编排**（engine 声明 sub_steps，模型按序执行），非进程驱动 | 守 engine 定位（`dl-flow-engine.py:9-12`：编排者非进程驱动；主流程回合由 TUI+Stop 驱动） |
+| D1 | **声明式编排**（engine 声明 sub_steps，模型按序执行），非进程驱动 | 守 engine 定位（`dl_flow_engine.py:9-12`：编排者非进程驱动；主流程回合由 TUI+Stop 驱动） |
 | D2 | **按需开启**：`Node.sub_steps=None` = 无编排（当前行为，多数节点）；非 None 才启用 | 避免给所有节点强加序列；只给「天然有序列」的节点 |
 | D3 | **子步骤目的注入走 phase-rules 通道**（system-prompt），非 `additionalContext` | `skill-injection-link-design.md` §7 实测：additionalContext 附件 ark-code-latest 收不到（症状 D）；phase-rules 能收到 |
 | D4 | **目的「遵守」靠 gate 兜底**，不靠注入自觉 | §skill-injection-link §8 实测：prose 级目的被当可选忽略；只有「强制语义 + 事后 gate 校验」才可靠。注入引导，门控保证 |

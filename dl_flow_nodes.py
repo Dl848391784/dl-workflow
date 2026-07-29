@@ -2,10 +2,10 @@
 """
 dl_flow_nodes - 工作流节点树（声明式数据，唯一真源）。
 
-自 dl-flow-engine.py 抽出（2026-07-27）：节点树（GateMech/Step/Node + _NODES +
+自 dl_flow_engine.py 抽出（2026-07-27）：节点树（GateMech/Step/Node + _NODES +
 PHASES）是声明式数据——加节点/改判据只改数据不改逻辑（design §0.2），且每个
 编排节点 300-600 行 Step 定义、增长高频；机制逻辑（state/推进/gate/judge/
-围栏/CLI）留在 dl-flow-engine.py，经 `from dl_flow_nodes import ...` 引用并
+围栏/CLI）留在 dl_flow_engine.py，经 `from dl_flow_nodes import ...` 引用并
 re-export（hooks/tests 经 engine.* 访问面不变）。
 
 对应 designs/tui-state-machine-design.md §3。
@@ -487,7 +487,7 @@ _NODES: dict[str, Node] = {
                     "「10/10 pass」式汇总声明不算记录；"
                     "②条件触发对抗复核——verdict 决定大方向/大改动、或证据相互冲突时，"
                     "起独立红队子代理尝试推翻初步结论（独立上下文，只给证据不给结论）："
-                    "用 `python3 ~/.dl-workflow/dl-flow-engine.py redteam-prompt` 生成红队 "
+                    "用 `python3 ~/.dl-workflow/dl_flow_engine.py redteam-prompt` 生成红队 "
                     "prompt（自动携带子1-3 证据+对抗纪律），Agent 工具单发起，"
                     "禁止手拼 prompt；触发条件写死，不得自定义「不需要复核」豁免；"
                     "③四态结论合成——证实/证伪/部分成立/证据不足（证据不足是合法结论）"

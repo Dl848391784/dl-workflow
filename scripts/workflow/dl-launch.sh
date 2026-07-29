@@ -169,7 +169,7 @@ PHASE_RULES_TEMPLATE="$LIB_DIR/phase-rules.md"
 SYS_PROMPT_ARGS=()
 if [ -f "$PHASE_RULES_TEMPLATE" ]; then
   PHASE_RULES_RENDERED="$WF_META_ROOT/$WF_NAME/phase-rules.rendered.md"
-  if ! python3 "$LIB_DIR/../../dl-flow-engine.py" render-phase-rules "$PHASE_RULES_TEMPLATE" > "$PHASE_RULES_RENDERED"; then
+  if ! python3 "$LIB_DIR/../../dl_flow_engine.py" render-phase-rules "$PHASE_RULES_TEMPLATE" > "$PHASE_RULES_RENDERED"; then
     echo "✗ phase-rules 渲染失败（见上方错误），中止启动" >&2
     exit 1
   fi

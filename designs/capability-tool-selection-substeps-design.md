@@ -1,7 +1,7 @@
 # plan:3「选择能力与工具」子步骤编排设计（CapabilityToolSelection）
 
 > 状态：**已实现（v2.20，2026-07-28）**——§6 checklist 全项落地：plan:3 Node（6 步）+ plan:2 advance phase→sub + phase-rules plan:3 段 + skill 摘要块（关键不对称第七种）+ 401 tests 全绿 + 注入三态/render 冒烟通过。机制走查④结论：`phase_done_channel_open` 对 advance="sub" 恒 False（engine:584），plan:2 改 sub 后 `artifact_on_release` 不被读取（不再显式声明）；plan:3 放行后第三态文案走 artifact_on_release=False 分支（「plan.md已在末子步骤装配完成」）冒烟验证正确。遗留：真实 TTY 全轮跑（隔离测试语义的第一轮实测）待用户发起 dl 实例验证。
-> 确认史（2026-07-28 用户三连决议）：①会话确认 **6 步**结构；②**hold_for_gate 加**——隔离测试语义，同 understand:3/4、plan:1/2 先例，门栏变六处；③**gate_mech 保持 ARTIFACT_EXISTS**——补查发现 `gate_verdict_mech` 机械门**全类型未实现**（dl-flow-engine.py:409-418 一律 return None，「暂不实现文件查找，留 §8.3」），ARTIFACT_CONTAINS 无现成文件查找可挂，新机制路径连带 ARTIFACT_EXISTS 的 TODO 一起做属独立项；能力节落地 guard = 子5 judge 验五字段 + 禁二次创作 + 用户读回 + S13/S15 围栏，同 plan:2 风险 #8 论证
+> 确认史（2026-07-28 用户三连决议）：①会话确认 **6 步**结构；②**hold_for_gate 加**——隔离测试语义，同 understand:3/4、plan:1/2 先例，门栏变六处；③**gate_mech 保持 ARTIFACT_EXISTS**——补查发现 `gate_verdict_mech` 机械门**全类型未实现**（dl_flow_engine.py:409-418 一律 return None，「暂不实现文件查找，留 §8.3」），ARTIFACT_CONTAINS 无现成文件查找可挂，新机制路径连带 ARTIFACT_EXISTS 的 TODO 一起做属独立项；能力节落地 guard = 子5 judge 验五字段 + 禁二次创作 + 用户读回 + S13/S15 围栏，同 plan:2 风险 #8 论证
 > 父文档：`node-step-orchestration-design.md`（子步骤编排机制）、`task-breakdown-substeps-design.md`（最近范式 + plan:2 产物即本节点输入）、`design-solution-substeps-design.md`（编程工作流定位 + 消费契约倒推锚点法）、`scope-and-constraints-substeps-design.md`（本地单层源压缩原则）、`workflow-creation` SKILL.md §3.5（rubric 方法论）/ §3.8（拆步方法论）
 > 外部取证：本文 §4（Tavily 检索，2026-07-28，设计期调研——用户明示允许；与运行期 understand:1 子3「禁 tavily/WebSearch」约束无关）
 
@@ -134,7 +134,7 @@ judge 调用 5 次（子6 gate=None）。
 - **judge 不判「选得更好」**——只判「追溯真实 + 出处真实 + 最小集 + 可用性核验真做 + 只提案未拍板」。选型优劣的真值源只有用户（子6）。
 - **判据合法获取路径**（#7）：子1/2/4 fence_allow=("Bash",) + 常驻集 Read/codegraph；子3 fence_allow=("Agent",)（红队合法通道）——每条判据要求的佐证都存在低成本合法获取路径，不逼编造。
 - **消费契约倒推**（锚点法第五次使用）：能力包五字段倒推自 execute:0/using-superpowers/H15+执行映射/Agent 成本决策/overload 防线五方需求（§0 表）——缺任一字段，下游就得临时找补（缺① executor 靠训练记忆选 skill = C1 温床；缺③ 执行映射条目到不了任务现场；缺⑤ 过载防线失守）。
-- **plan.md 机械门**（同 plan:2）：静态路径 ARTIFACT_EXISTS 保留（声明式兜底）；**注意机械门当前全类型未实现**（`gate_verdict_mech` dl-flow-engine.py:409-418 一律 return None，文件查找留 §8.3）——实际 guard = 子5 judge 验五字段（装配无新增内容可错）+ 子6 禁二次创作 + 用户读回 + S13/S15 围栏（同 plan:2 风险 #8 论证）；ARTIFACT_CONTAINS（节存在检查）已否决，见 §5 #9。**gate_rubric 置 None**（understand:4/plan:2 先例第三次）：语义全部下沉逐步 gate，大闸门只跑机械门。
+- **plan.md 机械门**（同 plan:2）：静态路径 ARTIFACT_EXISTS 保留（声明式兜底）；**注意机械门当前全类型未实现**（`gate_verdict_mech` dl_flow_engine.py:409-418 一律 return None，文件查找留 §8.3）——实际 guard = 子5 judge 验五字段（装配无新增内容可错）+ 子6 禁二次创作 + 用户读回 + S13/S15 围栏（同 plan:2 风险 #8 论证）；ARTIFACT_CONTAINS（节存在检查）已否决，见 §5 #9。**gate_rubric 置 None**（understand:4/plan:2 先例第三次）：语义全部下沉逐步 gate，大闸门只跑机械门。
 - **judge 输入面**（#11）：子1 gate 的佐证走 evidence 路径——plan.md 文件 judge 读不到，需求原文必须引用进子1 trace 正文；rubric 文本含 `evidence/` 关键词触发 `rubric_needs_evidence`（plan:1 §3 实现注同款教训）。
 
 ## 4. 外部实证出处（2026-07-28 Tavily 取证留痕）
@@ -157,7 +157,7 @@ judge 调用 5 次（子6 gate=None）。
 6. **节点级 gate_rubric 保留语义审据**——否（understand:4/plan:2 先例第三次）：语义下沉逐步 gate，大闸门只跑 ARTIFACT_EXISTS 机械门。
 7. **hold_for_gate 不加**——否（2026-07-28 用户决议加）：沿用 understand:3/4、plan:1/2 隔离测试语义先例，plan 第三个编排节点跑完被围栏围住。代价（多一次 /dl gate）已知情接受。门栏六处：understand:2/3/4 + plan:1/2/3。
 8. **能力包写进独立文件（capabilities.md）而非追加 plan.md**——否：execute:0 消费契约 = 单 plan.md 直读；拆文件 = 执行者两处对齐，漂移温床（TaskBreakdown 消费契约倒推原则）。且独立文件若为动态名会复现 plan:1 机械门限制，无收益。
-9. **新增 GateMech.ARTIFACT_CONTAINS（机械门检查「能力与工具」节存在）**——否（2026-07-28 用户决议）：补查发现 `gate_verdict_mech` 机械门**全类型未实现**（dl-flow-engine.py:409-418 一律 return None，「暂不实现文件查找，留 §8.3」）——ARTIFACT_CONTAINS 无现成文件查找可挂，等于连带实现 ARTIFACT_EXISTS 的 TODO，属独立项不在本设计范围；能力节落地 guard 链（子5 judge + 禁二次创作 + 用户读回 + 围栏）已覆盖该缺口（同 plan:2 风险 #8）。
+9. **新增 GateMech.ARTIFACT_CONTAINS（机械门检查「能力与工具」节存在）**——否（2026-07-28 用户决议）：补查发现 `gate_verdict_mech` 机械门**全类型未实现**（dl_flow_engine.py:409-418 一律 return None，「暂不实现文件查找，留 §8.3」）——ARTIFACT_CONTAINS 无现成文件查找可挂，等于连带实现 ARTIFACT_EXISTS 的 TODO，属独立项不在本设计范围；能力节落地 guard 链（子5 judge + 禁二次创作 + 用户读回 + 围栏）已覆盖该缺口（同 plan:2 风险 #8）。
 
 ## 6. 实施 checklist（改编排必过，症状 M + §3.7 + §3.8 #6 机制走查）
 

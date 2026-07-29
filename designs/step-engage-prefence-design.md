@@ -144,7 +144,7 @@ S15 与 S10 同属「子步骤围栏」族（dl-cmd fence on|off 注释已写「
 
 ## 4. 实施 checklist（症状 M）
 
-1. `dl-flow-engine.py`：Step.fence_allow + understand:1 六步声明 + `engagement_fence_state()`
+1. `dl_flow_engine.py`：Step.fence_allow + understand:1 六步声明 + `engagement_fence_state()`
 2. `hooks/workflow_step_fence.py`：S15 白名单判定（S10 检查之前，两态互斥）
 3. `hooks/workflow_phase.py` `_format_injection`：子步骤块加前置围栏提示行
 4. `scripts/workflow/phase-rules.md`：硬围栏段补 S15 语义（system-prompt 通道）

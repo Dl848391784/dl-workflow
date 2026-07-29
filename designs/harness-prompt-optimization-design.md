@@ -11,7 +11,7 @@ ProblemContext 中途（understand:1 子步骤3）用真实 state 调 `_format_i
 
 - **每轮注入 6,100 字符 ≈ 4,200 token**，其中 **64%（~3,900 字符）是 6 个子步骤 purpose 全文**——静态内容每轮逐字重发（demo 121320fe 实录 48 轮/次 ProblemContext ≈ 20 万新鲜输入 token 仅注入一项）
 - 「当前步」信号 = 埋在列表第 ~2,600 字符处的 `【当前】` 行尾标记（违反关键信息置顶）
-- 子步骤 purpose 有**两份异文手维护副本**：engine（注入通道，`dl-flow-engine.py:165-351`）vs phase-rules.md（system-prompt 通道，`phase-rules.md:30-35`）——症状 M/F 记录的「两通道措辞漂移」病根的现存病灶
+- 子步骤 purpose 有**两份异文手维护副本**：engine（注入通道，`dl_flow_engine.py:165-351`）vs phase-rules.md（system-prompt 通道，`phase-rules.md:30-35`）——症状 M/F 记录的「两通道措辞漂移」病根的现存病灶
 - purpose/gate 字符串内嵌维护者考古（`（demo fbdb6ebd 实录…）` `（实录：61 次 Read 全空）`），执行模型/judge 不需要，且 judge 输入随 rubric 线性增长（SKILL.md 已记子1 ~3k → 子5 ~19k caveat）
 - evidence 格式块用 3 行散文警告（占位符/字段解释/数组对齐），无正反例
 - 单轮注入强信号 ~15 处（禁止×4/必×6/强制×2/违规×2/⚠️/🚧），弱遵从模型习惯性忽略
@@ -69,10 +69,10 @@ ProblemContext 中途（understand:1 子步骤3）用真实 state 调 `_format_i
 - `phase-rules.md` 转为**模板**：6 条「子步骤N = …」bullet 行替换为标记段：
   ```
   <!-- BEGIN GENERATED sub_steps understand:1 -->
-  （本段由 dl-launch.sh 调 dl-flow-engine.py render-phase-rules 生成，手改会被覆盖）
+  （本段由 dl-launch.sh 调 dl_flow_engine.py render-phase-rules 生成，手改会被覆盖）
   <!-- END GENERATED sub_steps understand:1 -->
   ```
-- engine 新增 CLI：`python3 dl-flow-engine.py render-phase-rules <模板路径>`——读模板，把每个 BEGIN/END 标记段替换为对应节点 sub_steps 的渲染行（`- **子步骤N = <ref>**：<purpose 全文>`），全文写 stdout。模板无标记段 = 原样输出（向后兼容）。
+- engine 新增 CLI：`python3 dl_flow_engine.py render-phase-rules <模板路径>`——读模板，把每个 BEGIN/END 标记段替换为对应节点 sub_steps 的渲染行（`- **子步骤N = <ref>**：<purpose 全文>`），全文写 stdout。模板无标记段 = 原样输出（向后兼容）。
 - `dl-launch.sh`：exec claude 前渲染到 per-wf 目录 `$WF_META_ROOT/phase-rules.rendered.md`，`--append-system-prompt-file` 改指渲染产物。**渲染失败（非零退出）→ 中止启动并显示 stderr**（fail loud，no silent fallback；不回退用未渲染模板——标记裸露会误导模型）。
 - 渲染行只含 engine 内容（ref + purpose）；phase-rules 里该段的**运维规则**（invoke 时序「横幅后立即 invoke 不得并行」、围栏说明、evidence 强制、门控升级）留在模板静态部分——它们不是 purpose，不进 engine。
 
@@ -116,7 +116,7 @@ ProblemContext 中途（understand:1 子步骤3）用真实 state 调 `_format_i
 
 ## 5. 实施 checklist（症状 M 六处同步 + 验证）
 
-1. `dl-flow-engine.py`：Step 加 `short` 字段 + 6 步短名；P2 文本清理（考古→注释）；新增 `render-phase-rules` CLI；`_cmd_current` 输出加 short
+1. `dl_flow_engine.py`：Step 加 `short` 字段 + 6 步短名；P2 文本清理（考古→注释）；新增 `render-phase-rules` CLI；`_cmd_current` 输出加 short
 2. `hooks/workflow_phase.py`：`_format_injection` P0 重排 + P2 evidence 正反例块
 3. `scripts/workflow/phase-rules.md`：6 条子步骤 bullet → GENERATED 标记段；invoke 时序等运维规则收编到静态段
 4. `scripts/workflow/dl-launch.sh`：exec 前渲染（失败中止启动）

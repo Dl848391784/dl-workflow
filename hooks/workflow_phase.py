@@ -17,7 +17,6 @@ UserPromptSubmit hook：工作流阶段注入。
 都存到主仓库 .claude/ 下（与旧版兼容）。
 """
 
-import importlib.util
 import json
 import subprocess
 import sys
@@ -25,12 +24,10 @@ import time
 from pathlib import Path
 
 # ---------- 加载 engine（§8.4：PHASES/PHASE_LABELS/SUBPHASES 委托 engine 单源）----------
+# repo 根不在 sys.path（hook 由 Claude Code 以脚本方式执行），先补再 import。
 _DLWF_ROOT = Path(__file__).resolve().parents[1]  # ~/.dl-workflow/
-_ENGINE_PATH = _DLWF_ROOT / "dl-flow-engine.py"
-_spec = importlib.util.spec_from_file_location("dl_flow_engine", _ENGINE_PATH)
-engine = importlib.util.module_from_spec(_spec)  # type: ignore[arg-type]
-sys.modules["dl_flow_engine"] = engine  # dataclass 探测类型注解要查此表
-_spec.loader.exec_module(engine)  # type: ignore[union-attr]
+sys.path.insert(0, str(_DLWF_ROOT))
+import dl_flow_engine as engine  # noqa: E402
 
 # 5 阶段顺序 / 标签 / 子阶段标签：委托 engine（§8.4 删三处副本,单源）。
 PHASES = list(engine.PHASES)
@@ -392,7 +389,7 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
                 "（汇总声明非记录）；或照抄 `<...>` 占位符字面"
             )
             lines.append(
-                "   ② Bash 落库：`python3 ~/.dl-workflow/dl-flow-engine.py append-trace "
+                "   ② Bash 落库：`python3 ~/.dl-workflow/dl_flow_engine.py append-trace "
                 f"--from-file {payload_path}`"
                 "（校验失败当场报错，按报错改载荷重跑。**禁止绕过它手写 evidence jsonl**——"
                 "手写 JSON 跨行/转义出错 = trace 隐形，且会被围栏 deny 指回这里）"
@@ -477,7 +474,7 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
         )
 
     # §8.6b：旧的 ### EVIDENCE 推理溯源注入块已移除（用户决策：弃用模型自发记 claim/依赖的溯源系统,
-    # 改由 engine.write_gate_verdict 在 gate-pass 写裁决记录,见 dl-flow-engine.py）。
+    # 改由 engine.write_gate_verdict 在 gate-pass 写裁决记录,见 dl_flow_engine.py）。
     return "\n".join(lines) + "\n"
 
 

@@ -46,7 +46,7 @@ ProblemContext 是整个 dl 实例的地基：问题定义错，understand:2-4 /
 
 ## 4. 实施 checklist（症状 M）
 
-1. `dl-flow-engine.py`：Node.hold_for_gate + understand:1 置 True + `_advance_sub_step` 末步扣留 + `release_subgate` + CLI subgate-pass + `reset_sub_step` 清标记
+1. `dl_flow_engine.py`：Node.hold_for_gate + understand:1 置 True + `_advance_sub_step` 末步扣留 + `release_subgate` + CLI subgate-pass + `reset_sub_step` 清标记
 2. `hooks/workflow_advance.py`：末步 advanced 分支 held 检测 + 门栏文案
 3. `hooks/workflow_phase.py` `_format_injection`：held 注入块
 4. `scripts/workflow/dl-cmd.sh`：gate 分支 held 路由

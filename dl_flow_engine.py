@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-dl-flow-engine - 工作流编排内核（唯一真源）。
+dl_flow_engine - 工作流编排内核（唯一真源）。
 
 对应 designs/tui-state-machine-design.md §3。
 定义节点树（大节点 + 子节点）+ skill 映射 + gate 判据 + 推进逻辑。
@@ -16,9 +16,9 @@ dl-flow-engine - 工作流编排内核（唯一真源）。
 judge（语义 gate）在 §8.2 接入；hook 接入在 §8.3。
 
 CLI（供 dl-cmd.sh / 手动覆盖调用）：
-  python3 dl-flow-engine.py status  <name>   查当前节点
-  python3 dl-flow-engine.py current <name>   输出当前节点定义（json）
-  python3 dl-flow-engine.py advance <name>    推进到下一节点（写 state.json）
+  python3 dl_flow_engine.py status  <name>   查当前节点
+  python3 dl_flow_engine.py current <name>   输出当前节点定义（json）
+  python3 dl_flow_engine.py advance <name>    推进到下一节点（写 state.json）
 """
 
 from __future__ import annotations
@@ -40,10 +40,7 @@ from typing import Any
 # 拆分缘由（2026-07-27，designs/scope-and-constraints-substeps-design.md §6 前置项）：
 # 节点树是声明式数据（每个编排节点 300-600 行 Step 定义，增长高频），机制逻辑
 # （state/推进/gate/judge，低频）分离——编排 diff 不再淹没机制代码。
-# importlib 加载本模块时不保证本目录在 sys.path（hooks 加载器不插），先补再 import。
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from dl_flow_nodes import (  # noqa: E402
+from dl_flow_nodes import (
     GATED_AFTER,
     PHASES,
     PHASE_LABELS,
@@ -1132,7 +1129,7 @@ def _corrupt_trace_reason(sub_step_index: int) -> str:
         "但不是可解析的单行合法 JSON（手写 JSON 跨行/转义出错的典型后果）。"
         "门控读不到等同没写。返工：改用 append-trace 落库——Write 载荷 "
         '{"purpose":...,"q":[...],"a":[...]} 到 .claude/evidence/.trace-payload-*.json，'
-        "再 Bash `python3 ~/.dl-workflow/dl-flow-engine.py append-trace --from-file <载荷>`"
+        "再 Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace --from-file <载荷>`"
         "（格式/路径/结构字段全归脚本，不会再写碎）。"
     )
 
@@ -1944,7 +1941,7 @@ def _cmd_meta() -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="dl-flow-engine",
+        prog="dl_flow_engine",
         description="工作流编排内核（被 hook 咨询;不当主进程）",
     )
     parser.add_argument(

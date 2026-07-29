@@ -1,5 +1,5 @@
 """
-dl-flow-engine.py 的单元测试（dl-workflow v0.1+）。
+dl_flow_engine.py 的单元测试（dl-workflow v0.1+）。
 
 对应 designs/tui-state-machine-design.md §8.1（骨架阶段）。
 通过 import 纯库函数测节点树推导（不 subprocess,纯函数快）。
@@ -27,18 +27,7 @@ import pytest
 DLWF_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(DLWF_ROOT))
 
-# dl-flow-engine.py 文件名带连字符无法直接 import,用 importlib 加载。
-import importlib.util  # noqa: E402
-
-_spec = importlib.util.spec_from_file_location(
-    "dl_flow_engine", DLWF_ROOT / "dl-flow-engine.py"
-)
-eng = importlib.util.module_from_spec(_spec)  # type: ignore[arg-type]
-# 注册进 sys.modules 再 exec：Python 3.11 dataclass 探测类型注解时要查此表（dynamically
-# loaded module 未注册会触发 AttributeError 'NoneType'.__dict__）。load_state 内 import
-# subprocess 也依赖模块在 sys.modules 中。
-sys.modules["dl_flow_engine"] = eng
-_spec.loader.exec_module(eng)  # type: ignore[union-attr]
+import dl_flow_engine as eng  # noqa: E402
 
 
 # ---------- 节点标识推导 ----------

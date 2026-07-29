@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Stop hook：工作流阶段推进（§8.3 瘦化版,委托 dl-flow-engine）。
+Stop hook：工作流阶段推进（§8.3 瘦化版,委托 dl_flow_engine）。
 
 对应 designs/tui-state-machine-design.md §2/§5。
 每轮 assistant 回复结束后：
@@ -22,11 +22,9 @@ Stop hook：工作流阶段推进（§8.3 瘦化版,委托 dl-flow-engine）。
 闸门：understand->plan、plan->execute 需 gate=passed 才推进（engine.advance_state 内含语义）。
 
 **dl-workflow 版本**：hook 装到 ~/.claude/hooks/（用户级）,state.json 在主仓库
-.claude/workflows/<name>/。engine 在 ~/.dl-workflow/dl-flow-engine.py（一级目录）,
-用 importlib 加载（文件名带连字符无法直接 import）。
+.claude/workflows/<name>/。engine 在 ~/.dl-workflow/dl_flow_engine.py（一级目录）。
 """
 
-import importlib.util
 import json
 import re
 import subprocess
@@ -34,13 +32,10 @@ import sys
 import time
 from pathlib import Path
 
-# ---------- 加载 engine（文件名带连字符,用 importlib）----------
+# ---------- 加载 engine（repo 根不在 sys.path,先补再 import）----------
 _DLWF_ROOT = Path(__file__).resolve().parents[1]  # ~/.dl-workflow/
-_ENGINE_PATH = _DLWF_ROOT / "dl-flow-engine.py"
-_spec = importlib.util.spec_from_file_location("dl_flow_engine", _ENGINE_PATH)
-engine = importlib.util.module_from_spec(_spec)  # type: ignore[arg-type]
-sys.modules["dl_flow_engine"] = engine  # dataclass 探测类型注解要查此表
-_spec.loader.exec_module(engine)  # type: ignore[union-attr]
+sys.path.insert(0, str(_DLWF_ROOT))
+import dl_flow_engine as engine  # noqa: E402
 
 # 完成信号标记正则（模型自认做完时输出）。与旧版一致,作为"何时审"的触发。
 DONE_RE = re.compile(r"###\s*PHASE_DONE:\s*(\w+)", re.IGNORECASE)
@@ -214,7 +209,7 @@ def _sub_step_continue(prev_desc: str, node: "engine.Node", n: int) -> int:
         f"目的：{step.purpose}\n\n"
         f"{how}；完成后落 evidence（Write 载荷 purpose/q/a 到 "
         f".claude/evidence/.trace-payload-<name>.json，再 Bash `python3 "
-        f"~/.dl-workflow/dl-flow-engine.py append-trace --from-file <载荷>`），"
+        f"~/.dl-workflow/dl_flow_engine.py append-trace --from-file <载荷>`），"
         f"再输出 ### STEP_DONE: {n} 并结束本轮。\n"
         "如需用户输入：用 AskUserQuestion 工具（回合内完成）。\n"
         + engine.selfcheck_hint(step)

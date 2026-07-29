@@ -16,19 +16,15 @@
   python3 evidence_show.py <name> [project_root]   # project_root 缺省取 cwd 的 git 根
 """
 
-import importlib.util
 import json
 import subprocess
 import sys
 from pathlib import Path
 
-# ---------- 加载 engine(同 workflow_phase.py 范式) ----------
+# ---------- 加载 engine（repo 根不在 sys.path,先补再 import） ----------
 _DLWF_ROOT = Path(__file__).resolve().parents[2]  # ~/.dl-workflow/
-_ENGINE_PATH = _DLWF_ROOT / "dl-flow-engine.py"
-_spec = importlib.util.spec_from_file_location("dl_flow_engine", _ENGINE_PATH)
-engine = importlib.util.module_from_spec(_spec)  # type: ignore[arg-type]
-sys.modules["dl_flow_engine"] = engine  # dataclass 探测类型注解要查此表
-_spec.loader.exec_module(engine)  # type: ignore[union-attr]
+sys.path.insert(0, str(_DLWF_ROOT))
+import dl_flow_engine as engine  # noqa: E402
 
 
 def render(project_root: Path, name: str) -> str:

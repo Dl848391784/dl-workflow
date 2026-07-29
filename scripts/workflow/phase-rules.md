@@ -29,11 +29,11 @@
      - **skill 步 invoke 时序**：子步骤 ref 为 skill 名的（子1 define-problem / 子2 causal-inference-root-cause / 子5、子6 define-problem），横幅后立即、在其它任何动作之前 invoke；`### STEP_DONE` / 探查证据（Bash/Read/Grep/Glob/codegraph）**一律不得在 invoke 之前或与之并行**。
      - 全 6 子步骤 purpose（engine 渲染，与注入逐字同源）：
 <!-- BEGIN GENERATED sub_steps understand:1 -->
-（本段由 dl-launch.sh 调 dl-flow-engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
+（本段由 dl-launch.sh 调 dl_flow_engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
 <!-- END GENERATED sub_steps understand:1 -->
      - **末步自动推进（无门栏）**：末子步骤(6) 通过门控后**自动推进并续轮开做 understand:2 子1**（2026-07-28 起 understand 全部子阶段边界无门栏——围栏只设在 plan 完成）。
      - **逐步执行 + 逐步 STEP_DONE**（**写 evidence 是 STEP_DONE 前置，STEP_DONE 后 end_turn**）：
-       每个子步骤达目的后，**先落 evidence 再输出 `### STEP_DONE: <n>`**。落法（两动作——你定内容，脚本管格式）：① Write 载荷 `{"purpose":"<该步目的>","q":[...],"a":[...]}`（只含 3 个内容字段，q/a 一一按序对齐 `q[i]`↔`a[i]`，单问单答也用数组；结构字段脚本从 state 自动填，不要写）到注入给的载荷路径（`.claude/evidence/.trace-payload-<name>.json`）；② Bash `python3 ~/.dl-workflow/dl-flow-engine.py append-trace --from-file <载荷路径>`（脚本校验+单行 append 到主仓 evidence；校验失败当场报错，按报错改载荷重跑）。**禁止绕过 append-trace 手写 evidence jsonl**（手写 JSON 跨行/字面 \" = trace 隐形；直写 jsonl 会被 S14 围栏 deny 指回）。确认/裁决留痕由 /dl 命令自动写（kind=gate），不用手写其它 kind 的记录。**输完 STEP_DONE 即 end_turn 结束本轮**--不连续做下个子步骤、不继续探查；**end_turn 时 Stop hook 立即门控**（读 evidence 新 trace 判定）：**非末步 pass 则当轮收到下一子步骤指令（自动续轮，直接开做下一步，无需等用户发话）**；末步 pass 时——本节点无门栏且下一子阶段有编排，**同样自动续轮进下一子阶段子1**（2026-07-27 起：无门栏的子阶段边界不是检查点，门栏才是）；门栏节点末步则扣留停轮（等用户 `/dl gate`）；block 则当轮收到原因并返工（**返工重新走①②落新行**——hook 以新 trace 为返工信号）。
+       每个子步骤达目的后，**先落 evidence 再输出 `### STEP_DONE: <n>`**。落法（两动作——你定内容，脚本管格式）：① Write 载荷 `{"purpose":"<该步目的>","q":[...],"a":[...]}`（只含 3 个内容字段，q/a 一一按序对齐 `q[i]`↔`a[i]`，单问单答也用数组；结构字段脚本从 state 自动填，不要写）到注入给的载荷路径（`.claude/evidence/.trace-payload-<name>.json`）；② Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace --from-file <载荷路径>`（脚本校验+单行 append 到主仓 evidence；校验失败当场报错，按报错改载荷重跑）。**禁止绕过 append-trace 手写 evidence jsonl**（手写 JSON 跨行/字面 \" = trace 隐形；直写 jsonl 会被 S14 围栏 deny 指回）。确认/裁决留痕由 /dl 命令自动写（kind=gate），不用手写其它 kind 的记录。**输完 STEP_DONE 即 end_turn 结束本轮**--不连续做下个子步骤、不继续探查；**end_turn 时 Stop hook 立即门控**（读 evidence 新 trace 判定）：**非末步 pass 则当轮收到下一子步骤指令（自动续轮，直接开做下一步，无需等用户发话）**；末步 pass 时——本节点无门栏且下一子阶段有编排，**同样自动续轮进下一子阶段子1**（2026-07-27 起：无门栏的子阶段边界不是检查点，门栏才是）；门栏节点末步则扣留停轮（等用户 `/dl gate`）；block 则当轮收到原因并返工（**返工重新走①②落新行**——hook 以新 trace 为返工信号）。
        例：子步骤1 逼问到位 -> Write 载荷 -> Bash append-trace -> `### STEP_DONE: 1` -> end_turn -> Stop hook 判：过则当轮收到「执行子步骤2」指令直接开做；block 则当轮返工子步骤1。每步 purpose 见注入「▶ 当前子步骤」块。
      - **强制（含简单查询）**：**任何**进 understand:1 的提问--哪怕看似简单事实查询（如"有多少个因子"）--都**必须先走编排**（横幅 -> invoke define-problem -> 子步骤1 逼问），**禁止直接 Bash/Read 抢答**。判断"这是简单查询可绕过编排"= 违规（等同未建清单就干活）。简单查询的真实问题往往是"为何要查这个/查了要做什么"，编排正是逼出它。
      - **evidence 强制**：record 子步骤（子1/2/3/4/5/6）**必须**用 append-trace 落 evidence skill-trace 后才许输 STEP_DONE；无 evidence 的 STEP_DONE = 违规（Stop hook 读不到新 trace -> 不推进，子步骤卡住）。子6（gate=None）也要写--记用户确认内容（确认本身是裁决留痕，且是 Stop 门控的完成触发信号）。路径/格式/结构字段全归脚本，无需手写也不用关心绝对/相对路径。skill 内部 Q/A 不门控，按需 record 落 evidence；子步骤边界（STEP_DONE）才门控。
@@ -48,7 +48,7 @@
      - **skill 步 invoke 时序**：子4/子5 ref 含 define-problem，进入该步后立即、在其它任何动作之前 invoke。
      - 全 5 子步骤 purpose（engine 渲染，与注入逐字同源）：
 <!-- BEGIN GENERATED sub_steps understand:2 -->
-（本段由 dl-launch.sh 调 dl-flow-engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
+（本段由 dl-launch.sh 调 dl_flow_engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
 <!-- END GENERATED sub_steps understand:2 -->
      - **末步自动推进（无门栏）**：末子步骤(5) 通过门控后**自动推进并续轮开做 understand:3 子1**（2026-07-28 起 understand 全部子阶段边界无门栏）。
   3. **确定范围与约束**（**子步骤编排，5 步逐步 STEP_DONE 门控**，严格时序不可乱序）：
@@ -56,7 +56,7 @@
      - **skill 步 invoke 时序**：子4/子5 ref 含 define-problem，进入该步后立即、在其它任何动作之前 invoke。
      - 全 5 子步骤 purpose（engine 渲染，与注入逐字同源）：
 <!-- BEGIN GENERATED sub_steps understand:3 -->
-（本段由 dl-launch.sh 调 dl-flow-engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
+（本段由 dl-launch.sh 调 dl_flow_engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
 <!-- END GENERATED sub_steps understand:3 -->
      - **末步自动推进（无门栏）**：末子步骤(5) 通过门控后**自动推进并续轮开做 understand:4 子1**（2026-07-28 起 understand 全部子阶段边界无门栏）。
   4. **定义成功标准和验收方式**（**子步骤编排，5 步逐步 STEP_DONE 门控**，严格时序不可乱序）：
@@ -64,7 +64,7 @@
      - **skill 步 invoke 时序**：子4/子5 ref 含 define-problem，进入该步后立即、在其它任何动作之前 invoke。
      - 全 5 子步骤 purpose（engine 渲染，与注入逐字同源）：
 <!-- BEGIN GENERATED sub_steps understand:4 -->
-（本段由 dl-launch.sh 调 dl-flow-engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
+（本段由 dl-launch.sh 调 dl_flow_engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
 <!-- END GENERATED sub_steps understand:4 -->
      - **子5 产物装配**：子5 用户裁决（阈值拍板 + 验收方式认可）后**装配 understand.md**（= 4 子阶段归一化陈述 + 用户裁决记录的直接装配：真实问题重述 + 目标价值 + 范围约束 + 成功标准验收包；**禁二次创作**；未被选定的问题/目标/约束及其一句话陈述也须写入，供后续 dl 实例接续）——在写子5 trace 前完成；**写主仓 `.claude/understands/<name>.md`**（注入「产物路径」行给绝对路径——worktree 归档删除即丢，禁写 worktree 内）；阶段写围栏已放行。
      - **末步自动推进（无门栏、无阶段闸门）**：末子步骤(5) 通过门控后**自动推进并续轮开做 plan:1 子1**（跨阶段自动续轮，2026-07-28 起 understand->plan 无闸门——围栏只设在 plan 完成）。**不要输出 `### PHASE_DONE: understand`**——推进已由 Stop 门控完成，输出它会撞守卫。
@@ -81,7 +81,7 @@
      - **编程工作流定位**：候选方案必须是**代码级设计**（改哪个模块/哪个函数/新增什么文件），从子1 代码现状勘察生长——禁理论方案空谈、禁凭空 API。
      - 全 6 子步骤 purpose（engine 渲染，与注入逐字同源）：
 <!-- BEGIN GENERATED sub_steps plan:1 -->
-（本段由 dl-launch.sh 调 dl-flow-engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
+（本段由 dl-launch.sh 调 dl_flow_engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
 <!-- END GENERATED sub_steps plan:1 -->
      - **子6 产物装配**：子6 用户拍板后**装配 `designs/<主题>-design.md`**（H8 产物 = 子5 归一化设计包 + 用户裁决记录的直接装配，**禁二次创作**）——在写子6 trace 前完成；阶段写围栏已放行 designs/*.md。
      - **末步自动推进（无门栏）**：末子步骤(6) 通过门控后**自动推进并续轮开做 plan:2 子1**（2026-07-28 起 plan:1/2/3 边界无门栏——围栏只设在 plan 完成）。
@@ -91,7 +91,7 @@
      - **编程工作流定位**：产物是**零上下文执行者可照做的代码级执行计划**（精确 file:line + 验证命令与期望输出 + TDD 周期内嵌）——禁通用 WBS 空谈、禁 placeholder 空步骤；步骤必须**保真于 plan:1 拍板设计包**（子1 先立要素 ID 基线，全程禁二次创作）。
      - 全 5 子步骤 purpose（engine 渲染，与注入逐字同源）：
 <!-- BEGIN GENERATED sub_steps plan:2 -->
-（本段由 dl-launch.sh 调 dl-flow-engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
+（本段由 dl-launch.sh 调 dl_flow_engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
 <!-- END GENERATED sub_steps plan:2 -->
      - **子5 产物装配**：子5 用户拍板后**装配 plan.md**（= 子4 归一化执行步骤 + 用户裁决记录的直接装配，**禁二次创作**）——在写子5 trace 前完成；**写主仓 `.claude/plans/<name>.md`**（注入「产物路径」行给绝对路径——worktree 归档删除即丢，禁写 worktree 内）；阶段写围栏已放行。
      - **末步自动推进（无门栏）**：末子步骤(5) 通过门控后**自动推进并续轮开做 plan:3 子1**（2026-07-28 起 plan:1/2/3 边界无门栏）。不要输出 `### PHASE_DONE: plan`——plan 还有 plan:3 未完成。
@@ -101,7 +101,7 @@
      - **编程工作流定位**：能力空间 = **本会话真实注册表**（available-skills 列表/磁盘 skill 目录/MCP 配置/CLI）——能力名逐字引用注册表出处，**禁凭训练记忆引用能力名**（幽灵能力是本节点最高危失效）；强制路由（CLAUDE.md §2 触发词/H15/superpowers 触发）逐任务核对；最小集——无绑定 = 不加载。
      - 全 6 子步骤 purpose（engine 渲染，与注入逐字同源）：
 <!-- BEGIN GENERATED sub_steps plan:3 -->
-（本段由 dl-launch.sh 调 dl-flow-engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
+（本段由 dl-launch.sh 调 dl_flow_engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
 <!-- END GENERATED sub_steps plan:3 -->
      - **子6 产物装配**：子6 用户拍板后**装配 plan.md「能力与工具」节**（= 子5 归一化能力包 + 用户裁决记录的直接装配，**禁二次创作**）——在写子6 trace 前完成；**写主仓 `.claude/plans/<name>.md`**（同 plan:2，禁写 worktree 内）；阶段写围栏已放行。
      - **末步自动推进（无门栏）**：末子步骤(6) 通过门控后**自动推进并续轮开做 plan:4 子1**（2026-07-28 起 plan:1/2/3 边界无门栏）。不要输出 `### PHASE_DONE: plan`——plan 还有 plan:4 未完成。
@@ -111,7 +111,7 @@
      - **编程工作流定位**：产物是 **execute 阶段的运行时控制结构**（orchestrator 调度方案 + 检查点清单）——executor 不再自行分析：判据必须**零判断词**（命令+退出码，「确认/检查/合理」式判据 = 检查点虚设）、失败路由必须预定义（禁「视情况」）、并行分组与文件互斥面必须本子阶段定死（多 subagent 并行不临场分组）。
      - 全 5 子步骤 purpose（engine 渲染，与注入逐字同源）：
 <!-- BEGIN GENERATED sub_steps plan:4 -->
-（本段由 dl-launch.sh 调 dl-flow-engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
+（本段由 dl-launch.sh 调 dl_flow_engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
 <!-- END GENERATED sub_steps plan:4 -->
      - **子5 产物装配**：子5 用户拍板后**装配 plan.md「执行计划与检查点」节**（= 子4 归一化执行计划包 + 用户裁决记录的直接装配，**禁二次创作**）——在写子5 trace 前完成；**写主仓 `.claude/plans/<name>.md`**（同 plan:2，禁写 worktree 内）；阶段写围栏已放行。
      - **子阶段门栏（hold_for_gate，全工作流唯一门栏——围栏只设在 plan 完成，2026-07-28 用户决议）**：末子步骤(5) 通过门控后**推进被扣留**。等用户 `/dl gate` 放行（用户也可 /dl back 回退、/dl state-reset <n> 重测）。**扣留期间不要做收尾外的事**；`/dl step-pass` 末步放行 ≠ 门栏放行。

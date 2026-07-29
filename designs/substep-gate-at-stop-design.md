@@ -71,7 +71,7 @@ Stop hook（workflow_advance.py）
 
 | # | 文件 | 改动 |
 |---|---|---|
-| 1 | `dl-flow-engine.py` | `normalize_state` 补 `last_judged_trace: dict` 默认；新增 `latest_trace_sha1(project_root, name, sub_step)` + `gate_sub_step_at_stop(project_root, name, cwd) -> (action, reason)`，action ∈ none/advanced/block/escalate；`gate_and_advance_sub_step` 保留（step-pass 与测试复用其推进段）但 UserPromptSubmit 不再调 |
+| 1 | `dl_flow_engine.py` | `normalize_state` 补 `last_judged_trace: dict` 默认；新增 `latest_trace_sha1(project_root, name, sub_step)` + `gate_sub_step_at_stop(project_root, name, cwd) -> (action, reason)`，action ∈ none/advanced/block/escalate；`gate_and_advance_sub_step` 保留（step-pass 与测试复用其推进段）但 UserPromptSubmit 不再调 |
 | 2 | `hooks/workflow_advance.py` | main 里 marker 检测前加 sub_steps 分支（调 1 的函数；block/escalate -> _block_continue；advanced -> systemMessage + 放行） |
 | 3 | `hooks/workflow_phase.py` | 撤 UserPromptSubmit gate 分支（sub_step_has_trace/gate_and_advance_sub_step 调用 + block_hint），只留注入；注入文案「gate 校验（下次你提问时 hook 读 evidence）」改为「你 end_turn 时 Stop hook 校验」 |
 | 4 | `scripts/workflow/phase-rules.md` | 「输完 STEP_DONE 即 end_turn；推进在下一次用户提问时」改为「STEP_DONE 后 end_turn；Stop hook 立即门控：过则下轮进下一子步骤，block 则当轮返工（返工 append 新 trace 行）」；门控升级段改为「block 达 3 次后 hook 给出升级提示」 |

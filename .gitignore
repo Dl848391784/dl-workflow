@@ -4,5 +4,8 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
-# 运行态：hook 日志 + workflow state.json 等（.claude/ 由 dl-flow-engine hook 写入，不入库）
+# 运行态：hook 日志 + workflow state.json 等（.claude/ 由 dl_flow_engine hook 写入，不入库）
 .claude/
+
+# codegraph 索引（机器本地，不入库）
+.codegraph/

@@ -35,7 +35,7 @@ S15 围栏提示（含「当前子步骤额外放行：X」豁免行）只在
 
 ### 2.1 engine 新函数（单源）
 
-`dl-flow-engine.py` 加：
+`dl_flow_engine.py` 加：
 
 ```python
 def engagement_fence_notice(step: Step) -> str:
@@ -73,7 +73,7 @@ escalate 路径不附（模型此时应 AskUserQuestion，不是调工具）。
 
 | # | 文件 | 动作 |
 |---|---|---|
-| 1 | `dl-flow-engine.py` | 加 `engagement_fence_notice()` |
+| 1 | `dl_flow_engine.py` | 加 `engagement_fence_notice()` |
 | 2 | `hooks/workflow_phase.py` | `_format_injection` 改调单源函数 |
 | 3 | `hooks/workflow_advance.py` | pass/block 续轮附围栏提示 |
 | 4 | `scripts/workflow/phase-rules.md` | 不改（已泛指，见 §2.3） |

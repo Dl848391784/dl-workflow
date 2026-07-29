@@ -11,7 +11,7 @@
 
 `skill-injection-link-design` 已让 understand:1 载 define-problem（逼问/验真/钉约束/搜证据）。但：
 
-- understand:1 当前 `gate_rubric=None`（`dl-flow-engine.py:84`），SUB_DONE 时 `run_gate` 只过机械项 NONE 直通（`:649-650`），**从未验真**。
+- understand:1 当前 `gate_rubric=None`（`dl_flow_engine.py:84`），SUB_DONE 时 `run_gate` 只过机械项 NONE 直通（`:649-650`），**从未验真**。
 - define-problem 的小步 Q/A +「问题是否真实」结论**不落证据链**--`write_gate_verdict` 只写一笔裁决摘要（`:470-484`），不含 step/q/a。
 - 用户诉求：①「验真问题是否真实」目的维护在 engine ②define-problem 执行有小步思考+答案+最终结论 ③这些记进证据链 ④（停止测试：不做）。
 
@@ -30,7 +30,7 @@
 | # | 文件 | 改动 |
 |---|---|---|
 | 1 | `designs/define-problem-verify-gate-design.md` | 本文（H8） |
-| 2 | `dl-flow-engine.py` | `understand:1.gate_rubric` 设验真判据；加 `rubric_needs_evidence()` / `read_evidence()` |
+| 2 | `dl_flow_engine.py` | `understand:1.gate_rubric` 设验真判据；加 `rubric_needs_evidence()` / `read_evidence()` |
 | 3 | `hooks/workflow_advance.py` | SUB_DONE/PHASE_DONE 过 gate 前，rubric 需 evidence 则读 evidence.jsonl 作 `artifact_content` |
 | 4 | `hooks/workflow_phase.py` | 当前节点 rubric 需 evidence 时，注入「trace 写法」块（绝对路径 + 格式 + gate 校验项） |
 | 5 | `tests/test_dl_flow_engine.py` | 测 rubric 非空 + `rubric_needs_evidence` + `read_evidence` |
@@ -135,7 +135,7 @@ ok, reason = engine.run_gate(node, output, project_root=project_root, artifact_c
 - **H9**：分 commit（design / engine+tests / advance / phase），每 ≤3 文件 AND ≤200 行。
 - **H11**：hook 留痕日志 `%` 惰性格式化。
 - **H12**：hook exit 0 only（不阻断）。
-- **H15**：改 3 个已有 .py 前先 `codegraph affected` 留痕（2026-07-24 已跑 dl-flow-engine.py；改另两个前各补一次）。
+- **H15**：改 3 个已有 .py 前先 `codegraph affected` 留痕（2026-07-24 已跑 dl_flow_engine.py；改另两个前各补一次）。
 - **no silent fallback**：`read_evidence` 失败返回 None（judge 降级判 block，不默认放行）；模型漏写 trace -> gate block。
 - **verify before claiming done**：单测全绿 + ruff/mypy clean。
 
