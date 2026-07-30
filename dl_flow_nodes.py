@@ -194,6 +194,18 @@ _S4_STEP1_FORM_REQUIREMENTS = (
     "只能标注「推测」另列"
 )
 
+# 「方案名词」裁量点钉死（2026-07-30 tail_volume understand:2 子4 block 复盘）：
+# 首判模型把 solution-free 核查落在谓语（「按真实数值判定=outcome」），judge 裁量
+# 落在主语（_macros.html 等模板文件名入主语=违规）——同一判据两种读法
+# （§3.5 #4 判据留白=方差）。操作化定义属形式要件（主语词性的结构检查），
+# 披露进 purpose/selfcheck 不 Goodhart（§3.5 #2）；gate 判词保持原样黑盒不动。
+# 单源常量：claim normalization 同构族 5 个 Step 的 purpose/selfcheck 引用。
+_SOLUTION_FREE_SUBJECT_RULE = (
+    "「方案名词」操作化：主语只许 outcome-level 概念（用户可见的状态/数字/信号），"
+    "不得含模板文件名/类名/CSS 类/函数名/字段名/管线名/组件名等实现侧名词；"
+    "file:line 与实现指针留在边界字段与 evidence，不进主语"
+)
+
 # plan:1 子1 的形式要件（单源：purpose 模型侧与 gate judge 侧都引用）。
 # 对齐原则同 _STEP1_FORM_REQUIREMENTS：形式要件披露降形式性返工，
 # 质量判据（非编造/非漫游）只留 gate 黑盒。
@@ -639,8 +651,9 @@ _NODES: dict[str, Node] = {
                     "①双向追溯矩阵——每个目标回溯 ≥1 个 ProblemContext 已验证问题"
                     "（backward，防镀金目标），每个存活问题有目标承接或显式搁置+理由"
                     "（forward，防漏）；孤儿目标剔除或退回子1 补问；"
-                    "②solutioneering 剥离——目标陈述含方案名词/实现动词"
-                    "（「做一个X」「实现Y」）-> WHY 问一层（「为什么要 X」）剥到 outcome 状态；"
+                    f"②solutioneering 剥离——目标陈述含方案名词/实现动词"
+                    f"（「做一个X」「实现Y」）-> WHY 问一层（「为什么要 X」）剥到 outcome 状态"
+                    f"（{_SOLUTION_FREE_SUBJECT_RULE}）；"
                     "③目标间冲突检测——两目标不可兼得处显式标注（无冲突须显式声明，"
                     "冲突留子5 用户裁决）。"
                     "trace 须含完整矩阵（问题×目标逐项列出），"
@@ -651,7 +664,8 @@ _NODES: dict[str, Node] = {
                 selfcheck=(
                     "双向矩阵逐项列出了吗（问题×目标，汇总声明不算）？"
                     "孤儿目标/孤儿问题都显式处置了吗（剔除/退回补问/搁置+理由）？"
-                    "含方案名词的目标剥到 outcome 了吗？目标间冲突检测做了吗"
+                    f"含方案名词的目标剥到 outcome 了吗（{_SOLUTION_FREE_SUBJECT_RULE}）？"
+                    "目标间冲突检测做了吗"
                     "（无冲突须显式声明）？"
                 ),
                 gate=(
@@ -718,7 +732,8 @@ _NODES: dict[str, Node] = {
                     "②去上下文（脱离本会话可独立理解：主语+动词+约束自包含）；"
                     "③携带 must/nice 提案与 verdict 边界（部分成立问题的目标只覆盖"
                     "已证实边界——裁决传导，同构 ProblemContext 子5）；"
-                    "④solution-free 复核（归一化后仍含方案名词=子2 剥离不净，回子2）；"
+                    f"④solution-free 复核（归一化后仍含方案名词=子2 剥离不净，回子2；"
+                    f"{_SOLUTION_FREE_SUBJECT_RULE}）；"
                     "放不进一句=未定义完。"
                 ),
                 input="step3.valued_goals",
@@ -727,7 +742,7 @@ _NODES: dict[str, Node] = {
                     "每条陈述单句只含 1 个独立目标吗（「和/以及/同时」连接多目标="
                     "复合未拆净，回子1 重引）？脱离本会话可独立理解吗"
                     "（主语+动词+约束自包含）？携带 must/nice 提案与 verdict 边界了吗？"
-                    "无方案名词残留吧？"
+                    f"无方案名词残留吧（逐条看主语：{_SOLUTION_FREE_SUBJECT_RULE}）？"
                 ),
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace、"
@@ -902,8 +917,8 @@ _NODES: dict[str, Node] = {
                     "③携带类型标签（约束=已验证 or 假设+置信度；范围=in or out）"
                     "与 verdict 边界（部分成立目标的范围只覆盖已证实边界——"
                     "裁决传导，同构 ProblemContext 子5）；"
-                    "④solution-free 复核（范围项含方案名词 = GoalsAndValue 子2 "
-                    "剥离不净残留）。放不进一句=未定义完。"
+                    f"④solution-free 复核（范围项含方案名词 = GoalsAndValue 子2 "
+                    f"剥离不净残留；{_SOLUTION_FREE_SUBJECT_RULE}）。放不进一句=未定义完。"
                 ),
                 input="step3.scope_proposal",
                 record=True,
@@ -911,7 +926,8 @@ _NODES: dict[str, Node] = {
                     "每条陈述单句只含 1 个独立范围项/约束吗（「和/以及/同时」连接"
                     "多项=复合未拆净，回子3）？脱离本会话可独立理解吗"
                     "（主语+动词+约束自包含）？携带类型标签（已验证/假设+置信度/"
-                    "in/out）与 verdict 边界了吗？无方案名词残留吧？"
+                    f"in/out）与 verdict 边界了吗？"
+                    f"无方案名词残留吧（逐条看主语：{_SOLUTION_FREE_SUBJECT_RULE}）？"
                 ),
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace、"
@@ -979,7 +995,7 @@ _NODES: dict[str, Node] = {
                     f"成功标准引出：{_S4_STEP1_FORM_REQUIREMENTS}。"
                     "solutioneering 剥离：标准候选含方案名词/实现动词"
                     "（「做一个X」「实现Y」）→ 剥到 outcome 度量"
-                    "（纪律同 GoalsAndValue 子2）。"
+                    f"（纪律同 GoalsAndValue 子2；{_SOLUTION_FREE_SUBJECT_RULE}）。"
                     "消费契约锚点：成功标准是 review 阶段 gate 判定 "
                     "solved/partial/not 的依据——写每条候选时想象 review 时拿什么判它。"
                 ),
@@ -988,7 +1004,8 @@ _NODES: dict[str, Node] = {
                 selfcheck=(
                     "每个 must 目标都做了验收视角提问「怎么知道它达成了」吗？"
                     "双向追溯逐项列出了吗（每目标 ≥1 候选或定性+理由；"
-                    "每候选回溯 ≥1 目标）？含方案名词的候选剥到 outcome 了吗？"
+                    "每候选回溯 ≥1 目标）？"
+                    f"含方案名词的候选剥到 outcome 了吗（{_SOLUTION_FREE_SUBJECT_RULE}）？"
                     "每条 a 是用户原话/会话事实，还是我推断补全的"
                     "（推断只能标「推测」另列）？结论选了①还是②、每句都有出处吗？"
                 ),
@@ -1108,7 +1125,8 @@ _NODES: dict[str, Node] = {
                     "③携带完整验收包（指标+基线+阈值提案+验收方法+时机+证据形式）"
                     "与 verdict 边界（部分成立目标的标准只覆盖已证实边界——"
                     "裁决传导，同构 ProblemContext 子5）；"
-                    "④solution-free 复核（含方案名词 = 子1 剥离不净残留）。"
+                    f"④solution-free 复核（含方案名词 = 子1 剥离不净残留；"
+                    f"{_SOLUTION_FREE_SUBJECT_RULE}）。"
                     "放不进一句 = 未定义完。"
                 ),
                 input="step3.criteria_with_acceptance",
@@ -1118,7 +1136,7 @@ _NODES: dict[str, Node] = {
                     "复合未拆净，回子1）？脱离本会话可独立理解吗"
                     "（主语+动词+约束自包含）？验收包六字段"
                     "（指标/基线/阈值提案/方法/时机/证据形式）都传导了吗？"
-                    "无方案名词残留吧？"
+                    f"无方案名词残留吧（逐条看主语：{_SOLUTION_FREE_SUBJECT_RULE}）？"
                 ),
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace、"
