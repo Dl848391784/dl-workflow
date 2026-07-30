@@ -1380,7 +1380,7 @@ class TestGateAndAdvanceSubStep:
         # run_judge 收到 artifact=None 时应判 block；用真实 run_judge 行为模拟
         captured = {}
 
-        def _spy(rubric, label, output, artifact_content=None):
+        def _spy(rubric, label, output, artifact_content=None, prior_verdicts=None):
             captured["artifact"] = artifact_content
             return (False, "evidence 缺失")
 
@@ -1403,7 +1403,7 @@ class TestGateAndAdvanceSubStep:
         )
         captured = {}
 
-        def _spy(rubric, label, output, artifact_content=None):
+        def _spy(rubric, label, output, artifact_content=None, prior_verdicts=None):
             captured["artifact"] = artifact_content
             return (True, "")
 
@@ -3828,7 +3828,7 @@ class TestReadEvidenceForStep:
         )
         captured = {}
 
-        def _spy(rubric, label, output, artifact_content=None):
+        def _spy(rubric, label, output, artifact_content=None, prior_verdicts=None):
             captured["artifact"] = artifact_content
             return (True, "")
 
@@ -3975,6 +3975,115 @@ class TestCorruptReworkDetect:
         eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))  # attempts=2
         a3, _, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))  # attempts=3
         assert a3 == "escalate"
+
+
+class TestSubStepPriorVerdicts:
+    """v2.26 judge 轮间一致性（tail_volume u:3 子4 五连 block 实证：judge 每轮
+    全新调用无记忆 -> 同一 rubric 五轮五种解释，裁量逐轮收紧）：
+    ①judge 内容性 block 的判词落 evidence（kind=gate/gate=blocked，含
+    sub_step/minor_stage 归属）；②重判时前轮判词经 prior_verdicts 进 judge
+    输入 + 一致性指令。返工历史不进 judge 的铁律不破——prior_verdicts 只取
+    判词（kind=gate 记录），不取旧 trace。"""
+
+    def _setup_u1_step1(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        _write_evidence(tmp_path, "t", [_trace_line(1, "ev1")])
+        return eng._evidence_path(tmp_path, "t")
+
+    def test_block_writes_gate_blocked_record(self, tmp_path, monkeypatch):
+        ev = self._setup_u1_step1(tmp_path)
+        monkeypatch.setattr(eng, "run_judge", lambda *a, **k: (False, "缺 X 条款"))
+        action, reason, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
+        assert action == "block"
+        recs = [json.loads(l) for l in ev.read_text(encoding="utf-8").splitlines()]
+        blocked = [
+            r for r in recs if r.get("kind") == "gate" and r.get("gate") == "blocked"
+        ]
+        assert len(blocked) == 1
+        assert blocked[0]["reason"] == "缺 X 条款"
+        assert blocked[0]["sub_step"] == 1
+        assert blocked[0]["minor_stage"] == "ProblemContext"
+        assert blocked[0]["attempts"] == 1
+
+    def test_rejudge_receives_prior_verdicts(self, tmp_path, monkeypatch):
+        ev = self._setup_u1_step1(tmp_path)
+        captured = {}
+        verdicts = iter([(False, "第一轮判词：缺 X"), (False, "第二轮判词")])
+
+        def _spy(*a, **k):
+            captured.update(k)
+            return next(verdicts)
+
+        monkeypatch.setattr(eng, "run_judge", _spy)
+        eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))  # block 1
+        with ev.open("a", encoding="utf-8") as f:
+            f.write(_trace_line(1, "ev2") + "\n")
+        eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))  # block 2
+        assert captured["prior_verdicts"] == ["第一轮判词：缺 X"]
+
+    def test_first_judgment_no_priors(self, tmp_path, monkeypatch):
+        self._setup_u1_step1(tmp_path)
+        captured = {}
+
+        def _spy(*a, **k):
+            captured.update(k)
+            return (False, "x")
+
+        monkeypatch.setattr(eng, "run_judge", _spy)
+        eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
+        assert not captured.get("prior_verdicts")
+
+    def test_prior_verdicts_scope_cap_and_truncation(self, tmp_path):
+        # 只取本节点本步 blocked 判词（passed/它步/它节点排除）；最近 3 条；
+        # 单条截断防判词膨胀 judge 输入
+        self._setup_u1_step1(tmp_path)
+
+        def _rec(sub_step, gate, reason, minor="ProblemContext"):
+            return json.dumps(
+                {
+                    "kind": "gate",
+                    "gate": gate,
+                    "sub_step": sub_step,
+                    "minor_stage": minor,
+                    "reason": reason,
+                },
+                ensure_ascii=False,
+            )
+
+        ev = eng._evidence_path(tmp_path, "t")
+        with ev.open("a", encoding="utf-8") as f:
+            f.write(_rec(1, "blocked", "r1") + "\n")
+            f.write(_rec(2, "blocked", "其他步") + "\n")
+            f.write(_rec(1, "passed", "") + "\n")
+            f.write(_rec(1, "blocked", "它节点", minor="GoalsAndValue") + "\n")
+            f.write(_rec(1, "blocked", "长" * 500) + "\n")
+            f.write(_rec(1, "blocked", "r3") + "\n")
+            f.write(_rec(1, "blocked", "r4") + "\n")
+        priors = eng.prior_block_reasons(tmp_path, "t", 1, "ProblemContext")
+        assert len(priors) == 3
+        assert priors[1:] == ["r3", "r4"]
+        assert priors[0].startswith("长" * 100) and len(priors[0]) <= 410
+
+    def test_prompt_consistency_section(self, monkeypatch):
+        # prior_verdicts 非空 -> 判决 prompt 附一致性指令；空 -> 不加（首判口径不变）
+        captured = {}
+
+        class _Res:
+            returncode = 0
+            stdout = (
+                '{"is_error":false,"result":"{\\"pass\\": true, \\"reason\\": \\"\\"}"}\n'
+            )
+
+        def _run(cmd, **kw):
+            captured["cmd"] = cmd
+            return _Res()
+
+        monkeypatch.setattr(eng.subprocess, "run", _run)
+        eng.run_judge("RUB", "LBL", "OUT", prior_verdicts=["前轮：缺 X"])
+        prompt = captured["cmd"][-1]
+        assert "前轮：缺 X" in prompt and "一致性" in prompt
+        eng.run_judge("RUB", "LBL", "OUT")
+        assert "一致性" not in captured["cmd"][-1]
 
 
 class TestSolutionFreeRuleInGates:

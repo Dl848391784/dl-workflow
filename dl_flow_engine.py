@@ -367,6 +367,88 @@ def write_gate_verdict(
     return True
 
 
+# judge 判 block 的判词也落 evidence（v2.26）。此前只记 pass——block 判词只存在
+# .wf_advance.log，judge 每轮全新调用无记忆 -> 同一 rubric 轮间裁量漂移
+# （tail_volume u:3 子4 五连 block 五种解释）。落 evidence 后重判可取回当前轮判词
+# 喂 prior_verdicts，前轮判词=裁量先例。单条截断防判词膨胀 judge 输入。
+_PRIOR_VERDICT_LIMIT = 3
+_PRIOR_REASON_CAP = 400
+
+
+def write_sub_step_block_verdict(
+    project_root: Path,
+    name: str,
+    node: "Node",
+    sub_step: int,
+    reason: str,
+    attempts: int,
+) -> bool:
+    """judge 内容性 block 的裁决记录（kind=gate/gate=blocked）落 evidence。
+
+    只记 judge 判词（内容性 block）；corrupt-trace 格式性 block 不记——那是
+    机械格式指引，不是内容裁量，进 prior_verdicts 会污染一致性语境。
+    返回 True=写入成功；False=写失败（no silent fallback：调用方 log，不阻断）。
+    """
+    record = {
+        "kind": "gate",
+        "node": node_id(node.phase, node.sub),
+        "phase": node.phase,
+        "sub": node.sub,
+        "label": node.label,
+        "major_stage": node.phase.capitalize(),
+        "minor_stage": node.minor_key,
+        "gate": "blocked",
+        "sub_step": sub_step,
+        "reason": reason,
+        "attempts": attempts,
+        "via": "auto-stop",
+        "ts": _now(),
+    }
+    path = _evidence_path(project_root, name)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except OSError:
+        return False
+    return True
+
+
+def prior_block_reasons(
+    project_root: Path, name: str, sub_step: int, minor_key: str | None
+) -> list[str]:
+    """取本节点本子步骤的前轮 block 判词（时间序，最近 _PRIOR_VERDICT_LIMIT 条）。
+
+    只取 kind=gate/gate=blocked 且 sub_step/minor_stage 归属匹配的记录——
+    passed 记录、它步、它节点（跨节点串号防御，同 _iter_trace_segments）排除。
+    单条截断 _PRIOR_REASON_CAP。无 evidence 文件/无可解析行 -> []（首判）。
+    """
+    path = _evidence_path(project_root, name)
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    reasons: list[str] = []
+    for line in lines:
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if (
+            rec.get("kind") == "gate"
+            and rec.get("gate") == "blocked"
+            and rec.get("sub_step") == sub_step
+            and rec.get("minor_stage") == minor_key
+            and isinstance(rec.get("reason"), str)
+            and rec["reason"].strip()
+        ):
+            r = rec["reason"]
+            reasons.append(
+                r[:_PRIOR_REASON_CAP] + ("…" if len(r) > _PRIOR_REASON_CAP else "")
+            )
+    return reasons[-_PRIOR_VERDICT_LIMIT:]
+
+
 # ---------- gate（compound + 短路;design §5）----------
 #
 # design §5：机械项（py 规则）+ 语义项（judge）。
@@ -679,11 +761,13 @@ def gate_and_advance_sub_step(
         artifact = read_evidence_for_step(
             project_root, name, sub_step_index, node.minor_key
         )
+        priors = prior_block_reasons(project_root, name, sub_step_index, node.minor_key)
         ok, reason = run_judge(
             step.gate,
             f"{node.label} · 子步骤{sub_step_index}",
             "",
             artifact_content=artifact,
+            prior_verdicts=priors,
         )
     if not ok:
         state = load_state(project_root, name)
@@ -1109,6 +1193,8 @@ def corrupt_trace_after_latest(
     for line in lines[last_valid_idx + 1 :]:
         if not any(n in line for n in needle):
             continue
+        if any(g in line for g in ('"kind":"gate"', '"kind": "gate"')):
+            continue  # 机制侧裁决记录（engine 单次 write 原子落盘）非损坏候选（v2.26）
         if (
             mneedle is not None
             and '"minor_stage"' in line
@@ -1191,11 +1277,13 @@ def gate_sub_step_at_stop(
         ok, reason = True, ""
     else:
         artifact = read_evidence_for_step(project_root, name, cur, mk)
+        priors = prior_block_reasons(project_root, name, cur, mk)
         ok, reason = run_judge(
             step.gate,
             f"{node.label} · 子步骤{cur}",
             "",
             artifact_content=artifact,
+            prior_verdicts=priors,
         )
     if ok:
         # 先落盘（含 last_judged[key]）：末步路径 advance_state 从磁盘重 load，
@@ -1206,6 +1294,14 @@ def gate_sub_step_at_stop(
         )
         return "advanced", "", new_state
     state["node_attempts"] = state.get("node_attempts", 0) + 1
+    write_sub_step_block_verdict(
+        project_root,
+        name,
+        node,
+        cur,
+        reason or "judge 未给出原因",
+        state["node_attempts"],
+    )
     state["updated_at"] = _now()
     save_state(project_root, name, state)
     action = (
@@ -1475,6 +1571,7 @@ def run_judge(
     node_label: str,
     model_output: str,
     artifact_content: str | None = None,
+    prior_verdicts: list[str] | None = None,
 ) -> tuple[bool, str]:
     """起 stateless claude -p 当评审 judge。返回 (pass, reason)。
 
@@ -1482,6 +1579,9 @@ def run_judge(
     输入 = rubric（判据）+ 模型本轮输出 + 声明产物内容。
     输出 = {pass:bool, reason:str}（JSON 强约束）。
     judge 继承主会话 env（design §9 #2）：不另设 provider/model,跑在主会话已起的 provider 上。
+    prior_verdicts（v2.26）：同一子步骤前轮 block 判词（时间序）。非空时 prompt
+    附一致性指令——judge 每轮全新调用无记忆是裁量漂移的制度根源（tail_volume
+    u:3 子4 同一 rubric 五轮五种解释），前轮判词=裁量先例。
 
     失败（API 错/超时/解析失败）-> (False, 失败原因)（design §5.1 降级：不默认放行）。
     例外一：**bad_verdict_json（判定 JSON 解析失败）重试一次**（2026-07-26 决议）——
@@ -1512,6 +1612,16 @@ def run_judge(
         prompt += (
             "\n（产物内容中同一 sub_step 若有多条 skill-trace 记录，"
             "以最后一条为准；此前同号记录是返工历史，仅作参考。）"
+        )
+    if prior_verdicts:
+        prompt += "\n【前轮判词（同一子步骤，时间序）】\n" + "\n".join(
+            f"{i}. {r}" for i, r in enumerate(prior_verdicts, 1)
+        )
+        prompt += (
+            "\n一致性要求（判据未变，前轮判词=裁量先例）："
+            "①前轮点名的问题已修复的方向，不得翻案判回；"
+            "②前轮 trace 中已存在且未被判违规的写法，不得仅因裁量收紧而新判违规；"
+            "③本轮判 block 须在 reason 引用判据的具体条款。"
         )
     prompt += "\n只回上面的 JSON。"
 
