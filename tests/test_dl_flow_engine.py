@@ -4141,6 +4141,16 @@ class TestAppendTrace:
         ok, msg = eng.append_trace(tmp_path, "t", str(payload))
         assert not ok and "无子步骤编排" in msg
 
+    def test_success_message_guides_incremental_summary(self, tmp_path):
+        # v2.25 轮末总结瘦身：tail_volume understand:3 子4 五轮返工各把 36-45 条
+        # 陈述全文重述一遍（共 ~3.7k out）——judge 只读 evidence 不读正文，纯烧。
+        # 成功消息在模型写正文前的决策点指路增量总结。
+        payload = self._setup(tmp_path)
+        self._write_payload(payload, {"purpose": "p", "qa": [{"q": "q", "a": "a"}]})
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert ok
+        assert "增量总结" in msg and "全文重述" in msg
+
 
 class TestRedteamPrompt:
     """v2.14 redteam-prompt（B 级）：证据+纪律归脚本，Agent 调用归模型。"""

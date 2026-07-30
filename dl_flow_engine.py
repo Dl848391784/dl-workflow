@@ -1806,7 +1806,11 @@ def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool
         pass
     return (
         True,
-        f"✓ 已落库 sub_step={cur} -> {path}（可输出 ### STEP_DONE: {cur} 并 end_turn）",
+        # v2.25：返工轮正文禁全文重述（judge 读 evidence 不读正文）——在模型
+        # 写正文前的决策点指路增量总结（tail_volume u:3 子4 五轮重述烧 ~3.7k out）。
+        f"✓ 已落库 sub_step={cur} -> {path}（可输出 ### STEP_DONE: {cur} 并 end_turn；"
+        "返工轮正文只写增量总结=本轮变更条目+总数，禁全文重述——"
+        "judge 读 evidence 不读正文，完整集由读回确认步呈现）",
     )
 
 
