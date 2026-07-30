@@ -278,6 +278,21 @@ class TestContinueCarriesFenceNotice:
         ctx = json.loads(out.strip())["hookSpecificOutput"]["additionalContext"]
         assert "点名" in ctx and "全篇重写" in ctx
 
+    def test_escalate_continue_offers_dispute_option(self, wf_repo, monkeypatch, capsys):
+        # v2.30 #7：escalate 第 4 出口=判据申诉（dl-cmd.sh dispute 落 rubric-dispute）
+        _write_state(wf_repo, sub_step=1)
+        _write_trace(wf_repo, sub_step=1)
+        st_path = wf_repo / ".claude/workflows/t/state.json"
+        st = json.loads(st_path.read_text())
+        st["node_attempts"] = 2  # 下一次 block 即达升级阈值 3
+        st_path.write_text(json.dumps(st))
+        mod = _load_hook()
+        out, _err = _run_hook(
+            mod, wf_repo, monkeypatch, capsys, judge=(False, "仍缺出处")
+        )
+        ctx = json.loads(out.strip())["hookSpecificOutput"]["additionalContext"]
+        assert "升级" in ctx and "dispute" in ctx and "判据" in ctx
+
 
 class TestP4PhaseDoneFallthrough:
     """plan:4（门栏唯一处，advance="phase" 编排节点）的 PHASE_DONE fall-through。

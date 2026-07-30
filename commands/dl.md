@@ -1,5 +1,5 @@
 ---
-description: 工作流阶段控制 - 用法 /dl next|back|jump <phase>|status|gate|step-pass|state-reset <n|phase:minor[:step]>|done
+description: 工作流阶段控制 - 用法 /dl next|back|jump <phase>|status|gate|step-pass|dispute <论证>|state-reset <n|phase:minor[:step]>|done
 ---
 
 运行工作流控制脚本。参数透传给 `$ARGUMENTS`。

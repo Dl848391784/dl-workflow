@@ -4319,6 +4319,46 @@ class TestStatementsRecordFormat:
         assert ok, msg
 
 
+class TestRubricDispute:
+    """v2.30 #7 判据申诉通道（tail_volume u:3 子4：模型第 4 轮已正确诊断
+    「判据与 in-scope 命题矛盾」，但 escalate 只有重做/放行/回退三出口——
+    诊断无通道，判据修订被迫跑到运行外）。第 4 出口：用户认可判据有缺陷 ->
+    模型 dl-cmd.sh dispute 落 kind=rubric-dispute 记录。
+    判据修订权归人：记录只留痕供修订检索，不自动改判据。"""
+
+    def test_dispute_writes_record(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 3, sub_step=4)
+        ok, msg = eng.write_rubric_dispute(tmp_path, "t", "判据与 in-scope 命题矛盾")
+        assert ok, msg
+        rec = json.loads(
+            (tmp_path / ".claude" / "evidence" / "t.jsonl")
+            .read_text(encoding="utf-8")
+            .strip()
+        )
+        assert rec["kind"] == "rubric-dispute"
+        assert rec["node"] == "understand:3"
+        assert rec["sub_step"] == 4
+        assert rec["minor_stage"] == "ScopeAndConstraints"
+        assert "矛盾" in rec["reason"]
+        assert "gate" not in rec  # 非门控裁决记录，不与 kind=gate 混淆
+
+    def test_dispute_missing_state_rejected(self, tmp_path):
+        ok, msg = eng.write_rubric_dispute(tmp_path, "t", "x")
+        assert not ok and "state" in msg
+
+    def test_dispute_cli(self, tmp_path, capsys):
+        _init_git(tmp_path)
+        _write_state_full(tmp_path, "t", "understand", 3, sub_step=4)
+        rc = eng.main(["dispute", "t", "判据太宽", "--cwd", str(tmp_path)])
+        assert rc == 0
+        rec = json.loads(
+            (tmp_path / ".claude" / "evidence" / "t.jsonl")
+            .read_text(encoding="utf-8")
+            .strip()
+        )
+        assert rec["reason"] == "判据太宽"
+
+
 class TestSolutionFreeRuleInGates:
     """v2.24 裁量点钉死双侧化：操作化定义必须进 gate（judge 侧），不只进
     purpose/selfcheck（模型侧）。v2.23 只钉模型侧——judge 输入面仍只有一句

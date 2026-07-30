@@ -414,6 +414,10 @@ def main() -> int:
                     "bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh step-pass"
                     "（裁决记录落 evidence）\n"
                     "3. 用户要求回退 /dl back\n"
+                    "4. 判据本身有缺陷（与命题矛盾/佐证无合法获取路径）：用户认可后，"
+                    "你运行 bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh dispute "
+                    "\"<缺陷论证>\"（申诉记录落 evidence，判据修订归人），"
+                    "再按用户指示重做/放行/回退\n"
                     "门控判据不可自行变通；出口只有用户裁决。"
                 )
             # block 返工附当前步围栏提示（含 fence_allow 豁免）：block 高发场景正是

@@ -449,6 +449,56 @@ def prior_block_reasons(
     return reasons[-_PRIOR_VERDICT_LIMIT:]
 
 
+def write_rubric_dispute(
+    project_root: Path, name: str, reason: str
+) -> tuple[bool, str]:
+    """判据申诉落 evidence（kind=rubric-dispute；v2.30 #7，escalate 第 4 出口）。
+
+    背景（tail_volume u:3 子4）：模型第 4 轮已正确诊断「判据与 in-scope 命题
+    矛盾」，但 escalate 只有重做/放行/回退三出口——诊断无通道，用户被迫强制
+    放行，判据修订跑到运行外（事后别的会话手工做 v2.23/2.24）。申诉记录把
+    判据缺陷闭环在运行内：留痕供后续判据修订检索（evidence 单源），
+    **不自动改判据**——判据修订权归人。
+    非 kind=gate：申诉不是门控裁决，不进 prior_verdicts 一致性语境。
+    """
+    state = load_state(project_root, name)
+    if state is None:
+        return False, f"工作流 {name} 的 state.json 缺失"
+    state = normalize_state(state)
+    try:
+        node = get_node(state["phase"], state["sub_index"])
+    except KeyError:
+        return False, f"节点 {state['phase']}:{state['sub_index']} 不存在"
+    if not reason.strip():
+        return False, "申诉须附缺陷论证（哪条判据、为何与命题矛盾/无合法获取路径）"
+    record = {
+        "kind": "rubric-dispute",
+        "node": node_id(node.phase, node.sub),
+        "phase": node.phase,
+        "sub": node.sub,
+        "label": node.label,
+        "major_stage": node.phase.capitalize(),
+        "minor_stage": node.minor_key,
+        "sub_step": state.get("sub_step_index", 1),
+        "reason": reason,
+        "node_attempts": state.get("node_attempts", 0),
+        "ts": _now(),
+    }
+    path = _evidence_path(project_root, name)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except OSError as e:
+        return False, f"写 evidence 失败：{e}"
+    return (
+        True,
+        f"判据申诉已落库（{node_id(node.phase, node.sub)} 子"
+        f"{record['sub_step']}）-> {path}（判据修订归人：此记录供修订检索，"
+        "不自动改判据；当前步仍须用户指示重做/放行/回退）",
+    )
+
+
 # ---------- gate（compound + 短路;design §5）----------
 #
 # design §5：机械项（py 规则）+ 语义项（judge）。
@@ -2281,6 +2331,7 @@ def main(argv: list[str] | None = None) -> int:
             "state-reset",
             "subgate-pass",
             "fence",
+            "dispute",
             "render-phase-rules",
             "append-trace",
             "redteam-prompt",
@@ -2366,6 +2417,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if ok else 1
     if args.cmd == "subgate-pass":
         ok, msg = release_subgate(project_root, name, cwd)
+        print(("✓ " if ok else "✗ ") + msg, file=sys.stdout if ok else sys.stderr)
+        return 0 if ok else 1
+    if args.cmd == "dispute":
+        if not args.value:
+            print("✗ 用法: dispute <name> <缺陷论证>", file=sys.stderr)
+            return 1
+        ok, msg = write_rubric_dispute(project_root, name, args.value)
         print(("✓ " if ok else "✗ ") + msg, file=sys.stdout if ok else sys.stderr)
         return 0 if ok else 1
     if args.cmd == "state-reset":

@@ -151,6 +151,17 @@ case "$SUB" in
     python3 "$WF_ENGINE" step-pass "$NAME" --cwd "$(pwd)"
     ;;
 
+  dispute)
+    # 判据申诉（escalate 第 4 出口：用户认可判据有缺陷后模型落 kind=rubric-dispute 记录；
+    # 判据修订归人，记录只留痕供修订检索）
+    V="${1:-}"
+    if [ -z "$V" ]; then
+      echo "用法: /dl dispute <缺陷论证（哪条判据、为何与命题矛盾/无合法获取路径）>" >&2
+      exit 1
+    fi
+    python3 "$WF_ENGINE" dispute "$NAME" "$V" --cwd "$(pwd)"
+    ;;
+
   state-reset)
     # 整体回滚到任意历史子步骤（engine reset_state：删目标 step 及之后 evidence/产物 + 清游标/门栏）
     V="${1:-}"
@@ -178,7 +189,7 @@ case "$SUB" in
     ;;
 
   *)
-    echo "✗ 未知子命令 '$SUB'。可用: status next back jump gate step-pass state-reset fence done" >&2
+    echo "✗ 未知子命令 '$SUB'。可用: status next back jump gate step-pass dispute state-reset fence done" >&2
     exit 1
     ;;
 esac
