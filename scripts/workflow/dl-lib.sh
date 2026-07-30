@@ -223,9 +223,13 @@ wf_state_mark_artifact() {
 # permissions.allow 宽白名单（2026-07-30 审计实测）：会话跑在 auto 权限模式时，
 # 每次改造型工具调用都要过一次端点裁决（慢 provider 上实测中位 14-17s/次，
 # debug 日志 "Slow permission decision"，单会话累计 ~45min）。
-# 白名单命中跳过裁决。覆盖编排高频命令：dl-cmd.sh 全子命令（status/step-pass 等）、
-# dl_flow_engine.py（append-trace/redteam-prompt/meta 等）、sqlite3（codegraph.db 查询）、
-# codegraph CLI。威胁模型 = 弱遵从而非对抗（SKILL 症状 O 原则 4），宽白名单可接受。
+# 白名单命中跳过裁决。威胁模型 = 弱遵从而非对抗（SKILL 症状 O 原则 4），宽白名单可接受。
+# 覆盖三类（2026-07-30 tail_volume 会话 116 次 Bash + 66 次 Write 实测归集）：
+#   ① 编排命令：dl-cmd.sh 全子命令 / dl_flow_engine.py / sqlite3 / codegraph；
+#   ② 写工具裸规则：Write/Edit/MultiEdit（acceptEdits 本意，未生效根因未查明，裸规则兜底）；
+#   ③ 只读/常用命令头 + execute 期工具链（pytest/ruff/mypy/git/python3）。
+# 已知漏网（命中即缴一次税，可接受）：env 前缀形式（`DB=... sqlite3`，规则语法
+# 不支持中段通配）、复合命令里出现名单外首词、新型命令头。
 wf_write_settings() {
   local name="$1"
   local dir="$WF_META_ROOT/$name"
@@ -237,10 +241,42 @@ wf_write_settings() {
   "permissions": {
     "defaultMode": "acceptEdits",
     "allow": [
+      "Write",
+      "Edit",
+      "MultiEdit",
+      "WebFetch",
+      "Agent",
       "Bash(bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh:*)",
       "Bash(python3 ~/.dl-workflow/dl_flow_engine.py:*)",
       "Bash(sqlite3:*)",
-      "Bash(codegraph:*)"
+      "Bash(codegraph:*)",
+      "Bash(echo:*)",
+      "Bash(cat:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(grep:*)",
+      "Bash(sed:*)",
+      "Bash(awk:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "Bash(mkdir:*)",
+      "Bash(cd:*)",
+      "Bash(pwd:*)",
+      "Bash(which:*)",
+      "Bash(test:*)",
+      "Bash(sort:*)",
+      "Bash(uniq:*)",
+      "Bash(wc:*)",
+      "Bash(date:*)",
+      "Bash(diff:*)",
+      "Bash(jq:*)",
+      "Bash(curl:*)",
+      "Bash(python3:*)",
+      "Bash(python:*)",
+      "Bash(pytest:*)",
+      "Bash(ruff:*)",
+      "Bash(mypy:*)",
+      "Bash(git:*)"
     ]
   },
   "hooks": {
