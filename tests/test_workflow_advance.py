@@ -266,6 +266,18 @@ class TestContinueCarriesFenceNotice:
         # 步级化：子1 block 返工带的是**当前子步骤（子1）**的 checklist
         assert "本步自查：" in ctx and "who/pain/why-now" in ctx
 
+    def test_block_continue_guides_surgical_rework(self, wf_repo, monkeypatch, capsys):
+        # v2.29 #6：返工指引 surgical 化——优先只修判词点名条目，禁默认全篇重写
+        # （u:3 子4 每轮全篇重写 ~3.5k out，qa/statements 结构化后单条 Edit 已可行）
+        _write_state(wf_repo, sub_step=1)
+        _write_trace(wf_repo, sub_step=1)
+        mod = _load_hook()
+        out, _err = _run_hook(
+            mod, wf_repo, monkeypatch, capsys, judge=(False, "缺出处")
+        )
+        ctx = json.loads(out.strip())["hookSpecificOutput"]["additionalContext"]
+        assert "点名" in ctx and "全篇重写" in ctx
+
 
 class TestP4PhaseDoneFallthrough:
     """plan:4（门栏唯一处，advance="phase" 编排节点）的 PHASE_DONE fall-through。

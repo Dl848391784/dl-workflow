@@ -4085,6 +4085,25 @@ class TestSubStepPriorVerdicts:
         eng.run_judge("RUB", "LBL", "OUT")
         assert "一致性" not in captured["cmd"][-1]
 
+    def test_rejudge_prompt_requires_rewrite_example(self, monkeypatch):
+        # v2.29 #5：重判时判词须附正确改写范例——指模式不指实例
+        # （u:3 子4 判词只点名实例位置，模型逐条打地鼠造新雷）
+        captured = {}
+
+        class _Res:
+            returncode = 0
+            stdout = (
+                '{"is_error":false,"result":"{\\"pass\\": true, \\"reason\\": \\"\\"}"}\n'
+            )
+
+        def _run(cmd, **kw):
+            captured["cmd"] = cmd
+            return _Res()
+
+        monkeypatch.setattr(eng.subprocess, "run", _run)
+        eng.run_judge("RUB", "LBL", "OUT", prior_verdicts=["前轮：缺 X"])
+        assert "范例" in captured["cmd"][-1]
+
 
 class TestScopeSub3DualField:
     """v2.28 子3 双字段倒推（消费契约倒推 §3.8：子4 判据要求应倒推成子3 产物
