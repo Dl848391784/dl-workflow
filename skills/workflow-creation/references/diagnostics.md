@@ -336,6 +336,8 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 | 工具执行 + 子代理串行段 | ~15% | 秒级累加 |
 | 确定性程序 | <1s | 毫秒级，无可压 |
 
+**auto 权限税——「工具执行秒级累加」的重大例外**（2026-07-30 tail_volume 会话实测，transcript `permissionMode=auto` 93 次）：会话跑在 auto 权限模式时**每次 Write/Bash 过端点裁决**（慢 provider 中位 Write 17s / Bash 14.3s，debug 日志 `Slow permission decision: Xms (mode=auto)` 实证），180 次改造型调用 ≈ 45min——可超 judge 成第二大头，且裁决 token 不进 transcript usage（隐身成本）。**识别法**：①transcript grep `permissionMode` 字段（per-wf settings 写的 acceptEdits 可能未生效——别信配置信实测）；②工具耗时按类型分组——Read/Skill 0.1s vs Write/Bash 两位秒数即成税（hooks 本身毫秒级，可用真实 state 冒烟排除）。**修复**=per-wf allowlist 覆盖高频命令（`wf_write_settings`，2026-07-30 已扩 36 条实测归集版）；**验证**=`dl <name> --debug` 跑一轮后 grep per-wf cc_debug.log 无 `Slow permission decision`。已知漏网：env 前缀形式（`DB=... sqlite3`，规则语法不支持中段通配）与名单外新命令头——命中即缴一次税。
+
 **交互步墙钟 = 用户时间，别算进系统开销**（2026-07-27，demo 2e0f41dc）：读回确认类子步骤（ProblemContext 子6/GoalsAndValue 子5，gate=None）的耗时大头是**用户看材料做裁决**——该轮子6 占 66 分钟全是用户时间，机械层与模型都在等。耗时分解先把交互步的用户等待单列，再对剩余部分按上表归集；「GoalsAndValue 5 步全自动段 10.5 分钟」这类数字才是系统水位。
 
 **审计方法**：§3 #8（transcript 位置/去重/窗口归集/生成速率）+ §3 #11（报错盘点）。**优化排序**：①消浪费（假冲突循环/子代理嵌套/盲猜/撞围栏——通常占 20-30%，先于一切结构调整）；②轮数（block 循环 = +1-2 轮/次，自查提示 §3.5 #9 前移到自查抓）；③输出冗长度（墙钟 ≈ 输出 token ÷ 生成速率，线性）。**底线**：给定模型的 tok/s 与遵从率决定水位（ark 实测 6 步带门控 ~25-35m 属正常）；要数量级提速只有换更快/更强模型，不是调程序。
