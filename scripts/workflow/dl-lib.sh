@@ -219,6 +219,13 @@ wf_state_mark_artifact() {
 #
 # `hk` 用字面 `~`（不展开成绝对路径）-> per-wf settings 跨用户 home 通用；
 # heredoc 内 `~` 不展开（bash tilde 只在命令行词首展开），$hk 取变量字面值。
+#
+# permissions.allow 宽白名单（2026-07-30 审计实测）：会话跑在 auto 权限模式时，
+# 每次改造型工具调用都要过一次端点裁决（慢 provider 上实测中位 14-17s/次，
+# debug 日志 "Slow permission decision"，单会话累计 ~45min）。
+# 白名单命中跳过裁决。覆盖编排高频命令：dl-cmd.sh 全子命令（status/step-pass 等）、
+# dl_flow_engine.py（append-trace/redteam-prompt/meta 等）、sqlite3（codegraph.db 查询）、
+# codegraph CLI。威胁模型 = 弱遵从而非对抗（SKILL 症状 O 原则 4），宽白名单可接受。
 wf_write_settings() {
   local name="$1"
   local dir="$WF_META_ROOT/$name"
@@ -230,7 +237,10 @@ wf_write_settings() {
   "permissions": {
     "defaultMode": "acceptEdits",
     "allow": [
-      "Bash(bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh status:*)"
+      "Bash(bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh:*)",
+      "Bash(python3 ~/.dl-workflow/dl_flow_engine.py:*)",
+      "Bash(sqlite3:*)",
+      "Bash(codegraph:*)"
     ]
   },
   "hooks": {

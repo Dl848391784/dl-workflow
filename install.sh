@@ -1,7 +1,8 @@
 #!/bin/bash
 # dl-workflow install.sh
-# copy 4 hooks / 1 skill / 1 output-style / 1 command 到 ~/.claude/
-# 合并 ~/.claude/settings.json 的 hook 注册
+# copy 1 skill / 1 output-style / 1 command 到 ~/.claude/（hooks 不 copy，settings 直引源）
+# 合并 ~/.claude/settings.json 的 hook 注册（用户级只 codegraph 两个；
+#   并幂等摘除历史误注册的 workflow_phase/advance/step_fence——它们只属 per-wf settings）
 # 追写 ~/.bashrc 的 dl 函数（工作流入口，若未安装）
 #
 # 幂等：连续跑两次结果一致。冲突文件备份到 ~/.claude/.dl-workflow-backup/<ts>/。
@@ -90,7 +91,11 @@ if os.path.exists(settings_path):
 else:
     settings = {}
 
-# dl-workflow 要注册的 hooks（command 直接引用 ~/.dl-workflow/hooks/ 源，不 copy）
+# dl-workflow 用户级只注册 codegraph 门禁两个（跨项目通用）。
+# workflow_phase / workflow_advance / workflow_step_fence 是工作流会话专属，
+# 只由 per-wf settings.json 注册（dl-lib.sh wf_write_settings）——
+# 用户级注册会让任何 cwd 落进 worktree 的会话被工作流门控接管
+#（2026-07-30 实测：主仓审计会话 cd 进 worktree 后 Stop hook 误判 engage_block）。
 DLWF_HOOKS = {
     "PreToolUse": [
         {"matcher": "Edit|Write", "hooks": [{"type": "command", "command": f"python3 {hooks_src}/codegraph_gate.py"}]}
@@ -98,13 +103,15 @@ DLWF_HOOKS = {
     "PostToolUse": [
         {"matcher": "Bash", "hooks": [{"type": "command", "command": f"python3 {hooks_src}/codegraph_audit.py"}]}
     ],
-    "UserPromptSubmit": [
-        {"hooks": [{"type": "command", "command": f"python3 {hooks_src}/workflow_phase.py"}]}
-    ],
-    "Stop": [
-        {"hooks": [{"type": "command", "command": f"python3 {hooks_src}/workflow_advance.py"}]}
-    ],
 }
+
+# 历史版本误注册到用户级的工作流 hook：重跑 install.sh 时自动摘除（幂等清理，
+# 其他机器 git pull + install.sh 即修复；per-wf settings 里的注册不受影响）。
+DLWF_HOOKS_REMOVE = [
+    f"python3 {hooks_src}/workflow_phase.py",
+    f"python3 {hooks_src}/workflow_advance.py",
+    f"python3 {hooks_src}/workflow_step_fence.py",
+]
 
 hooks = settings.setdefault("hooks", {})
 
@@ -126,10 +133,23 @@ for event, groups in DLWF_HOOKS.items():
             existing.append(new_group)
             added += 1
 
+# 摘除历史误注册的工作流 hook（按 command 匹配；组摘空则整组移除，事件摘空则删事件键）
+removed = 0
+for event in list(hooks.keys()):
+    groups = hooks[event]
+    for group in list(groups):
+        before = len(group.get("hooks", []))
+        group["hooks"] = [h for h in group.get("hooks", []) if h.get("command") not in DLWF_HOOKS_REMOVE]
+        removed += before - len(group["hooks"])
+        if not group["hooks"]:
+            groups.remove(group)
+    if not groups:
+        del hooks[event]
+
 with open(settings_path, "w", encoding="utf-8") as f:
     json.dump(settings, f, ensure_ascii=False, indent=2)
 
-print(f"  merged {added} 个 hook（已存在的跳过）")
+print(f"  merged {added} 个 hook（已存在的跳过）；摘除历史误注册 {removed} 个")
 PY
   echo "✓ settings.json 合并完成"
 }
