@@ -82,6 +82,14 @@ def _render_skill_trace(rec: dict, phase_labels: dict, minor_map: dict) -> str:
         a = As[i] if i < len(As) else ""
         lines.append("        Q: %s" % q)
         lines.append("        A: %s" % a)
+    # v2.27 statements 记录（清单型产出步）：逐项 text/type_label/boundary
+    for item in rec.get("statements") or []:
+        if not isinstance(item, dict):
+            continue
+        lines.append(
+            "        - [%s] %s（boundary: %s）"
+            % (item.get("type_label", "?"), item.get("text", ""), item.get("boundary", ""))
+        )
     return "\n".join(lines)
 
 

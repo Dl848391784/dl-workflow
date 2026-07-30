@@ -62,6 +62,11 @@ class Step:
     # 只列 purpose 已披露的形式要件——质量判据仍只在 gate 黑盒（Goodhart 分层不破）。
     # None -> 仅用通用段。
     selfcheck: str | None = None
+    # v2.27 载荷格式（append-trace 校验分流）：
+    # "qa" = 问答配对（逼问/取证/交互步）；
+    # "statements" = 结构化陈述集（归一化陈述等清单型产出步）——
+    # {"text","type_label","boundary"} 逐项，触发机械预检（方案名词扫描/ID 传导）。
+    record_format: str = "qa"
 
 
 @dataclass(frozen=True)
@@ -754,14 +759,20 @@ _NODES: dict[str, Node] = {
                     f"④solution-free 复核（归一化后仍含方案名词=子2 剥离不净，回子2；"
                     f"{_SOLUTION_FREE_SUBJECT_RULE}）；"
                     "放不进一句=未定义完。"
+                    "载荷格式：statements 逐项 {\"text\":单句陈述,\"type_label\":must 或 nice,"
+                    "\"boundary\":verdict 边界}——text 只许 outcome-level 概念，"
+                    "实现侧名词/file:line 只能进 boundary（append-trace 机械扫描，命中即拒）。"
                 ),
                 input="step3.valued_goals",
                 record=True,
+                record_format="statements",
                 selfcheck=(
                     "每条陈述单句只含 1 个独立目标吗（「和/以及/同时」连接多目标="
                     "复合未拆净，回子1 重引）？脱离本会话可独立理解吗"
                     "（主语+动词+约束自包含）？携带 must/nice 提案与 verdict 边界了吗？"
                     f"无方案名词残留吧（逐条看主语：{_SOLUTION_FREE_SUBJECT_RULE}）？"
+                    "statements 载荷 text 逐条无实现侧名词吧（文件名/类名只进 boundary，"
+                    "append-trace 机械扫描会拒）？"
                 ),
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace、"
@@ -939,9 +950,14 @@ _NODES: dict[str, Node] = {
                     f"④solution-free 复核（范围项含方案名词 = GoalsAndValue 子2 "
                     f"剥离不净残留；{_SOLUTION_FREE_SUBJECT_RULE}；{_SCOPE_VERB_RULE}）。"
                     "放不进一句=未定义完。"
+                    "载荷格式：statements 逐项 {\"text\":单句陈述,\"type_label\":in/out/"
+                    "已验证/假设：<置信度>,\"boundary\":verdict 边界+实现指针}——text 只许 "
+                    "outcome-level（实现侧名词/file:line 只能进 boundary，机械扫描命中即拒）；"
+                    "子3 条目编号（in[..]/out[..]/Cx.x）逐项传导，机械核对缺传即拒。"
                 ),
                 input="step3.scope_proposal",
                 record=True,
+                record_format="statements",
                 selfcheck=(
                     "每条陈述单句只含 1 个独立范围项/约束吗（「和/以及/同时」连接"
                     "多项=复合未拆净，回子3）？脱离本会话可独立理解吗"
@@ -949,6 +965,8 @@ _NODES: dict[str, Node] = {
                     f"in/out）与 verdict 边界了吗？"
                     f"无方案名词残留吧（逐条看主语：{_SOLUTION_FREE_SUBJECT_RULE}）？"
                     f"动词都指向 outcome/范围赋予、没指向代码实现动作吧（{_SCOPE_VERB_RULE}）？"
+                    "statements 载荷 text 逐条无实现侧名词吧（只进 boundary，机械扫描会拒）？"
+                    "子3 条目编号（in[..]/out[..]/Cx.x）逐项传导了吗（缺传机械拒）？"
                 ),
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace、"
@@ -1150,15 +1168,22 @@ _NODES: dict[str, Node] = {
                     f"④solution-free 复核（含方案名词 = 子1 剥离不净残留；"
                     f"{_SOLUTION_FREE_SUBJECT_RULE}）。"
                     "放不进一句 = 未定义完。"
+                    "载荷格式：statements 逐项 {\"text\":单句陈述,\"type_label\":验收方法/"
+                    "时机,\"boundary\":verdict 边界}，验收包六字段可作额外字段随项携带——"
+                    "text 只许 outcome-level（实现侧名词/file:line 只能进 boundary，"
+                    "机械扫描命中即拒）。"
                 ),
                 input="step3.criteria_with_acceptance",
                 record=True,
+                record_format="statements",
                 selfcheck=(
                     "每条陈述单句只含 1 个独立标准吗（「和/以及/同时」连接多项 = "
                     "复合未拆净，回子1）？脱离本会话可独立理解吗"
                     "（主语+动词+约束自包含）？验收包六字段"
                     "（指标/基线/阈值提案/方法/时机/证据形式）都传导了吗？"
                     f"无方案名词残留吧（逐条看主语：{_SOLUTION_FREE_SUBJECT_RULE}）？"
+                    "statements 载荷 text 逐条无实现侧名词吧（文件名/类名只进 boundary，"
+                    "append-trace 机械扫描会拒）？"
                 ),
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace、"

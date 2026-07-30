@@ -4086,6 +4086,199 @@ class TestSubStepPriorVerdicts:
         assert "一致性" not in captured["cmd"][-1]
 
 
+class TestStatementsRecordFormat:
+    """v2.27 产出型步结构化 record + 机械预检下沉（tail_volume u:3 子4 审计：
+    q/a 问答模具与清单型产出语义错配——3 次长度不齐全在归一化步；判据的
+    词形部分应下沉机械层，judge 只判真值/质量）。
+
+    record_format="statements" 的步（u:2 子4 / u:3 子4 / u:4 子4，归一化+
+    solution-free 族）载荷 {"purpose","statements":[{"text","type_label",
+    "boundary"}]}；append-trace 机械预检：
+    ①三字段非空 ②text 方案名词扫描（codegraph 类/函数名 + git 文件名真值，
+    实现指针只能进 boundary 字段——对 text 扫描即判主语/陈述体）
+    ③源步 ID 传导覆盖核对（in[1]/C1.1 缺传=拒，judge #1 的活）。u:1 子5
+    无 solution-free 判据，留 qa 格式。"""
+
+    def _setup_sc4(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 3, sub_step=4)
+        return tmp_path / "payload.json"
+
+    def _write_payload(self, payload, obj):
+        payload.write_text(json.dumps(obj, ensure_ascii=False), encoding="utf-8")
+
+    def _statements(self, *texts):
+        return [
+            {"text": t, "type_label": "in", "boundary": "无"}
+            for t in texts
+        ]
+
+    def test_three_normalization_steps_declare_statements(self):
+        for phase, sub, step_no in (
+            ("understand", 2, 4),
+            ("understand", 3, 4),
+            ("understand", 4, 4),
+        ):
+            stp = eng.get_node(phase, sub).sub_steps[step_no - 1]
+            assert stp.record_format == "statements", f"{phase}:{sub} 子{step_no}"
+        assert eng.get_node("understand", 1).sub_steps[4].record_format == "qa"
+
+    def test_statements_happy_path(self, tmp_path):
+        payload = self._setup_sc4(tmp_path)
+        self._write_payload(
+            payload,
+            {
+                "purpose": "归一化",
+                "statements": self._statements("年化数字允许被更新", "覆盖率上限可配置"),
+            },
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert ok, msg
+        rec = json.loads(
+            (tmp_path / ".claude" / "evidence" / "t.jsonl")
+            .read_text(encoding="utf-8")
+            .strip()
+        )
+        assert len(rec["statements"]) == 2 and "q" not in rec and "a" not in rec
+
+    def test_statements_missing_field_rejected(self, tmp_path):
+        payload = self._setup_sc4(tmp_path)
+        self._write_payload(
+            payload,
+            {"purpose": "p", "statements": [{"text": "x", "type_label": "in"}]},
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert not ok and "boundary" in msg
+
+    def test_statements_mixed_with_qa_rejected(self, tmp_path):
+        payload = self._setup_sc4(tmp_path)
+        self._write_payload(
+            payload,
+            {
+                "purpose": "p",
+                "statements": self._statements("x"),
+                "qa": [{"q": "q", "a": "a"}],
+            },
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert not ok and "混用" in msg
+
+    def _git_repo_with_file(self, tmp_path, name):
+        import subprocess as sp
+
+        sp.run(["git", "init"], cwd=tmp_path, capture_output=True)
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text("x", encoding="utf-8")
+        sp.run(["git", "add", name], cwd=tmp_path, capture_output=True)
+
+    def test_implementation_noun_in_text_rejected(self, tmp_path):
+        self._setup_sc4(tmp_path)
+        self._git_repo_with_file(tmp_path, "web_ui/templates/_macros.html")
+        payload = tmp_path / "payload.json"
+        self._write_payload(
+            payload,
+            {
+                "purpose": "p",
+                "statements": [
+                    {
+                        "text": "_macros.html 允许被调整",
+                        "type_label": "in",
+                        "boundary": "无",
+                    }
+                ],
+            },
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert not ok and "_macros.html" in msg and "boundary" in msg
+
+    def test_implementation_noun_in_boundary_allowed(self, tmp_path):
+        self._setup_sc4(tmp_path)
+        self._git_repo_with_file(tmp_path, "web_ui/templates/_macros.html")
+        payload = tmp_path / "payload.json"
+        self._write_payload(
+            payload,
+            {
+                "purpose": "p",
+                "statements": [
+                    {
+                        "text": "因子卡片模板允许被调整",
+                        "type_label": "in",
+                        "boundary": "实现指针：web_ui/templates/_macros.html",
+                    }
+                ],
+            },
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert ok, msg
+
+    def test_codegraph_class_name_in_text_rejected(self, tmp_path):
+        import sqlite3
+
+        self._setup_sc4(tmp_path)
+        cg = tmp_path / ".codegraph"
+        cg.mkdir(parents=True)
+        con = sqlite3.connect(cg / "codegraph.db")
+        con.execute("CREATE TABLE nodes (name TEXT, kind TEXT)")
+        con.execute("INSERT INTO nodes VALUES ('LayerConfigBase', 'class')")
+        con.commit()
+        con.close()
+        payload = tmp_path / "payload.json"
+        self._write_payload(
+            payload,
+            {
+                "purpose": "p",
+                "statements": [
+                    {
+                        "text": "LayerConfigBase 的子类允许扩展",
+                        "type_label": "in",
+                        "boundary": "无",
+                    }
+                ],
+            },
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert not ok and "LayerConfigBase" in msg
+
+    def test_id_coverage_missing_rejected(self, tmp_path):
+        self._setup_sc4(tmp_path)
+        # 源步（子3）trace 用 in/out/C 编号；子4 缺传 in[2] -> 拒并点名
+        ev = eng._evidence_path(tmp_path, "t")
+        ev.parent.mkdir(parents=True, exist_ok=True)
+        src = json.dumps(
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "ScopeAndConstraints",
+                "sub_step": 3,
+                "skill": "define-problem",
+                "purpose": "范围界定",
+                "q": ["in 侧？"],
+                "a": ["in[1] 因子卡片 in[2] 分层表 out[A] 后端 C1.1 硬规则"],
+            },
+            ensure_ascii=False,
+        )
+        ev.write_text(src + "\n", encoding="utf-8")
+        payload = tmp_path / "payload.json"
+        self._write_payload(
+            payload,
+            {
+                "purpose": "p",
+                "statements": self._statements("in[1] 因子卡片允许改 out[A] 不动 C1.1 遵守"),
+            },
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert not ok and "in[2]" in msg
+
+    def test_id_coverage_no_ids_in_source_passes(self, tmp_path):
+        self._setup_sc4(tmp_path)
+        payload = tmp_path / "payload.json"
+        self._write_payload(
+            payload,
+            {"purpose": "p", "statements": self._statements("x 允许被改动")},
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert ok, msg
+
+
 class TestSolutionFreeRuleInGates:
     """v2.24 裁量点钉死双侧化：操作化定义必须进 gate（judge 侧），不只进
     purpose/selfcheck（模型侧）。v2.23 只钉模型侧——judge 输入面仍只有一句

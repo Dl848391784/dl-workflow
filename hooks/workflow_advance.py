@@ -207,7 +207,7 @@ def _sub_step_continue(prev_desc: str, node: "engine.Node", n: int) -> int:
         f"## WORKFLOW {prev_desc} 已通过门控\n"
         f"现在立即执行「{node.label}」子步骤 {n}/{total}（{step.kind}: {step.ref}）：\n"
         f"目的：{step.purpose}\n\n"
-        f"{how}；完成后落 evidence（Write 载荷 purpose/qa 到 "
+        f"{how}；完成后落 evidence（Write 载荷 purpose/{step.record_format} 到 "
         f".claude/evidence/.trace-payload-<name>.json，再 Bash `python3 "
         f"~/.dl-workflow/dl_flow_engine.py append-trace --from-file <载荷>`），"
         f"再输出 ### STEP_DONE: {n} 并结束本轮。\n"

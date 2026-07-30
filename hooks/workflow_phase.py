@@ -369,25 +369,21 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
         if project_root is not None:
             ev_dir = f"{project_root}/.claude/evidence"
             payload_path = f"{ev_dir}/.trace-payload-{name}.json"
+            fields_word = (
+                getattr(cur, "record_format", "qa") if cur is not None else "qa"
+            )
             lines.append(
                 "  evidence 记录（record 步必写，两动作——你定内容，脚本管格式）："
             )
             lines.append(
-                f"   ① Write 载荷到 `{payload_path}`（只含 purpose 与 qa 两个内容字段；"
+                f"   ① Write 载荷到 `{payload_path}`（只含 purpose 与 {fields_word} 内容字段；"
                 "kind/major_stage/minor_stage/sub_step/skill 由脚本从 state 自动填，不要写）："
             )
-            lines.append(
-                '   {"purpose":"<该步目的>","qa":[{"q":"<q1>","a":"<a1>"}]}'
-                "（一问一答配对成对象——不对齐在结构上不可表示）"
-            )
-            lines.append(
-                '   ✓ 正例："qa":[{"q":"who=当前提问者身份？",'
-                '"a":"用户原话：「我是唯一维护者」（本会话）"}]'
-            )
-            lines.append(
-                '   ✗ 反例（必 block）："qa":[{"q":"理解问题","a":"已理解"}]'
-                "（汇总声明非记录）；或照抄 `<...>` 占位符字面"
-            )
+            # v2.27：示例按当前步 record_format 渲染（qa 配对 / statements 陈述集）
+            if cur is not None:
+                lines.extend(engine.payload_format_hint(cur))
+            else:
+                lines.extend(engine.payload_format_hint(None))
             lines.append(
                 "   ② Bash 落库：`python3 ~/.dl-workflow/dl_flow_engine.py append-trace "
                 f"--from-file {payload_path}`"

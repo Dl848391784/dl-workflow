@@ -1798,6 +1798,132 @@ def render_phase_rules(template_text: str) -> str:
 # 载荷里禁止出现的结构字段（由 append_trace 从 state 推导填充）。
 _TRACE_STRUCT_FIELDS = ("kind", "major_stage", "minor_stage", "sub_step", "skill")
 
+# ---------- v2.27 statements 结构化载荷 + 机械预检 ----------
+#
+# 弱模型优先原则：判据的词形部分下沉机械层——judge 每轮 ~13k in + 天然方差，
+# 正则能判的不该花 judge 调用还判不稳（tail_volume u:3 子4 审计）。
+# ①方案名词扫描：实现侧名词真值在仓内（codegraph 符号表 + git 文件名），
+#   text 命中即拒并指路挪 boundary（judge 前的预检，judge 仍兜底语义）；
+# ②源步 ID 传导覆盖核对：逐项原子化传导=集合覆盖问题（u:3 子4 judge #1 的活）。
+
+# 匹配边界用 ASCII 标识符边界：CJK 字符在 re.UNICODE 下是 \w，\b 在 CJK-Latin
+# 交界不可靠（「的LayerConfigBase」用 \b 会误判有边界）。
+_NOUN_L = r"(?<![A-Za-z0-9_])"
+_NOUN_R = r"(?![A-Za-z0-9_])"
+
+# 规范文档引用合法（硬规则约束的验证源=Read 规范文档原文），不算实现侧名词。
+_NOUN_SKIP_EXTS = (".md", ".rst", ".txt")
+
+# 条目编号模式：in[1]/in[1a-强正]/out[A]（范围项）与 C1.1/C3.4（约束项）。
+_ID_RE = re.compile(r"[A-Za-z]+\[[\w-]+\]|[A-Z]\d+\.\d+")
+
+
+def _implementation_nouns(project_root: Path) -> set[str]:
+    """仓内实现侧名词真值集（方案名词扫描用）：codegraph 符号 + git 文件名。
+
+    只收强信号，保精度：①codegraph db 的 class/function/method 名——≥4 字符
+    且含大写或下划线（snake_case/CamelCase 标识符不会出现在自然散文）；
+    ②git ls-files 的带扩展名文件名（_macros.html/paths.py 进散文即实现引用；
+    规范文档扩展名除外）。任一源缺失/失败 -> 跳过该源（预检是 judge 前的
+    增强层不是必需行为，judge 仍兜底——降级不算 silent fallback）。
+    """
+    nouns: set[str] = set()
+    db = project_root / ".codegraph" / "codegraph.db"
+    if db.exists():
+        try:
+            import sqlite3
+
+            con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+            try:
+                for (n,) in con.execute(
+                    "SELECT DISTINCT name FROM nodes"
+                    " WHERE kind IN ('class','function','method')"
+                ):
+                    if (
+                        isinstance(n, str)
+                        and len(n) >= 4
+                        and (any(c.isupper() for c in n) or "_" in n)
+                    ):
+                        nouns.add(n)
+            finally:
+                con.close()
+        except (sqlite3.Error, OSError):
+            pass
+    try:
+        res = subprocess.run(
+            ["git", "ls-files"],
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if res.returncode == 0:
+            for f in res.stdout.splitlines():
+                base = f.rsplit("/", 1)[-1]
+                if (
+                    "." in base
+                    and not base.startswith(".")
+                    and not base.endswith(_NOUN_SKIP_EXTS)
+                ):
+                    nouns.add(base)
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+    return nouns
+
+
+def _step_trace_ids(
+    project_root: Path, name: str, sub_step: int, minor_key: str | None
+) -> set[str]:
+    """取某子步骤最新 trace 文本里的条目编号集（ID 传导覆盖核对的源侧）。"""
+    text = read_evidence(project_root, name)
+    if not text:
+        return set()
+    latest = None
+    for _, rec in _iter_trace_segments(text, sub_step, minor_key):
+        latest = rec
+    if latest is None:
+        return set()
+    parts = [str(latest.get("purpose") or "")]
+    for v in latest.get("q") or []:
+        parts.append(str(v))
+    for v in latest.get("a") or []:
+        parts.append(str(v))
+    for item in latest.get("statements") or []:
+        if isinstance(item, dict):
+            parts.extend(str(item.get(k) or "") for k in ("text", "type_label", "boundary"))
+    return set(_ID_RE.findall(" ".join(parts)))
+
+
+def _source_step_index(step, cur: int) -> int | None:
+    """传导源步号：step.input 声明（"step3.xxx"）优先，缺省上一步。"""
+    m = re.search(r"step(\d+)", step.input or "")
+    if m:
+        return int(m.group(1))
+    return cur - 1 if cur > 1 else None
+
+
+def payload_format_hint(step) -> list[str]:
+    """注入用载荷示例行（按步 record_format；单源，phase hook 直接渲染）。"""
+    if getattr(step, "record_format", "qa") == "statements":
+        return [
+            '   {"purpose":"<该步目的>","statements":[{"text":"<单句陈述>",'
+            '"type_label":"<类型标签>","boundary":"<边界/实现指针>"}]}'
+            "（逐项一个对象；text 只许 outcome-level——实现侧名词/file:line "
+            "只能进 boundary，text 会被机械扫描打回）",
+            '   ✓ 正例："statements":[{"text":"因子卡片年化数字允许被更新",'
+            '"type_label":"in","boundary":"实现指针：web_ui/templates/_macros.html"}]',
+            '   ✗ 反例（必拒）：text 含文件名/类名（挪 boundary）；'
+            "或照抄 `<...>` 占位符字面",
+        ]
+    return [
+        '   {"purpose":"<该步目的>","qa":[{"q":"<q1>","a":"<a1>"}]}'
+        "（一问一答配对成对象——不对齐在结构上不可表示）",
+        '   ✓ 正例："qa":[{"q":"who=当前提问者身份？",'
+        '"a":"用户原话：「我是唯一维护者」（本会话）"}]',
+        '   ✗ 反例（必 block）："qa":[{"q":"理解问题","a":"已理解"}]'
+        "（汇总声明非记录）；或照抄 `<...>` 占位符字面",
+    ]
+
 
 def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool, str]:
     """载荷（purpose + qa 配对，兼容旧 q/a 平行数组）+ state 结构字段 -> 校验 -> 单行 skill-trace append。
@@ -1849,49 +1975,100 @@ def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool
     purpose = payload.get("purpose")
     if not isinstance(purpose, str) or not purpose.strip():
         return False, "purpose 须为非空字符串"
-    qa = payload.get("qa")
-    if qa is not None and (payload.get("q") is not None or payload.get("a") is not None):
-        return False, "载荷 qa 与 q/a 两格式混用——只留 qa 配对格式"
-    if qa is not None:
-        # v2.24 qa 配对格式：一问一答成对象，不对齐在结构上不可表示
-        # （tail_volume understand:3 子4 平行数组三次长度不齐，各白烧一轮整篇重写）。
-        if not isinstance(qa, list) or not qa:
-            return False, 'qa 须为非空数组：[{"q":..., "a":...}, ...]'
-        for i, item in enumerate(qa):
-            if (
-                not isinstance(item, dict)
-                or not isinstance(item.get("q"), str)
-                or not item["q"].strip()
-                or not isinstance(item.get("a"), str)
-                or not item["a"].strip()
-            ):
-                return False, f'qa[{i}] 须为含非空 q 与 a 的对象（{{"q":..., "a":...}}）'
-        q = [item["q"] for item in qa]
-        a = [item["a"] for item in qa]
-    else:
-        # 旧 q/a 平行数组：保留兼容；长度不齐时给无配对项索引+内容头
-        # （surgical 修，不整篇盲重写），并指路 qa 配对格式。
-        q, a = payload.get("q"), payload.get("a")
-        for field, val in (("q", q), ("a", a)):
-            if (
-                not isinstance(val, list)
-                or not val
-                or not all(isinstance(x, str) and x.strip() for x in val)
-            ):
-                return False, f"{field} 须为非空字符串数组（单问单答也用数组包一层）"
-        if len(q) != len(a):
-            longer, lname = (q, "q") if len(q) > len(a) else (a, "a")
-            extras = [
-                f"{lname}[{i}]=「{x[:30]}{'…' if len(x) > 30 else ''}」"
-                for i, x in enumerate(longer)
-                if i >= min(len(q), len(a))
-            ]
-            shown = "；".join(extras[:3]) + ("；…" if len(extras) > 3 else "")
+    if getattr(step, "record_format", "qa") == "statements":
+        # v2.27 statements 结构化载荷（清单型产出步）：三字段校验 +
+        # 机械预检（方案名词扫描 + 源步 ID 传导覆盖）——词形判据下沉机械层。
+        statements = payload.get("statements")
+        if statements is not None and (
+            payload.get("qa") is not None
+            or payload.get("q") is not None
+            or payload.get("a") is not None
+        ):
+            return False, "载荷 statements 与 qa/q/a 两格式混用——只留 statements"
+        if not isinstance(statements, list) or not statements:
             return False, (
-                f"q/a 长度不齐（q={len(q)} a={len(a)}）：一问一答按序对齐。"
-                f"无配对项：{shown}。"
-                '逐条修或改用 qa 配对格式 {"qa":[{"q":...,"a":...},...]}（不对齐不可表示）'
+                "statements 须为非空数组："
+                '[{"text":...,"type_label":...,"boundary":...}, ...]'
             )
+        for i, item in enumerate(statements):
+            if not isinstance(item, dict):
+                return False, f"statements[{i}] 须为对象"
+            for field in ("text", "type_label", "boundary"):
+                if not isinstance(item.get(field), str) or not item[field].strip():
+                    return False, f"statements[{i}].{field} 须为非空字符串"
+        nouns = _implementation_nouns(project_root)
+        for i, item in enumerate(statements):
+            for noun in sorted(nouns):
+                if noun in item["text"] and re.search(
+                    _NOUN_L + re.escape(noun) + _NOUN_R, item["text"]
+                ):
+                    return False, (
+                        f"statements[{i}].text 含实现侧名词「{noun}」——陈述体只许 "
+                        "outcome-level 概念，实现侧名词/file:line 挪到 boundary 字段"
+                        "（judge 之前的机械预检，与 gate 的方案名词规则同源）"
+                    )
+        src = _source_step_index(step, cur)
+        if src:
+            src_ids = _step_trace_ids(project_root, name, src, node.minor_key)
+            if src_ids:
+                new_text = " ".join(
+                    f"{it['text']} {it['type_label']} {it['boundary']}"
+                    for it in statements
+                )
+                missing = sorted(i for i in src_ids if i not in new_text)
+                if missing:
+                    return False, (
+                        f"源步（子{src}）条目未逐项传导，缺：{'、'.join(missing)}"
+                        "——逐项原子化传导是形式要件，逐条补或显式标注剔除理由"
+                    )
+        content_fields = {"statements": statements}
+    else:
+        qa = payload.get("qa")
+        if qa is not None and (
+            payload.get("q") is not None or payload.get("a") is not None
+        ):
+            return False, "载荷 qa 与 q/a 两格式混用——只留 qa 配对格式"
+        if qa is not None:
+            # v2.24 qa 配对格式：一问一答成对象，不对齐在结构上不可表示
+            # （tail_volume understand:3 子4 平行数组三次长度不齐，各白烧一轮整篇重写）。
+            if not isinstance(qa, list) or not qa:
+                return False, 'qa 须为非空数组：[{"q":..., "a":...}, ...]'
+            for i, item in enumerate(qa):
+                if (
+                    not isinstance(item, dict)
+                    or not isinstance(item.get("q"), str)
+                    or not item["q"].strip()
+                    or not isinstance(item.get("a"), str)
+                    or not item["a"].strip()
+                ):
+                    return False, f'qa[{i}] 须为含非空 q 与 a 的对象（{{"q":..., "a":...}}）'
+            q = [item["q"] for item in qa]
+            a = [item["a"] for item in qa]
+        else:
+            # 旧 q/a 平行数组：保留兼容；长度不齐时给无配对项索引+内容头
+            # （surgical 修，不整篇盲重写），并指路 qa 配对格式。
+            q, a = payload.get("q"), payload.get("a")
+            for field, val in (("q", q), ("a", a)):
+                if (
+                    not isinstance(val, list)
+                    or not val
+                    or not all(isinstance(x, str) and x.strip() for x in val)
+                ):
+                    return False, f"{field} 须为非空字符串数组（单问单答也用数组包一层）"
+            if len(q) != len(a):
+                longer, lname = (q, "q") if len(q) > len(a) else (a, "a")
+                extras = [
+                    f"{lname}[{i}]=「{x[:30]}{'…' if len(x) > 30 else ''}」"
+                    for i, x in enumerate(longer)
+                    if i >= min(len(q), len(a))
+                ]
+                shown = "；".join(extras[:3]) + ("；…" if len(extras) > 3 else "")
+                return False, (
+                    f"q/a 长度不齐（q={len(q)} a={len(a)}）：一问一答按序对齐。"
+                    f"无配对项：{shown}。"
+                    '逐条修或改用 qa 配对格式 {"qa":[{"q":...,"a":...},...]}（不对齐不可表示）'
+                )
+        content_fields = {"q": q, "a": a}
 
     record = {
         "kind": "skill-trace",
@@ -1900,8 +2077,7 @@ def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool
         "sub_step": cur,
         "skill": step.ref,
         "purpose": purpose,
-        "q": q,
-        "a": a,
+        **content_fields,
     }
     path = _evidence_path(project_root, name)
     try:
