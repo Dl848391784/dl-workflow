@@ -4086,6 +4086,27 @@ class TestSubStepPriorVerdicts:
         assert "一致性" not in captured["cmd"][-1]
 
 
+class TestScopeSub3DualField:
+    """v2.28 子3 双字段倒推（消费契约倒推 §3.8：子4 判据要求应倒推成子3 产物
+    字段）。tail_volume u:3 子4 审计：创造性抽象负担全压子4（弱模型最难的
+    一次转换，只判一次）——正解=子3 范围界定每项带双字段（具体实现指针+
+    outcome 层标签），抽象在有 codegraph 取证条件的子3 完成，子4 退化装配步。
+    """
+
+    def test_sub3_purpose_requires_dual_field(self):
+        stp = eng.get_node("understand", 3).sub_steps[2]
+        assert "outcome" in stp.purpose and "实现指针" in stp.purpose
+        assert "outcome" in stp.selfcheck
+
+    def test_sub3_gate_checks_dual_field(self):
+        gate = eng.get_node("understand", 3).sub_steps[2].gate
+        assert "双字段" in gate or ("实现指针" in gate and "outcome" in gate)
+
+    def test_sub4_purpose_is_assembly_not_creation(self):
+        purpose = eng.get_node("understand", 3).sub_steps[3].purpose
+        assert "装配" in purpose and "二次创作" in purpose
+
+
 class TestStatementsRecordFormat:
     """v2.27 产出型步结构化 record + 机械预检下沉（tail_volume u:3 子4 审计：
     q/a 问答模具与清单型产出语义错配——3 次长度不齐全在归一化步；判据的

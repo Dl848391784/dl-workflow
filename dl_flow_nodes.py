@@ -229,6 +229,23 @@ _SCOPE_VERB_RULE = (
     "判它违规=把范围命题判成不可表述"
 )
 
+# 交互读回步的提问拆分规则（2026-07-30 tail_volume understand:4 子5 审计）：
+# 模型把 4 个裁决问题捆绑一轮 AskUserQuestion，回答时长由最难项决定
+# （实测 370s > 300s prompt-cache TTL）——下一轮 255,670 token 上下文
+# 全量非缓存重读（占整个 understand:4 窗口非缓存 input 的一半）。
+# 拆分后快答轮落在 TTL 内走 cache read（0.1x），硬核裁决至多击穿一次，
+# 实测口径省 60-70%。属提问编排形式要件，披露进 purpose 不 Goodhart；
+# 不加进 selfcheck——问完才发现捆绑已晚，只能靠 purpose 前置披露。
+# 单源常量：8 个读回确认/读回装配 Step 的 purpose 统一引用。
+_INTERACTIVE_CHUNKING_RULE = (
+    "逐问原则（防 cache TTL 击穿）：提问按预计用户思考时长分组——"
+    "快答项（认同/接受/选定/无改）合并一轮先问；"
+    "预计 >4 分钟思考的硬核裁决（拍板/圈定/冻结类规范裁决）单列一轮后问，"
+    "禁与快答项捆绑（捆绑则由最难项决定总时长，>5 分钟未作答击穿 prompt cache，"
+    "下一轮全量重读上下文）；读回材料在首轮提问前以文本完整呈现，"
+    "让用户边读边答快答项"
+)
+
 # plan:1 子1 的形式要件（单源：purpose 模型侧与 gate judge 侧都引用）。
 # 对齐原则同 _STEP1_FORM_REQUIREMENTS：形式要件披露降形式性返工，
 # 质量判据（非编造/非漫游）只留 gate 黑盒。
@@ -594,7 +611,8 @@ _NODES: dict[str, Node] = {
                     "（「证据不足」项显式暴露，由用户裁决继续/等恢复/放弃）；"
                     "用户认「这就是问题（集）」；多个问题时用户选定本实例处理哪一个，"
                     "其余带已验证陈述落 evidence + understand.md（供后续 dl 实例接续，不丢弃）；"
-                    "用户对各项的认/否/搁置记入 trace（用户认可本身是裁决留痕）"
+                    "用户对各项的认/否/搁置记入 trace（用户认可本身是裁决留痕）；"
+                    f"{_INTERACTIVE_CHUNKING_RULE}。"
                 ),
                 input="step5.statements",
                 # §substep-gate-at-stop：record=True——Stop 门控以「新 trace」为唯一
@@ -797,7 +815,8 @@ _NODES: dict[str, Node] = {
                     "用户裁决 must/nice 分层（本子阶段唯一规范裁决点）；"
                     "用户对各目标的认/否/调层记入 trace；"
                     "多目标时用户圈定本实例处理范围，其余落 evidence + understand.md"
-                    "（供后续 dl 实例接续，不丢弃）。"
+                    "（供后续 dl 实例接续，不丢弃）；"
+                    f"{_INTERACTIVE_CHUNKING_RULE}。"
                 ),
                 input="step4.statements",
                 record=True,
@@ -906,7 +925,11 @@ _NODES: dict[str, Node] = {
                     "in/out 落到改动面，in-scope = 允许改动的文件/模块/symbol 集合"
                     "（用 codegraph impact 取证改动面，附留痕），out-of-scope = "
                     "显式禁改的文件/模块清单（特性级条目可保留作注释，但尽量落到"
-                    "路径/模块级才机械可核查）；双向追溯：每个 in-scope 项回溯 ≥1 "
+                    "路径/模块级才机械可核查）；**每项携带双字段（2026-07-30 v2.28 "
+                    "消费契约倒推）**：①具体实现指针（路径/模块/symbol，机械可核查）"
+                    "②outcome 层标签（用户可见的状态/数字/信号——子4 归一化陈述"
+                    "的 text 直接取自它，抽象在本步有 codegraph 取证条件时完成，"
+                    "不把创造性转换留给子4）；双向追溯：每个 in-scope 项回溯 ≥1 "
                     "must 目标（backward，防镀金），每个 must 目标有范围覆盖或"
                     "显式搁置+理由（forward，防漏）；约束回写：已验证约束/已标注"
                     "假设迫使缩小范围处显式记录（obstacle resolution = "
@@ -921,15 +944,19 @@ _NODES: dict[str, Node] = {
                     "in-scope 和 out-of-scope 双侧清单都有吗（out 侧是显式列举"
                     "「看似该做但不做」的项）？双向矩阵逐项完整吗（非汇总声明）？"
                     "孤儿范围项/孤儿目标都显式处置了吗？约束迫使缩范围处回写了吗？"
+                    "每项都带双字段了吗（具体实现指针 + outcome 层标签——"
+                    "outcome 标签=子4 陈述的 text 来源）？"
                     "全程只提案、没替用户拍板吧？"
                 ),
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace、"
                     "minor_stage=ScopeAndConstraints 且 sub_step==3 的记录；"
-                    "形式要件：in/out 双侧清单；双向矩阵完备（目标×范围项逐项）；"
+                    "形式要件：in/out 双侧清单；每项携带双字段（具体实现指针+"
+                    "outcome 层标签）；双向矩阵完备（目标×范围项逐项）；"
                     "孤儿项显式处置；约束回写已记录。"
                     "质量判据（从严裁量）：out-of-scope 空清单 = 无真实取舍"
                     "从严裁量；矩阵放水（明显无关联的目标-范围硬连）判 block；"
+                    "outcome 标签空泛（「页面相关」「功能相关」式无信息标签）判 block；"
                     "替用户拍板范围（无「提案-待用户裁决」语义）判 block。"
                 ),
             ),
@@ -940,7 +967,10 @@ _NODES: dict[str, Node] = {
                 # claim normalization 职能第三次复用（ProblemContext 子5 /
                 # GoalsAndValue 子4 同构）。
                 purpose=(
-                    "归一化陈述：对子3 范围与约束集逐项产出归一化陈述——"
+                    "归一化陈述：对子3 范围与约束集逐项装配归一化陈述"
+                    "（2026-07-30 v2.28：子3 范围项已携带 outcome 层标签——"
+                    "text 直接取自它，实现指针进 boundary；**禁二次创作**"
+                    "（创造性抽象已在子3 完成，本步=形式装配+逐项核对））——"
                     "①原子（单句 ≤1 个独立范围项/约束，「和/以及/同时」连接多项="
                     "复合未拆净，回子3）；"
                     "②去上下文（脱离本会话可独立理解：主语+动词+约束自包含）；"
@@ -993,7 +1023,8 @@ _NODES: dict[str, Node] = {
                     "裁决点）；②假设的接受（风险承担是规范裁决，模型无权替用户"
                     "接受——第二规范裁决点）；用户认/否/调整记入 trace；"
                     "多约束/假设时用户圈定本实例处理项，其余落 evidence + "
-                    "understand.md（供后续 dl 实例接续，不丢弃）。"
+                    "understand.md（供后续 dl 实例接续，不丢弃）；"
+                    f"{_INTERACTIVE_CHUNKING_RULE}。"
                 ),
                 input="step4.statements",
                 record=True,
@@ -1215,7 +1246,8 @@ _NODES: dict[str, Node] = {
                     ".claude/understands/<name>.md——产物落主仓，worktree 归档删除即丢）："
                     "4 子阶段归一化陈述+本轮裁决直接装配（真实问题重述 + 目标价值 + "
                     "范围约束 + 成功标准验收包；禁二次创作；"
-                    "未被选定的问题/目标/约束及其一句话陈述也须写入，供后续 dl 实例接续）。"
+                    "未被选定的问题/目标/约束及其一句话陈述也须写入，供后续 dl 实例接续）；"
+                    f"{_INTERACTIVE_CHUNKING_RULE}。"
                 ),
                 input="step4.statements",
                 record=True,
@@ -1432,6 +1464,7 @@ _NODES: dict[str, Node] = {
                     "③假设接受（风险承担）；"
                     "拍板后装配 designs/<主题>-design.md（H8 产物=子5 设计包+"
                     "裁决记录的直接装配，禁二次创作）；"
+                    f"{_INTERACTIVE_CHUNKING_RULE}；"
                     "写 trace 记裁决原话 -> STEP_DONE。"
                 ),
                 input="step5.design_statements",
@@ -1631,7 +1664,8 @@ _NODES: dict[str, Node] = {
                     "含要求合并/拆细/重排阶段的合法权利，断点位置是用户风险偏好）；"
                     "②假设接受（风险承担）；"
                     "拍板后装配 plan.md（=子4 归一化执行步骤+裁决记录的直接装配，"
-                    "禁二次创作）；写 trace 记裁决原话 -> STEP_DONE。"
+                    "禁二次创作）；"
+                    f"{_INTERACTIVE_CHUNKING_RULE}；写 trace 记裁决原话 -> STEP_DONE。"
                 ),
                 input="step4.execution_steps",
                 record=True,
@@ -1856,7 +1890,8 @@ _NODES: dict[str, Node] = {
                     "用户两裁决——①映射拍板（本节点唯一规范裁决点，"
                     "含要求换绑/卸载/补绑的合法权利）；②假设接受（风险承担）；"
                     "拍板后装配 plan.md「能力与工具」节（=子5 归一化能力包+裁决记录的"
-                    "直接装配，禁二次创作）；写 trace 记裁决原话 -> STEP_DONE。"
+                    "直接装配，禁二次创作）；"
+                    f"{_INTERACTIVE_CHUNKING_RULE}；写 trace 记裁决原话 -> STEP_DONE。"
                 ),
                 input="step5.capability_packages",
                 record=True,
@@ -2079,6 +2114,7 @@ _NODES: dict[str, Node] = {
                     "judge 逐条核的对象不能是执行期可随手改的）；"
                     "拍板后装配 plan.md「执行计划与检查点」节（=子4 归一化"
                     "执行计划包+裁决记录的直接装配，禁二次创作）；"
+                    f"{_INTERACTIVE_CHUNKING_RULE}；"
                     "写 trace 记裁决原话 -> STEP_DONE。"
                 ),
                 input="step4.execution_plan_packages",
