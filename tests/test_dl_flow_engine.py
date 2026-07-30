@@ -3977,6 +3977,43 @@ class TestCorruptReworkDetect:
         assert a3 == "escalate"
 
 
+class TestSolutionFreeRuleInGates:
+    """v2.24 裁量点钉死双侧化：操作化定义必须进 gate（judge 侧），不只进
+    purpose/selfcheck（模型侧）。v2.23 只钉模型侧——judge 输入面仍只有一句
+    黑盒判词「含方案名词/实现动词判 block」，解释轮间漂移（tail_volume
+    understand:3 子4 五连 block：类名入主语→实现指针段→动词词形逐轮收紧，
+    §3.5 #4 判据留白=方差）。本测试钉死双侧引用不回归。"""
+
+    # v2.23 同构族 5 步：understand:2 子2/子4、understand:3 子4、understand:4 子1/子4
+    _FIVE_STEPS = [
+        ("understand", 2, 2),
+        ("understand", 2, 4),
+        ("understand", 3, 4),
+        ("understand", 4, 1),
+        ("understand", 4, 4),
+    ]
+
+    def test_subject_rule_cited_in_all_five_gates(self):
+        for phase, sub, step_no in self._FIVE_STEPS:
+            gate = eng.get_node(phase, sub).sub_steps[step_no - 1].gate
+            assert gate, f"{phase}:{sub} 子{step_no} 无 gate"
+            assert "主语只许 outcome-level" in gate, (
+                f"{phase}:{sub} 子{step_no} gate 未引用 _SOLUTION_FREE_SUBJECT_RULE"
+                "（judge 侧裁量点未钉死）"
+            )
+
+    def test_scope_verb_rule_in_understand3_sub4_gate(self):
+        # 范围命题构成性谓语合法化：动词按指向判，「允许/禁止改动」不判违规
+        gate = eng.get_node("understand", 3).sub_steps[3].gate
+        assert "按指向判" in gate and "允许/禁止改动" in gate
+
+    def test_scope_verb_rule_disclosed_to_model(self):
+        # purpose/selfcheck 同步披露（形式要件双侧单源，对齐 _DS_STEP1 先例）
+        step = eng.get_node("understand", 3).sub_steps[3]
+        assert "按指向判" in step.purpose
+        assert "按指向判" in step.selfcheck
+
+
 class TestAppendTrace:
     """v2.14 append-trace（「AI 定写什么，脚本定怎么写」A 级）：
     载荷 purpose/q/a + state 结构字段 -> 校验 -> 单行 append。fail loud 即时暴露。"""
@@ -4034,6 +4071,51 @@ class TestAppendTrace:
         self._write_payload(payload, {"purpose": "p", "q": ["q1", "q2"], "a": ["a1"]})
         ok, msg = eng.append_trace(tmp_path, "t", str(payload))
         assert not ok and "长度不齐" in msg
+
+    def test_legacy_mismatch_error_shows_unpaired_items(self, tmp_path):
+        # v2.24 报错可操作化：给无配对项的索引+内容头，模型可 surgical 修
+        # 不再整篇盲重写（tail_volume understand:3 子4 三次 q/a 不齐各白烧 ~3k out）
+        payload = self._setup(tmp_path)
+        self._write_payload(
+            payload, {"purpose": "p", "q": ["q1-身份", "q2-无主"], "a": ["a1"]}
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert not ok and "长度不齐" in msg
+        assert "q[1]" in msg and "q2-无主" in msg
+
+    def test_qa_pairs_format_happy_path(self, tmp_path):
+        # v2.24 qa 配对格式：一问一答成对象，不对齐在结构上不可表示。
+        # evidence 记录 schema 不变（仍 q/a 平行数组，下游 read_evidence 不改）。
+        payload = self._setup(tmp_path)
+        self._write_payload(
+            payload,
+            {"purpose": "p", "qa": [{"q": "q1", "a": "a1"}, {"q": "q2", "a": "a2"}]},
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert ok, msg
+        rec = json.loads(
+            (tmp_path / ".claude" / "evidence" / "t.jsonl")
+            .read_text(encoding="utf-8")
+            .strip()
+        )
+        assert rec["q"] == ["q1", "q2"] and rec["a"] == ["a1", "a2"]
+
+    def test_qa_pairs_item_missing_key_rejected(self, tmp_path):
+        payload = self._setup(tmp_path)
+        self._write_payload(
+            payload, {"purpose": "p", "qa": [{"q": "q1"}, {"q": "q2", "a": "a2"}]}
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert not ok and "qa[0]" in msg
+
+    def test_qa_mixed_with_parallel_arrays_rejected(self, tmp_path):
+        payload = self._setup(tmp_path)
+        self._write_payload(
+            payload,
+            {"purpose": "p", "qa": [{"q": "q", "a": "a"}], "q": ["q"], "a": ["a"]},
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert not ok and "混用" in msg
 
     def test_empty_q_rejected(self, tmp_path):
         payload = self._setup(tmp_path)

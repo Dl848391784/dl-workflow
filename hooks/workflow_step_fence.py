@@ -235,7 +235,7 @@ def main() -> int:
             payload_path = f"{project_root}/.claude/evidence/.trace-payload-{name}.json"
             return _deny(
                 "evidence 落库走 append-trace（你定内容，脚本管格式/路径/结构字段）：\n"
-                f'① Write 载荷 {{"purpose":...,"q":[...],"a":[...]}} 到 {payload_path}\n'
+                f'① Write 载荷 {{"purpose":...,"qa":[{{"q":...,"a":...}}]}} 到 {payload_path}\n'
                 "② Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace "
                 f"--from-file {payload_path}`\n"
                 "直写 evidence jsonl（含覆盖/编辑旧行）一律禁止——修正旧记录的方式是"

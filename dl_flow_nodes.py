@@ -198,12 +198,30 @@ _S4_STEP1_FORM_REQUIREMENTS = (
 # 首判模型把 solution-free 核查落在谓语（「按真实数值判定=outcome」），judge 裁量
 # 落在主语（_macros.html 等模板文件名入主语=违规）——同一判据两种读法
 # （§3.5 #4 判据留白=方差）。操作化定义属形式要件（主语词性的结构检查），
-# 披露进 purpose/selfcheck 不 Goodhart（§3.5 #2）；gate 判词保持原样黑盒不动。
-# 单源常量：claim normalization 同构族 5 个 Step 的 purpose/selfcheck 引用。
+# 披露进 purpose/selfcheck 不 Goodhart（§3.5 #2）。
+# v2.24 修订（2026-07-30，tail_volume understand:3 子4 五连 block 复盘）：
+# 只钉模型侧不够——judge 输入面仍只有黑盒判词，解释轮间漂移（类名入主语→
+# 实现指针段→动词词形逐轮收紧）。双侧引用（purpose/selfcheck + gate），
+# 对齐 _DS_STEP1_FORM_REQUIREMENTS 先例。
+# 单源常量：claim normalization 同构族 5 个 Step 的 purpose/selfcheck/gate 引用。
 _SOLUTION_FREE_SUBJECT_RULE = (
     "「方案名词」操作化：主语只许 outcome-level 概念（用户可见的状态/数字/信号），"
     "不得含模板文件名/类名/CSS 类/函数名/字段名/管线名/组件名等实现侧名词；"
     "file:line 与实现指针留在边界字段与 evidence，不进主语"
+)
+
+# 范围陈述的动词裁量点钉死（v2.24，2026-07-30 tail_volume understand:3 子4
+# 五连 block 实证）：judge 按词形判「调整/创建/扩展/手改/格式化」=实现动词，
+# 逐轮收紧到范围命题不可表述（in/out 的构成性谓语就是「允许/禁止改动」），
+# 用户强制放行收场。动词按指向判不按词形判——方案性在指向实现层还是
+# outcome 层，不在词本身（与主语规则同构）。
+# 只适用 ScopeAndConstraints 子4：目标/标准陈述里「做一个X」仍是真
+# solutioneering 信号（GoalsAndValue/SuccessCriteria 各 gate 不动动词判据）。
+_SCOPE_VERB_RULE = (
+    "动词按指向判、不按词形判：指向代码实现动作（改哪个文件/函数/模板/CSS 类）"
+    "=实现动词违规；指向用户可见状态或范围赋予（允许/禁止被改动、展示、计算、"
+    "覆盖、读取）=合法——in/out 范围陈述的构成性谓语「允许/禁止改动」合法，"
+    "判它违规=把范围命题判成不可表述"
 )
 
 # plan:1 子1 的形式要件（单源：purpose 模型侧与 gate judge 侧都引用）。
@@ -673,7 +691,8 @@ _NODES: dict[str, Node] = {
                     "minor_stage=GoalsAndValue 且 sub_step==2 的记录；"
                     "形式要件：双向追溯矩阵逐项列出（每个目标 ≥1 问题回溯；"
                     "每个存活问题有承接目标或显式搁置+理由）；孤儿项显式处置留痕；"
-                    "含方案名词/实现动词的目标已改写为 outcome；目标间冲突已标注"
+                    f"含方案名词/实现动词的目标已改写为 outcome（{_SOLUTION_FREE_SUBJECT_RULE}）；"
+                    "目标间冲突已标注"
                     "（或显式声明无冲突）。"
                     "质量判据（从严裁量）：剥离后 outcome 非同义反复"
                     "（「做 X 为了能做 X」判 block）；矩阵放水（明显无关联的问题-目标"
@@ -751,7 +770,7 @@ _NODES: dict[str, Node] = {
                     "陈述携带 must/nice 提案与边界。"
                     "质量判据（从严裁量）：陈述集与子3 逐项一致——分层/边界不传导判 block；"
                     "单句含多目标并列=复合未拆净判 block；"
-                    "含方案名词/实现动词=solutioneering 残留判 block。"
+                    f"含方案名词/实现动词=solutioneering 残留判 block（{_SOLUTION_FREE_SUBJECT_RULE}）。"
                 ),
             ),
             Step(
@@ -918,7 +937,8 @@ _NODES: dict[str, Node] = {
                     "与 verdict 边界（部分成立目标的范围只覆盖已证实边界——"
                     "裁决传导，同构 ProblemContext 子5）；"
                     f"④solution-free 复核（范围项含方案名词 = GoalsAndValue 子2 "
-                    f"剥离不净残留；{_SOLUTION_FREE_SUBJECT_RULE}）。放不进一句=未定义完。"
+                    f"剥离不净残留；{_SOLUTION_FREE_SUBJECT_RULE}；{_SCOPE_VERB_RULE}）。"
+                    "放不进一句=未定义完。"
                 ),
                 input="step3.scope_proposal",
                 record=True,
@@ -928,6 +948,7 @@ _NODES: dict[str, Node] = {
                     "（主语+动词+约束自包含）？携带类型标签（已验证/假设+置信度/"
                     f"in/out）与 verdict 边界了吗？"
                     f"无方案名词残留吧（逐条看主语：{_SOLUTION_FREE_SUBJECT_RULE}）？"
+                    f"动词都指向 outcome/范围赋予、没指向代码实现动作吧（{_SCOPE_VERB_RULE}）？"
                 ),
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace、"
@@ -937,7 +958,8 @@ _NODES: dict[str, Node] = {
                     "in/out）与边界。"
                     "质量判据（从严裁量）：陈述集与子3 逐项一致——类型标注/边界"
                     "不传导判 block；单句含多项并列=复合未拆净判 block；"
-                    "含方案名词/实现动词=solutioneering 残留判 block。"
+                    f"含方案名词/实现动词=solutioneering 残留判 block"
+                    f"（{_SOLUTION_FREE_SUBJECT_RULE}；{_SCOPE_VERB_RULE}）。"
                 ),
             ),
             Step(
@@ -1018,7 +1040,7 @@ _NODES: dict[str, Node] = {
                     "脑补候选挂无关目标（追溯放水——明显无关联的目标-标准硬连）判 block；"
                     "②的「只能定性验收」缺逐目标理由、或理由未说明「为何不可执行验证」"
                     " = 偷懒判 block（编程域收紧：可执行验证的目标标定性判 block）；"
-                    "方案名词/实现动词残留 = solutioneering 判 block。"
+                    f"方案名词/实现动词残留 = solutioneering 判 block（{_SOLUTION_FREE_SUBJECT_RULE}）。"
                 ),
             ),
             Step(
@@ -1146,7 +1168,7 @@ _NODES: dict[str, Node] = {
                     "质量判据（从严裁量）：验收包字段不传导——子3 已定的"
                     "方法/时机/证据形式在陈述中丢失或篡改判 block；"
                     "单句含多项并列 = 复合未拆净判 block；"
-                    "含方案名词/实现动词 = solutioneering 残留判 block。"
+                    f"含方案名词/实现动词 = solutioneering 残留判 block（{_SOLUTION_FREE_SUBJECT_RULE}）。"
                 ),
             ),
             Step(

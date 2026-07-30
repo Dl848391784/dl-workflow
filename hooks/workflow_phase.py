@@ -373,19 +373,19 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
                 "  evidence 记录（record 步必写，两动作——你定内容，脚本管格式）："
             )
             lines.append(
-                f"   ① Write 载荷到 `{payload_path}`（只含 3 个内容字段；"
+                f"   ① Write 载荷到 `{payload_path}`（只含 purpose 与 qa 两个内容字段；"
                 "kind/major_stage/minor_stage/sub_step/skill 由脚本从 state 自动填，不要写）："
             )
             lines.append(
-                '   {"purpose":"<该步目的>","q":["<q1>"],"a":["<a1>"]}'
-                "（q/a 一一按序对齐 q[i]↔a[i]，单问单答也用数组）"
+                '   {"purpose":"<该步目的>","qa":[{"q":"<q1>","a":"<a1>"}]}'
+                "（一问一答配对成对象——不对齐在结构上不可表示）"
             )
             lines.append(
-                '   ✓ 正例："q":["who=当前提问者身份？"],'
-                '"a":["用户原话：「我是唯一维护者」（本会话）"]'
+                '   ✓ 正例："qa":[{"q":"who=当前提问者身份？",'
+                '"a":"用户原话：「我是唯一维护者」（本会话）"}]'
             )
             lines.append(
-                '   ✗ 反例（必 block）："q":["理解问题"],"a":["已理解"]'
+                '   ✗ 反例（必 block）："qa":[{"q":"理解问题","a":"已理解"}]'
                 "（汇总声明非记录）；或照抄 `<...>` 占位符字面"
             )
             lines.append(

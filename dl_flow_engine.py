@@ -1128,7 +1128,7 @@ def _corrupt_trace_reason(sub_step_index: int) -> str:
         f"evidence 写入损坏：文件里存在 sub_step=={sub_step_index} 的记录片段，"
         "但不是可解析的单行合法 JSON（手写 JSON 跨行/转义出错的典型后果）。"
         "门控读不到等同没写。返工：改用 append-trace 落库——Write 载荷 "
-        '{"purpose":...,"q":[...],"a":[...]} 到 .claude/evidence/.trace-payload-*.json，'
+        '{"purpose":...,"qa":[{"q":...,"a":...}]} 到 .claude/evidence/.trace-payload-*.json，'
         "再 Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace --from-file <载荷>`"
         "（格式/路径/结构字段全归脚本，不会再写碎）。"
     )
@@ -1690,7 +1690,7 @@ _TRACE_STRUCT_FIELDS = ("kind", "major_stage", "minor_stage", "sub_step", "skill
 
 
 def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool, str]:
-    """载荷（purpose/q/a）+ state 结构字段 -> 校验 -> 单行 skill-trace append。
+    """载荷（purpose + qa 配对，兼容旧 q/a 平行数组）+ state 结构字段 -> 校验 -> 单行 skill-trace append。
 
     返回 (ok, 消息)。校验失败 (False, 原因)——fail loud：模型当轮按报错修载荷
     重跑，而不是写坏了到 gate 才暴露（甚至像 d59d05ea 那样静默卡死）。
@@ -1729,26 +1729,59 @@ def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool
     except json.JSONDecodeError as e:
         return False, f"载荷不是合法 JSON：{e}（载荷只需普通 JSON，Write 原样写即可）"
     if not isinstance(payload, dict):
-        return False, '载荷须是 JSON 对象：{"purpose":..., "q":[...], "a":[...]}'
+        return False, '载荷须是 JSON 对象：{"purpose":..., "qa":[{"q":..., "a":...}]}'
     leaked = [k for k in _TRACE_STRUCT_FIELDS if k in payload]
     if leaked:
         return False, (
             f"载荷含结构字段 {leaked}——这些由脚本从 state 自动填，载荷里不要写"
-            "（只留 purpose/q/a 三个内容字段）"
+            "（只留 purpose 与 qa 两个内容字段）"
         )
     purpose = payload.get("purpose")
-    q, a = payload.get("q"), payload.get("a")
     if not isinstance(purpose, str) or not purpose.strip():
         return False, "purpose 须为非空字符串"
-    for field, val in (("q", q), ("a", a)):
-        if (
-            not isinstance(val, list)
-            or not val
-            or not all(isinstance(x, str) and x.strip() for x in val)
-        ):
-            return False, f"{field} 须为非空字符串数组（单问单答也用数组包一层）"
-    if len(q) != len(a):
-        return False, f"q/a 长度不齐（q={len(q)} a={len(a)}）：一问一答按序对齐"
+    qa = payload.get("qa")
+    if qa is not None and (payload.get("q") is not None or payload.get("a") is not None):
+        return False, "载荷 qa 与 q/a 两格式混用——只留 qa 配对格式"
+    if qa is not None:
+        # v2.24 qa 配对格式：一问一答成对象，不对齐在结构上不可表示
+        # （tail_volume understand:3 子4 平行数组三次长度不齐，各白烧一轮整篇重写）。
+        if not isinstance(qa, list) or not qa:
+            return False, 'qa 须为非空数组：[{"q":..., "a":...}, ...]'
+        for i, item in enumerate(qa):
+            if (
+                not isinstance(item, dict)
+                or not isinstance(item.get("q"), str)
+                or not item["q"].strip()
+                or not isinstance(item.get("a"), str)
+                or not item["a"].strip()
+            ):
+                return False, f'qa[{i}] 须为含非空 q 与 a 的对象（{{"q":..., "a":...}}）'
+        q = [item["q"] for item in qa]
+        a = [item["a"] for item in qa]
+    else:
+        # 旧 q/a 平行数组：保留兼容；长度不齐时给无配对项索引+内容头
+        # （surgical 修，不整篇盲重写），并指路 qa 配对格式。
+        q, a = payload.get("q"), payload.get("a")
+        for field, val in (("q", q), ("a", a)):
+            if (
+                not isinstance(val, list)
+                or not val
+                or not all(isinstance(x, str) and x.strip() for x in val)
+            ):
+                return False, f"{field} 须为非空字符串数组（单问单答也用数组包一层）"
+        if len(q) != len(a):
+            longer, lname = (q, "q") if len(q) > len(a) else (a, "a")
+            extras = [
+                f"{lname}[{i}]=「{x[:30]}{'…' if len(x) > 30 else ''}」"
+                for i, x in enumerate(longer)
+                if i >= min(len(q), len(a))
+            ]
+            shown = "；".join(extras[:3]) + ("；…" if len(extras) > 3 else "")
+            return False, (
+                f"q/a 长度不齐（q={len(q)} a={len(a)}）：一问一答按序对齐。"
+                f"无配对项：{shown}。"
+                '逐条修或改用 qa 配对格式 {"qa":[{"q":...,"a":...},...]}（不对齐不可表示）'
+            )
 
     record = {
         "kind": "skill-trace",
@@ -1971,7 +2004,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--cwd", help="覆盖 cwd（默认进程 cwd）")
     parser.add_argument(
-        "--from-file", help="append-trace 的载荷文件路径（Write 写的 purpose/q/a JSON）"
+        "--from-file", help="append-trace 的载荷文件路径（Write 写的 purpose/qa JSON）"
     )
     args = parser.parse_args(argv)
 
