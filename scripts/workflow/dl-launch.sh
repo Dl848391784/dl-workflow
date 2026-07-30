@@ -8,6 +8,7 @@
 #   dl <name> --resume     续已存在工作流（恢复 session + 当前阶段）
 #   dl <name> --phase <p>  直接跳到某阶段
 #   dl <name> --base <ref> 从指定 ref 建分支（默认当前 HEAD）
+#   dl <name> --debug      debug 落盘到 per-wf 目录（cc_debug.log + cc_sdk.log）
 #   dl list                列举所有工作流
 #   dl <name> --done       归档工作流（删 worktree，保留元数据）
 
@@ -18,7 +19,7 @@ LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$LIB_DIR/dl-lib.sh"
 
 usage() {
-  sed -n '3,12p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '3,13p' "$0" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -61,12 +62,14 @@ WF_RESUME=0
 WF_PHASE_OVERRIDE=""
 WF_BASE=""
 WF_DONE=0
+WF_DEBUG=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --resume) WF_RESUME=1;;
     --phase) WF_PHASE_OVERRIDE="$2"; shift;;
     --base)  WF_BASE="$2"; shift;;
     --done)  WF_DONE=1;;
+    --debug) WF_DEBUG=1;;
     -h|--help) usage 0;;
     *) echo "wf-launch: 未知参数 '$1'" >&2; usage 1;;
   esac
@@ -184,9 +187,19 @@ cd "$WORKTREE_PATH"
 # 不用 @provider 机制：provider 选择由「用哪个命令调」决定，不是 launcher 去 exec provider
 # （provider 若是 bashrc 函数，launcher 子进程 exec 不到，会 not found）。
 
+# --debug：debug 落盘到 per-wf 目录（cc_debug.log = --debug-file；cc_sdk.log = stderr）。
+# 独立文件而非 /tmp/cc_debug.log——/tmp 那份被所有直接会话混写，按时间窗口过滤会误判
+#（2026-07-30 审计实测：launcher 不传 --debug flag，工作流会话 debug 全丢）。
+# 不带 --debug 时 DEBUG_ARGS 为空、stderr 重定向到 per-wf cc_sdk.log（与 provider 函数
+# 2>>cc_sdk.log 的既有行为一致，非 debug 模式 stderr 本来也只有零星行）。
+DEBUG_ARGS=()
+if [ "$WF_DEBUG" = "1" ]; then
+  DEBUG_ARGS=(--debug api,hooks --debug-file "$WF_META_ROOT/$WF_NAME/cc_debug.log")
+fi
+
 # resume：用钉死的 session_id 恢复；否则用 --session-id 钉死
 if [ "$WF_RESUME" = "1" ] && [ -n "${SESSION_ID:-}" ]; then
-  exec claude --resume "$SESSION_ID" "${SETTINGS_ARGS[@]}" "${SYS_PROMPT_ARGS[@]}" "$@"
+  exec claude --resume "$SESSION_ID" "${SETTINGS_ARGS[@]}" "${SYS_PROMPT_ARGS[@]}" "${DEBUG_ARGS[@]}" "$@" 2>>"$WF_META_ROOT/$WF_NAME/cc_sdk.log"
 else
-  exec claude --session-id "$SESSION_ID" "${SETTINGS_ARGS[@]}" "${SYS_PROMPT_ARGS[@]}" "$@"
+  exec claude --session-id "$SESSION_ID" "${SETTINGS_ARGS[@]}" "${SYS_PROMPT_ARGS[@]}" "${DEBUG_ARGS[@]}" "$@" 2>>"$WF_META_ROOT/$WF_NAME/cc_sdk.log"
 fi

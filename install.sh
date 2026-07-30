@@ -195,6 +195,7 @@ install_bashrc() {
 #   <入口> <name> --resume     续接
 #   <入口> <name> --phase <p>  跳到某阶段
 #   <入口> <name> --base <ref> 从指定 ref 建分支
+#   <入口> <name> --debug      debug 落盘 per-wf 目录（cc_debug.log + cc_sdk.log）
 #   <入口> <name> --done       归档（删 worktree+分支+元数据）
 #   <入口> list                列举所有工作流
 
@@ -207,7 +208,7 @@ _dl_launch() {
 
 # dl 命令：独立入口
 dl() {
-  [ $# -ge 1 ] || { echo "用法: dl <name> [--resume|--phase <p>|--base <ref>|--done] | list" >&2; return 1; }
+  [ $# -ge 1 ] || { echo "用法: dl <name> [--resume|--phase <p>|--base <ref>|--debug|--done] | list" >&2; return 1; }
   _dl_launch "$@"
 }
 # END dl-workflow
