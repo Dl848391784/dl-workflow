@@ -250,6 +250,22 @@ _INTERACTIVE_CHUNKING_RULE = (
     "让用户边读边答快答项"
 )
 
+# 「复合句」裁量点钉死（v2.31，2026-07-31 tail_volume plan:1 子5 / plan:2 子4
+# 审计）：两处归一化步各三连 block + 用户强制放行——judge 按词形（「+」「然后」
+# 连接、括号枚举、多项「、」罗列）判复合，与同项携带八字段/五字段的形式要件
+# 自相矛盾（字段全带必产出枚举形态，枚举形态必被判复合，判到升级死路）；
+# 且判词失真（att1 称「数十个『。』断句」，重放实际条目 ≤1 个「。」）。
+# 通过的 ProblemContext 子5 trace 实证：合法形态本来就是「单句决策 + 字段
+# 键值枚举」。原子性按独立性判、不按词形判（与 _SCOPE_VERB_RULE 同构）。
+# 只适用 DesignSolution 子5 / TaskBreakdown 子4（字段携带型归一化步）：
+# ProblemContext 子5 等痛点陈述步的「和/以及/同时」多痛点判据不动。
+# 单源常量：两个 Step 的 purpose/selfcheck（模型侧）与 gate（judge 侧）引用。
+_ATOMIC_ITEM_RULE = (
+    "原子性按独立性判、不按词形判：字段键值枚举（「字段名=值」以「；」「+」"
+    "「、」或括号携带）与一项的内含流程 = 结构化携带，不算复合；"
+    "复合句 = 一项合并 ≥2 个可独立成立的项（可分别拍板/分别提交）"
+)
+
 # plan:1 子1 的形式要件（单源：purpose 模型侧与 gate judge 侧都引用）。
 # 对齐原则同 _STEP1_FORM_REQUIREMENTS：形式要件披露降形式性返工，
 # 质量判据（非编造/非漫游）只留 gate 黑盒。
@@ -781,8 +797,8 @@ _NODES: dict[str, Node] = {
                     f"④solution-free 复核（归一化后仍含方案名词=子2 剥离不净，回子2；"
                     f"{_SOLUTION_FREE_SUBJECT_RULE}）；"
                     "放不进一句=未定义完。"
-                    "载荷格式：statements 逐项 {\"text\":单句陈述,\"type_label\":must 或 nice,"
-                    "\"boundary\":verdict 边界}——text 只许 outcome-level 概念，"
+                    '载荷格式：statements 逐项 {"text":单句陈述,"type_label":must 或 nice,'
+                    '"boundary":verdict 边界}——text 只许 outcome-level 概念，'
                     "实现侧名词/file:line 只能进 boundary（append-trace 机械扫描，命中即拒）。"
                 ),
                 input="step3.valued_goals",
@@ -984,8 +1000,8 @@ _NODES: dict[str, Node] = {
                     f"④solution-free 复核（范围项含方案名词 = GoalsAndValue 子2 "
                     f"剥离不净残留；{_SOLUTION_FREE_SUBJECT_RULE}；{_SCOPE_VERB_RULE}）。"
                     "放不进一句=未定义完。"
-                    "载荷格式：statements 逐项 {\"text\":单句陈述,\"type_label\":in/out/"
-                    "已验证/假设：<置信度>,\"boundary\":verdict 边界+实现指针}——text 只许 "
+                    '载荷格式：statements 逐项 {"text":单句陈述,"type_label":in/out/'
+                    '已验证/假设：<置信度>,"boundary":verdict 边界+实现指针}——text 只许 '
                     "outcome-level（实现侧名词/file:line 只能进 boundary，机械扫描命中即拒）；"
                     "子3 条目编号（in[..]/out[..]/Cx.x）逐项传导，机械核对缺传即拒。"
                 ),
@@ -1203,8 +1219,8 @@ _NODES: dict[str, Node] = {
                     f"④solution-free 复核（含方案名词 = 子1 剥离不净残留；"
                     f"{_SOLUTION_FREE_SUBJECT_RULE}）。"
                     "放不进一句 = 未定义完。"
-                    "载荷格式：statements 逐项 {\"text\":单句陈述,\"type_label\":验收方法/"
-                    "时机,\"boundary\":verdict 边界}，验收包六字段可作额外字段随项携带——"
+                    '载荷格式：statements 逐项 {"text":单句陈述,"type_label":验收方法/'
+                    '时机,"boundary":verdict 边界}，验收包六字段可作额外字段随项携带——'
                     "text 只许 outcome-level（实现侧名词/file:line 只能进 boundary，"
                     "机械扫描命中即拒）。"
                 ),
@@ -1425,21 +1441,22 @@ _NODES: dict[str, Node] = {
                 # claim normalization 职能第六次复用（ProblemContext 子5 /
                 # GoalsAndValue 子4 / ScopeAndConstraints 子4 / SuccessCriteria 子4 同构）。
                 purpose=(
-                    "归一化设计陈述：①原子（单句 ≤1 个独立设计决策，"
-                    "「和/以及/同时」连接多项=复合未拆净，回子4）；"
+                    "归一化设计陈述：①原子（每项 = 1 个可独立拍板的设计决策——"
+                    f"{_ATOMIC_ITEM_RULE}）；"
                     "②去上下文（主语+动词+约束自包含）；"
                     "③携带代码设计包八字段——改动清单（file→function→改动类型："
                     "改/增/删）/接口签名/数据契约变更/受影响 callers 清单"
                     "（codegraph 出处）/被否方案+逐项否决理由（ADR）/"
                     "假设清单+置信度×影响/验收包映射（每条 SuccessCriteria "
-                    "验收包由哪个设计要素承接）/H9 执行单元划分；"
+                    "验收包由哪个设计要素承接）/H9 执行单元划分"
+                    "（八字段以键值枚举随项携带，枚举形态不破坏原子性）；"
                     "④携带 verdict 边界（部分成立目标只覆盖已证实边界——裁决传导）。"
-                    "放不进一句=未定义完。"
+                    "放不进一项=未定义完。"
                 ),
                 input="step4.recommendation",
                 record=True,
                 selfcheck=(
-                    "每项 ≤1 句且自包含（主语+动词+约束）吗？"
+                    "每项 = 1 个可独立拍板的设计决策且自包含（主语+动词+约束）吗？"
                     "八字段都携带了吗（改动清单/接口签名/数据契约/callers 清单/"
                     "被否方案+理由/假设清单/验收包映射/H9 单元划分）？"
                     "字段与子3/子4 已定内容一致吗（无丢失无篡改无新增）？"
@@ -1447,10 +1464,12 @@ _NODES: dict[str, Node] = {
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace、"
                     "minor_stage=DesignSolution 且 sub_step==5 的记录；"
-                    "形式要件：每项 ≤1 句且自包含；八字段齐备。"
+                    "形式要件：每项 = 1 个可独立拍板的设计决策"
+                    "（单句决策 + 八字段键值枚举携带）；八字段齐备。"
                     "质量判据（从严裁量）：设计包字段不传导——子3/子4 已定的"
                     "出处/假设/否决理由在陈述中丢失或篡改判 block；"
-                    "复合句判 block；凭空新增子4 未评估的要素判 block。"
+                    f"复合句判 block——{_ATOMIC_ITEM_RULE}；"
+                    "凭空新增子4 未评估的要素判 block。"
                 ),
             ),
             Step(
@@ -1623,8 +1642,10 @@ _NODES: dict[str, Node] = {
                 # GoalsAndValue 子4 / ScopeAndConstraints 子4 / SuccessCriteria 子4 /
                 # DesignSolution 子5 同构）。
                 purpose=(
-                    "归一化执行步骤：①原子（单句 ≤1 个独立动作，bite-sized："
-                    "写失败测试/跑验证它失败/最小实现/跑验证通过/提交）；"
+                    "归一化执行步骤：①原子（每项 = 1 个可独立验证/提交的交付物——"
+                    "bite-sized TDD 微循环「写失败测试/跑验证它失败/最小实现/"
+                    "跑验证通过/提交」= 交付物内含流程，不算复合；"
+                    f"{_ATOMIC_ITEM_RULE}）；"
                     "②去上下文（零上下文执行者可做：步骤自包含，禁「同上」"
                     "「类似任务 N」，跨任务接口走 Consumes/Produces 签名显式传递）；"
                     "③携带执行包五字段——改动点（file:line→改动类型）/"
@@ -1634,12 +1655,13 @@ _NODES: dict[str, Node] = {
                     "「人工看一下」式须显式辩护）/验收包映射"
                     "（承接哪条 SuccessCriteria ID）/追溯锚（承接哪个要素 ID）；"
                     "④假设传导（子3 假设项原样携带，不丢不淡化）。"
-                    "放不进一句=未定义完。"
+                    "放不进一项=未定义完。"
                 ),
                 input="step3.verified_units",
                 record=True,
                 selfcheck=(
-                    "每步骤 ≤1 句且自包含（零上下文执行者可做）吗？"
+                    "每项 = 1 个可独立验证/提交的交付物且自包含"
+                    "（零上下文执行者可做）吗？"
                     "五字段都携带了吗（改动点/前置接口/验证方法/验收包映射/追溯锚）？"
                     "字段与子2/子3 已定内容一致吗（无丢失无篡改无新增）？"
                     "验收包与要素双向覆盖无漏吗？"
@@ -1647,10 +1669,12 @@ _NODES: dict[str, Node] = {
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace、"
                     "minor_stage=TaskBreakdown 且 sub_step==4 的记录；"
-                    "形式要件：每步骤 ≤1 句且自包含；五字段齐备；"
-                    "验收包与要素双向覆盖无漏。"
+                    "形式要件：每项 = 1 个可独立验证/提交的交付物"
+                    "（TDD 微循环「失败测试→最小实现→验证→提交」= 内含流程，"
+                    "不算复合）；五字段齐备；验收包与要素双向覆盖无漏。"
                     "质量判据（从严裁量）：字段与子2/子3 已定内容不一致="
-                    "丢失/篡改/新增判 block；复合句判 block；"
+                    "丢失/篡改/新增判 block；"
+                    f"复合句判 block——{_ATOMIC_ITEM_RULE}；"
                     "验证方法不可执行且无辩护判 block；验收包映射漏项判 block。"
                 ),
             ),

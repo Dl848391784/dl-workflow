@@ -3632,7 +3632,9 @@ class TestGateVerdictMech:
         assert "执行计划与检查点" in reason
 
     def test_contains_passes(self, tmp_path):
-        _write_artifact(tmp_path, "plans", "t", "# 执行步骤\nfoo\n## 执行计划与检查点\nbar\n")
+        _write_artifact(
+            tmp_path, "plans", "t", "# 执行步骤\nfoo\n## 执行计划与检查点\nbar\n"
+        )
         node = eng.get_node("plan", 4)
         assert eng.gate_verdict_mech(node, project_root=tmp_path, name="t") is None
 
@@ -4226,9 +4228,7 @@ class TestSubStepPriorVerdicts:
 
         class _Res:
             returncode = 0
-            stdout = (
-                '{"is_error":false,"result":"{\\"pass\\": true, \\"reason\\": \\"\\"}"}\n'
-            )
+            stdout = '{"is_error":false,"result":"{\\"pass\\": true, \\"reason\\": \\"\\"}"}\n'
 
         def _run(cmd, **kw):
             captured["cmd"] = cmd
@@ -4248,9 +4248,7 @@ class TestSubStepPriorVerdicts:
 
         class _Res:
             returncode = 0
-            stdout = (
-                '{"is_error":false,"result":"{\\"pass\\": true, \\"reason\\": \\"\\"}"}\n'
-            )
+            stdout = '{"is_error":false,"result":"{\\"pass\\": true, \\"reason\\": \\"\\"}"}\n'
 
         def _run(cmd, **kw):
             captured["cmd"] = cmd
@@ -4303,10 +4301,7 @@ class TestStatementsRecordFormat:
         payload.write_text(json.dumps(obj, ensure_ascii=False), encoding="utf-8")
 
     def _statements(self, *texts):
-        return [
-            {"text": t, "type_label": "in", "boundary": "无"}
-            for t in texts
-        ]
+        return [{"text": t, "type_label": "in", "boundary": "无"} for t in texts]
 
     def test_three_normalization_steps_declare_statements(self):
         for phase, sub, step_no in (
@@ -4324,7 +4319,9 @@ class TestStatementsRecordFormat:
             payload,
             {
                 "purpose": "归一化",
-                "statements": self._statements("年化数字允许被更新", "覆盖率上限可配置"),
+                "statements": self._statements(
+                    "年化数字允许被更新", "覆盖率上限可配置"
+                ),
             },
         )
         ok, msg = eng.append_trace(tmp_path, "t", str(payload))
@@ -4458,7 +4455,9 @@ class TestStatementsRecordFormat:
             payload,
             {
                 "purpose": "p",
-                "statements": self._statements("in[1] 因子卡片允许改 out[A] 不动 C1.1 遵守"),
+                "statements": self._statements(
+                    "in[1] 因子卡片允许改 out[A] 不动 C1.1 遵守"
+                ),
             },
         )
         ok, msg = eng.append_trace(tmp_path, "t", str(payload))
@@ -4550,6 +4549,44 @@ class TestSolutionFreeRuleInGates:
         step = eng.get_node("understand", 3).sub_steps[3]
         assert "按指向判" in step.purpose
         assert "按指向判" in step.selfcheck
+
+
+class TestAtomicItemRule:
+    """v2.31「复合句」裁量点钉死双侧化（2026-07-31 tail_volume 审计）：
+    plan:1 子5 / plan:2 子4 各三连 block + 用户强制放行——judge 按词形
+    （「+」「然后」/括号枚举）判复合，与字段携带形式要件自相矛盾。
+    原子性按独立性判（_ATOMIC_ITEM_RULE 单源），purpose/selfcheck 与 gate
+    双侧引用不回归。"""
+
+    _TWO_STEPS = [("plan", 1, 5), ("plan", 2, 4)]
+
+    def test_rule_cited_in_both_gates(self):
+        for phase, sub, step_no in self._TWO_STEPS:
+            gate = eng.get_node(phase, sub).sub_steps[step_no - 1].gate
+            assert gate, f"{phase}:{sub} 子{step_no} 无 gate"
+            assert "按独立性判" in gate, (
+                f"{phase}:{sub} 子{step_no} gate 未引用 _ATOMIC_ITEM_RULE"
+                "（judge 侧裁量点未钉死）"
+            )
+
+    def test_rule_disclosed_to_model(self):
+        for phase, sub, step_no in self._TWO_STEPS:
+            step = eng.get_node(phase, sub).sub_steps[step_no - 1]
+            assert "按独立性判" in step.purpose, (
+                f"{phase}:{sub} 子{step_no} purpose 未披露原子性规则"
+            )
+
+    def test_taskbreakdown_tdd_microcycle_legalized(self):
+        # TDD 微循环 = 交付物内含流程不算复合（tail_volume plan:2 子4
+        # 「写测试+实现+验证+commit」三连 block 的直接判据）
+        gate = eng.get_node("plan", 2).sub_steps[3].gate
+        assert "内含流程" in gate and "不算复合" in gate
+
+    def test_compound_definition_is_independence_not_wording(self):
+        # 复合句 = ≥2 个可独立成立的项（分别拍板/分别提交），词形不判
+        for phase, sub, step_no in self._TWO_STEPS:
+            gate = eng.get_node(phase, sub).sub_steps[step_no - 1].gate
+            assert "复合句" in gate and "可独立成立" in gate
 
 
 class TestAppendTrace:
