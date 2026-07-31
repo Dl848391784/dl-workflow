@@ -1692,10 +1692,11 @@ _NODES: dict[str, Node] = {
         sub=3,
         skill=None,  # 编排节点 skill 走 Step ref（同 plan:1/2；define-problem 在子5 ref）
         artifact="plan.md",
-        # 声明式机械门（同 plan:2）：gate_verdict_mech 全类型未实现
-        # （engine:409-418 一律 return None 留 §8.3）——能力节落地 guard =
+        # 机械门（同 plan:2）：ARTIFACT_EXISTS + entered_at 新鲜度
+        # （§8.3 已实现，2026-07-31 v2.31）——能力节落地 guard = 机械门存在性 +
         # 子5 judge 验五字段 + 子6 禁二次创作 + 用户读回 + S13/S15 围栏
-        # （design §5 #9：ARTIFACT_CONTAINS 已否决，用户决议 2026-07-28）。
+        # （design §5 #9：CONTAINS 对本节点已否决，用户决议 2026-07-28——
+        # plan:4 是唯一 CONTAINS 节点）。
         gate_mech=GateMech.ARTIFACT_EXISTS,
         # 节点级 rubric 置 None（understand:4/plan:2 先例第三次）：
         # 语义全部下沉逐步 gate，plan->execute 大闸门只跑机械门。
