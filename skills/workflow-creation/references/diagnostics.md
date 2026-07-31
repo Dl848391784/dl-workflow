@@ -344,3 +344,9 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 
 **审计方法**：§3 #8（transcript 位置/去重/窗口归集/生成速率）+ §3 #11（报错盘点）。**优化排序**：①消浪费（假冲突循环/子代理嵌套/盲猜/撞围栏——通常占 20-30%，先于一切结构调整）；②轮数（block 循环 = +1-2 轮/次，自查提示 §3.5 #9 前移到自查抓）；③输出冗长度（墙钟 ≈ 输出 token ÷ 生成速率，线性）。**底线**：给定模型的 tok/s 与遵从率决定水位（ark 实测 6 步带门控 ~25-35m 属正常）；要数量级提速只有换更快/更强模型，不是调程序。
 
+### 症状 S：工具调用挂起无返回（会话像卡死）
+
+- **transcript 尾部特征**：tool_use 之后**无 tool_result**，下一条记录直接是用户文本（用户 Esc 后问「怎么不动了」）。与用户思考区分：AskUserQuestion 必有 tool_result 配对；挂起是什么都没有。
+- **常见根因**：复合命令（pipe/`2>&1`）破坏 per-wf allowlist 前缀匹配 → 落到权限提示/裁决端点，用户不在键盘前即挂（tail_volume 2026-07-29 step-pass `| tail -10` 挂 28min + 317k TTL 击穿实例）。
+- **已修**：dl-cmd 裸跑禁管道钉进 escalate 消息 + phase-rules（v2.32，commit e288668）。复发先看该命令形态是否复合 + per-wf settings.json mtime 是否旧版（resume 不刷新 settings）。
+
