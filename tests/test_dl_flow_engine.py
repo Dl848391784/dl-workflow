@@ -4552,7 +4552,7 @@ class TestSolutionFreeRuleInGates:
 
 
 class TestAtomicItemRule:
-    """v2.31「复合句」裁量点钉死双侧化（2026-07-31 tail_volume 审计）：
+    """v2.32「复合句」裁量点钉死双侧化（2026-07-31 tail_volume 审计）：
     plan:1 子5 / plan:2 子4 各三连 block + 用户强制放行——judge 按词形
     （「+」「然后」/括号枚举）判复合，与字段携带形式要件自相矛盾。
     原子性按独立性判（_ATOMIC_ITEM_RULE 单源），purpose/selfcheck 与 gate
