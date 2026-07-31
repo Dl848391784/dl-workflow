@@ -4589,6 +4589,210 @@ class TestAtomicItemRule:
             assert "复合句" in gate and "可独立成立" in gate
 
 
+class TestStatementFieldsMigration:
+    """v2.33 三归一化步迁 statements+statement_fields
+    （designs/plan-normalization-statements-migration-design.md）：
+    plan:1 子5 / plan:2 子4 / plan:3 子5——字段齐备从 judge 判词变
+    JSON 校验；text 只留单句，实现指针进 fields/boundary。"""
+
+    _MIGRATED = [
+        (
+            "plan",
+            1,
+            5,
+            (
+                "change_list",
+                "interface_sig",
+                "data_contract",
+                "callers",
+                "rejected",
+                "assumptions",
+                "acceptance_map",
+                "h9_units",
+            ),
+        ),
+        (
+            "plan",
+            2,
+            4,
+            ("change_point", "interface", "verify", "acceptance_map", "trace_anchor"),
+        ),
+        (
+            "plan",
+            3,
+            5,
+            ("skill_first", "tools", "enforce_align", "subagent_policy", "no_load"),
+        ),
+    ]
+
+    def _setup(self, tmp_path, phase, sub, step_no):
+        _write_state_full(tmp_path, "t", phase, sub, sub_step=step_no)
+        return tmp_path / "payload.json"
+
+    def _payload(self, fields):
+        item = {
+            "text": "在因子卡片渲染层内部取消二次放大",
+            "type_label": "推荐",
+            "boundary": "边界：仅指当前产物渲染链路",
+        }
+        if fields is not None:
+            item["fields"] = fields
+        return {"purpose": "p", "statements": [item]}
+
+    def _full_fields(self, keys):
+        return {k: f"{k} 内容" for k in keys}
+
+    def test_three_steps_declare_statements_and_fields(self):
+        for phase, sub, step_no, keys in self._MIGRATED:
+            stp = eng.get_node(phase, sub).sub_steps[step_no - 1]
+            assert stp.record_format == "statements", f"{phase}:{sub} 子{step_no}"
+            assert stp.statement_fields == keys, f"{phase}:{sub} 子{step_no}"
+
+    def test_missing_fields_object_rejected(self, tmp_path):
+        payload = self._setup(tmp_path, "plan", 1, 5)
+        (tmp_path / "payload.json").write_text(
+            json.dumps(self._payload(None), ensure_ascii=False), encoding="utf-8"
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert not ok and "fields" in msg and "change_list" in msg
+
+    def test_missing_single_key_rejected_and_named(self, tmp_path):
+        payload = self._setup(tmp_path, "plan", 1, 5)
+        fields = self._full_fields(self._MIGRATED[0][3])
+        del fields["h9_units"]
+        (tmp_path / "payload.json").write_text(
+            json.dumps(self._payload(fields), ensure_ascii=False), encoding="utf-8"
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert not ok and "h9_units" in msg
+
+    def test_empty_field_value_rejected(self, tmp_path):
+        payload = self._setup(tmp_path, "plan", 2, 4)
+        fields = self._full_fields(self._MIGRATED[1][3])
+        fields["verify"] = "  "
+        (tmp_path / "payload.json").write_text(
+            json.dumps(self._payload(fields), ensure_ascii=False), encoding="utf-8"
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert not ok and "verify" in msg
+
+    def test_happy_path_all_keys_accepted(self, tmp_path):
+        payload = self._setup(tmp_path, "plan", 1, 5)
+        (tmp_path / "payload.json").write_text(
+            json.dumps(
+                self._payload(self._full_fields(self._MIGRATED[0][3])),
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert ok, msg
+        rec = json.loads(
+            (tmp_path / ".claude" / "evidence" / "t.jsonl")
+            .read_text(encoding="utf-8")
+            .strip()
+        )
+        assert rec["statements"][0]["fields"]["h9_units"]
+
+    def test_id_re_extended_patterns(self):
+        text = "RC-A 红队 T1 目标 SC4.1 标准 #1a 候选 #1b1 拆分 U3 任务 H1.1 规则"
+        found = set(eng._ID_RE.findall(text))
+        for want in ("RC-A", "T1", "SC4.1", "#1a", "#1b1", "U3", "H1.1"):
+            assert want in found, f"_ID_RE 未捕获 {want}"
+
+    def test_replay_att1_noun_in_text_blocked(self, tmp_path):
+        # 重放 tail_volume plan:1 子5 att1 形态：实现指针塞 text（原 qa 自由文本
+        # judge 判，现 statements 机械拦）——att1 第一轮 judge 不再发生
+        import subprocess as sp
+
+        _write_state_full(tmp_path, "t", "plan", 1, sub_step=5)
+        sp.run(["git", "init"], cwd=tmp_path, capture_output=True)
+        f = tmp_path / "web_ui" / "templates" / "_macros.html"
+        f.parent.mkdir(parents=True)
+        f.write_text("x", encoding="utf-8")
+        sp.run(["git", "add", "."], cwd=tmp_path, capture_output=True)
+        item = {
+            "text": "在 _macros.html 的渲染层内部取消二次放大",
+            "type_label": "推荐",
+            "boundary": "无",
+            "fields": self._full_fields(self._MIGRATED[0][3]),
+        }
+        (tmp_path / "payload.json").write_text(
+            json.dumps({"purpose": "p", "statements": [item]}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert not ok and "_macros.html" in msg and "boundary" in msg
+
+    def test_replay_att2_legal_shape_passes(self, tmp_path):
+        # 重放 att2 形态（v2.32 已判合法）：text 单句决策 + fields 键值枚举携带
+        # ——字段枚举不触发复合句判定，append 直接通过
+        _write_state_full(tmp_path, "t", "plan", 1, sub_step=5)
+        item = {
+            "text": "在因子卡片渲染层内部取消二次放大",
+            "type_label": "推荐",
+            "boundary": "边界：仅指当前产物渲染链路",
+            "fields": {
+                "change_list": "1 处内部计算式（改/增/删=改）",
+                "interface_sig": "现有宏签名不变",
+                "data_contract": "caller 传入与现状一致",
+                "callers": "被 6 处 import 引用的因子卡片宏 + 4 模板 8 处散落点另列",
+                "rejected": "候选 2（Pugh 净分劣） + 候选 3（H1.1 证伪）",
+                "assumptions": "1 条（置信度中）",
+                "acceptance_map": "T1+T2 修复，T3 另列任务项",
+                "h9_units": "1 阶段 1 文件",
+            },
+        }
+        (tmp_path / "payload.json").write_text(
+            json.dumps({"purpose": "p", "statements": [item]}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert ok, msg
+
+    def test_id_conduction_scans_fields_values(self, tmp_path):
+        # 源步 ID 可经 fields 值传导（八字段含 ID 是常态）
+        _write_state_full(tmp_path, "t", "plan", 1, sub_step=5)
+        ev = eng._evidence_path(tmp_path, "t")
+        ev.parent.mkdir(parents=True, exist_ok=True)
+        src = json.dumps(
+            {
+                "kind": "skill-trace",
+                "major_stage": "Plan",
+                "minor_stage": "DesignSolution",
+                "sub_step": 4,
+                "skill": "define-problem",
+                "purpose": "Pugh 评估",
+                "q": ["矩阵？"],
+                "a": ["#1a 净分优 #1b 净分劣 #1c 被 H1.1 剔除"],
+            },
+            ensure_ascii=False,
+        )
+        ev.write_text(src + "\n", encoding="utf-8")
+        fields = self._full_fields(self._MIGRATED[0][3])
+        fields["rejected"] = "#1b 净分劣 + #1c 被 H1.1 剔除"  # #1b/#1c 经 fields 传导
+        item = {
+            "text": "#1a 在因子卡片渲染层内部取消二次放大",
+            "type_label": "推荐",
+            "boundary": "边界：仅指当前产物渲染链路",
+            "fields": fields,
+        }
+        (tmp_path / "payload.json").write_text(
+            json.dumps({"purpose": "p", "statements": [item]}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert ok, msg
+        # 对照：删掉 fields 里的 #1b -> 缺传被拒并点名
+        fields["rejected"] = "#1c 被 H1.1 剔除"
+        (tmp_path / "payload.json").write_text(
+            json.dumps({"purpose": "p", "statements": [item]}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert not ok and "#1b" in msg
+
+
 class TestAppendTrace:
     """v2.14 append-trace（「AI 定写什么，脚本定怎么写」A 级）：
     载荷 purpose/q/a + state 结构字段 -> 校验 -> 单行 append。fail loud 即时暴露。"""

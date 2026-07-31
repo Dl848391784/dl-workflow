@@ -1943,8 +1943,19 @@ _NOUN_R = r"(?![A-Za-z0-9_])"
 # 规范文档引用合法（硬规则约束的验证源=Read 规范文档原文），不算实现侧名词。
 _NOUN_SKIP_EXTS = (".md", ".rst", ".txt")
 
-# 条目编号模式：in[1]/in[1a-强正]/out[A]（范围项）与 C1.1/C3.4（约束项）。
-_ID_RE = re.compile(r"[A-Za-z]+\[[\w-]+\]|[A-Z]\d+\.\d+")
+# 条目编号模式：in[1]/in[1a-强正]/out[A]（范围项）、C1.1/SC4.1/H1.1（约束/标准/
+# 硬规则项）、RC-A（红队反例）、#1a/#1b1（候选/陈述项）、U1/T1（任务/目标项）。
+# v2.33 扩面（tail_volume plan:1 实测）：旧模式只认 in[]/单字母 X1.1，RC-A、
+# T1、SC4.1、#1a 全部漏捕——plan 域节点的 ID 传导核对静默空转。
+# ASCII 边界用否定环视（CJK 在 re.UNICODE 下是 \w，\b 在 CJK-Latin 交界不可靠，
+# 同 _NOUN_L/_NOUN_R 先例）。
+_ID_RE = re.compile(
+    r"[A-Za-z]+\[[\w-]+\]"  # in[1]/out[A]
+    r"|[A-Z]{1,3}\d+\.\d+"  # C1.1/SC4.1/H1.1
+    r"|RC-[A-Z]"  # RC-A 红队反例
+    r"|#[0-9]+[a-z]?\d*"  # #1a/#2/#1b1 候选与陈述项
+    r"|(?<![A-Za-z0-9_])[UT]\d+(?![A-Za-z0-9_])"  # U1 任务/T1 目标
+)
 
 
 def _implementation_nouns(project_root: Path) -> set[str]:
@@ -2019,7 +2030,12 @@ def _step_trace_ids(
         parts.append(str(v))
     for item in latest.get("statements") or []:
         if isinstance(item, dict):
-            parts.extend(str(item.get(k) or "") for k in ("text", "type_label", "boundary"))
+            parts.extend(
+                str(item.get(k) or "") for k in ("text", "type_label", "boundary")
+            )
+            flds = item.get("fields")
+            if isinstance(flds, dict):
+                parts.extend(str(v) for v in flds.values())
     return set(_ID_RE.findall(" ".join(parts)))
 
 
@@ -2034,14 +2050,25 @@ def _source_step_index(step, cur: int) -> int | None:
 def payload_format_hint(step) -> list[str]:
     """注入用载荷示例行（按步 record_format；单源，phase hook 直接渲染）。"""
     if getattr(step, "record_format", "qa") == "statements":
+        req = getattr(step, "statement_fields", ()) or ()
+        fields_seg = ""
+        fields_note = ""
+        if req:
+            fields_seg = ',"fields":{' + ",".join(f'"{k}":"<{k}>"' for k in req) + "}"
+            fields_note = (
+                "；fields 逐键非空（"
+                + "/".join(req)
+                + "）——字段齐备由 append-trace 机械校验，缺键即拒"
+            )
         return [
             '   {"purpose":"<该步目的>","statements":[{"text":"<单句陈述>",'
-            '"type_label":"<类型标签>","boundary":"<边界/实现指针>"}]}'
-            "（逐项一个对象；text 只许 outcome-level——实现侧名词/file:line "
-            "只能进 boundary，text 会被机械扫描打回）",
+            '"type_label":"<类型标签>","boundary":"<边界/实现指针>"'
+            + fields_seg
+            + "}]}（逐项一个对象；text 只许 outcome-level——实现侧名词/file:line "
+            "只能进 boundary，text 会被机械扫描打回" + fields_note + "）",
             '   ✓ 正例："statements":[{"text":"因子卡片年化数字允许被更新",'
             '"type_label":"in","boundary":"实现指针：web_ui/templates/_macros.html"}]',
-            '   ✗ 反例（必拒）：text 含文件名/类名（挪 boundary）；'
+            "   ✗ 反例（必拒）：text 含文件名/类名（挪 boundary）；"
             "或照抄 `<...>` 占位符字面",
         ]
     return [
@@ -2107,6 +2134,10 @@ def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool
     if getattr(step, "record_format", "qa") == "statements":
         # v2.27 statements 结构化载荷（清单型产出步）：三字段校验 +
         # 机械预检（方案名词扫描 + 源步 ID 传导覆盖）——词形判据下沉机械层。
+        # v2.33 statement_fields：步声明的必备字段键（如设计陈述八字段）进
+        # fields 对象，append 时逐键校验非空——「N 字段齐备」形式要件从
+        # judge 判词变 JSON 校验，judge 只剩语义判据。
+        req_fields = getattr(step, "statement_fields", ()) or ()
         statements = payload.get("statements")
         if statements is not None and (
             payload.get("qa") is not None
@@ -2125,6 +2156,24 @@ def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool
             for field in ("text", "type_label", "boundary"):
                 if not isinstance(item.get(field), str) or not item[field].strip():
                     return False, f"statements[{i}].{field} 须为非空字符串"
+            if req_fields:
+                flds = item.get("fields")
+                if not isinstance(flds, dict):
+                    return False, (
+                        f"statements[{i}].fields 须为对象——本步逐项必备字段："
+                        f"{'/'.join(req_fields)}"
+                    )
+                missing_f = [
+                    k
+                    for k in req_fields
+                    if not isinstance(flds.get(k), str) or not flds[k].strip()
+                ]
+                if missing_f:
+                    return False, (
+                        f"statements[{i}].fields 缺或空字段：{'、'.join(missing_f)}"
+                        f"——本步逐项必备：{'/'.join(req_fields)}"
+                        "（字段齐备是机械校验的形式要件，补齐再提交）"
+                    )
         nouns = _implementation_nouns(project_root)
         for i, item in enumerate(statements):
             for noun in sorted(nouns):
@@ -2141,7 +2190,8 @@ def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool
             src_ids = _step_trace_ids(project_root, name, src, node.minor_key)
             if src_ids:
                 new_text = " ".join(
-                    f"{it['text']} {it['type_label']} {it['boundary']}"
+                    f"{it['text']} {it['type_label']} {it['boundary']} "
+                    + " ".join(str(v) for v in (it.get("fields") or {}).values())
                     for it in statements
                 )
                 missing = sorted(i for i in src_ids if i not in new_text)
@@ -2170,7 +2220,10 @@ def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool
                     or not isinstance(item.get("a"), str)
                     or not item["a"].strip()
                 ):
-                    return False, f'qa[{i}] 须为含非空 q 与 a 的对象（{{"q":..., "a":...}}）'
+                    return (
+                        False,
+                        f'qa[{i}] 须为含非空 q 与 a 的对象（{{"q":..., "a":...}}）',
+                    )
             q = [item["q"] for item in qa]
             a = [item["a"] for item in qa]
         else:
@@ -2183,7 +2236,10 @@ def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool
                     or not val
                     or not all(isinstance(x, str) and x.strip() for x in val)
                 ):
-                    return False, f"{field} 须为非空字符串数组（单问单答也用数组包一层）"
+                    return (
+                        False,
+                        f"{field} 须为非空字符串数组（单问单答也用数组包一层）",
+                    )
             if len(q) != len(a):
                 longer, lname = (q, "q") if len(q) > len(a) else (a, "a")
                 extras = [

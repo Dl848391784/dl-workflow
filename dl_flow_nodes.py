@@ -68,6 +68,10 @@ class Step:
     # "statements" = 结构化陈述集（归一化陈述等清单型产出步）——
     # {"text","type_label","boundary"} 逐项，触发机械预检（方案名词扫描/ID 传导）。
     record_format: str = "qa"
+    # v2.33 statement_fields（仅 statements 格式有意义）：逐项 fields 对象里
+    # 必备的字段键（如设计陈述八字段）——append-trace 逐键校验非空，
+    # 「N 字段齐备」形式要件机械化（judge 不再数字段）。
+    statement_fields: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1440,6 +1444,10 @@ _NODES: dict[str, Node] = {
                 short="归一化陈述",
                 # claim normalization 职能第六次复用（ProblemContext 子5 /
                 # GoalsAndValue 子4 / ScopeAndConstraints 子4 / SuccessCriteria 子4 同构）。
+                # v2.33 迁 statements+statement_fields（tail_volume plan:1 子5 三连
+                # block 审计，designs/plan-normalization-statements-migration-design.md）：
+                # 八字段进 fields 逐键机械校验，text 只留单句决策——att1 式实现侧
+                # 名词塞 text 由方案名词扫描当场拦（原 qa 自由文本无处机判）。
                 purpose=(
                     "归一化设计陈述：①原子（每项 = 1 个可独立拍板的设计决策——"
                     f"{_ATOMIC_ITEM_RULE}）；"
@@ -1448,24 +1456,44 @@ _NODES: dict[str, Node] = {
                     "改/增/删）/接口签名/数据契约变更/受影响 callers 清单"
                     "（codegraph 出处）/被否方案+逐项否决理由（ADR）/"
                     "假设清单+置信度×影响/验收包映射（每条 SuccessCriteria "
-                    "验收包由哪个设计要素承接）/H9 执行单元划分"
-                    "（八字段以键值枚举随项携带，枚举形态不破坏原子性）；"
+                    "验收包由哪个设计要素承接）/H9 执行单元划分；"
                     "④携带 verdict 边界（部分成立目标只覆盖已证实边界——裁决传导）。"
                     "放不进一项=未定义完。"
+                    '载荷格式：statements 逐项 {"text":单句决策（outcome-level），'
+                    '"type_label":推荐/备选/被否,"boundary":verdict 边界+实现指针,'
+                    '"fields":{change_list/interface_sig/data_contract/callers/'
+                    "rejected/assumptions/acceptance_map/h9_units}}"
+                    "——fields 八键逐键非空（append-trace 机械校验，缺键即拒）；"
+                    "text 只许 outcome-level，实现侧名词/file:line 进 fields/boundary。"
                 ),
                 input="step4.recommendation",
                 record=True,
+                record_format="statements",
+                statement_fields=(
+                    "change_list",
+                    "interface_sig",
+                    "data_contract",
+                    "callers",
+                    "rejected",
+                    "assumptions",
+                    "acceptance_map",
+                    "h9_units",
+                ),
                 selfcheck=(
                     "每项 = 1 个可独立拍板的设计决策且自包含（主语+动词+约束）吗？"
-                    "八字段都携带了吗（改动清单/接口签名/数据契约/callers 清单/"
-                    "被否方案+理由/假设清单/验收包映射/H9 单元划分）？"
+                    "fields 八键都填了吗（change_list/interface_sig/data_contract/"
+                    "callers/rejected/assumptions/acceptance_map/h9_units——"
+                    "append-trace 机械校验，缺键即拒）？"
                     "字段与子3/子4 已定内容一致吗（无丢失无篡改无新增）？"
+                    "statements 载荷 text 逐条无实现侧名词吧（进 fields/boundary，"
+                    "机械扫描会拒）？"
                 ),
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace、"
                     "minor_stage=DesignSolution 且 sub_step==5 的记录；"
-                    "形式要件：每项 = 1 个可独立拍板的设计决策"
-                    "（单句决策 + 八字段键值枚举携带）；八字段齐备。"
+                    "形式要件：每项 = 1 个可独立拍板的设计决策（text 单句）；"
+                    "fields 八键齐备（append-trace 已机械校验，勿再数字段）；"
+                    "text 无实现侧名词（已机械扫描）。"
                     "质量判据（从严裁量）：设计包字段不传导——子3/子4 已定的"
                     "出处/假设/否决理由在陈述中丢失或篡改判 block；"
                     f"复合句判 block——{_ATOMIC_ITEM_RULE}；"
@@ -1641,6 +1669,9 @@ _NODES: dict[str, Node] = {
                 # claim normalization 职能第七次复用（ProblemContext 子5 /
                 # GoalsAndValue 子4 / ScopeAndConstraints 子4 / SuccessCriteria 子4 /
                 # DesignSolution 子5 同构）。
+                # v2.33 迁 statements+statement_fields（同 DesignSolution 子5，
+                # tail_volume plan:2 子4 三连 block 审计）：五字段进 fields 逐键
+                # 机械校验；text 只留交付物单句，file:line/签名进 fields/boundary。
                 purpose=(
                     "归一化执行步骤：①原子（每项 = 1 个可独立验证/提交的交付物——"
                     "bite-sized TDD 微循环「写失败测试/跑验证它失败/最小实现/"
@@ -1656,13 +1687,27 @@ _NODES: dict[str, Node] = {
                     "（承接哪条 SuccessCriteria ID）/追溯锚（承接哪个要素 ID）；"
                     "④假设传导（子3 假设项原样携带，不丢不淡化）。"
                     "放不进一项=未定义完。"
+                    '载荷格式：statements 逐项 {"text":交付物单句，'
+                    '"type_label":所属阶段,"boundary":假设传导+补充指针,'
+                    '"fields":{change_point/interface/verify/acceptance_map/'
+                    "trace_anchor}}——fields 五键逐键非空"
+                    "（append-trace 机械校验，缺键即拒）。"
                 ),
                 input="step3.verified_units",
                 record=True,
+                record_format="statements",
+                statement_fields=(
+                    "change_point",
+                    "interface",
+                    "verify",
+                    "acceptance_map",
+                    "trace_anchor",
+                ),
                 selfcheck=(
                     "每项 = 1 个可独立验证/提交的交付物且自包含"
                     "（零上下文执行者可做）吗？"
-                    "五字段都携带了吗（改动点/前置接口/验证方法/验收包映射/追溯锚）？"
+                    "fields 五键都填了吗（change_point/interface/verify/"
+                    "acceptance_map/trace_anchor——append-trace 机械校验，缺键即拒）？"
                     "字段与子2/子3 已定内容一致吗（无丢失无篡改无新增）？"
                     "验收包与要素双向覆盖无漏吗？"
                 ),
@@ -1671,7 +1716,8 @@ _NODES: dict[str, Node] = {
                     "minor_stage=TaskBreakdown 且 sub_step==4 的记录；"
                     "形式要件：每项 = 1 个可独立验证/提交的交付物"
                     "（TDD 微循环「失败测试→最小实现→验证→提交」= 内含流程，"
-                    "不算复合）；五字段齐备；验收包与要素双向覆盖无漏。"
+                    "不算复合）；fields 五键齐备（append-trace 已机械校验，"
+                    "勿再数字段）；验收包与要素双向覆盖无漏。"
                     "质量判据（从严裁量）：字段与子2/子3 已定内容不一致="
                     "丢失/篡改/新增判 block；"
                     f"复合句判 block——{_ATOMIC_ITEM_RULE}；"
@@ -1875,8 +1921,11 @@ _NODES: dict[str, Node] = {
                 # 能力包五字段倒推自消费契约（design §0 表）：execute:0 逐条核 /
                 # using-superpowers 必先 invoke / H15+执行映射 / Agent 成本决策 /
                 # overload 防线。
+                # v2.33 迁 statements+statement_fields（同 DesignSolution 子5）：
+                # 五字段进 fields 逐键机械校验。
                 purpose=(
-                    "归一化能力包：①原子（单句 ≤1 个独立配置断言）；"
+                    "归一化能力包：①原子（每项 = 1 个可独立执行的配置断言——"
+                    f"{_ATOMIC_ITEM_RULE}）；"
                     "②去上下文（零上下文执行者照做：能力名逐字+触发依据自包含，"
                     "禁「同上」「类似任务 N」）；"
                     "③携带能力包五字段——必先 skill（名+触发依据引用）/"
@@ -1885,23 +1934,41 @@ _NODES: dict[str, Node] = {
                     "子代理策略（扇出/模型/隔离，无则显式「单线程」）/"
                     "显式不加载清单（抗 overload 承诺）；"
                     "④假设传导（子4 假设项原样携带，不丢不淡化）。"
-                    "放不进一句=未定义完。"
+                    "放不进一项=未定义完。"
+                    '载荷格式：statements 逐项 {"text":配置断言单句，'
+                    '"type_label":skill/工具/门禁/子代理/不加载,'
+                    '"boundary":假设传导+出处指针,'
+                    '"fields":{skill_first/tools/enforce_align/subagent_policy/'
+                    "no_load}}——fields 五键逐键非空"
+                    "（append-trace 机械校验，缺键即拒；无内容键填显式「无」）。"
                 ),
                 input="step4.verified_bindings",
                 record=True,
+                record_format="statements",
+                statement_fields=(
+                    "skill_first",
+                    "tools",
+                    "enforce_align",
+                    "subagent_policy",
+                    "no_load",
+                ),
                 selfcheck=(
-                    "每任务 ≤1 句且自包含（零上下文执行者照做）吗？"
-                    "五字段都携带了吗（必先 skill/工具清单/强制门禁对齐/子代理策略/"
-                    "不加载清单）？字段与子3/子4 已定内容一致吗（无丢失无篡改无新增）？"
+                    "每项 = 1 个可独立执行的配置断言且自包含"
+                    "（零上下文执行者照做）吗？"
+                    "fields 五键都填了吗（skill_first/tools/enforce_align/"
+                    "subagent_policy/no_load——append-trace 机械校验，缺键即拒）？"
+                    "字段与子3/子4 已定内容一致吗（无丢失无篡改无新增）？"
                     "能力名与子2 注册表出处逐字一致吗？假设传导了吗？"
                 ),
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace、"
                     "minor_stage=CapabilityToolSelection 且 sub_step==5 的记录；"
-                    "形式要件：每任务五字段齐备；与需求双向覆盖无漏；"
+                    "形式要件：fields 五键齐备（append-trace 已机械校验，勿再数字段）；"
+                    "与需求双向覆盖无漏；"
                     "不加载清单显式或显式「无」；假设传导。"
                     "质量判据（从严裁量）：字段与子3/子4 已定内容不一致="
-                    "丢失/篡改/新增判 block；复合句判 block；"
+                    "丢失/篡改/新增判 block；"
+                    f"复合句判 block——{_ATOMIC_ITEM_RULE}；"
                     "能力名与子2 注册表出处不符=幽灵回潮判 block；"
                     "不加载清单缺失且无声明判 block。"
                 ),
