@@ -524,27 +524,83 @@ JUDGE_SYSTEM_PROMPT = (
 )
 
 
-def gate_verdict_mech(node: Node, project_root: Path | None = None) -> str | None:
+def _artifact_file(node: Node, project_root: Path, name: str) -> Path | None:
+    """节点产物的规范落点（主仓 .claude/<dir>/<name>.md，2026-07-28 决议）。
+
+    产物标识非裸 .md basename（含 "/" 路径 / "+" 描述性文本）或 phase 无产物
+    目录映射 -> None（机械无法判，交语义 judge）。
+    """
+    if not node.artifact or "/" in node.artifact or node.artifact.endswith("+"):
+        return None
+    if not node.artifact.endswith(".md"):
+        return None
+    artifact_dir = _PHASE_ARTIFACT_DIRS.get(node.phase)
+    if artifact_dir is None:
+        return None
+    return project_root / ".claude" / artifact_dir / f"{name}.md"
+
+
+def _node_entered_at(state: dict[str, Any], node: Node) -> float | None:
+    """当前节点的 entered_at（epoch）；无记录/解析失败 -> None（降级仅存在性检查）。
+
+    新鲜度基准（§8.3，artifact-mech-gate-design §1.1 #4）：产物须在本节点内
+    写盘——装配义务锚定末子步骤，早于本节点进入时间的文件 = 预写/残留。
+    """
+    for h in reversed(state.get("history") or []):
+        if h.get("phase") == node.phase and h.get("sub") == node.sub:
+            s = h.get("entered_at")
+            if not s:
+                return None
+            try:
+                return time.mktime(time.strptime(s, "%Y-%m-%dT%H:%M:%S"))
+            except (ValueError, TypeError, OverflowError):
+                return None
+    return None
+
+
+def gate_verdict_mech(
+    node: Node,
+    project_root: Path | None = None,
+    name: str | None = None,
+    not_before: float | None = None,
+) -> str | None:
     """机械门判定。返回 None=通过,返回字符串=block 原因。
 
-    project_root 用于产物文件存在检查（None 时机械项降级为只判 NONE）。
+    §8.3（artifact-mech-gate-design）：ARTIFACT_EXISTS = 产物文件存在 + 可选
+    新鲜度（not_before=本节点 entered_at，mtime 更早 = 预写/残留）；
+    ARTIFACT_CONTAINS = 存在 + 全文含 node.artifact_contains 全部子串（节标题级）。
+    降级纪律（宁纵勿枉，同 codegraph_gate 非 git 放行）：name/project_root 缺失、
+    产物标识非单文件、路径映射缺失 -> None，语义 judge 兜底。
     """
     if node.gate_mech == GateMech.NONE:
         return None  # 无机械门,通过
-    if project_root is None:
-        # 无 project_root 无法判文件 -> 降级放行（宁纵勿枉,同 codegraph_gate 非 git 放行）
+    if node.gate_mech == GateMech.TEST_PASS:
+        return None  # 暂不实现,留 §8.2
+    if project_root is None or name is None:
+        # 无法定位产物 -> 降级放行（宁纵勿枉,同 codegraph_gate 非 git 放行）
         # 语义 judge 兜底。
         return None
-    if node.gate_mech == GateMech.ARTIFACT_EXISTS:
-        if not node.artifact or "/" in node.artifact or node.artifact.endswith("+"):
-            # 产物标识含描述性文本（如"代码+commit+测试通过"）非单文件 -> 机械无法判,交语义 judge
-            return None
-        # 产物文件路径：worktree/.claude/workflows/<name>/ 或约定根。
-        # 暂以 worktree 根下查找（understand.md 等约定写在 worktree 根）。
-        # TODO §8.3 确认产物落点后精确化。
-        return None  # 暂不实现文件查找,留 §8.3 hook 接入时连同产物路径一起定
-    if node.gate_mech == GateMech.TEST_PASS:
-        return None  # 暂不实现,留 §8.2/§8.3
+    f = _artifact_file(node, project_root, name)
+    if f is None:
+        return None  # 产物标识含描述性文本（如"代码+commit+测试通过"）-> 交语义 judge
+    if not f.is_file():
+        return (
+            f"产物未落地：{f} 不存在（{node.label} 的装配义务："
+            "末子步骤内写盘后才可 STEP_DONE）。写盘后附新 trace 重试。"
+        )
+    if node.gate_mech == GateMech.ARTIFACT_CONTAINS and node.artifact_contains:
+        text = f.read_text(encoding="utf-8", errors="replace")
+        missing = [s for s in node.artifact_contains if s not in text]
+        if missing:
+            return (
+                f"产物缺节：{f} 缺「{'」「'.join(missing)}」节"
+                f"（{node.label} 末子步骤装配义务）。补装后附新 trace 重试。"
+            )
+    if not_before is not None and f.stat().st_mtime < not_before:
+        return (
+            f"产物陈旧：{f} 最后修改早于本节点进入时间——"
+            "须在本节点内装配（禁预写/残留）。重新装配写盘后附新 trace 重试。"
+        )
     return None
 
 
@@ -828,11 +884,21 @@ def gate_and_advance_sub_step(
             save_state(project_root, name, state)
             return False, reason or "judge 未给出原因", state
         return False, reason or "judge 未给出原因", {}
-    # 推进
+    # 推进（末步先过产物机械门 §8.3：judge 过 ≠ 产物已落盘——装配义务锚定末子步骤，
+    # understand:4 子5 这类 gate=None 交互步的唯一硬兜底）
     state = load_state(project_root, name)
     if state is None:
         return False, f"工作流 {name} 的 state.json 缺失", {}
     state = normalize_state(state)
+    if node.sub_steps and sub_step_index == len(node.sub_steps):
+        mech_block = gate_verdict_mech(
+            node, project_root, name, _node_entered_at(state, node)
+        )
+        if mech_block is not None:
+            state["node_attempts"] = state.get("node_attempts", 0) + 1
+            state["updated_at"] = _now()
+            save_state(project_root, name, state)
+            return False, mech_block, state
     return (
         True,
         "",
@@ -1335,6 +1401,14 @@ def gate_sub_step_at_stop(
             artifact_content=artifact,
             prior_verdicts=priors,
         )
+    if ok and cur == len(node.sub_steps):
+        # 末步产物机械门（§8.3）：judge（或 gate=None 自动过）≠ 产物已落盘。
+        # block 落进下方共用 block 路径（attempts++/block 裁决/escalate 阈值）。
+        mech_block = gate_verdict_mech(
+            node, project_root, name, _node_entered_at(state, node)
+        )
+        if mech_block is not None:
+            ok, reason = False, mech_block
     if ok:
         # 先落盘（含 last_judged[key]）：末步路径 advance_state 从磁盘重 load，
         # 不落盘会丢判定游标 -> 下次 Stop 重判同一 trace。
@@ -1773,15 +1847,18 @@ def run_gate(
     model_output: str,
     project_root: Path | None = None,
     artifact_content: str | None = None,
+    name: str | None = None,
+    not_before: float | None = None,
 ) -> tuple[bool, str]:
     """compound gate（机械 + 语义,短路）。返回 (pass, block_reason)。
 
     design §5：机械不过短路 block（不跑 judge）;机械过跑 judge。
     无 gate_rubric 的节点（如 understand 子阶段 1-3）只过机械项。
-    机械项目前未实现文件查找（§8.3）,多数降级放行 -> 靠 judge 兜底。
+    机械门（§8.3 产物检查）需 name 定位 <name>.md；缺 name/project_root 降级放行
+    （宁纵勿枉）-> 靠 judge 兜底。
     """
     # 1. 机械项（短路）
-    mech_block = gate_verdict_mech(node, project_root)
+    mech_block = gate_verdict_mech(node, project_root, name, not_before)
     if mech_block is not None:
         return False, mech_block
     # 2. 语义项（judge）。无 rubric -> 直接过（子阶段间自动推进）。

@@ -492,6 +492,7 @@ def main() -> int:
             output,
             project_root=project_root,
             artifact_content=_evidence_artifact(project_root, name, node),
+            name=name,
         )
         if not ok:
             _log(
@@ -570,6 +571,7 @@ def main() -> int:
         output,
         project_root=project_root,
         artifact_content=_evidence_artifact(project_root, name, node),
+        name=name,
     )
     if not ok:
         # gate 不过 -> block 续轮（模型自动重试）

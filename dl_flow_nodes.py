@@ -28,7 +28,8 @@ class GateMech(enum.Enum):
     """机械门类型（py 规则判定,快、便宜、无幻觉）。design §5。"""
 
     NONE = "none"  # 无机械门（子阶段间自动推进用）
-    ARTIFACT_EXISTS = "artifact_exists"  # 产物文件存在
+    ARTIFACT_EXISTS = "artifact_exists"  # 产物文件存在（+新鲜度，§8.3 已实现）
+    ARTIFACT_CONTAINS = "artifact_contains"  # 产物文件存在且含指定节（§8.3）
     TEST_PASS = "test_pass"  # pytest 通过
 
 
@@ -97,6 +98,9 @@ class Node:
     # False=末子步骤内已装配（plan:3——plan.md「能力与工具」节在子6 拍板后装配，
     # hold 前已落地，放行后只需 PHASE_DONE）。advance="sub" 节点此字段不被读取。
     artifact_on_release: bool = True
+    # §8.3 ARTIFACT_CONTAINS 的必含子串（节标题级，子串匹配宁宽勿窄）；
+    # 仅 gate_mech=ARTIFACT_CONTAINS 时读取（plan:4 = 「执行计划与检查点」节）。
+    artifact_contains: tuple[str, ...] = ()
 
 
 # 节点表。<node_id> -> Node。node_id = f"{phase}:{sub}"。
@@ -1921,13 +1925,12 @@ _NODES: dict[str, Node] = {
         sub=4,
         skill=None,  # 编排节点 skill 走 Step ref（同 plan:1/2/3；define-problem 在子4 ref）
         artifact="plan.md",
-        # gate_mech=NONE（有意偏离 plan:2/3 的 ARTIFACT_EXISTS，design §5 #7）：
-        # ARTIFACT_EXISTS 对 plan.md 在本节点语义恒真（文件自 plan:2 起存在），
-        # 保留=虚假防线暗示（H13 精神：不挂无功能配置）；且机械门全类型未实现
-        # （engine gate_verdict_mech 一律 return None 留 §8.3）。实际 guard 链 =
-        # 子4 judge 验十字段 + 子5 禁二次创作 + 用户读回 + S13/S15 围栏。
-        # §8.3 实现时正解 = ARTIFACT_CONTAINS（节存在检查），属该独立项连带工作。
-        gate_mech=GateMech.NONE,
+        # ARTIFACT_CONTAINS（2026-07-31 §8.3 落地，artifact-mech-gate-design）：
+        # ARTIFACT_EXISTS 对本节点语义恒真（文件自 plan:2 起存在）——正解 =
+        # 节存在检查（execution-plan-checkpoints-substeps-design §5 #7 的预先裁决）。
+        # 守「子5 trace 合格但节未装配」的落空（子5 gate=None 交互步）。
+        gate_mech=GateMech.ARTIFACT_CONTAINS,
+        artifact_contains=("执行计划与检查点",),
         # 节点级 rubric 置 None（understand:4/plan:2/plan:3 先例第四次）：
         # 语义全部下沉逐步 gate，plan->execute 大闸门只跑机械门（本节点亦无）。
         gate_rubric=None,

@@ -13,13 +13,15 @@ advance_state 用 tmp state.json 测读写 + 推进。
 - next_phase / is_gated_after / phase_index
 - state.json 读写 + normalize_state 旧 state 兼容 + 不一致报错
 - advance_state：子阶段推进 / 阶段推进（含闸门 passed）/ 终结
-- gate_verdict_mech：NONE 通过 / 其他暂降级
+- gate_verdict_mech：NONE 通过 / 产物机械门（EXISTS + 新鲜度 + CONTAINS，§8.3）/ 降级
 """
 
 from __future__ import annotations
 
 import json
+import os
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -1273,6 +1275,16 @@ def _write_evidence(tmp_path: Path, name: str, records: list[str]) -> Path:
     return p
 
 
+def _write_artifact(
+    tmp_path: Path, phase_dir: str, name: str, content: str = "# 产物\n"
+) -> Path:
+    """写阶段产物到规范位置（主仓 .claude/<dir>/<name>.md，§8.3 机械门）。"""
+    p = tmp_path / ".claude" / phase_dir / f"{name}.md"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(content, encoding="utf-8")
+    return p
+
+
 class TestSubStepHasTrace:
     """sub_step_has_trace：evidence 含 sub_step==N 的 skill-trace 即 True。"""
 
@@ -1412,6 +1424,47 @@ class TestGateAndAdvanceSubStep:
         eng.gate_and_advance_sub_step(tmp_path, "t", node, 1)
         assert captured["artifact"] is not None
         assert "skill-trace" in captured["artifact"]
+
+    def test_last_step_mech_blocks_missing_artifact(self, tmp_path):
+        # §8.3 产物机械门：understand:4 末步子5 gate=None 自动过，
+        # 但 understand.md 未写盘 -> 机械门 block（装配义务不落空）
+        _write_state_full(tmp_path, "t", "understand", 4, sub_step=5)
+        node = eng.get_node("understand", 4)
+        advanced, reason, new_state = eng.gate_and_advance_sub_step(
+            tmp_path, "t", node, 5
+        )
+        assert advanced is False
+        assert "产物未落地" in reason
+        assert new_state["node_attempts"] == 1
+        assert eng.load_state(tmp_path, "t")["sub_index"] == 4  # 未推进
+
+    def test_last_step_mech_passes_with_artifact(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 4, sub_step=5)
+        _write_artifact(tmp_path, "understands", "t")
+        node = eng.get_node("understand", 4)
+        advanced, _, new_state = eng.gate_and_advance_sub_step(tmp_path, "t", node, 5)
+        assert advanced is True
+        assert (new_state["phase"], new_state["sub_index"]) == ("plan", 1)
+
+    def test_last_step_stale_artifact_blocks(self, tmp_path):
+        # 新鲜度：产物 mtime 早于本节点 entered_at（预写/残留）-> block
+        _write_state_full(tmp_path, "t", "understand", 4, sub_step=5)
+        _write_artifact(tmp_path, "understands", "t")
+        st = eng.load_state(tmp_path, "t")
+        st["history"] = [
+            {
+                "phase": "understand",
+                "sub": 4,
+                "entered_at": "2099-01-01T00:00:00",
+                "exited_at": None,
+                "via": "test",
+            }
+        ]
+        eng.save_state(tmp_path, "t", st)
+        node = eng.get_node("understand", 4)
+        advanced, reason, _ = eng.gate_and_advance_sub_step(tmp_path, "t", node, 5)
+        assert advanced is False
+        assert "陈旧" in reason
 
 
 class TestSubStepBlockEscalation:
@@ -1582,8 +1635,10 @@ class TestUnderstand4Orchestration:
     def test_u4_last_step_advances_to_plan1(self, tmp_path):
         # 2026-07-28 围栏只设 plan 完成：understand:4 末步（子5）pass ->
         # 无门栏无闸门，直接推进 plan:1（跨阶段自动续轮路径）
+        # §8.3：推进前置 = understand.md 已装配写盘（机械门）
         _write_state_full(tmp_path, "t", "understand", 4, sub_step=5)
         _write_evidence(tmp_path, "t", [_sc_trace_line(5)])
+        _write_artifact(tmp_path, "understands", "t")
         action, _, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
         assert action == "advanced"
         st = eng.load_state(tmp_path, "t")
@@ -1592,6 +1647,18 @@ class TestUnderstand4Orchestration:
         assert st["node"] == "plan:1"
         assert st["sub_step_index"] == 1  # 新节点首步
         assert "held_for_gate" not in st
+
+    def test_u4_last_step_blocks_without_artifact(self, tmp_path):
+        # §8.3 产物机械门：子5 trace 合格但 understand.md 未写盘 -> block
+        # （装配义务不被 trace 存在骗过；understand->plan 无人工闸门后的硬兜底）
+        _write_state_full(tmp_path, "t", "understand", 4, sub_step=5)
+        _write_evidence(tmp_path, "t", [_sc_trace_line(5)])
+        action, reason, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
+        assert action == "block"
+        assert "产物未落地" in reason
+        st = eng.load_state(tmp_path, "t")
+        assert st["sub_index"] == 4  # 未推进
+        assert st["node_attempts"] == 1
 
 
 class TestPlan1Orchestration:
@@ -1864,6 +1931,7 @@ class TestPlan2Orchestration:
         # 无门栏自动推进 plan:3，跨节点 sub_step_index 重置
         _write_state_full(tmp_path, "t", "plan", 2, sub_step=5)
         _write_evidence(tmp_path, "t", [_tb_trace_line(5)])
+        _write_artifact(tmp_path, "plans", "t")  # §8.3 机械门：plan.md 已装配
         action, _, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
         assert action == "advanced"
         st = eng.load_state(tmp_path, "t")
@@ -2020,6 +2088,7 @@ class TestPlan3Orchestration:
         # 无门栏自动推进 plan:4，跨节点 sub_step_index 重置
         _write_state_full(tmp_path, "t", "plan", 3, sub_step=6)
         _write_evidence(tmp_path, "t", [_cts_trace_line(6)])
+        _write_artifact(tmp_path, "plans", "t")  # §8.3 机械门：plan.md 已装配
         action, _, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
         assert action == "advanced"
         st = eng.load_state(tmp_path, "t")
@@ -2054,9 +2123,9 @@ class TestPlan4Orchestration:
         assert (
             node.gate_rubric is None
         )  # 子阶段级 rubric 被子步骤门控取代（understand:4/plan:2/3 先例第四次）
-        assert (
-            node.gate_mech == eng.GateMech.NONE
-        )  # ARTIFACT_EXISTS 对 plan.md 语义恒真（design §5 #7）
+        # §8.3（2026-07-31）：ARTIFACT_EXISTS 对 plan.md 语义恒真 -> 节存在检查
+        assert node.gate_mech == eng.GateMech.ARTIFACT_CONTAINS
+        assert node.artifact_contains == ("执行计划与检查点",)
         assert node.artifact == "plan.md"
         assert node.advance == "phase"  # plan 末子阶段 -> 推进 execute
         assert node.minor_key == "ExecutionPlanCheckpoints"
@@ -2184,6 +2253,8 @@ class TestPlan4Orchestration:
         # pinning（症状 M #7）：plan:4 末步（子5）pass -> 扣留不推进
         _write_state_full(tmp_path, "t", "plan", 4, sub_step=5)
         _write_evidence(tmp_path, "t", [_epc_trace_line(5)])
+        # §8.3 机械门（ARTIFACT_CONTAINS）：「执行计划与检查点」节已装配
+        _write_artifact(tmp_path, "plans", "t", "# 执行步骤\n\n## 执行计划与检查点\n")
         action, _, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
         assert action == "advanced"
         st = eng.load_state(tmp_path, "t")
@@ -3489,23 +3560,81 @@ class TestReadEvidence:
         assert eng.read_evidence(tmp_path, "t") is None
 
 
-# ---------- gate_verdict_mech（骨架阶段;仅 NONE 通过,其他降级）----------
+# ---------- gate_verdict_mech（§8.3 产物机械门，designs/artifact-mech-gate-design.md）----------
 
 
 class TestGateVerdictMech:
     def test_none_passes(self):
         node = eng.get_node("understand", 1)  # gate_mech=NONE
-        assert eng.gate_verdict_mech(node, project_root=Path(".")) is None
+        assert eng.gate_verdict_mech(node, project_root=Path("."), name="t") is None
 
     def test_no_project_root_degrades(self):
         # 无 project_root -> 机械项降级放行（宁纵勿枉,同 codegraph_gate 非 git）
         node = eng.get_node("understand", 4)  # ARTIFACT_EXISTS
-        assert eng.gate_verdict_mech(node, project_root=None) is None
+        assert eng.gate_verdict_mech(node, project_root=None, name="t") is None
 
-    def test_artifact_exists_not_yet_impl(self):
-        # ARTIFACT_EXISTS 文件查找未实现（§8.3）-> 暂降级 None,不误 block
-        node = eng.get_node("plan", 2)
-        assert eng.gate_verdict_mech(node, project_root=Path(".")) is None
+    def test_no_name_degrades(self, tmp_path):
+        # 无 name 无法定位 <name>.md -> 降级放行（宁纵勿枉）
+        node = eng.get_node("understand", 4)
+        assert eng.gate_verdict_mech(node, project_root=tmp_path, name=None) is None
+
+    def test_descriptive_artifact_degrades(self, tmp_path):
+        # 描述性产物（含 "+"）机械无法判 -> 交语义 judge
+        node = eng.get_node("execute", 0)  # artifact="代码+commit+测试通过"
+        assert eng.gate_verdict_mech(node, project_root=tmp_path, name="t") is None
+
+    def test_artifact_missing_blocks(self, tmp_path):
+        node = eng.get_node("understand", 4)  # ARTIFACT_EXISTS -> understands/t.md
+        reason = eng.gate_verdict_mech(node, project_root=tmp_path, name="t")
+        assert reason is not None
+        assert "产物未落地" in reason
+        assert ".claude/understands/t.md" in reason
+
+    def test_artifact_exists_passes(self, tmp_path):
+        _write_artifact(tmp_path, "understands", "t")
+        node = eng.get_node("understand", 4)
+        assert eng.gate_verdict_mech(node, project_root=tmp_path, name="t") is None
+
+    def test_stale_artifact_blocks(self, tmp_path):
+        # mtime 早于 not_before（本节点进入时间）-> 预写/残留 -> block
+        p = _write_artifact(tmp_path, "understands", "t")
+        old = time.time() - 3600
+        os.utime(p, (old, old))
+        node = eng.get_node("understand", 4)
+        reason = eng.gate_verdict_mech(
+            node, project_root=tmp_path, name="t", not_before=time.time()
+        )
+        assert reason is not None
+        assert "陈旧" in reason
+
+    def test_fresh_artifact_passes(self, tmp_path):
+        _write_artifact(tmp_path, "understands", "t")
+        node = eng.get_node("understand", 4)
+        assert (
+            eng.gate_verdict_mech(
+                node, project_root=tmp_path, name="t", not_before=time.time() - 60
+            )
+            is None
+        )
+
+    def test_contains_missing_file_blocks(self, tmp_path):
+        node = eng.get_node("plan", 4)  # ARTIFACT_CONTAINS -> plans/t.md
+        reason = eng.gate_verdict_mech(node, project_root=tmp_path, name="t")
+        assert reason is not None
+        assert "产物未落地" in reason
+
+    def test_contains_missing_section_blocks(self, tmp_path):
+        _write_artifact(tmp_path, "plans", "t", "# 执行步骤\nfoo\n")
+        node = eng.get_node("plan", 4)
+        reason = eng.gate_verdict_mech(node, project_root=tmp_path, name="t")
+        assert reason is not None
+        assert "缺节" in reason
+        assert "执行计划与检查点" in reason
+
+    def test_contains_passes(self, tmp_path):
+        _write_artifact(tmp_path, "plans", "t", "# 执行步骤\nfoo\n## 执行计划与检查点\nbar\n")
+        node = eng.get_node("plan", 4)
+        assert eng.gate_verdict_mech(node, project_root=tmp_path, name="t") is None
 
 
 # ---------- _strip_json_fence / _extract_judge_result（judge 输出解析）----------
@@ -3699,8 +3828,8 @@ class TestRunGate:
         assert "没步骤" in reason
 
     def test_mech_block_short_circuits_judge(self, monkeypatch):
-        # 机械项不过 -> 短路,不跑 judge。当前机械项未实现文件查找,
-        # 故用 mock 强制 gate_verdict_mech 返回 block 验证短路。
+        # 机械项不过 -> 短路,不跑 judge。用 mock 强制 gate_verdict_mech
+        # 返回 block 验证短路（真实机械门覆盖见 TestGateVerdictMech）。
         called = {"n": 0}
 
         def _spy(cmd, **kw):
@@ -3709,13 +3838,40 @@ class TestRunGate:
 
         monkeypatch.setattr(eng.subprocess, "run", _spy)
         monkeypatch.setattr(
-            eng, "gate_verdict_mech", lambda n, project_root=None: "产物缺失：review.md"
+            eng, "gate_verdict_mech", lambda *a, **k: "产物缺失：review.md"
         )
         node = eng.get_node("review", 0)
         ok, reason = eng.run_gate(node, "输出")
         assert ok is False
         assert "产物缺失" in reason
         assert called["n"] == 0  # judge 没被调（短路）
+
+    def test_mech_enforced_when_name_given(self, tmp_path, monkeypatch):
+        # §8.3：hook 传 name + project_root 后 review:0 的 ARTIFACT_EXISTS 真实生效——
+        # 缺 .claude/reviews/t.md -> 机械门短路 block（不调 judge）
+        called = {"n": 0}
+
+        def _spy(cmd, **kw):
+            called["n"] += 1
+            return _fake_run_factory(0, _result_line('{"pass": true}'))(cmd, **kw)
+
+        monkeypatch.setattr(eng.subprocess, "run", _spy)
+        node = eng.get_node("review", 0)
+        ok, reason = eng.run_gate(node, "输出", project_root=tmp_path, name="t")
+        assert ok is False
+        assert "产物未落地" in reason
+        assert ".claude/reviews/t.md" in reason
+        assert called["n"] == 0  # judge 没被调（短路）
+
+    def test_mech_pass_then_judge_runs(self, tmp_path, monkeypatch):
+        # 产物已写盘 -> 机械门过 -> 继续跑 judge
+        _write_artifact(tmp_path, "reviews", "t")
+        monkeypatch.setattr(
+            eng.subprocess, "run", _fake_run_factory(0, _result_line('{"pass": true}'))
+        )
+        node = eng.get_node("review", 0)
+        ok, _ = eng.run_gate(node, "输出", project_root=tmp_path, name="t")
+        assert ok is True
 
 
 # ---------- CLI 冒烟（status/current 输出合法）----------
