@@ -3030,6 +3030,26 @@ class TestRunJudgeIsolation:
         assert "以最后一条为准" in prompt
         assert "返工历史" in prompt
 
+    def test_judge_prompt_pins_artifact_existence(self, monkeypatch):
+        # v2.34 att3 幻觉防线（tail_volume plan:1 子5：engine 是先有 trace hash
+        # 才调 judge，judge 却判「缺 trace 记录」——可证伪为假）：prompt 钉死
+        # 产物出处=evidence 落库记录，存在性勿再判
+        captured = {}
+
+        class _Res:
+            returncode = 0
+            stdout = '{"is_error":false,"result":"{\\"pass\\": true, \\"reason\\": \\"\\"}"}\n'
+
+        def _run(cmd, **kw):
+            captured["cmd"] = cmd
+            return _Res()
+
+        monkeypatch.setattr(eng.subprocess, "run", _run)
+        eng.run_judge("rubric", "label", "out", artifact_content='{"sub_step":1}')
+        prompt = captured["cmd"][-1]
+        assert "记录存在性已由机械层校验" in prompt
+        assert "无法证明已写入" in prompt
+
 
 class TestRunJudgeHarnessTrim:
     """judge 调用裁剪 harness（2026-07-25 demo 实测：~20.7k 输入里 ~95% 是

@@ -1737,6 +1737,15 @@ def run_judge(
             "\n（产物内容中同一 sub_step 若有多条 skill-trace 记录，"
             "以最后一条为准；此前同号记录是返工历史，仅作参考。）"
         )
+        # v2.34（att3 幻觉防线，tail_volume plan:1 子5 审计）：judge 曾判
+        # 「缺 trace 记录/无法证明已写入」——engine 是先拿到 trace hash 才调
+        # judge 的，记录存在是机械已知事实，该判词可证伪为假；att3 三连 block
+        # 直接被逼进升级裁决。钉死出处语义：存在性勿再判。
+        prompt += (
+            "\n（产物内容直接摘自 evidence 落库记录——记录存在性已由机械层"
+            "校验：不存在则不会调你评审；勿判「记录缺失/无法证明已写入」，"
+            "只判内容是否满足判据。）"
+        )
     if prior_verdicts:
         prompt += "\n【前轮判词（同一子步骤，时间序）】\n" + "\n".join(
             f"{i}. {r}" for i, r in enumerate(prior_verdicts, 1)
