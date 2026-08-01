@@ -4828,7 +4828,11 @@ class TestAppendTrace:
     def test_happy_path_fills_struct_fields(self, tmp_path):
         payload = self._setup(tmp_path)
         self._write_payload(
-            payload, {"purpose": "双向取证", "q": ["q1", "q2"], "a": ["a1", "a2"]}
+            payload,
+            {
+                "purpose": "双向取证",
+                "qa": [{"q": "q1", "a": "a1"}, {"q": "q2", "a": "a2"}],
+            },
         )
         ok, msg = eng.append_trace(tmp_path, "t", str(payload))
         assert ok, msg
@@ -4851,7 +4855,7 @@ class TestAppendTrace:
         # 与门控集成：append-trace 落库后 latest_trace_sha1 变化（Stop 门控可触发）
         payload = self._setup(tmp_path)
         assert eng.latest_trace_sha1(tmp_path, "t", 3) is None
-        self._write_payload(payload, {"purpose": "p", "q": ["q"], "a": ["a"]})
+        self._write_payload(payload, {"purpose": "p", "qa": [{"q": "q", "a": "a"}]})
         ok, _ = eng.append_trace(tmp_path, "t", str(payload))
         assert ok
         assert eng.latest_trace_sha1(tmp_path, "t", 3) is not None
@@ -4859,28 +4863,31 @@ class TestAppendTrace:
     def test_struct_fields_leak_rejected(self, tmp_path):
         payload = self._setup(tmp_path)
         self._write_payload(
-            payload, {"purpose": "p", "q": ["q"], "a": ["a"], "sub_step": 99}
+            payload, {"purpose": "p", "qa": [{"q": "q", "a": "a"}], "sub_step": 99}
         )
         ok, msg = eng.append_trace(tmp_path, "t", str(payload))
         assert not ok and "结构字段" in msg
         assert payload.exists()  # 失败保留载荷供原地修
 
-    def test_qa_length_mismatch_rejected(self, tmp_path):
+    def test_legacy_parallel_arrays_hard_rejected(self, tmp_path):
+        # v2.35 写侧收编：q/a 平行数组不再接受（v2.24 过渡桥拆除）——
+        # 对齐正确的旧格式也硬拒并指路 qa 配对（漂移习惯第一次就矫正，
+        # 不再「写对被默许、偶尔不齐白烧一轮」）。
         payload = self._setup(tmp_path)
-        self._write_payload(payload, {"purpose": "p", "q": ["q1", "q2"], "a": ["a1"]})
+        self._write_payload(payload, {"purpose": "p", "q": ["q1"], "a": ["a1"]})
         ok, msg = eng.append_trace(tmp_path, "t", str(payload))
-        assert not ok and "长度不齐" in msg
+        assert not ok and "qa 配对" in msg
+        assert not (tmp_path / ".claude" / "evidence" / "t.jsonl").exists()
 
-    def test_legacy_mismatch_error_shows_unpaired_items(self, tmp_path):
-        # v2.24 报错可操作化：给无配对项的索引+内容头，模型可 surgical 修
-        # 不再整篇盲重写（tail_volume understand:3 子4 三次 q/a 不齐各白烧 ~3k out）
+    def test_legacy_mismatch_also_gets_format_pointer(self, tmp_path):
+        # 长度不齐的旧格式同样只给格式指路（不再给无配对项索引——
+        # 修格式和修对齐是同一轮重写，不再分两档报错）。
         payload = self._setup(tmp_path)
         self._write_payload(
             payload, {"purpose": "p", "q": ["q1-身份", "q2-无主"], "a": ["a1"]}
         )
         ok, msg = eng.append_trace(tmp_path, "t", str(payload))
-        assert not ok and "长度不齐" in msg
-        assert "q[1]" in msg and "q2-无主" in msg
+        assert not ok and "qa 配对" in msg and "长度不齐" not in msg
 
     def test_qa_pairs_format_happy_path(self, tmp_path):
         # v2.24 qa 配对格式：一问一答成对象，不对齐在结构上不可表示。
@@ -4916,11 +4923,11 @@ class TestAppendTrace:
         ok, msg = eng.append_trace(tmp_path, "t", str(payload))
         assert not ok and "混用" in msg
 
-    def test_empty_q_rejected(self, tmp_path):
+    def test_legacy_empty_arrays_get_format_pointer(self, tmp_path):
         payload = self._setup(tmp_path)
         self._write_payload(payload, {"purpose": "p", "q": [], "a": []})
         ok, msg = eng.append_trace(tmp_path, "t", str(payload))
-        assert not ok and "非空字符串数组" in msg
+        assert not ok and "qa 配对" in msg
 
     def test_invalid_json_rejected(self, tmp_path):
         payload = self._setup(tmp_path)

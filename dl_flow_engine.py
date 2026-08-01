@@ -2091,7 +2091,7 @@ def payload_format_hint(step) -> list[str]:
 
 
 def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool, str]:
-    """载荷（purpose + qa 配对，兼容旧 q/a 平行数组）+ state 结构字段 -> 校验 -> 单行 skill-trace append。
+    """载荷（purpose + qa 配对；旧 q/a 平行数组写侧已退役硬拒）+ state 结构字段 -> 校验 -> 单行 skill-trace append。
 
     返回 (ok, 消息)。校验失败 (False, 原因)——fail loud：模型当轮按报错修载荷
     重跑，而不是写坏了到 gate 才暴露（甚至像 d59d05ea 那样静默卡死）。
@@ -2216,52 +2216,36 @@ def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool
             payload.get("q") is not None or payload.get("a") is not None
         ):
             return False, "载荷 qa 与 q/a 两格式混用——只留 qa 配对格式"
-        if qa is not None:
-            # v2.24 qa 配对格式：一问一答成对象，不对齐在结构上不可表示
-            # （tail_volume understand:3 子4 平行数组三次长度不齐，各白烧一轮整篇重写）。
-            if not isinstance(qa, list) or not qa:
-                return False, 'qa 须为非空数组：[{"q":..., "a":...}, ...]'
-            for i, item in enumerate(qa):
-                if (
-                    not isinstance(item, dict)
-                    or not isinstance(item.get("q"), str)
-                    or not item["q"].strip()
-                    or not isinstance(item.get("a"), str)
-                    or not item["a"].strip()
-                ):
-                    return (
-                        False,
-                        f'qa[{i}] 须为含非空 q 与 a 的对象（{{"q":..., "a":...}}）',
-                    )
-            q = [item["q"] for item in qa]
-            a = [item["a"] for item in qa]
-        else:
-            # 旧 q/a 平行数组：保留兼容；长度不齐时给无配对项索引+内容头
-            # （surgical 修，不整篇盲重写），并指路 qa 配对格式。
-            q, a = payload.get("q"), payload.get("a")
-            for field, val in (("q", q), ("a", a)):
-                if (
-                    not isinstance(val, list)
-                    or not val
-                    or not all(isinstance(x, str) and x.strip() for x in val)
-                ):
-                    return (
-                        False,
-                        f"{field} 须为非空字符串数组（单问单答也用数组包一层）",
-                    )
-            if len(q) != len(a):
-                longer, lname = (q, "q") if len(q) > len(a) else (a, "a")
-                extras = [
-                    f"{lname}[{i}]=「{x[:30]}{'…' if len(x) > 30 else ''}」"
-                    for i, x in enumerate(longer)
-                    if i >= min(len(q), len(a))
-                ]
-                shown = "；".join(extras[:3]) + ("；…" if len(extras) > 3 else "")
-                return False, (
-                    f"q/a 长度不齐（q={len(q)} a={len(a)}）：一问一答按序对齐。"
-                    f"无配对项：{shown}。"
-                    '逐条修或改用 qa 配对格式 {"qa":[{"q":...,"a":...},...]}（不对齐不可表示）'
+        if qa is None and (
+            payload.get("q") is not None or payload.get("a") is not None
+        ):
+            # v2.35 写侧收编：平行数组过渡桥拆除（v2.24 留的兼容路径只服务
+            # 无视提示凭旧惯性写的模型，tail_volume plan:3 子5 q=11 a=7 实例）。
+            # 对齐正确也硬拒——写对被默许等于强化漂移习惯。读侧不受影响：
+            # evidence 记录 schema 仍是 q/a 平行数组（本函数归一化后写入）。
+            return False, (
+                "q/a 平行数组写侧已退役——改用 qa 配对格式 "
+                '{"qa":[{"q":...,"a":...},...]}（一问一答配对成对象，'
+                "不对齐在结构上不可表示）；问答内容原样搬运，只改载荷结构"
+            )
+        # v2.24 qa 配对格式：一问一答成对象，不对齐在结构上不可表示
+        # （tail_volume understand:3 子4 平行数组三次长度不齐，各白烧一轮整篇重写）。
+        if not isinstance(qa, list) or not qa:
+            return False, 'qa 须为非空数组：[{"q":..., "a":...}, ...]'
+        for i, item in enumerate(qa):
+            if (
+                not isinstance(item, dict)
+                or not isinstance(item.get("q"), str)
+                or not item["q"].strip()
+                or not isinstance(item.get("a"), str)
+                or not item["a"].strip()
+            ):
+                return (
+                    False,
+                    f'qa[{i}] 须为含非空 q 与 a 的对象（{{"q":..., "a":...}}）',
                 )
+        q = [item["q"] for item in qa]
+        a = [item["a"] for item in qa]
         content_fields = {"q": q, "a": a}
 
     record = {
