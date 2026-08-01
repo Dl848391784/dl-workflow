@@ -72,6 +72,7 @@ case "$SUB" in
     echo "  session:  $(wf_state_get "$NAME" session_id)"
     echo "  阶段顺序(英文，供 /dl jump): ${WF_PHASES[*]}"
     echo "  闸门后置: $WF_GATED_AFTER（这些阶段完成需 /dl gate 放行）"
+    wf_settings_staleness_notice "$NAME"
     # §banner-tree-design + §orchestration v2：进度树给模型取阶段真值
     # （phase-rules 行 13 要求 status 取真值；旧 status 删了阶段显示致模型卡 Bash 循环）。
     # engine progress 读 state.json（含 sub_step_index + 当前子步骤 purpose），最准。

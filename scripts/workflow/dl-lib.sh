@@ -44,6 +44,9 @@ if [ -f "$WF_ENGINE" ]; then
     WF_PHASES+=("$_p")
   done < <(python3 -c "import json,sys;d=json.loads(sys.argv[1]);[print(p) for p in d['phases']]" "$_meta_json" 2>/dev/null)
   WF_GATED_AFTER="$(python3 -c "import json,sys;print(' '.join(json.loads(sys.argv[1])['gated_after']))" "$_meta_json" 2>/dev/null)"
+  # v2.35 settings 模板版本戳（症状 R 防静默权限税）：wf_write_settings 盖章 +
+  # wf_settings_staleness_notice 比对，单源 engine SETTINGS_TEMPLATE_VERSION。
+  WF_SETTINGS_TEMPLATE_VERSION="$(python3 -c "import json,sys;print(json.loads(sys.argv[1]).get('settings_template_version',0))" "$_meta_json" 2>/dev/null)"
   # phase_labels / subphases 按需查（函数内 python 取,避免大 declare）。
 else
   # engine 缺失（dl-workflow 损坏）-> 退化为空,各函数返回空串（no silent fallback：不假数据）。
@@ -237,6 +240,7 @@ wf_write_settings() {
   mkdir -p "$dir"
   cat > "$dir/settings.json" <<JSON
 {
+  "wf_settings_template_version": ${WF_SETTINGS_TEMPLATE_VERSION:-0},
   "outputStyle": "workflow",
   "permissions": {
     "defaultMode": "acceptEdits",
@@ -318,6 +322,26 @@ wf_write_settings() {
   }
 }
 JSON
+}
+
+# v2.35 症状 R：per-wf settings 模板版本落后检测（settings resume 不刷新，
+# 旧模板会话静默缴 auto 权限税，tail_volume plan:3 实测 ~6.4min/20min）。
+# 版本戳单源 engine SETTINGS_TEMPLATE_VERSION（经 meta 缓存）。文件缺失/损坏
+# 不报警（另一类问题，见症状 A1）；字段缺失计 v0 = 落后，--resume 补写自愈。
+wf_settings_staleness_notice() {
+  local name="$1" latest="${WF_SETTINGS_TEMPLATE_VERSION:-0}"
+  local sf="$WF_META_ROOT/$name/settings.json"
+  [ -f "$sf" ] && [ "$latest" -ge 1 ] || return 0
+  python3 - "$sf" "$latest" "$name" <<'PY'
+import json, sys
+sf, latest, name = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+try:
+    cur = json.load(open(sf, encoding="utf-8")).get("wf_settings_template_version", 0)
+except Exception:
+    sys.exit(0)
+if isinstance(cur, int) and cur < latest:
+    print(f"  ⚠ settings 模板版本落后（v{cur} < v{latest}）——跑 `dl {name} --resume` 刷新（防 auto 权限税）")
+PY
 }
 
 # ---------- 列举工作流 ----------

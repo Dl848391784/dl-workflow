@@ -64,6 +64,15 @@ from dl_flow_nodes import (
 # rubric 对用户是黑盒，升级出口是「用户裁决」而非「放宽判据」。
 SUB_STEP_BLOCK_ESCALATE = 3
 
+# per-wf settings.json 模板版本戳（v2.35，症状 R 防静默权限税）：dl-lib.sh
+# wf_write_settings 写 settings 时盖章 wf_settings_template_version；workflow_phase
+# 注入与 /dl status 比对本常量，落后即警告 `dl <name> --resume` 刷新——
+# settings resume 不刷新，模板变更（白名单扩条目/hooks/defaultMode）前创建的
+# 会话会静默缴 auto 权限税（tail_volume plan:3 实测 ~6.4min/20min）。
+# **改 wf_write_settings 模板实质内容时 bump 本常量**（唯一 bump 点；存量
+# settings 无字段计 v0，全部判落后，--resume 补写自愈）。
+SETTINGS_TEMPLATE_VERSION = 1
+
 
 # ---------- 推进（design §5.1 advance）----------
 
@@ -2435,6 +2444,7 @@ def _cmd_meta() -> int:
         "gated_after": list(GATED_AFTER),
         "subphases": {p: subphase_labels(p) for p in PHASES},
         "sub_total": {p: sub_total(p) for p in PHASES},
+        "settings_template_version": SETTINGS_TEMPLATE_VERSION,
     }
     print(json.dumps(out, ensure_ascii=False))
     return 0

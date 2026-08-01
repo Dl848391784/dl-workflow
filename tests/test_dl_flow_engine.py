@@ -3939,6 +3939,14 @@ class TestCLI:
         assert out["phases"] == ["understand", "plan", "execute", "review", "evolution"]
         assert out["phase_labels"]["understand"] == "理解和求证问题"
         assert out["gated_after"] == ["plan"]  # 2026-07-28 起围栏只设在 plan 完成
+
+    def test_meta_includes_settings_template_version(self, capsys):
+        # v2.35 防静默权限税（症状 R）：版本戳单源在 engine，dl-lib.sh 盖章、
+        # workflow_phase 比对都经 meta/常量取——改模板只 bump 一处。
+        rc = eng.main(["meta"])
+        assert rc == 0
+        out = json.loads(capsys.readouterr().out)
+        assert out["settings_template_version"] == eng.SETTINGS_TEMPLATE_VERSION >= 1
         assert out["subphases"]["understand"] == [
             "理解问题和背景",
             "明确目标和价值",

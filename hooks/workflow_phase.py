@@ -196,6 +196,34 @@ def _log_invocation(
         pass
 
 
+def _settings_staleness_notice(project_root: Path, name: str) -> str:
+    """per-wf settings 模板版本落后时返警告文案，否则空串（v2.35，症状 R）。
+
+    settings resume 不刷新——模板变更前创建的会话会静默缴 auto 权限税
+    （tail_volume plan:3 实测 ~6.4min/20min）。这里把「静默缴税」变「可见可行动」。
+    文件缺失/JSON 损坏不警告（那是症状 A1 的另一类问题，不误报；本通道永不因此炸）；
+    版本字段缺失计 v0 = 落后（版本戳前的存量 settings 全命中，--resume 补写自愈）。
+    """
+    settings_file = project_root / ".claude" / "workflows" / name / "settings.json"
+    try:
+        data = json.loads(settings_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    cur = data.get("wf_settings_template_version", 0)
+    latest = engine.SETTINGS_TEMPLATE_VERSION
+    if not isinstance(cur, int) or cur >= latest:
+        return ""
+    return (
+        f"## ⚠️ per-wf settings 模板版本落后（v{cur} < v{latest}）\n"
+        "本会话 settings 由旧模板写成，权限白名单等可能缺新条目——"
+        "Write/Bash 每次过 auto 裁决端点缴权限税（实测中位 Write 17s / Bash 14s）。\n"
+        f"请用文本告知用户：跑 `dl {name} --resume` 刷新 settings"
+        "（launcher 会用新模板补写），然后继续当前子步骤。\n\n"
+    )
+
+
 def _format_injection(state: dict, project_root: Path | None) -> str:
     """格式化阶段注入文本（当前阶段 + 规则四要素 + 子阶段 + 完成标记格式）。
 
@@ -534,6 +562,10 @@ def main() -> int:
     context = _format_injection(state, project_root)
     if plan_warn:
         context = plan_warn + context
+    # v2.35：settings 模板版本落后警告（防静默权限税，症状 R）置注入最前。
+    staleness = _settings_staleness_notice(project_root, name)
+    if staleness:
+        context = staleness + context
     out = json.dumps(
         {
             "hookSpecificOutput": {

@@ -15,6 +15,7 @@ hooks/workflow_phase.py 的单元测试（2026-07-26，harness-prompt-optimizati
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -208,3 +209,43 @@ class TestPlanArtifactPath:
             )
             assert f"{PROJECT_ROOT}/.claude/{d}/demo.md" in ctx, node_id
             assert "禁写 worktree" in ctx or "worktree 删除即丢" in ctx
+
+
+class TestSettingsStalenessNotice:
+    """v2.35 防静默权限税（症状 R）：per-wf settings 模板版本落后时给警告文案。
+
+    settings 文件缺失不警告（那是症状 A1 的另一类问题，不误报）；字段缺失
+    计 v0 = 落后（版本戳前的存量 settings 全部命中，`dl <name> --resume` 补写
+    自愈）；JSON 损坏静默容错（UserPromptSubmit 通道永不因此炸掉）。
+    """
+
+    def _write_settings(self, root: Path, text: str) -> None:
+        d = root / ".claude" / "workflows" / "t"
+        d.mkdir(parents=True)
+        (d / "settings.json").write_text(text, encoding="utf-8")
+
+    def test_stale_version_warns_with_resume_pointer(self, tmp_path):
+        self._write_settings(tmp_path, json.dumps({"wf_settings_template_version": 0}))
+        notice = wp._settings_staleness_notice(tmp_path, "t")
+        assert "--resume" in notice and "t" in notice
+        assert str(wp.engine.SETTINGS_TEMPLATE_VERSION) in notice
+
+    def test_missing_version_field_counts_as_stale(self, tmp_path):
+        self._write_settings(tmp_path, json.dumps({"outputStyle": "workflow"}))
+        assert wp._settings_staleness_notice(tmp_path, "t")
+
+    def test_current_version_silent(self, tmp_path):
+        self._write_settings(
+            tmp_path,
+            json.dumps(
+                {"wf_settings_template_version": wp.engine.SETTINGS_TEMPLATE_VERSION}
+            ),
+        )
+        assert wp._settings_staleness_notice(tmp_path, "t") == ""
+
+    def test_missing_file_silent(self, tmp_path):
+        assert wp._settings_staleness_notice(tmp_path, "t") == ""
+
+    def test_malformed_json_silent(self, tmp_path):
+        self._write_settings(tmp_path, "{oops")
+        assert wp._settings_staleness_notice(tmp_path, "t") == ""
