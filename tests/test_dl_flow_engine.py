@@ -812,6 +812,99 @@ class TestWriteGateVerdict:
         assert rec["commit_sha"] == ""
 
 
+class TestSubagentRetryStats:
+    """v2.39：子代理空响应重试统计随 gate 裁决记录落 evidence。
+
+    实证出处：tail_volume u:1 子3 Q4 取证 agent 26 次空响应重试烧 1.19M
+    input（占 90%），无台账只能靠手工挖 transcript 发现。
+    """
+
+    def _mk_subagents(self, tmp_path, monkeypatch, agents: dict[str, list[dict]]):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        home = tmp_path / "home"
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+        enc = "".join(c if c.isalnum() else "-" for c in str(tmp_path))
+        d = home / ".claude" / "projects" / enc / "s" / "subagents"
+        d.mkdir(parents=True)
+        for fname, msgs in agents.items():
+            with (d / fname).open("w", encoding="utf-8") as f:
+                for m in msgs:
+                    f.write(json.dumps(m) + "\n")
+        return d
+
+    def test_counts_empty_responses(self, tmp_path, monkeypatch):
+        self._mk_subagents(
+            tmp_path,
+            monkeypatch,
+            {
+                "agent-a1.jsonl": [
+                    {"type": "user", "message": {}},
+                    {
+                        "type": "assistant",
+                        "message": {"usage": {"input_tokens": 5000, "output_tokens": 0}},
+                    },
+                    {
+                        "type": "assistant",
+                        "message": {"usage": {"input_tokens": 6000, "output_tokens": 0}},
+                    },
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "usage": {"input_tokens": 3000, "output_tokens": 120}
+                        },
+                    },
+                ],
+                "agent-a2.jsonl": [
+                    {
+                        "type": "assistant",
+                        "message": {"usage": {"input_tokens": 2000, "output_tokens": 50}},
+                    },
+                ],
+            },
+        )
+        stats = eng._subagent_retry_stats(tmp_path, "t")
+        assert stats == {
+            "agents": 2,
+            "empty_responses": 2,
+            "burned_input_tokens": 11000,
+        }
+
+    def test_attached_to_gate_record(self, tmp_path, monkeypatch):
+        self._mk_subagents(
+            tmp_path,
+            monkeypatch,
+            {
+                "agent-a1.jsonl": [
+                    {
+                        "type": "assistant",
+                        "message": {"usage": {"input_tokens": 4000, "output_tokens": 0}},
+                    },
+                ],
+            },
+        )
+        node = eng.get_node("understand", 3)
+        ok = eng.write_gate_verdict(tmp_path, "t", node, attempts=0, cwd=str(tmp_path))
+        assert ok is True
+        rec = json.loads(
+            eng._evidence_path(tmp_path, "t").read_text(encoding="utf-8").strip()
+        )
+        assert rec["subagent_retry"]["empty_responses"] == 1
+        assert rec["subagent_retry"]["burned_input_tokens"] == 4000
+
+    def test_none_without_state_or_dir(self, tmp_path):
+        # 无 state -> None（字段省略）；有 state 无 subagents 目录 -> None
+        assert eng._subagent_retry_stats(tmp_path, "t") is None
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        assert eng._subagent_retry_stats(tmp_path, "t") is None
+        # 字段省略不污染裁决记录
+        node = eng.get_node("understand", 3)
+        eng.write_gate_verdict(tmp_path, "t", node, attempts=0, cwd=str(tmp_path))
+        rec = json.loads(
+            eng._evidence_path(tmp_path, "t").read_text(encoding="utf-8").strip()
+        )
+        assert "subagent_retry" not in rec
+
+
 # ---------- §orchestration v2：understand:1 子步骤编排（替代过渡「≥3 Q/A」） ----------
 
 

@@ -316,6 +316,61 @@ def _evidence_path(project_root: Path, name: str) -> Path:
     return project_root / ".claude" / "evidence" / (name + ".jsonl")
 
 
+def _subagent_retry_stats(project_root: Path, name: str) -> dict | None:
+    """扫描本会话子代理 transcript，统计空响应重试（out=0 的 assistant 请求）。
+
+    v2.39（2026-08-01 tail_volume u:1 子3 复盘）：Q4 取证 agent 26 次空响应
+    重试烧掉 1.19M input（占其总 input 90%）——provider 侧稳定性回归此前
+    无台账只能靠手工挖 transcript 发现。统计随 gate 裁决记录落 evidence
+    （审计锚点），任何会话可直接读 evidence 看到「重试烧掉 X tokens」。
+    out=0 + in>0 = 空完成启发式（正常 tool_use/文本响应 out 均 >0）。
+    无子代理 / state 缺字段 / transcript 目录不存在 -> None（字段省略，
+    不算 fallback：无子代理的步骤本就没有重试暴露）。
+    """
+    state = load_state(project_root, name)
+    if not state:
+        return None
+    sid, wt = state.get("session_id"), state.get("worktree_path")
+    if not sid or not wt:
+        return None
+    # Claude Code 项目目录编码：路径非字母数字字符一律转 '-'
+    enc = "".join(c if c.isalnum() else "-" for c in str(wt))
+    d = (
+        Path.home()
+        / ".claude"
+        / "projects"
+        / enc
+        / sid
+        / "subagents"
+    )
+    if not d.is_dir():
+        return None
+    agents = empty = burned = 0
+    for fp in sorted(d.glob("agent-*.jsonl")):
+        agents += 1
+        try:
+            f = fp.open(encoding="utf-8")
+        except OSError:
+            continue
+        with f:
+            for line in f:
+                try:
+                    m = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if m.get("type") != "assistant":
+                    continue
+                u = m.get("message", {}).get("usage", {})
+                if u.get("output_tokens", 0) == 0 and u.get("input_tokens", 0) > 0:
+                    empty += 1
+                    burned += u["input_tokens"]
+    return {
+        "agents": agents,
+        "empty_responses": empty,
+        "burned_input_tokens": burned,
+    }
+
+
 def read_evidence(project_root: Path, name: str) -> str | None:
     """读 evidence/<name>.jsonl 全文，供 judge 作 artifact_content 校验。
 
@@ -369,6 +424,9 @@ def write_gate_verdict(
     }
     if sub_step is not None:
         record["sub_step"] = sub_step
+    retry = _subagent_retry_stats(project_root, name)
+    if retry is not None:
+        record["subagent_retry"] = retry
     path = _evidence_path(project_root, name)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -2488,6 +2546,11 @@ def fetch_prompt(project_root: Path, name: str) -> str | None:
     原子清单取子1-2 最新 trace（ProblemContext 限定，跨节点串号同
     redteam_prompt）。无子2 trace -> None（调用方 exit 1 暴露：无可取证
     对象，先回补子2）。
+    v2.39（2026-08-01 tail_volume u:1 子3 复盘）：纪律 8/9——摄取截断 +
+    轮次上限。实证：Q4 取证 agent 20 轮 curl 把上下文从 29k 撑到 60k，
+    遇 provider 空响应重试 26 次烧掉 1.19M input（占其总 input 90%）——
+    上下文越胖每轮越慢、重试越贵；轮次无上限时换同义词重试边际收益递减
+    （Q4 最终被证伪，证伪是合法产出但不该付无上限探索成本）。
     """
     pc_minor = _NODES["understand:1"].minor_key
     if not sub_step_has_trace(project_root, name, 2, pc_minor):
@@ -2508,7 +2571,14 @@ def fetch_prompt(project_root: Path, name: str) -> str | None:
         "5. GitHub API 401 → 直接标「未取证+未认证」——禁止探查凭证"
         "（扫 env/配置文件找 token 是红线，必被安全分类器拦截）。\n"
         "6. 内部仓库层（codegraph/Read 仓内文件）不归你，主会话自查。\n"
-        "7. 所有 curl 带 -m 25；失败重试一次再标未取证。\n\n"
+        "7. 所有 curl 带 -m 25；失败重试一次再标未取证。\n"
+        "8. 摄取截断：凡不经 jq 收窄的 curl，末尾一律接 `| head -c 6000`；"
+        "超大响应先 -o /tmp/fetch_<层>_<n>.out 落盘再 head/jq 读。"
+        "全量响应禁直接进你的上下文——单条 API 响应可达数万 token，"
+        "上下文越胖每轮请求越慢、空响应重试越贵。\n"
+        "9. 轮次上限：≤12 次 curl（含重试）。超限未收敛 = 带现有结果返回，"
+        "五层状态表如实标「部分取证+轮次用尽」——禁止换同义查询词无限重试"
+        "（边际收益递减；证伪方向取到 1-2 条强反证即可收）。\n\n"
         "【命令模板（本机验证可用，逐字使用，只换查询词）】\n"
         "- 学术·OpenAlex：curl -sS -m 25 \"https://api.openalex.org/works?search=<q>&per_page=3\"\n"
         "- 学术·arXiv（必须 https + UA，http/无 UA 静默空返回）："
