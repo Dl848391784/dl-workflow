@@ -327,7 +327,7 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 
 ### 症状 R：「工作流跑太慢 / 程序不应该毫秒级吗」——耗时与 token 审计
 
-**先给概念纠正再给数字**：工作流的确定性程序部分（hooks/engine/围栏/evidence/state）全程 <1s，慢的杠杆永远不在程序优化。**主会话成本公式=轮次数×上下文长度**（2026-08-01 v2.38：LLM 无会话状态每轮全量重发，cache read 单价 1 折但 234 轮×均 108k=25.3M 账面≈输出 2.4 倍）——token 大头优化看 §3.6 #8（一次通过率+数据面卸载），子步骤级 token/耗时审计口径看 §3.6 #9（gate blocked ts 定边界/子代理 token 在 subagents/agent-*.jsonl/时区对齐）。实测分解（demo 121320fe ProblemContext，41 分钟工作墙钟）：
+**先给概念纠正再给数字**：工作流的确定性程序部分（hooks/engine/围栏/evidence/state）全程 <1s，慢的杠杆永远不在程序优化。**主会话成本公式=轮次数×上下文长度**（2026-08-01 v2.38：LLM 无会话状态每轮全量重发，cache read 单价 1 折但 234 轮×均 108k=25.3M 账面≈输出 2.4 倍）——token 大头优化看 §3.6 #8（一次通过率+数据面卸载），子步骤级 token/耗时审计口径看 §3.6 #9（gate blocked ts 定边界/子代理 token 在 subagents/agent-*.jsonl/时区对齐/空响应重试检测/串行白等检查）。**provider 空响应重试**（2026-08-02 v2.39 实证）：空完成重试全量重读前缀，单次会话可烧百万级 input（Q4 agent 26 次=1.19M 占 90%）——台账已机械化：kind=gate 记录的 `subagent_retry` 字段，审计先读 evidence。实测分解（demo 121320fe ProblemContext，41 分钟工作墙钟）：
 
 | 成分 | 占比 | 性质 |
 |---|---|---|
