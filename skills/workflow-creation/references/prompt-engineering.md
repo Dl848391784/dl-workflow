@@ -15,6 +15,7 @@
 4. **一条规则说一次；多通道必须同源生成**：engine → launcher 渲染 phase-rules，不手维护两份（症状 F/M 漂移病根的根治）。
 5. **强调信号经济学**：禁止/必/强制 每通道一处；~15 处/轮 = 弱遵从模型习惯性忽略。
 6. **给 rationale 防合理化绕过**：「相对路径会写到 worktree，hook 读不到」式因果，比裸禁令遵从率高。
+7. **文案字符有 harness 保留字**：purpose/selfcheck/gate 文本会进 Stop hook 的 additionalContext——**禁含 `✓` 字符**（test_nonfinal_pass_stdout_is_pure_json 断言 hook stdout 无 ✓，落库成功标记专用；v2.37 规则范例用 ✓/✗ 当场踩雷，改「正例/反例」文字）。改文案后全量 pytest 是兜底。
 
 **体积审计法**：真实 state 直调 `_format_injection` 量字符数（importlib 加载 hook 即可，注入是每轮成本最大头）。改注入前后各量一次。
 
@@ -29,6 +30,7 @@
 
 - 兑现 1（怎么写→脚本）：**append-trace**（evidence 落库）——手写 JSONL 5 类事故（相对路径/覆盖/合并行/写碎/结构字段抄错，症状 P/L 各一条实录）连根拔；配 S14 直写 jsonl 全量 deny 物理收口。
 - 兑现 2（怎么写→脚本）：**redteam-prompt**（红队组装）——现场拼 prompt 4 类事故（嵌套 spawn/盲猜路径 61 Read 全空/乱试工具 11 No such tool/角色错乱）根除。
+- 兑现 3（怎么写→脚本）：**fetch-prompt**（外部取证子代理组装，v2.38）——curl 自由发挥 5 类事故（http+无UA 静默空/漏认证头 401/用环境性全挂的 WebFetch/手写 python 一行流语法错/原始输出污染主上下文）根除。至此**子代理 prompt 骨架模式两实例成型**（redteam/fetch），四件套：①**纪律编号**（单层/不越权/红线）；②**逐字命令模板**（本机验证版，只换查询词——弱模型不让它自由组装命令；失败按环境性/用法性/抖动性三分类对症）；③**返回契约=蒸馏边界**（行数上限+分段结构，原始输出留子代理上下文）；④**补充区**（模型只补指定区如 claim，禁手拼骨架）+ 报告**原文收录**回主会话 trace（收录项存在性机械核验——judge 会把内容丰富当实质满足放过，§3.5 #17）。
 - **audit 方法**：2026-07-26 全量 audit 11 环节结论：evidence 写入/裁决记录/红队 prompt 收编（①）；STEP_DONE/TaskList/横幅/产物 .md **不动**（已被 Stop hook 兜底 / harness 无 API 够不着模型会话内工具 / 内容即 AI 工作本身）。
 - **边界**：脚本够不着模型会话内工具（TaskCreate/Agent 调用）——这些环节的「内容」可由脚本生成（如 redteam-prompt 输出文本），「调用」只能留模型侧。
 - **附带红利**：脚本**当场校验**（载荷不合法即时报错，模型当轮修）——失败从「gate 时延迟暴露/静默」变「写入时即时暴露」。
