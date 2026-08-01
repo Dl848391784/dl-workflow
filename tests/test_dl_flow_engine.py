@@ -5019,3 +5019,244 @@ class TestRedteamPrompt:
     def test_no_step3_trace_returns_none(self, tmp_path):
         _write_evidence(tmp_path, "t", [_trace_line(1)])
         assert eng.redteam_prompt(tmp_path, "t") is None
+
+
+class TestV237FirstPassRate:
+    """v2.37 understand:1 一次通过率三连修（2026-08-01 tail_volume 审计）。
+
+    动机：v2.36 钉死判据后 20:19 relaunch 子2 仍同症两连 block——钉死保 judge
+    判对，不保模型写对；词形/结构形式要件下沉 append-trace 写侧机械层。
+    载荷形态取自 .claude/evidence/tail_volume_acceleration_annualized.jsonl
+    真实记录（精简保形，违规字面逐字保留）。
+    """
+
+    # ---- 子2 链环禁词（causal_ring_no_untested）----
+
+    def test_replay_u1s2_att1_maybe_magnitude_blocked(self, tmp_path):
+        # att1 真实形态：Why4「过滤 NaN 后可能剩 1-5 天」推断量级带 file:line 背书
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=2)
+        qa = [
+            {"q": "单一/复合判定", "a": "复合：量级 + 精度两条 pain，MECE 拆为原子A/B"},
+            {
+                "q": "原子 A=数值正确性 → 5Whys 因果链（主链每环须=file:line/数据值）",
+                "a": (
+                    "Why1 量级 +9963%（用户原话+实测值）；Why2 layered_backtest.py:655 "
+                    "`annual_return = daily_mean * 252`；Why3 :651 cumprod 与 :655 "
+                    "简单乘法语义不一致；Why4 窗口 n 极小时简单乘法年化被错误放大"
+                    "（过滤 NaN 后可能剩 1-5 天；layered_backtest.py:630-647）；"
+                    "Why5 web_ui/app.py:267 读 parquet 不实时跑回测"
+                ),
+            },
+            {
+                "q": "竞争假设（每个原子 ≥1）与排除/保留理由",
+                "a": "H_A1=年化公式错（保留：:655）；H_A2=窗口过短（两种可能留子3）",
+            },
+        ]
+        (tmp_path / "payload.json").write_text(
+            json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert not ok and "可能" in msg and "竞争假设" in msg
+
+    def test_replay_u1s2_att2_untested_label_blocked(self, tmp_path):
+        # att2 真实形态：Why5 贴「未实测/推断」标签当出处
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=2)
+        qa = [
+            {
+                "q": "原子 B=展示精度 → 5Whys 因果链（主链每环=file:line）",
+                "a": (
+                    "Why1 用户原话「展示精度奇怪」+ 实测「+9963.0%」；Why2 "
+                    "layered_backtest.py:901 `_format_pct(annual_ret, decimals=2)`；"
+                    "Why5 app.py:266-270 读 summary 结果，模板细节=未实测/推断"
+                ),
+            },
+        ]
+        (tmp_path / "payload.json").write_text(
+            json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert not ok and "未实测" in msg and "竞争假设" in msg
+
+    def test_replay_u1s2_att3_real_pass_accepted(self, tmp_path):
+        # att3 真实通过版：主链每环实测（含模板 :38 Jinja 片段），零禁词
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=2)
+        qa = [
+            {"q": "单一/复合判定", "a": "复合：原子A=数值正确性，原子B=展示精度"},
+            {
+                "q": "原子 A=数值正确性 → 5Whys 因果链（每环须=file:line/数据值）",
+                "a": (
+                    "Why1 量级 +9963%（用户原话+实测值）；Why2 layered_backtest.py:655 "
+                    "简单乘法年化；Why3 :651 cumprod 与 :655 语义不一致；Why4 :659-660 "
+                    "sharpe_ratio 直接依赖 :655 错误年化被级联；Why5 :675-686 "
+                    "annual_return 写入 layer_stats 供 summary 读取"
+                ),
+            },
+            {
+                "q": "原子 B=展示精度 → 5Whys 因果链（每环须=file:line）",
+                "a": (
+                    "Why1 用户原话+实测「+9963.0%」整百带 .0；Why2 layered_backtest.py:901 "
+                    "decimals=2 输出「9963.00%」；Why5 web_ui/templates/_section_backtest.html:38 "
+                    "`\"%+.1f%%\" | format(_best_ann * 100)` KPI 卡 1 位小数渲染出「+9963.0%」"
+                ),
+            },
+            {
+                "q": "竞争假设（每个原子 ≥1）+ 排除/保留理由",
+                "a": "H_A1=年化公式错（保留：:651/:655）；H_A2=窗口过短（两种可能留子3）",
+            },
+            {"q": "近因 vs 根因 + 置信度", "a": "近因=:655 直接产生数值；根因候选 R1（置信度中高）"},
+        ]
+        (tmp_path / "payload.json").write_text(
+            json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert ok, msg
+
+    def test_causal_scan_scope_excludes_hypothesis_items(self, tmp_path):
+        # 禁词只扫 q 含「因果链」的项——竞争假设项携带「可能/未实测」合法（留子3 消化）
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=2)
+        qa = [
+            {
+                "q": "原子 A → 5Whys 因果链",
+                "a": "Why1 实测值（:655）；Why2 :651 不一致（file:line）",
+            },
+            {
+                "q": "竞争假设（每个原子 ≥1）+ 排除/保留理由",
+                "a": "H1=X（待子3取证，两种可能）；H2=Y（未实测，保留理由：…）",
+            },
+        ]
+        (tmp_path / "payload.json").write_text(
+            json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert ok, msg
+
+    # ---- 占位符全局机械拒 ----
+
+    def test_replay_u1s4_placeholder_in_purpose_blocked(self, tmp_path):
+        # 子4 att1 真实形态：红队未归先提交，purpose 含「进行中」
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=4)
+        qa = [{"q": "三关质检", "a": "E1 针对/独立/可追溯 全过（formatters.py:92）"}]
+        (tmp_path / "payload.json").write_text(
+            json.dumps(
+                {
+                    "purpose": "子步骤4=质检裁决（进行中：先做三关质检逐条，红队到达后追加原文）",
+                    "qa": qa,
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert not ok and "进行中" in msg and "完成记录" in msg
+
+    def test_placeholder_scan_covers_qa_content(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=3)
+        qa = [{"q": "五层源留痕", "a": "GitHub API 结果待补"}]
+        (tmp_path / "payload.json").write_text(
+            json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert not ok and "待补" in msg
+
+    def test_placeholder_scan_covers_statements(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=5)
+        item = {
+            "text": "web_ui 分层回测页默认参数下年化显示 +9963.0%",
+            "type_label": "证实",
+            "boundary": "TODO",
+            "fields": {"confidence": "高"},
+        }
+        (tmp_path / "payload.json").write_text(
+            json.dumps({"purpose": "p", "statements": [item]}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert not ok and "TODO" in msg
+
+    # ---- 子1 结论字段化 ----
+
+    def test_u1s1_missing_conclusion_blocked(self, tmp_path):
+        # 子1 att1 真实形态：产物仅 q/a，无结论二选一
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        qa = [
+            {"q": "who=当前提问者身份？", "a": "用户原话：「项目维护者」（本会话回答选项）"},
+            {"q": "pain 具体观察=？", "a": "用户原话：「分层回测页 + 默认参数」"},
+        ]
+        (tmp_path / "payload.json").write_text(
+            json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert not ok and "结论" in msg and "①" in msg
+
+    def test_u1s1_conclusion_bad_prefix_blocked(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        (tmp_path / "payload.json").write_text(
+            json.dumps(
+                {
+                    "purpose": "p",
+                    "qa": [{"q": "who", "a": "用户原话：「项目维护者」"}],
+                    "结论": "问题成立：主语=项目维护者",
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert not ok and "①" in msg and "②" in msg
+
+    def test_u1s1_conclusion_accepted_into_record(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        (tmp_path / "payload.json").write_text(
+            json.dumps(
+                {
+                    "purpose": "p",
+                    "qa": [{"q": "who", "a": "用户原话：「项目维护者」"}],
+                    "结论": "①问题成立：主语=项目维护者；可观察痛点=年化显示 9963.0%（用户原话）",
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert ok, msg
+        rec = json.loads(
+            (tmp_path / ".claude" / "evidence" / "t.jsonl")
+            .read_text(encoding="utf-8")
+            .strip()
+        )
+        assert rec["结论"].startswith("①")
+
+    def test_extra_keys_leak_check_not_triggered(self, tmp_path):
+        # extra_payload_keys 声明的键不是结构字段泄漏（kind/sub_step 等仍拒）
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        (tmp_path / "payload.json").write_text(
+            json.dumps(
+                {
+                    "purpose": "p",
+                    "qa": [{"q": "who", "a": "用户原话"}],
+                    "结论": "①问题成立：X",
+                    "sub_step": 1,
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert not ok and "结构字段" in msg
+
+    # ---- FP 面：无 mech_checks 声明的步不受链环扫描影响 ----
+
+    def test_causal_scan_only_where_declared(self, tmp_path):
+        # 子3 未声明 causal_ring_no_untested——「未取证+原因」合法留痕不受禁词扫描
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=3)
+        qa = [
+            {
+                "q": "原子 A 五层源留痕",
+                "a": "学术层未取证+原因：OpenAlex 无相关文献；社区层 StackExchange Q76007…",
+            }
+        ]
+        (tmp_path / "payload.json").write_text(
+            json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert ok, msg

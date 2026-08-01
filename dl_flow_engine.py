@@ -2099,14 +2099,104 @@ def payload_format_hint(step) -> list[str]:
             "   ✗ 反例（必拒）：text 含文件名/类名（挪 boundary）；"
             "或照抄 `<...>` 占位符字面",
         ]
+    extra = getattr(step, "extra_payload_keys", ()) if step is not None else ()
+    extra_seg = "".join(
+        f',"{k}":"<{"/".join(p)} 开头+逐句出处>"' for k, p in extra
+    )
+    extra_note = (
+        "；顶层还须含 "
+        + "/".join(k for k, _ in extra)
+        + " 键（append-trace 机械校验存在性与前缀，缺键/前缀错当场拒）"
+        if extra
+        else ""
+    )
     return [
-        '   {"purpose":"<该步目的>","qa":[{"q":"<q1>","a":"<a1>"}]}'
-        "（一问一答配对成对象——不对齐在结构上不可表示）",
+        '   {"purpose":"<该步目的>","qa":[{"q":"<q1>","a":"<a1>"}]'
+        + extra_seg
+        + "}"
+        "（一问一答配对成对象——不对齐在结构上不可表示）"
+        + extra_note,
         '   ✓ 正例："qa":[{"q":"who=当前提问者身份？",'
         '"a":"用户原话：「我是唯一维护者」（本会话）"}]',
         '   ✗ 反例（必 block）："qa":[{"q":"理解问题","a":"已理解"}]'
         "（汇总声明非记录）；或照抄 `<...>` 占位符字面",
     ]
+
+
+# ---------- v2.37 写侧机械层扩面（u:1 一次通过率三连修）----------
+#
+# 动机（2026-08-01 tail_volume u:1 审计）：v2.36 判据钉死保 judge 判得对，
+# 不保模型一次写对——钉死后 relaunch 子2 仍同症两连 block。每次 block ≈
+# 全上下文重读 2-3 轮 + judge 调用，词形/结构形式要件继续下沉写侧机械层。
+_PLACEHOLDER_MARKERS = (
+    "进行中",
+    "待补",
+    "待填",
+    "待追加",
+    "待收录",
+    "稍后补",
+    "TODO",
+    "TBD",
+)
+
+
+def _placeholder_hit(payload: dict) -> tuple[str, str] | None:
+    """占位符全局扫描：trace 是完成记录，占位标记出现在任何内容字段即拒。
+
+    动机 = tail_volume u:1 子4 att1：红队子代理未归就先 append，purpose 写
+    「进行中：…红队到达后追加」白烧一轮 judge。扫描面 = purpose + 载荷全部
+    字符串值（qa/statements/extra 键通用，零 per-step 接线）；FP 面已验证
+    （当晚 17 条 trace 仅真违规者命中，demo.jsonl 零命中）。
+    返回 (标记, 位置) 或 None。
+    """
+
+    def _walk(v, path):
+        if isinstance(v, str):
+            for m in _PLACEHOLDER_MARKERS:
+                if m in v:
+                    return (m, path)
+        elif isinstance(v, list):
+            for i, it in enumerate(v):
+                r = _walk(it, f"{path}[{i}]")
+                if r:
+                    return r
+        elif isinstance(v, dict):
+            for k, it in v.items():
+                r = _walk(it, f"{path}.{k}" if path else str(k))
+                if r:
+                    return r
+        return None
+
+    return _walk(payload, "")
+
+
+def _check_causal_ring_no_untested(qa: list) -> str | None:
+    """causal_ring_no_untested：因果链环禁词扫描（u:1 子2 专属，nodes 声明）。
+
+    主链环只许实测事实；「未实测」类状态标签与「可能」类推断词不是出处——
+    词形来自真实违规字面（att1 Why4「可能剩 1-5 天」/ att2 Why5「未实测/推断」，
+    att3 通过版零命中）。扫描范围限 q 含「因果链」的项——竞争假设分支携带
+    可能/未实测合法（留子3 消化的设计内形态）。
+    """
+    banned = ("未实测", "待实测", "未验证", "待验证", "可能")
+    for item in qa:
+        q, a = str(item.get("q", "")), str(item.get("a", ""))
+        if "因果链" not in q:
+            continue
+        hit = next((b for b in banned if b in a), None)
+        if hit:
+            return (
+                f"因果链环含「{hit}」（{q[:20]}…）——主链环只许实测事实"
+                "（file:line/数据值/日志原文/用户原话）；推断量级/未测状态不是出处："
+                "挖不动的深层整体降格进竞争假设分支并标「待子3取证」，"
+                "主链挖到实测层即终止，不悬空、不贴标签充数"
+            )
+    return None
+
+
+# qa 格式步的写侧机械校验注册表（Step.mech_checks 声明名 -> 检查函数）。
+# 未注册名 = nodes 与 engine 配置漂移，fail loud 不静默跳过。
+_MECH_QA_CHECKS = {"causal_ring_no_untested": _check_causal_ring_no_untested}
 
 
 def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool, str]:
@@ -2154,11 +2244,18 @@ def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool
     if leaked:
         return False, (
             f"载荷含结构字段 {leaked}——这些由脚本从 state 自动填，载荷里不要写"
-            "（只留 purpose 与 qa 两个内容字段）"
+            "（只留 purpose + 内容字段：qa 或 statements，及本步声明的额外必填键）"
         )
     purpose = payload.get("purpose")
     if not isinstance(purpose, str) or not purpose.strip():
         return False, "purpose 须为非空字符串"
+    ph = _placeholder_hit(payload)
+    if ph:
+        marker, loc = ph
+        return False, (
+            f"trace 是完成记录——含占位标记「{marker}」（位于 {loc}）；"
+            "待决项到位后再提交（红队未归：等 Agent 返回并原文收录后再 append-trace）"
+        )
     if getattr(step, "record_format", "qa") == "statements":
         # v2.27 statements 结构化载荷（清单型产出步）：三字段校验 +
         # 机械预检（方案名词扫描 + 源步 ID 传导覆盖）——词形判据下沉机械层。
@@ -2263,9 +2360,36 @@ def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool
                     False,
                     f'qa[{i}] 须为含非空 q 与 a 的对象（{{"q":..., "a":...}}）',
                 )
+        for chk in getattr(step, "mech_checks", ()):
+            fn = _MECH_QA_CHECKS.get(chk)
+            if fn is None:
+                return False, (
+                    f"mech_checks 配置错误：「{chk}」未在 _MECH_QA_CHECKS 注册"
+                    "（nodes 与 engine 漂移，fail loud）"
+                )
+            err = fn(qa)
+            if err:
+                return False, err
         q = [item["q"] for item in qa]
         a = [item["a"] for item in qa]
         content_fields = {"q": q, "a": a}
+
+    # v2.37 extra_payload_keys：步声明的载荷顶层必填内容键（两格式通用）——
+    # 存在性 + 非空 + 前缀机械校验，值并入 record 顶层（judge 读原始行自动可见）。
+    extra_fields: dict = {}
+    for key, prefixes in getattr(step, "extra_payload_keys", ()):
+        v = payload.get(key)
+        if not isinstance(v, str) or not v.strip():
+            return False, (
+                f"载荷缺必填键「{key}」——本步形式要件（append-trace 机械校验）："
+                f"顶层提交「{key}」且以 {'/'.join(prefixes)} 开头"
+            )
+        if prefixes and not v.strip().startswith(prefixes):
+            return False, (
+                f"「{key}」须以 {'/'.join(prefixes)} 开头（二选一必出），"
+                f"当前开头：{v.strip()[:12]!r}"
+            )
+        extra_fields[key] = v.strip()
 
     record = {
         "kind": "skill-trace",
@@ -2275,6 +2399,7 @@ def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool
         "skill": step.ref,
         "purpose": purpose,
         **content_fields,
+        **extra_fields,
     }
     path = _evidence_path(project_root, name)
     try:

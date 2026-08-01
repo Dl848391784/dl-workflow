@@ -72,6 +72,14 @@ class Step:
     # 必备的字段键（如设计陈述八字段）——append-trace 逐键校验非空，
     # 「N 字段齐备」形式要件机械化（judge 不再数字段）。
     statement_fields: tuple[str, ...] = ()
+    # v2.37 mech_checks：qa 格式步的写侧机械校验注册名（engine._MECH_QA_CHECKS
+    # 查表）——词形判据下沉机械层，judge 不再为词形烧调用（v2.36 钉死保 judge
+    # 判对但不保模型写对：tail_volume u:1 子2 钉死后 relaunch 仍同症两连 block）。
+    mech_checks: tuple[str, ...] = ()
+    # v2.37 extra_payload_keys：载荷顶层额外必填内容键——（键名, 合法前缀元组）。
+    # 结构形式要件（如 u:1 子1 结论二选一）从 judge 判词变 JSON 校验，
+    # 值并入 record 顶层（judge 读原始行自动可见）。
+    extra_payload_keys: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -247,6 +255,12 @@ _SCOPE_VERB_RULE = (
 # 「未实测」只允许在竞争假设/排除理由分支（子3 取证消化）；Bash 被围栏拦
 # 是设计内不等于禁取证。双侧引用（purpose/selfcheck + gate），
 # 对齐 _SOLUTION_FREE_SUBJECT_RULE 先例。
+# v2.37 补（同日晚 20:19 relaunch 复发复盘——v2.36 钉死保 judge 判对，
+# 不保模型写对）：①「读出即事实」与「读出后推出」未分清——att1 Why4
+# 「过滤 NaN 后可能剩 1-5 天（:630-647）」有 file:line 但量级是推断，
+# 模型以为 Read 背书即合规；②挖不动时无正面动作——att2 只能给 Why5 贴
+# 「未实测/推断」标签。补正反范例 + 降格句型，词形部分下沉
+# mech_checks=causal_ring_no_untested（链环含禁词 append-trace 当场拒）。
 _CAUSAL_CHAIN_EVIDENCE_RULE = (
     "「证据出处」操作化：主因果链（5 Whys 各 Why 环）每环须为实际证据指针"
     "（file:line/数据值/日志原文/用户原话——Read 是本步合法且足够的取证通道）；"
@@ -254,7 +268,13 @@ _CAUSAL_CHAIN_EVIDENCE_RULE = (
     "（竞争假设）与排除理由分支（留子3 取证消化）——把链环全写成候选假设"
     "形态=主链缺失，判 block；根因未定时候选根因按竞争假设分支处理，"
     "本步要求链条每环可追溯、不要求根因已证明（证明归子3/子4，要求已证明"
-    "=判据无通过路径）；Bash 被 engage 围栏拦是设计内，不等于禁取证"
+    "=判据无通过路径）；Bash 被 engage 围栏拦是设计内，不等于禁取证。"
+    "「读出即事实」与「读出后推出」须分清——正例「Why2=format_percentage "
+    "decimals=2（formatters.py:92-104）」读出即事实；反例「Why4=过滤 NaN 后"
+    "可能剩 1-5 天（:630-647）」——file:line 背书的只是代码文本，量级是推断，"
+    "不算出处。挖不动实测的深层：整体降格进竞争假设分支并标「待子3取证」，"
+    "主链挖到实测层即终止——不悬空、不贴「未实测/推断」充数（链环文本含"
+    "「未实测/待实测/未验证/待验证/可能」append-trace 当场机械拒）"
 )
 
 # 交互读回步的提问拆分规则（2026-07-30 tail_volume understand:4 子5 审计）：
@@ -450,6 +470,8 @@ _NODES: dict[str, Node] = {
                 purpose=(
                     f"逼问问题定义：{_STEP1_FORM_REQUIREMENTS}。"
                     f"{_STEP1_METHOD_GUIDANCE}"
+                    "结论作为载荷顶层「结论」键提交（①或②开头——append-trace "
+                    "机械校验存在性与前缀，缺键/前缀错当场拒，不进入 gate）"
                 ),
                 input=None,
                 record=True,
@@ -457,7 +479,7 @@ _NODES: dict[str, Node] = {
                 selfcheck=(
                     "who/pain/why-now ≥3 类都覆盖了吗？每条 a 是用户原话/会话事实，"
                     "还是我推断补全的（推断只能标「推测」另列，禁止包装成原话或「真实回答」）？"
-                    "结论选了①还是②、每句都有出处吗？"
+                    "结论选了①还是②、每句都有出处吗（载荷顶层「结论」键，①/② 开头）？"
                 ),
                 # 门控分工：子1 只管「定义质量」（结构可判项），真值判给子3（验真）+ 子5（用户认可）。
                 # 双合法结论（demo 2026-07-25 行3）：问题成立要可证伪；问题不成立要原话佐证——
@@ -465,6 +487,8 @@ _NODES: dict[str, Node] = {
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace 且 sub_step==1 的记录；"
                     f"形式要件：{_STEP1_FORM_REQUIREMENTS}。"
+                    "（结论的存在性与①/②前缀已由 append-trace 机械校验——"
+                    "judge 不重复判缺结论，只判结论内容与出处质量。）"
                     "质量判据（从严裁量）：各答案非空泛复述；①的痛点须可观察、"
                     "非编造包装（「好奇心缺口」式伪痛点判 block）；②的无痛点声明"
                     "须以原话为证——本步 AskUserQuestion 事实性补问的回答原话"
@@ -474,6 +498,9 @@ _NODES: dict[str, Node] = {
                     "仓库事实（CLAUDE.md/git config 等）不能证明当前提问者身份，"
                     "作出处=无出处推断，判 block；「未自述身份」的如实标注可接受。"
                 ),
+                # v2.37：结论二选一从判据惯例升级为载荷顶层必填键（存在性+①/②
+                # 前缀机械校验）——tail_volume u:1 子1 att1 缺结论白烧一轮 judge。
+                extra_payload_keys=(("结论", ("①", "②")),),
             ),
             Step(
                 kind="skill",
@@ -515,6 +542,9 @@ _NODES: dict[str, Node] = {
                     "根因非症状换说法（「X 慢因为 X 运行慢」式同义反复判 block）；"
                     "竞争假设非稻草人（明显不成立拿来凑数判 block）。"
                 ),
+                # v2.37：链环禁词（未实测/待实测/未验证/待验证/可能）写侧机械拒——
+                # v2.36 钉死后 relaunch 仍两连 block，词形部分下沉机械层。
+                mech_checks=("causal_ring_no_untested",),
             ),
             # 子3/子4（2026-07-26 重设计，designs/step3-verify-redesign-design.md）：
             # 旧单步「验真」对 F1 主张不可检验/F2 确认偏误/F5 证据不可追溯/F7 单视角
@@ -605,7 +635,8 @@ _NODES: dict[str, Node] = {
                 selfcheck=(
                     "每条计数证据逐条列出三关质检结果了吗（E1…En × 三关，汇总声明不算记录）？"
                     "红队触发条件满足时起了红队子代理吗（redteam-prompt 生成、禁止手拼）？"
-                    "红队输出原文收录进本子步 trace 了吗（提及/概括转述不算记录）？"
+                    "红队输出已返回并原文收录进本子步 trace 了吗（提及/概括转述不算记录；"
+                    "红队未归就先 append=占位，append-trace 机械拒）？"
                     "每个原子问题有四态 verdict+推理链+置信度吗？"
                     "处置后问题集与 verdict 逐项一致吗（证伪剔除+理由/部分收窄/不足标记）？"
                 ),
