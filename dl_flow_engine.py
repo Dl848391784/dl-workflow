@@ -71,7 +71,10 @@ SUB_STEP_BLOCK_ESCALATE = 3
 # 会话会静默缴 auto 权限税（tail_volume plan:3 实测 ~6.4min/20min）。
 # **改 wf_write_settings 模板实质内容时 bump 本常量**（唯一 bump 点；存量
 # settings 无字段计 v0，全部判落后，--resume 补写自愈）。
-SETTINGS_TEMPLATE_VERSION = 1
+# v2：allow 补 AskUserQuestion + Write/Edit(//<主仓>/.claude/**) 路径规则
+# （2026-08-01 understand:1 审计：24 次裁决 316.6s 全 allow 纯税，其中
+# AskUserQuestion 3 次均值 46.2s 被误归因为用户思考时间）。
+SETTINGS_TEMPLATE_VERSION = 2
 
 
 # ---------- 推进（design §5.1 advance）----------

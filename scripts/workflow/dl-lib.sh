@@ -231,6 +231,14 @@ wf_state_mark_artifact() {
 #   ① 编排命令：dl-cmd.sh 全子命令 / dl_flow_engine.py / sqlite3 / codegraph；
 #   ② 写工具裸规则：Write/Edit/MultiEdit（acceptEdits 本意，未生效根因未查明，裸规则兜底）；
 #   ③ 只读/常用命令头 + execute 期工具链（pytest/ruff/mypy/git/python3）。
+# ④（2026-08-01 tail_volume_acceleration_annualized understand:1 审计补）：
+#   - 裸 "Write" 兜不住 **cwd（worktree）外** 写入——工作流 trace-payload 与阶段
+#     产物按 2026-07-28 决议都写主仓 .claude/，auto 模式下每次过端点（实测
+#     Write 16 次 134.9s）。路径规则 `Write(//<绝对路径去掉前导斜杠>/**)` 才覆盖
+#     cwd 外路径（gitignore 语义，`//` 前缀 = 绝对路径）。
+#   - AskUserQuestion 不在名单 -> auto 模式每次裁决均值 46.2s（3 次 138.6s，
+#     一度被误归因为「用户思考时间」）。交互工具本无裁决必要，直接放行。
+#   本次审计权限税合计 24 次 316.6s = 墙钟 14%，全部 behavior=allow 纯浪费。
 # 已知漏网（命中即缴一次税，可接受）：env 前缀形式（`DB=... sqlite3`，规则语法
 # 不支持中段通配）、复合命令里出现名单外首词、新型命令头。
 wf_write_settings() {
@@ -248,6 +256,9 @@ wf_write_settings() {
       "Write",
       "Edit",
       "MultiEdit",
+      "Write(//${WF_REPO_ROOT#/}/.claude/**)",
+      "Edit(//${WF_REPO_ROOT#/}/.claude/**)",
+      "AskUserQuestion",
       "WebFetch",
       "Agent",
       "Bash(bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh:*)",
