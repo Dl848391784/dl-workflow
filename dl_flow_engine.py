@@ -1736,7 +1736,14 @@ def run_judge(
         "你是工作流节点门控的评审 judge。判定模型本轮输出是否符合判据。\n"
         "严格判定：判据任一条不满足 -> pass=false 并在 reason 写缺什么。\n"
         "只回答一个 JSON,不要多余文本、不要调任何工具：\n"
-        '{"pass": true/false, "reason": "不满足时写缺什么;满足时留空"}\n\n'
+        '{"pass": true/false, "reason": "不满足时写缺什么;满足时留空"}\n'
+        # v2.36 判词瘦身（tail_volume_acceleration_annualized u:1 子4 审计）：
+        # 判据自相矛盾/裁量留白时 judge 写论文式判词（单轮 output 5.5k-7.1k
+        # tokens、102s，judge 占墙钟 21%）。判词消费者是返工的模型——精炼
+        # 指路即可；范例要求仍在（④），长判词多为重复论证。上限按汉字计：
+        # 300 字 ≈ 450-600 tokens，够「缺什么+条款+1 范例」。
+        "reason 上限 300 字：block 时写「缺什么 + 判据条款 +（④适用时）1 个改写范例」，"
+        "不重复论证、不逐条复述模型输出。\n\n"
         f"【节点】{node_label}\n"
         f"【判据】{rubric}\n"
         f"【模型本轮输出】\n{model_output}\n"
