@@ -128,7 +128,7 @@ def _s15_bash_orchestration(cmd: str, ev_file: Path) -> bool:
     if str(ev_file) in cmd:
         return True
     if "dl_flow_engine.py" in cmd and (
-        "append-trace" in cmd or "redteam-prompt" in cmd
+        "append-trace" in cmd or "redteam-prompt" in cmd or "fetch-prompt" in cmd
     ):
         return True
     return re.search(r"\bcodegraph\b", cmd) is not None

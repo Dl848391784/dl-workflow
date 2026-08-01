@@ -157,8 +157,9 @@ class TestSelfcheckStepSpecific:
         assert "who/pain/why-now ≥3 类都覆盖了吗" in ctx
 
     def test_step3_injection_carries_step3_not_step1(self):
+        # v2.38：子3 注入携带 fetch-prompt 子代理编排（selfcheck 披露），不带别步 checklist
         ctx = wp._format_injection(_state(3), PROJECT_ROOT)
-        assert "五层源各 ≥1 次尝试" in ctx
+        assert "fetch-prompt" in ctx
         assert "who/pain/why-now ≥3 类都覆盖了吗" not in ctx  # 不带别步 checklist
 
 

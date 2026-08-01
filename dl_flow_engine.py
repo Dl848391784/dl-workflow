@@ -2194,9 +2194,31 @@ def _check_causal_ring_no_untested(qa: list) -> str | None:
     return None
 
 
+def _check_fetch_report_recorded(qa: list) -> str | None:
+    """fetch_report_recorded：子3 蒸馏报告原文收录机械核验（u:1 子3 专属）。
+
+    judge 重放实证（2026-08-01 v2.38 落地验证）：无子代理报告的旧形态 trace
+    过新 gate 被判 PASS——judge 把内容丰富的留痕当实质满足，「报告原文收录」
+    形式要件被裁量放过（子代理编排可被绕过，主上下文卸载落空）。形式要件
+    下沉机械层：每原子一个标题含「蒸馏报告」的 q 项（标题=承诺装置+结构），
+    judge 只判内容质量。
+    """
+    for item in qa:
+        if "蒸馏报告" in str(item.get("q", "")):
+            return None
+    return (
+        "缺子代理蒸馏报告收录项——每原子问题一个 q 项标题含「蒸馏报告」"
+        "（fetch-prompt 骨架派发 Agent，报告原文收录非转述；"
+        "外部取证不走主会话直连——命令模板在 fetch-prompt 骨架里）"
+    )
+
+
 # qa 格式步的写侧机械校验注册表（Step.mech_checks 声明名 -> 检查函数）。
 # 未注册名 = nodes 与 engine 配置漂移，fail loud 不静默跳过。
-_MECH_QA_CHECKS = {"causal_ring_no_untested": _check_causal_ring_no_untested}
+_MECH_QA_CHECKS = {
+    "causal_ring_no_untested": _check_causal_ring_no_untested,
+    "fetch_report_recorded": _check_fetch_report_recorded,
+}
 
 
 def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool, str]:
@@ -2454,6 +2476,68 @@ def redteam_prompt(project_root: Path, name: str) -> str | None:
     )
 
 
+def fetch_prompt(project_root: Path, name: str) -> str | None:
+    """组装子3 外部取证子代理 prompt（纪律+命令模板归脚本，Agent 调用归模型）。
+
+    v2.38（2026-08-01 tail_volume u:1 子3 审计）：子3 是主会话工具密度大户
+    （实测 46 msgs/26 tool calls/6.2M cache read），curl 原始输出全堆主上下文；
+    且外部源实测 ~40% 失败，根因逐层定位——命令模板逐字来自当日诊断：
+    arXiv 用 http+无 UA 静默空（https+UA 已验证返回）、GitHub code search
+    模型没带认证头 401（带 $GITHUB_TOKEN 已验证）、WebFetch 域验证被本网络
+    全挂（环境性弃用）、SE 页面 403（API filter=withbody 替代已验证）。
+    原子清单取子1-2 最新 trace（ProblemContext 限定，跨节点串号同
+    redteam_prompt）。无子2 trace -> None（调用方 exit 1 暴露：无可取证
+    对象，先回补子2）。
+    """
+    pc_minor = _NODES["understand:1"].minor_key
+    if not sub_step_has_trace(project_root, name, 2, pc_minor):
+        return None
+    evidence = read_evidence_for_step(project_root, name, 2, pc_minor)
+    if evidence is None:
+        return None
+    return (
+        "你是外部取证子代理。一个工作流正在对若干原子问题做双向取证——"
+        "你只负责外部源取证并回蒸馏报告，不裁决、不写 evidence。\n\n"
+        "【原子问题与背景（子1-2 trace）】\n"
+        f"{evidence}\n\n"
+        "【纪律】\n"
+        "1. 单层：禁止再 spawn 子代理。\n"
+        "2. 不写 evidence、不裁决（裁决归后续质检步）——只产出蒸馏取证报告。\n"
+        "3. 禁 WebFetch（本环境域验证全挂）；禁 tavily_search/WebSearch。\n"
+        "4. 五层源逐层尝试；失败/空结果标「未取证+原因」是合法留痕，禁止补编。\n"
+        "5. GitHub API 401 → 直接标「未取证+未认证」——禁止探查凭证"
+        "（扫 env/配置文件找 token 是红线，必被安全分类器拦截）。\n"
+        "6. 内部仓库层（codegraph/Read 仓内文件）不归你，主会话自查。\n"
+        "7. 所有 curl 带 -m 25；失败重试一次再标未取证。\n\n"
+        "【命令模板（本机验证可用，逐字使用，只换查询词）】\n"
+        "- 学术·OpenAlex：curl -sS -m 25 \"https://api.openalex.org/works?search=<q>&per_page=3\"\n"
+        "- 学术·arXiv（必须 https + UA，http/无 UA 静默空返回）："
+        "curl -sS -m 25 -A \"Mozilla/5.0 (research)\" "
+        "\"https://export.arxiv.org/api/query?search_query=all:%22<q>%22&max_results=3\"\n"
+        "- 社区·StackExchange：先 curl -sS -m 25 \"https://api.stackexchange.com/2.3/search/advanced?"
+        "order=desc&sort=relevance&q=<q>&site=quant&pagesize=3\"；"
+        "取正文用 /questions/<id>/answers?order=desc&sort=votes&site=quant&filter=withbody"
+        "（页面 HTML 直抓 403——正文一律走 API withbody，禁抓页面）\n"
+        "- 社区·HN：curl -sS -m 25 \"https://hn.algolia.com/api/v1/search?query=<q>&tags=story&hitsPerPage=3\""
+        "（空结果常见，标「未取证+无相关讨论」即可）\n"
+        "- 开源·GitHub（认证头必须，否则 401）：curl -sS -m 25 "
+        "-H \"Authorization: Bearer $GITHUB_TOKEN\" -H \"Accept: application/vnd.github+json\" "
+        "\"https://api.github.com/search/code?q=%22<q>%22&per_page=3\"\n"
+        "- 定点网页：curl -sS -m 25 直抓上述层发现的 URL（403/超时→标未取证+原因）\n"
+        "- 提取用 jq（不要手写 python 一行流）：jq -r '.items[]?.link' / jq -r '.items[]?.title'\n\n"
+        "【返回契约（蒸馏——原始 curl 输出留在你的上下文，只回 distilled）】\n"
+        "逐原子问题（≤120 行/原子）：\n"
+        "1. 反证查询（先）：逐条「查询词 → 源层 → 一句结论 + URL 指针」；\n"
+        "2. 支持证据（后）：同构逐条；\n"
+        "3. 五层状态表：学术（OpenAlex/arXiv)/社区（SE/HN)/开源（GitHub)/定点网页"
+        "——每层一行：证据指针 或 未取证+原因。\n"
+        "报告正文即留痕，反证段必须先于支持段（时序从文本直接可读）。\n\n"
+        "【claim 补充区】\n"
+        "（以下为调用方逐原子填写的可检验 claim 与证实/证伪标准——按 claim 谓词"
+        "取证，证据须直接针对谓词，不泛泛取行业常识）"
+    )
+
+
 # ---------- CLI（design §8.1;供 dl-cmd.sh / 手动覆盖调用）----------
 
 
@@ -2606,6 +2690,7 @@ def main(argv: list[str] | None = None) -> int:
             "render-phase-rules",
             "append-trace",
             "redteam-prompt",
+            "fetch-prompt",
         ],
     )
     parser.add_argument(
@@ -2669,6 +2754,16 @@ def main(argv: list[str] | None = None) -> int:
         if prompt is None:
             print(
                 "✗ 无子3 双向取证 trace——红队无证据可审，先回补子3",
+                file=sys.stderr,
+            )
+            return 1
+        sys.stdout.write(prompt + "\n")
+        return 0
+    if args.cmd == "fetch-prompt":
+        prompt = fetch_prompt(project_root, name)
+        if prompt is None:
+            print(
+                "✗ 无子2 拆解深挖 trace——无可取证的原子清单，先回补子2",
                 file=sys.stderr,
             )
             return 1

@@ -552,46 +552,58 @@ _NODES: dict[str, Node] = {
             # 子4 管判断质量（质检+对抗+裁决）。用户硬约束：禁 tavily/WebSearch。
             Step(
                 kind="tool",
-                ref="curl(OpenAlex/arXiv/StackExchange/HN/GitHub API) / WebFetch / codegraph impact {sym}",
+                ref="Agent(外部取证子代理,每原子一个并行) / codegraph impact {sym}",
                 short="双向取证",
-                # 规则考古出处（harness-prompt-optimization P2：规则留 purpose 原文，
-                # 考古只挪到注释）：反证时序留痕要求源自 demo fbdb6ebd 子3 block 实录
-                # （形式要件披露，非松判据）；禁探查凭证源自 demo 121320fe
-                # （扫 env/配置文件找 token 被安全分类器拦截）。
+                # v2.38（2026-08-01 tail_volume 子3 审计）：外部取证卸子代理——
+                # 子3 原是主会话工具密度大户（46 msgs/26 tool calls/6.2M cache read，
+                # curl 原始输出全堆主上下文），且外部源 ~40% 失败（arXiv http+无UA
+                # 静默空/GitHub 401 没带认证头/WebFetch 域验证全挂/SE 页面 403）——
+                # 命令模板逐字内置 fetch-prompt（当日诊断验证版）。主会话只做
+                # claim 可检验化 + 并行派发 + 原文收录 + 内部仓库层。
+                # 规则考古：反证时序留痕源自 demo fbdb6ebd 子3 block 实录；
+                # 禁探查凭证源自 demo 121320fe（扫 env 找 token 被安全分类器拦截）；
+                # 禁 tavily/WebSearch 是 2026-07-26 用户硬约束（额度低），
+                # 2026-08-01 用户复核维持（curl 模板修复后不需要解禁）。
                 purpose=(
-                    "双向取证：对子2拆出的每个原子问题逐个取证（允许「部分成立」）。"
-                    "①主张可检验化——每个原子问题 → 可证伪 claim + 事先写死「什么证据会证实/"
-                    "什么证据会证伪」；不可检验的主张退回子2，不进入取证。"
-                    "②证伪优先——先构造反证查询（X 已解决/是反模式/不成立）并留痕，再搜支持证据；"
-                    "每个原子问题的留痕按「反证查询（先）→支持证据（后）」分段书写，"
-                    "时序须从 trace 文本直接可读——执行了但留痕看不出先后 = 判 block。"
-                    "③五层源各 ≥1 次尝试留痕：学术(OpenAlex/arXiv，curl 免费 API)、"
-                    "社区(StackExchange/HN Algolia，curl)、开源(GitHub API，curl 带 "
-                    "$GITHUB_TOKEN)、定点网页(WebFetch 抓上述层发现的 URL)、"
-                    "内部仓库(codegraph+Read/Grep+Bash 查数据，证实/证伪问题在本仓存在+查已有解法)；"
-                    "源层不可用显式标记「未取证+原因」是合法留痕；禁 tavily_search/WebSearch。"
-                    "外部源认证失败（如 GitHub API 401）禁止探查凭证——"
-                    "扫 env/配置文件找 token 是红线行为，必被安全分类器拦截；"
-                    "直接标「未取证+未认证」即可，不扣分。"
-                    "④codegraph 新鲜度前置——内部取证前查索引新鲜度（>72h 先 codegraph sync），"
-                    "新鲜度查询结果留痕。"
+                    "双向取证（外部层卸子代理，主会话只收蒸馏报告）："
+                    "①主张可检验化（主会话做）——每个原子问题 → 可证伪 claim + "
+                    "事先写死「什么证据会证实/什么证据会证伪」；不可检验的主张退回子2，"
+                    "不进入取证。"
+                    "②外部五层源卸子代理——`python3 ~/.dl-workflow/dl_flow_engine.py fetch-prompt` "
+                    "生成子代理 prompt 骨架（自动携带子1-2 trace + 已验证命令模板 + 返回契约），"
+                    "只在末尾 claim 补充区逐原子填 claim（骨架其余一字不动，禁手拼）；"
+                    "每原子一个 Agent 子代理**同一条消息并行单发**；"
+                    "子代理蒸馏报告**原文收录**进本步 trace（提及/概括转述不算记录——"
+                    "报告结构天然保证反证先/支持后时序可读）；"
+                    "禁 tavily_search/WebSearch/WebFetch（WebFetch 本环境域验证全挂）。"
+                    "③内部仓库层（主会话自查）——codegraph 新鲜度前置（>72h 先 "
+                    "codegraph sync，查询结果留痕）+ Read/Grep/Bash 查数据，"
+                    "证实/证伪问题在本仓存在 + 查已有解法。"
                     "禁拿训练记忆冒充外部证据（无 URL/工具留痕的「业界通常」= 编造）。"
                 ),
                 input="step2.problem_list",
                 record=True,
                 selfcheck=(
                     "每个原子问题有可检验 claim（含证实/证伪判定标准）吗？"
-                    "留痕按「反证查询（先）→支持证据（后）」分段、时序从文本直接可读吗？"
-                    "五层源各 ≥1 次尝试（或标「未取证+原因」）吗？codegraph 新鲜度查询留痕了吗？"
+                    "fetch-prompt 骨架只补了 claim 区、其余一字未动吗？"
+                    "每原子一个子代理并行单发、蒸馏报告原文收录进 trace 了吗"
+                    "（提及/转述不算记录）？内部仓库层 codegraph 新鲜度查询留痕了吗？"
                 ),
-                # S15 前置围栏：本步合法工具 = curl 五层源（Bash）+ 定点网页（WebFetch）；
-                # codegraph 在常驻 Bash 模式内，无需声明。
-                fence_allow=("Bash", "WebFetch"),
+                # S15 前置围栏：本步合法工具 = 内部仓库层（Bash）+ 取证子代理（Agent）；
+                # 子代理进程内的 curl 经同一 PreToolUse 围栏、本步声明 Bash 故放行；
+                # WebFetch 环境性弃用（2026-08-01 诊断）移出声明。
+                fence_allow=("Bash", "Agent"),
+                # v2.38：报告收录形式要件机械化——judge 重放实证旧形态（无报告项）
+                # 也被判 PASS（内容丰富被当实质满足），形式核验下沉机械层。
+                mech_checks=("fetch_report_recorded",),
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace 且 sub_step==3 的记录；"
                     "形式要件：每个原子问题有可检验化 claim（含证实/证伪判定标准）；"
-                    "五层源各 ≥1 次尝试留痕（含合法的「未取证+原因」标记）；"
-                    "反证查询时序先于支持查询；codegraph 新鲜度查询留痕。"
+                    "子代理蒸馏报告原文收录——报告收录项的存在性已由 append-trace "
+                    "机械校验，judge 不重复判缺失，只判收录真实性（提及/概括转述"
+                    "冒充原文收录判 block）——报告含"
+                    "反证查询（先）→支持证据（后）分段 + 五层状态表（每层指针或"
+                    "「未取证+原因」合法标记）；codegraph 新鲜度查询留痕。"
                     "质量判据（从严裁量）：凡声称外部证据须带可追溯指针（真实 URL/工具调用留痕），"
                     "用训练记忆冒充外部证据 = 编造，判 block；"
                     "证据须直接针对 claim 谓词，非泛泛行业常识。"

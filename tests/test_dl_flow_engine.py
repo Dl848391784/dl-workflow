@@ -451,10 +451,11 @@ class TestHarnessPromptOptimization:
 
     def test_purpose_keywords_regression(self):
         s = self._steps()
-        # 子3：证伪优先时序 + 禁 tavily/WebSearch + 禁探查凭证（规则留存）
-        assert "反证查询（先）→支持证据（后）" in s[2].purpose
-        assert "禁 tavily_search/WebSearch" in s[2].purpose
-        assert "禁止探查凭证" in s[2].purpose
+        # 子3（v2.38 子代理化）：禁 tavily/WebSearch/WebFetch + fetch-prompt 骨架 +
+        # 反证先/支持后时序披露（证伪优先纪律移入子代理返回契约，禁探查凭证同移）
+        assert "反证先/支持后" in s[2].purpose
+        assert "禁 tavily_search/WebSearch/WebFetch" in s[2].purpose
+        assert "fetch-prompt" in s[2].purpose
         # 子4：红队触发条件 + redteam-prompt 生成器（纪律 a-d 已机械化进模板）
         for frag in (
             "条件触发对抗复核",
@@ -876,23 +877,26 @@ class TestUnderstand1Orchestration:
         assert node.sub_steps[5].input == "step5.statements"
 
     def test_step3_bidirectional_evidence(self):
-        # 子3 双向取证（designs/step3-verify-redesign-design.md）：
-        # 证伪优先 + 五层源 + 禁 tavily/WebSearch（用户硬约束）+ codegraph 新鲜度前置
+        # 子3 双向取证（v2.38 子代理化，designs/step3-fetch-subagent-design.md）：
+        # 外部层卸 fetch-prompt 子代理（蒸馏报告原文收录）+ 内部仓库层主会话自查
+        # + 禁 tavily/WebSearch/WebFetch（2026-08-01 用户复核维持禁令）
         node = eng.get_node("understand", 1)
         s3 = node.sub_steps[2]
         assert s3.kind == "tool"
         for needle in (
-            "证伪优先",
             "可检验化",
             "五层源",
             "新鲜度",
-            "禁 tavily_search/WebSearch",
+            "禁 tavily_search/WebSearch/WebFetch",
+            "fetch-prompt",
+            "原文收录",
         ):
             assert needle in s3.purpose, f"子3 purpose 缺 {needle}"
         for needle in (
             "sub_step==3",
-            "反证查询时序先于支持查询",
+            "反证查询（先）→支持证据（后）分段",
             "训练记忆冒充外部证据",
+            "蒸馏报告原文收录",
         ):
             assert needle in s3.gate, f"子3 gate 缺 {needle}"
         assert "tavily" not in s3.ref
@@ -3370,13 +3374,15 @@ class TestEngagementFenceState:
         assert step.ref == "define-problem"
         assert step.fence_allow == ()
 
-    def test_step3_declares_bash_webfetch(self, tmp_path):
+    def test_step3_declares_bash_agent(self, tmp_path):
+        # v2.38：子3 fence_allow=("Bash","Agent")——内部仓库层 + 取证子代理；
+        # WebFetch 环境性弃用移出声明
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=3)
         got = eng.engagement_fence_state(tmp_path, "t")
         assert got is not None
         n, step = got
         assert n == 3
-        assert step.fence_allow == ("Bash", "WebFetch")
+        assert step.fence_allow == ("Bash", "Agent")
 
     def test_step4_declares_agent(self, tmp_path):
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=4)
@@ -3412,10 +3418,10 @@ class TestEngagementFenceNotice:
         notice = eng.engagement_fence_notice(step)
         assert "额外放行：Agent" in notice
 
-    def test_step3_notice_declares_bash_webfetch(self):
+    def test_step3_notice_declares_bash_agent(self):
         step = eng.sub_step_at(eng.get_node("understand", 1), 3)
         notice = eng.engagement_fence_notice(step)
-        assert "额外放行：Bash / WebFetch" in notice
+        assert "额外放行：Bash / Agent" in notice
 
     def test_step4_purpose_guides_redteam_prompt_tools(self):
         # v2.14：红队纪律 a-d 从 purpose 机械化进 redteam_prompt() 模板
@@ -3466,13 +3472,27 @@ class TestEngagementFenceNotice:
         assert "STEP_DONE 前自查" in eng.STEP_SELFCHECK_HINT
         assert "汇总声明不算" in eng.STEP_SELFCHECK_HINT
 
-    def test_step3_purpose_forbids_credential_exploration(self):
+    def test_step3_forbids_credential_exploration(self, tmp_path):
         # demo 121320fe：GitHub API 401 后模型扫 env 找 token 被安全分类器拦
-        # （Credential Exploration）——purpose 须 preempt：认证失败直接标
-        # 未取证（合法留痕），禁止探查凭证
-        step = eng.sub_step_at(eng.get_node("understand", 1), 3)
-        assert "禁止探查凭证" in step.purpose
-        assert "未取证+未认证" in step.purpose
+        # （Credential Exploration）——红线 preempt。v2.38 起外部调用全在取证
+        # 子代理进程，规则落点随 actor 移到 fetch-prompt 纪律（主会话不再直连外部源）
+        rec = json.dumps(
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "ProblemContext",
+                "sub_step": 2,
+                "skill": "s",
+                "purpose": "p",
+                "q": ["q"],
+                "a": ["原子A"],
+            },
+            ensure_ascii=False,
+        )
+        _write_evidence(tmp_path, "t", [rec])
+        prompt = eng.fetch_prompt(tmp_path, "t")
+        assert "禁止探查凭证" in prompt
+        assert "未取证+未认证" in prompt
 
 
 class TestPhaseWriteDenial:
@@ -4060,9 +4080,10 @@ class TestStep3FalsificationOrderDisclosure:
     §3.5 #2——质量判据仍只在 gate 黑盒）。"""
 
     def test_step3_purpose_discloses_order_requirement(self):
+        # v2.38：时序要求经子代理返回契约结构保证，purpose 披露该机制
         node = eng.get_node("understand", 1)
         step3 = eng.sub_step_at(node, 3)
-        assert "反证查询（先）" in step3.purpose
+        assert "反证先/支持后" in step3.purpose
         assert "时序" in step3.purpose
 
 
@@ -4862,7 +4883,7 @@ class TestAppendTrace:
     """v2.14 append-trace（「AI 定写什么，脚本定怎么写」A 级）：
     载荷 purpose/q/a + state 结构字段 -> 校验 -> 单行 append。fail loud 即时暴露。"""
 
-    def _setup(self, tmp_path, sub_step=3):
+    def _setup(self, tmp_path, sub_step=4):
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=sub_step)
         payload = tmp_path / "payload.json"
         return payload
@@ -4890,20 +4911,20 @@ class TestAppendTrace:
         assert rec["kind"] == "skill-trace"
         assert rec["major_stage"] == "Understand"
         assert rec["minor_stage"] == "ProblemContext"
-        assert rec["sub_step"] == 3
+        assert rec["sub_step"] == 4
         node = eng.get_node("understand", 1)
-        assert rec["skill"] == node.sub_steps[2].ref  # 从 state 当前步推导，非模型给
+        assert rec["skill"] == node.sub_steps[3].ref  # 从 state 当前步推导，非模型给
         assert rec["q"] == ["q1", "q2"] and rec["a"] == ["a1", "a2"]
         assert not payload.exists()  # 落库后删载荷防重复 append
 
     def test_gate_sees_appended_trace(self, tmp_path):
         # 与门控集成：append-trace 落库后 latest_trace_sha1 变化（Stop 门控可触发）
         payload = self._setup(tmp_path)
-        assert eng.latest_trace_sha1(tmp_path, "t", 3) is None
+        assert eng.latest_trace_sha1(tmp_path, "t", 4) is None
         self._write_payload(payload, {"purpose": "p", "qa": [{"q": "q", "a": "a"}]})
         ok, _ = eng.append_trace(tmp_path, "t", str(payload))
         assert ok
-        assert eng.latest_trace_sha1(tmp_path, "t", 3) is not None
+        assert eng.latest_trace_sha1(tmp_path, "t", 4) is not None
 
     def test_struct_fields_leak_rejected(self, tmp_path):
         payload = self._setup(tmp_path)
@@ -5247,13 +5268,121 @@ class TestV237FirstPassRate:
     # ---- FP 面：无 mech_checks 声明的步不受链环扫描影响 ----
 
     def test_causal_scan_only_where_declared(self, tmp_path):
-        # 子3 未声明 causal_ring_no_untested——「未取证+原因」合法留痕不受禁词扫描
-        _write_state_full(tmp_path, "t", "understand", 1, sub_step=3)
+        # 子4 未声明 causal_ring_no_untested——含「未实测/可能」字样不受禁词扫描
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=4)
         qa = [
             {
-                "q": "原子 A 五层源留痕",
-                "a": "学术层未取证+原因：OpenAlex 无相关文献；社区层 StackExchange Q76007…",
+                "q": "原子 A 四态裁决",
+                "a": "部分成立：证据 Q76007 支持但未实测全窗口，置信度中",
             }
+        ]
+        (tmp_path / "payload.json").write_text(
+            json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert ok, msg
+
+
+class TestFetchPrompt:
+    """v2.38 fetch-prompt：外部取证卸子代理，主会话只收蒸馏报告。
+
+    对齐 redteam-prompt 模式（证据+纪律归脚本，Agent 调用归模型）；
+    命令模板逐字来自 2026-08-01 本机诊断（arXiv https+UA / GitHub 认证头 /
+    SE withbody 替页面 / WebFetch 环境性弃用）。
+    """
+
+    def _write_step2_trace(self, tmp_path):
+        rec = json.dumps(
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "ProblemContext",
+                "sub_step": 2,
+                "skill": "causal-inference-root-cause",
+                "purpose": "p",
+                "q": ["原子问题清单"],
+                "a": ["原子A=数值正确性（年化 9963%）；原子B=展示精度（整百带 .0）"],
+            },
+            ensure_ascii=False,
+        )
+        _write_evidence(tmp_path, "t", [rec])
+
+    def test_contains_atoms_templates_contract(self, tmp_path):
+        self._write_step2_trace(tmp_path)
+        prompt = eng.fetch_prompt(tmp_path, "t")
+        assert prompt is not None
+        # 原子清单嵌入
+        assert "原子A=数值正确性" in prompt
+        # 命令模板（本机验证过的逐字要点）
+        assert "https://export.arxiv.org/api/query" in prompt
+        assert "Mozilla/5.0 (research)" in prompt
+        assert "Authorization: Bearer $GITHUB_TOKEN" in prompt
+        assert "filter=withbody" in prompt
+        assert "-m 25" in prompt
+        # 纪律
+        assert "禁 WebFetch" in prompt
+        assert "单层" in prompt and "不写 evidence" in prompt
+        assert "不裁决" in prompt
+        assert "未取证+原因" in prompt
+        # 返回契约（蒸馏 + 反证先支持后）
+        assert "反证查询（先）" in prompt and "支持证据（后）" in prompt
+        assert "五层状态表" in prompt
+        assert "≤120 行" in prompt
+        # claim 补充区
+        assert "claim 补充区" in prompt
+
+    def test_no_step2_trace_returns_none(self, tmp_path):
+        _write_evidence(tmp_path, "t", [_trace_line(1)])
+        assert eng.fetch_prompt(tmp_path, "t") is None
+
+    def test_goals_and_value_step2_not_counted(self, tmp_path):
+        # minor_stage 限定 ProblemContext（跨节点串号防御，同 redteam_prompt）
+        rec = json.dumps(
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "GoalsAndValue",
+                "sub_step": 2,
+                "skill": "s",
+                "purpose": "p",
+                "q": ["q"],
+                "a": ["a"],
+            },
+            ensure_ascii=False,
+        )
+        _write_evidence(tmp_path, "t", [rec])
+        assert eng.fetch_prompt(tmp_path, "t") is None
+
+
+class TestFetchReportRecorded:
+    """v2.38 fetch_report_recorded：子3 报告收录形式要件机械化。
+
+    实证依据：v2.38 落地验证时 judge 重放旧形态（无报告项）被判 PASS——
+    「报告原文收录」形式要件被 judge 裁量放过，故下沉机械层。
+    """
+
+    def test_missing_report_item_blocked(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=3)
+        qa = [
+            {"q": "原子 A 可检验 claim", "a": "claim：X；证实：Y；证伪：Z"},
+            {"q": "原子 A 反证查询（先）", "a": "SE 0 items；HN 未取证+无相关"},
+            {"q": "原子 A 支持证据（后）", "a": "Q76007（URL）直接针对谓词"},
+        ]
+        (tmp_path / "payload.json").write_text(
+            json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert not ok and "蒸馏报告" in msg and "fetch-prompt" in msg
+
+    def test_report_item_present_accepted(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=3)
+        qa = [
+            {"q": "原子 A 可检验 claim", "a": "claim：X；证实：Y；证伪：Z"},
+            {
+                "q": "原子 A 子代理蒸馏报告（原文收录）",
+                "a": "反证查询（先）：…；支持证据（后）：Q76007（URL）；五层状态表：…",
+            },
+            {"q": "codegraph 新鲜度", "a": "2026-07-22（>72h 已 sync）"},
         ]
         (tmp_path / "payload.json").write_text(
             json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"

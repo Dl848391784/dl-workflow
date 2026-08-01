@@ -257,11 +257,13 @@ class TestS15EngagePreFence:
 
     def test_bash_append_trace_allowed(self, wf_repo, monkeypatch, capsys):
         # v2.14：零 trace 窗口内 append-trace / redteam-prompt 属编排命令
+        # v2.38：fetch-prompt 同列（子3 取证子代理 prompt 组装）
         _write_state(wf_repo, sub_step=1)
         mod = _load_hook()
         for cmd in (
             "python3 ~/.dl-workflow/dl_flow_engine.py append-trace --from-file /tmp/p.json",
             "python3 ~/.dl-workflow/dl_flow_engine.py redteam-prompt",
+            "python3 ~/.dl-workflow/dl_flow_engine.py fetch-prompt",
         ):
             decision, _ = _run_hook(
                 mod, wf_repo, monkeypatch, capsys, "Bash", {"command": cmd}
@@ -282,8 +284,8 @@ class TestS15EngagePreFence:
         )
         assert decision == "deny"
 
-    def test_step3_fence_allow_bash_webfetch(self, wf_repo, monkeypatch, capsys):
-        # 子3 fence_allow=("Bash","WebFetch")：curl 五层源放行
+    def test_step3_fence_allow_bash_agent(self, wf_repo, monkeypatch, capsys):
+        # v2.38：子3 fence_allow=("Bash","Agent")——内部仓库层 Bash + 取证子代理放行
         _write_state(wf_repo, sub_step=3)
         mod = _load_hook()
         decision, _ = _run_hook(
@@ -300,17 +302,17 @@ class TestS15EngagePreFence:
             wf_repo,
             monkeypatch,
             capsys,
-            "WebFetch",
-            {"url": "https://x", "prompt": "y"},
+            "Agent",
+            {"prompt": "外部取证"},
         )
         assert decision is None
 
-    def test_step3_agent_denied(self, wf_repo, monkeypatch, capsys):
-        # Agent 只在子4 fence_allow，子3 窗口内仍拦
+    def test_step3_webfetch_denied(self, wf_repo, monkeypatch, capsys):
+        # v2.38：WebFetch 环境性弃用（域验证全挂）移出子3 fence_allow，窗口内拦
         _write_state(wf_repo, sub_step=3)
         mod = _load_hook()
         decision, _ = _run_hook(
-            mod, wf_repo, monkeypatch, capsys, "Agent", {"prompt": "x"}
+            mod, wf_repo, monkeypatch, capsys, "WebFetch", {"url": "https://x", "prompt": "y"}
         )
         assert decision == "deny"
 
