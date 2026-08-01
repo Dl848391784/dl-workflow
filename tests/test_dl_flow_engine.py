@@ -4349,13 +4349,21 @@ class TestStatementsRecordFormat:
 
     def test_three_normalization_steps_declare_statements(self):
         for phase, sub, step_no in (
+            ("understand", 1, 5),
             ("understand", 2, 4),
             ("understand", 3, 4),
             ("understand", 4, 4),
         ):
             stp = eng.get_node(phase, sub).sub_steps[step_no - 1]
             assert stp.record_format == "statements", f"{phase}:{sub} 子{step_no}"
-        assert eng.get_node("understand", 1).sub_steps[4].record_format == "qa"
+        # v2.36：understand:1 子5 是 v2.33 迁移漏网（当时只迁 plan 三步，
+        # 而 understand:2/3/4 在 v2.27 已迁）——qa 格式导致方案名词机械扫描
+        # 空转（tail_volume_acceleration_annualized 子5 实测：陈述1/2 含
+        # _section_backtest.html/layered_backtest.py 连通过轮都未被拦）。
+        st5 = eng.get_node("understand", 1).sub_steps[4]
+        assert st5.statement_fields == ("confidence",)
+        assert "机械扫描" in st5.purpose
+        assert "未挪 boundary" in st5.gate
 
     def test_statements_happy_path(self, tmp_path):
         payload = self._setup_sc4(tmp_path)

@@ -616,21 +616,33 @@ _NODES: dict[str, Node] = {
                     "②去上下文（脱离本会话可独立理解：主语+动词+约束自包含）；"
                     "③携带 verdict 边界与置信度（部分成立项陈述只覆盖已证实边界）；"
                     "放不进一句=未定义完。"
+                    '载荷格式：statements 逐项 {"text":单句陈述,'
+                    '"type_label":verdict（证实/部分成立/证据不足——证伪项已剔除不入集）,'
+                    '"boundary":已证实边界+证据指针（实现指针/file:line/机制链都进这里）,'
+                    '"fields":{"confidence":置信度}}——text 只许 outcome-level 概念，'
+                    "实现侧名词/file:line 只能进 boundary（append-trace 机械扫描，命中即拒）。"
                 ),
                 input="step4.disposed_problem_set",
                 record=True,
+                record_format="statements",
+                statement_fields=("confidence",),
                 selfcheck=(
                     "每条陈述单句只含 1 个独立痛点吗（「和/以及/同时」连接多痛点=复合未拆净，"
                     "回子2重拆）？脱离本会话可独立理解吗（主语+动词+约束自包含）？"
-                    "携带 verdict 边界与置信度了吗？证伪项不在陈述集里吧？"
+                    "type_label 逐项携带 verdict、fields.confidence 逐项携带置信度了吗？"
+                    "证伪项不在陈述集里吧？"
+                    "text 逐条无实现侧名词吧（文件名/类名/file:line 只进 boundary，"
+                    "append-trace 机械扫描会拒）？"
                 ),
                 gate=(
                     "evidence/<name>.jsonl 含本子步骤 skill-trace 记录；"
                     "形式要件：处置后问题集每个存活问题各 ≤1 句且含主语+动词+约束"
-                    "（原子+去上下文）；陈述携带 verdict 与置信度。"
+                    "（原子+去上下文）；陈述携带 verdict（type_label）与置信度"
+                    "（fields.confidence，append-trace 机械校验齐备）。"
                     "质量判据（从严裁量）：陈述集与子4 verdict 逐项一致——证伪项不得出现在"
                     "陈述集、部分成立项陈述不得超出已证实边界（裁决不传导判 block）；"
-                    "单句含多目标并列（「和/以及/同时」连接多个独立痛点）= 复合问题未拆解，判 block。"
+                    "单句含多目标并列（「和/以及/同时」连接多个独立痛点）= 复合问题未拆解，判 block；"
+                    "text 含实现侧名词/file:line = 未挪 boundary（机械预检同源），判 block。"
                 ),
             ),
             Step(
