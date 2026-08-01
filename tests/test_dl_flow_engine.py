@@ -3432,6 +3432,22 @@ class TestEngagementFenceNotice:
         assert "逐项可验证" in step.purpose
         assert "汇总声明不算记录" in step.purpose
 
+    def test_step4_redteam_disambiguation_nailed(self):
+        # v2.36（2026-08-01 tail_volume_acceleration_annualized 子4 三连 block
+        # 复盘，§3.5 #4/#12 裁量点双侧钉死）：judge 把「只给证据不给结论」
+        # 裁量到红队**输出**方向，与 redteam_prompt 纪律 4（输出必含四态
+        # verdict）自相矛盾——照模板执行必被 block，判据无通过路径。
+        # 钉死：输入方向约束（机械保证不重复判）+ 输出含 verdict 合规 +
+        # 红队输出须原文收录进子4 trace（提及/转述不算记录）。
+        step = eng.sub_step_at(eng.get_node("understand", 1), 4)
+        assert "红队**输入**" in step.purpose
+        assert "属合规非违规" in step.purpose
+        assert "原文收录" in step.purpose
+        assert "转述不算记录" in step.selfcheck
+        assert "属合规非违规" in step.gate
+        assert "不重复判" in step.gate
+        assert "未原文收录其输出判 block" in step.gate
+
     def test_step_selfcheck_hint_single_source(self):
         # §step-selfcheck：自查提示单源常量（pass 续轮/block 返工/注入三通道共用）
         assert "STEP_DONE 前自查" in eng.STEP_SELFCHECK_HINT
