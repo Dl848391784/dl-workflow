@@ -3448,6 +3448,19 @@ class TestEngagementFenceNotice:
         assert "不重复判" in step.gate
         assert "未原文收录其输出判 block" in step.gate
 
+    def test_step2_causal_chain_evidence_rule_nailed(self):
+        # v2.36（2026-08-01 tail_volume_acceleration_annualized 子2 两连 block
+        # 复盘，§3.5 #9 第三形态=操作化分歧）：模型主链每环标【evidence：未实测】
+        # 并答自查「是」——把取证状态标注当合法出处；且被 engage 围栏 deny 一次
+        # Bash 后错误泛化为「本步禁取证」（.wf_fence.log 实锤）。判型=操作化
+        # 分歧非注意力失败（trace 里该项自查真被执行过）——钉操作化定义双侧：
+        # 主链每环实际证据指针 + 「未实测」只允许竞争假设分支 + Read 合法通道。
+        step = eng.sub_step_at(eng.get_node("understand", 1), 2)
+        for frag in ("实际证据指针", "不算证据出处", "竞争假设"):
+            assert frag in step.purpose, f"purpose 缺「{frag}」（模型侧未钉死）"
+            assert frag in step.selfcheck
+            assert frag in step.gate, f"gate 缺「{frag}」（judge 侧未钉死）"
+
     def test_step_selfcheck_hint_single_source(self):
         # §step-selfcheck：自查提示单源常量（pass 续轮/block 返工/注入三通道共用）
         assert "STEP_DONE 前自查" in eng.STEP_SELFCHECK_HINT
