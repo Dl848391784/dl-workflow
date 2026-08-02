@@ -304,7 +304,7 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 2. `workflow_phase.py`：`_format_injection` 的当前步块 + 骨架链 + 完成标记格式
 3. `workflow_advance.py`：Stop 检测的完成信号（若变）
 4. **`scripts/workflow/phase-rules.md`**（v2.12 起为模板）：子步骤 purpose 段是 GENERATED 标记（launcher 渲染，**改 engine Step.purpose 自动同步，无需手改**）；手维护范围只剩静态强制语义（围栏/invoke 时序/完成标记）-- 这些仍是**最易漏**项，system-prompt 通道优先级最高，漏改必打架
-5. **`output-styles/workflow.md`**：显示层契约（清单 subject 写法/横幅格式/建齐规则）-- 同为模型强遵从通道；改注入里 TaskList/横幅相关文案时漏改它，会出现"两通道措辞歧义 -> 模型解读随会话漂移"（症状 F 编号实例，commit 5215b63）
+5. **`output-styles/workflow.md`**：显示层契约（清单 subject 写法/横幅格式/建齐规则）**+ 完成标记语义 + 阶段结构清单**——同为模型强遵从通道；改注入里 TaskList/横幅相关文案时漏改它，会出现"两通道措辞歧义 -> 模型解读随会话漂移"（症状 F 编号实例，commit 5215b63）。**同步面不止显示契约**（2026-08-02 v2.41 实证）：对收不到 attachment 的模型（症状 D），output-style 是完成协议的**唯一**来源——SUB_DONE 描述停在 v2.7 编排化前、plan 四子阶段自 v2.18 起四个版本没进 TaskList 清单（9->13 项），fallback 通道直接教模型违规（修 439cabe）。改编排（标记语义/子阶段增删/门栏位置）时本文件的完成标记段 + 清单枚举 + 示例必须同批过。
 6. 冒烟：拿真 worktree + 真 state 跑 `_format_injection` 看注入结构；跑 `dl_flow_engine.py render-phase-rules scripts/workflow/phase-rules.md` 看渲染产物（子步骤段应与 engine purpose 逐字一致）
 7. **新增/移动编排节点或门栏专项**（2026-07-27 GoalsAndValue + 门栏迁移 + ScopeAndConstraints 三轮沉淀）：
    - **共享 evidence 串号防御**：第二个编排节点起，sub_step 都从 1 起——trace 匹配层（`_iter_trace_segments` 一族 + `reset_state` + `redteam_prompt`）必须按 minor_stage 过滤，否则 ProblemContext 子1 的 trace 被新节点门控误读（门控误判/S15 窗口错位/state-reset 误删他节点留痕）。

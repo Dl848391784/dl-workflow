@@ -21,3 +21,5 @@
 
 12. **「卡住了 / block 多次」分诊 runbook——归因三分，别凭感觉**（2026-07-26 两连实证）：用户报「block 了 N 次」或「卡在第 N 步」时按序挖：state.json（sub_step/node_attempts/last_judged_trace 游标）-> `.wf_advance.log`（有判词=判过；无新行=静默放行）-> evidence 对 trace（`latest_trace_sha1` 对游标；行是否可解析）-> transcript 尾部事件（模型最后做了什么动作）。然后**归因三分**：判词 vs purpose **已披露**要件 → 该抓 = 模型注意力失败（§3.5 #9，解法=自查清单，非改判据）；判据要求的佐证无合法获取路径 → 判据缺陷（§3.5 #7）；模型做了动作但系统读不到/无反应 → **机制盲区**（demo d59d05ea：trace 写碎 -> 同 hash 静默放行 -> 看似卡死，corrupt-rework-detect 修）。同一天两个案例正好一边一个：子1 三连 block=模型，子3 卡死=系统——凭感觉猜必错一半。
 
+13. **读证据链用 evidence_show，root 显式传主仓**：`python3 ~/.dl-workflow/scripts/workflow/evidence_show.py <name> <主仓根>`——渲染 evidence.jsonl 全记录（skill-trace + gate 裁决 + dispute），比手工 grep jsonl 可读。**worktree 内缺省 root 会 `git rev-parse` 成 worktree 根**（evidence 真源在主仓 `.claude/evidence/`，worktree 检出副本可能滞后），第二参数显式传主仓路径（注入「产物路径」行里有）。v2.41 起该命令也是 phase-rules 钉给模型的**产物不足回查通道**（execute/review/evolution：产物缺细节 -> evidence_show 回查 -> 仍不足 AskUserQuestion，禁凭训练记忆补全）——排障时同一条路：先看证据链再下结论。
+

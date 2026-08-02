@@ -13,6 +13,7 @@
 2. **关键信息置顶**（primacy）：当前任务放注入最前；别让模型在几千字符里找行尾【当前】。
 3. **正反例替代散文警告**：一条 ✓/✗ JSON 例 > 三行字段解释。执行文本**不含维护者考古**（「demo xxx 实录」进代码注释/design，不进 prompt——执行模型不需要，judge 输入还随它线性涨）。
 4. **一条规则说一次；多通道必须同源生成**：engine → launcher 渲染 phase-rules，不手维护两份（症状 F/M 漂移病根的根治）。
+   - **单源化的通道清单要含 purpose 内嵌字面量**（2026-08-02 v2.41 节标题单源化）：同一字符串的通道不止独立文案文件——`Step.purpose`/`selfcheck`/`ref` 里的嵌入字面量是查漏重灾区（grep 节名找出 8 处拷贝，前 3 通道改完这第 4 通道还在）。机制 = 命名常量 f-string 插值（`_S_*`/`SECTIONS_TEXT`）+ **静态同步测试钉死**（渲染无 token 残留/注入含节名/门引用 ⊆ 单源——断链在 pytest 红，不在运行期爆）。**占位粒度判据**：整段归 engine 渲染 → BEGIN/END GENERATED 块；行内单个值 → 内联 token（`{{artifact_sections:<name>[#<idx>]}}`，render 第二阶段替换，非法名/索引 fail loud）——渲染从不回写模板（per-wf 产物 launch 时新写），幂等天然成立。
 5. **强调信号经济学**：禁止/必/强制 每通道一处；~15 处/轮 = 弱遵从模型习惯性忽略。
 6. **给 rationale 防合理化绕过**：「相对路径会写到 worktree，hook 读不到」式因果，比裸禁令遵从率高。
 7. **文案字符有 harness 保留字**：purpose/selfcheck/gate 文本会进 Stop hook 的 additionalContext——**禁含 `✓` 字符**（test_nonfinal_pass_stdout_is_pure_json 断言 hook stdout 无 ✓，落库成功标记专用；v2.37 规则范例用 ✓/✗ 当场踩雷，改「正例/反例」文字）。改文案后全量 pytest 是兜底。

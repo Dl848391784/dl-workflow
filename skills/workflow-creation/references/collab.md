@@ -28,4 +28,5 @@
 4. **提交时序的验证错觉**：先提交的 engine 改动配「来自未来的已迁移测试」跑会红一片——这不是回归，是测试与代码的时序错位；正确验证 = `git checkout HEAD -- tests/` 跑绿再恢复（③的验证步）。**别把时序错位当 bug 修**。
 5. **`git add -A` 是并发下的席卷动作**（2026-07-30 实例）：会话 A 的 `_INTERACTIVE_CHUNKING_RULE` 改动未暂存过夜，会话 B 提交自己批次时 `git add -A` 把它席卷进 B 的 commit（377e898，message 未提）——没丢（对方后补文档 commit），但归属和 message 都失真。规则：**dl-workflow 仓改完立即 commit，不留未暂存改动过夜**；提交前 `git status --short` 逐文件确认全是自己这批（本环境无 `git add -p`，发现夹带按 #3 重建法拆）；并发活跃期优先 `git add <明确文件清单>` 不用 `-A`。
 6. **编排版本号 commit 前先查占用**（2026-07-31 实例）：v2.xx 序号无中央分配——本会话按 memory 记的 v2.31 往下排，实际另一会话的产物机械门（7097c48）已先占 v2.31，被迫补一个改名 commit（ba3485b）。提交前 `grep -rn "v2\.<n>"` 全仓 + `git log --oneline -5` 查最新序号。
+7. **format/lint 漂移归因：先确认归属，独立批收口**（2026-08-02 v2.41 实例）：`ruff format --check` 报 5 文件漂移但都不在本次改动行——根因 = **committed 代码 + ruff 版本口径变化**（旧版本格式化的行被新版规则重排），不是并发污染也不是你的编辑。处理纪律：①先 `ruff format --diff <文件>` 看 hunk 归属——落在自己改动行 = 自己新代码没过 format，随本批修；全是别人/历史行 = pre-existing 漂移；②pre-existing 漂移**不混入功能 commit**（守 #3 批次纯净），独立 style commit 收口 + message 声明非语义改动；③format 跑完**必复跑 pytest 再 commit**（症状 M checklist #7 同纪律）——且 format 可能顺带带出你刚写的新行（本次 test_workflow_phase.py 一行，属①随批修）。
 
