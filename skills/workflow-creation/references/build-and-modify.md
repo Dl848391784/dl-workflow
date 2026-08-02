@@ -40,6 +40,7 @@ dl <name> --done          # 归档（删 worktree+分支+元数据）
 | `~/.dl-workflow/hooks/`            | `workflow_phase.py` | UserPromptSubmit 注入当前阶段 |
 | ↑ | `workflow_advance.py` | Stop 检 PHASE_DONE 推进 + sub_steps 门控（evidence hash 触发） |
 | ↑ | `workflow_step_fence.py` | PreToolUse S15 前置参与围栏（零 trace 白名单）+ S10 步骤围栏（未判决 trace 时 deny） |
+| ↑ | `workflow_session.py` | SessionStart 交接包注入（v2.45）：source=clear/startup 且工作流有 trace 时注入 engine.handoff_pack；resume/compact 不注入。架构事实：`/clear` 清对话但系统提示（phase-rules）随进程保留 |
 | ↑ | `codegraph_gate.py` | PreToolUse H15 门禁（改已有 .py 前先查 codegraph） |
 | ↑ | `codegraph_audit.py` | PostToolUse 记 codegraph 查询 |
 | `~/.claude/output-styles/` | `workflow.md` | 横幅 + 常驻 TaskList 首要规则 |
