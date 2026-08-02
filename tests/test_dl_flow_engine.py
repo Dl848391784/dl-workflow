@@ -1963,7 +1963,13 @@ class TestPlan1Orchestration:
         s6 = self._steps()[5]
         assert s6.gate is None  # 交互步，trace 存在即过
         assert s6.record is True
-        for needle in ("选型拍板", "权重", "假设接受", "design.md", "禁二次创作"):  # design.md 暂留模型装配（动态文件名），防二次创作钉字面保留
+        for needle in (
+            "选型拍板",
+            "权重",
+            "假设接受",
+            "design.md",
+            "禁二次创作",
+        ):  # design.md 暂留模型装配（动态文件名），防二次创作钉字面保留
             assert needle in s6.purpose, f"子6 purpose 缺 {needle}"
 
     def test_selfcheck_no_quality_criteria_leak(self):
@@ -2117,7 +2123,13 @@ class TestPlan2Orchestration:
         s5 = self._steps()[4]
         assert s5.gate is None  # 交互步，trace 存在即过
         assert s5.record is True
-        for needle in ("阶段/粒度拍板", "假设接受", "plan.md", "render-artifact", "禁手写产物"):
+        for needle in (
+            "阶段/粒度拍板",
+            "假设接受",
+            "plan.md",
+            "render-artifact",
+            "禁手写产物",
+        ):
             assert needle in s5.purpose, f"子5 purpose 缺 {needle}"
 
     def test_selfcheck_no_quality_criteria_leak(self):
@@ -2273,7 +2285,13 @@ class TestPlan3Orchestration:
         s6 = self._steps()[5]
         assert s6.gate is None  # 交互步，trace 存在即过
         assert s6.record is True
-        for needle in ("映射拍板", "假设接受", "plan.md", "render-artifact", "禁手写产物"):
+        for needle in (
+            "映射拍板",
+            "假设接受",
+            "plan.md",
+            "render-artifact",
+            "禁手写产物",
+        ):
             assert needle in s6.purpose, f"子6 purpose 缺 {needle}"
 
     def test_selfcheck_no_quality_criteria_leak(self):
@@ -7362,3 +7380,104 @@ class TestRenderArtifact:
             encoding="utf-8"
         )
         assert "【裁决：who 与目标】用户认可" in text
+
+
+class TestIngestAgentReport:
+    """v2.60 append-trace --ingest-agent：子代理报告原文落载荷（审计违规②根治）。
+
+    原「原文收录=完整粘贴」是手工转录+两层防偷懒检查；脚本按 task-id 定位
+    agent-<task-id>.jsonl、提取最终报告文本、以规定标题形态插入载荷 qa 节——
+    收录从需要检查变结构性保证。
+    """
+
+    def _mk(
+        self, tmp_path, monkeypatch, sub_step=4, report="verdict: 部分成立\n推理链…"
+    ):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=sub_step)
+        home = tmp_path / "home"
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+        enc = "".join(c if c.isalnum() else "-" for c in str(tmp_path))
+        d = home / ".claude" / "projects" / enc / "s" / "subagents"
+        d.mkdir(parents=True)
+        with (d / "agent-abc123.jsonl").open("w", encoding="utf-8") as f:
+            f.write(json.dumps({"type": "user", "message": {}}) + "\n")
+            f.write(
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "content": [
+                                {"type": "thinking", "thinking": "..."},
+                                {"type": "text", "text": report},
+                            ]
+                        },
+                    }
+                )
+                + "\n"
+            )
+        return d
+
+    def _scaffold(self, tmp_path):
+        ok, msg = eng.scaffold_payload(tmp_path, "t")
+        assert ok, msg
+        return tmp_path / ".claude" / "evidence" / ".trace-payload-t.md"
+
+    def test_ingest_redteam_happy(self, tmp_path, monkeypatch):
+        self._mk(tmp_path, monkeypatch, sub_step=4)
+        self._scaffold(tmp_path)
+        ok, msg = eng.ingest_agent_report(tmp_path, "t", "abc123")
+        assert ok, msg
+        text = (tmp_path / ".claude" / "evidence" / ".trace-payload-t.md").read_text(
+            encoding="utf-8"
+        )
+        assert "红队输出原文收录（task-id abc123）" in text
+        assert "verdict: 部分成立" in text
+        # 收录项插在 qa 节内（解析回读自洽：进 qa 不进别的节）
+        step = eng.get_node("understand", 1).sub_steps[3]
+        payload, err = eng._parse_trace_md(text, step)
+        assert err is None
+        titles = [it["q"] for it in payload["qa"]]
+        assert any("红队" in q and "原文收录" in q for q in titles)
+
+    def test_ingest_fetch_title_step3(self, tmp_path, monkeypatch):
+        self._mk(tmp_path, monkeypatch, sub_step=3, report="蒸馏报告正文")
+        self._scaffold(tmp_path)
+        ok, _ = eng.ingest_agent_report(tmp_path, "t", "abc123")
+        assert ok
+        text = (tmp_path / ".claude" / "evidence" / ".trace-payload-t.md").read_text(
+            encoding="utf-8"
+        )
+        assert "蒸馏报告原文收录（task-id abc123）" in text
+
+    def test_ingest_inserts_before_extra_keys_section(self, tmp_path, monkeypatch):
+        # 子2 形态载荷（qa + atomic_questions 节）：收录项不得落进分档节
+        self._mk(tmp_path, monkeypatch, sub_step=2)
+        self._scaffold(tmp_path)
+        ok, _ = eng.ingest_agent_report(tmp_path, "t", "abc123")
+        assert ok
+        text = (tmp_path / ".claude" / "evidence" / ".trace-payload-t.md").read_text(
+            encoding="utf-8"
+        )
+        step = eng.get_node("understand", 1).sub_steps[1]
+        payload, err = eng._parse_trace_md(text, step)
+        assert err is None
+        assert len(payload["atomic_questions"]) == 1  # 没被误增
+        assert any("task-id abc123" in it["q"] for it in payload["qa"])
+
+    def test_ingest_duplicate_rejected(self, tmp_path, monkeypatch):
+        self._mk(tmp_path, monkeypatch)
+        self._scaffold(tmp_path)
+        assert eng.ingest_agent_report(tmp_path, "t", "abc123")[0]
+        ok, msg = eng.ingest_agent_report(tmp_path, "t", "abc123")
+        assert not ok and "已收录" in msg
+
+    def test_ingest_missing_payload_rejected(self, tmp_path, monkeypatch):
+        self._mk(tmp_path, monkeypatch)
+        ok, msg = eng.ingest_agent_report(tmp_path, "t", "abc123")
+        assert not ok and "载荷不存在" in msg
+
+    def test_ingest_unknown_task_id_rejected(self, tmp_path, monkeypatch):
+        self._mk(tmp_path, monkeypatch)
+        self._scaffold(tmp_path)
+        ok, msg = eng.ingest_agent_report(tmp_path, "t", "zzz999")
+        assert not ok and "找不到子代理 transcript" in msg

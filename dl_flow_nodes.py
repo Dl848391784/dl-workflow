@@ -784,10 +784,13 @@ _NODES: dict[str, Node] = {
                     "codegraph sync，查询结果留痕）+ Read/Grep/Bash 查数据，"
                     "证实/证伪问题在本仓存在 + 查已有解法；none 档原子在此全覆盖"
                     "（仓内可达即定答，无外部源）。"
-                    "④收报告——子代理蒸馏报告**原文收录**进本步 trace（提及/概括转述不算记录——"
+                    "④收报告——子代理蒸馏报告**原文收录**进本步 trace：逐 agent 运行 "
+                    "`python3 ~/.dl-workflow/dl_flow_engine.py append-trace "
+                    "--ingest-agent <task-id>`（脚本按 task-id 提取报告原文落载荷 "
+                    "qa 节——**禁手工复制粘贴**；提及/概括转述不算记录——"
                     "报告结构天然保证反证先/支持后时序可读）；报告未归不 append-trace"
                     "（占位符机械拒）；light 报告标「建议升档 full」时，对该原子补派 "
-                    "full agent——原 light 报告与升档理由同样原文收录（升档留痕）。"
+                    "full agent——原 light 报告与升档理由同样 ingest 收录（升档留痕）。"
                     "禁拿训练记忆冒充外部证据（无 URL/工具留痕的「业界通常」= 编造）。"
                 ),
                 input="step2.problem_list",
@@ -801,9 +804,10 @@ _NODES: dict[str, Node] = {
                     "claim 区指定了 ≤2 层源吗？标 full 的按 full 参数跑了吗（禁降档）？"
                     "每个 agent 的 claim 补充区只保留本原子 [tier=X] 行吗？"
                     "Agent 子代理先于内部仓库层派发了吗（先派发后内查，禁串行白等）？"
-                    "每原子一个子代理并行单发、蒸馏报告原文收录进 trace 了吗"
-                    "（提及/转述不算记录）？标「建议升档 full」的原子补派 full agent "
-                    "并原文收录升档理由了吗？内部仓库层 codegraph 新鲜度查询留痕了吗？"
+                    "每原子一个子代理并行单发、报告用 --ingest-agent 收录进载荷了吗"
+                    "（禁手工粘贴；提及/转述不算记录）？标「建议升档 full」的原子补派 "
+                    "full agent 并 ingest 收录升档理由了吗？内部仓库层 codegraph "
+                    "新鲜度查询留痕了吗？"
                 ),
                 # S15 前置围栏：本步合法工具 = 内部仓库层（Bash）+ 取证子代理（Agent）；
                 # 子代理进程内的 curl 经同一 PreToolUse 围栏、本步声明 Bash 故放行；
@@ -861,8 +865,11 @@ _NODES: dict[str, Node] = {
                     "用 `python3 ~/.dl-workflow/dl_flow_engine.py redteam-prompt` 生成红队 "
                     "prompt（自动携带子1-3 证据+对抗纪律），Agent 工具单发起，"
                     "禁止手拼 prompt；触发条件写死，不得自定义「不需要复核」豁免；"
-                    "红队输出须**原文收录**进本子步 trace（完整粘贴其 "
-                    "verdict/推理链/置信度），「已发起红队」式提及或概括转述不算记录；"
+                    "红队输出须**原文收录**进本子步 trace：运行 `python3 "
+                    "~/.dl-workflow/dl_flow_engine.py append-trace --ingest-agent "
+                    "<task-id>`（脚本提取红队报告原文落载荷 qa 节，标题自动含"
+                    "「红队」「原文收录」——**禁手工复制粘贴**）；「已发起红队」式"
+                    "提及或概括转述不算记录；"
                     "收录项标题须含「红队」「原文收录」（append-trace 机械校验：trace 含 task-id = 已派发，无收录项 = 红队未归提前提交，当场拒——等归位收录后再提交，agent 失败则重派或升级用户裁决；红队运行期间的正确动作 = 先做/完善不依赖红队的部分（①三关质检、③初步 verdict 草稿），红队未归位前禁输出 STEP_DONE——输出即提交、提交即拒）；"
                     "③四态结论合成——证实/证伪/部分成立/证据不足（证据不足是合法结论）"
                     "+ 推理链 + 置信度；"
@@ -874,9 +881,9 @@ _NODES: dict[str, Node] = {
                 selfcheck=(
                     "每条计数证据逐条列出三关质检结果了吗（E1…En × 三关，汇总声明不算记录）？"
                     "红队触发条件满足时起了红队子代理吗（redteam-prompt 生成、禁止手拼）？"
-                    "红队输出已返回并原文收录进本子步 trace 了吗（收录项标题含「红队」"
+                    "红队输出已返回并用 --ingest-agent 收录进载荷了吗（收录项标题含「红队」"
                     "「原文收录」；trace 含 task-id 而无收录项 = 提前提交，append-trace "
-                    "机械拒；提及/概括转述不算记录）？"
+                    "机械拒；禁手工粘贴、提及/概括转述不算记录）？"
                     "每个原子问题有四态 verdict+推理链+置信度吗？"
                     "处置后问题集与 verdict 逐项一致吗（证伪剔除+理由/部分收窄/不足标记）？"
                 ),

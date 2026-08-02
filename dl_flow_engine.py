@@ -3113,7 +3113,8 @@ def _check_redteam_report_recorded(qa: list, *_ctx) -> str | None:
         return None
     return (
         "红队已派发（trace 含 task-id）但输出未原文收录——缺标题含「红队」"
-        "「原文收录」的 qa 项（完整粘贴其 verdict/推理链/置信度）。"
+        "「原文收录」的 qa 项（正确动作：append-trace --ingest-agent <task-id>，"
+        "脚本提取报告原文落载荷，禁手工粘贴）。"
         "等 Agent 归位收录原文后再提交；agent 失败/空结果则重派或升级用户裁决"
         "——「已派发等归位」式状态说明不算记录（提前提交 = 红队结论缺席的裁决，"
         "下游子5 会拿到未经对抗复核的问题集）"
@@ -3322,6 +3323,125 @@ def _parse_trace_md(raw: str, step) -> tuple[dict | None, str | None]:
     except _MdErr as e:
         return None, str(e)
     return payload, None
+
+
+def _subagent_dir(project_root: Path, name: str) -> Path | None:
+    """子代理 transcript 目录（v2.39 台账同款定位，抽出共用）。"""
+    state = load_state(project_root, name)
+    if not state:
+        return None
+    sid, wt = state.get("session_id"), state.get("worktree_path")
+    if not sid or not wt:
+        return None
+    enc = "".join(c if c.isalnum() else "-" for c in str(wt))
+    d = Path.home() / ".claude" / "projects" / enc / sid / "subagents"
+    return d if d.is_dir() else None
+
+
+def ingest_agent_report(
+    project_root: Path, name: str, task_id: str
+) -> tuple[bool, str]:
+    """append-trace --ingest-agent <task-id>：子代理报告原文落载荷（v2.60）。
+
+    四桶分工审计违规②根治：子3 fetch 蒸馏报告/子4 红队输出原要求模型
+    「原文收录（完整粘贴）」——粘贴=转录，还配两层防偷懒 mech 检查。
+    脚本按 task-id 定位 subagents/agent-<task-id>.jsonl、提取最终报告文本、
+    以规定形态（标题含「蒸馏报告」/「红队」「原文收录」）追加进当前
+    .md 载荷——「是否原文收录」从需要检查变结构性保证。
+    载荷不存在/报告已收录/transcript 缺失 -> fail loud 指路。
+    """
+    state = load_state(project_root, name)
+    if state is None:
+        return False, f"工作流 {name} 的 state.json 缺失"
+    cur = normalize_state(state).get("sub_step_index", 1)
+    title = (
+        "蒸馏报告原文收录"
+        if cur == 3
+        else "红队输出原文收录"
+        if cur == 4
+        else "子代理报告原文收录"
+    )
+    payload_path = (
+        _evidence_path(project_root, name).parent / f".trace-payload-{name}.md"
+    )
+    if not payload_path.exists():
+        return False, (
+            f"载荷不存在：{payload_path}——先写本步其它内容（或 append-trace "
+            "--scaffold 起骨架），再 --ingest-agent 追加报告收录项"
+        )
+    try:
+        text = payload_path.read_text(encoding="utf-8")
+    except OSError as e:
+        return False, f"读载荷失败：{e}"
+    if task_id in text:
+        return False, f"task-id {task_id} 已收录过——同一报告不重复落（防重）"
+
+    d = _subagent_dir(project_root, name)
+    fp = d / f"agent-{task_id}.jsonl" if d else None
+    if fp is None or not fp.exists():
+        return False, (
+            f"找不到子代理 transcript：agent-{task_id}.jsonl"
+            f"（目录 {d}）——task-id 以 Agent 工具返回的 <task-id> 为准"
+        )
+    report = ""
+    try:
+        for line in fp.open(encoding="utf-8"):
+            try:
+                m = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if m.get("type") != "assistant":
+                continue
+            blocks = [
+                str(b.get("text", ""))
+                for b in (m.get("message", {}).get("content") or [])
+                if isinstance(b, dict) and b.get("type") == "text" and b.get("text")
+            ]
+            if blocks:
+                report = "\n".join(blocks)  # 最后一条含文本的 assistant 消息=最终报告
+    except OSError as e:
+        return False, f"读子代理 transcript 失败：{e}"
+    if not report.strip():
+        return False, (
+            f"agent-{task_id}.jsonl 无文本报告（子代理未产出/仍在跑）——"
+            "等 Agent 返回后再 ingest"
+        )
+
+    # 插入【qa】节内（节末、下一顶层标头前）——追加文件尾会落进别的节
+    # （【q】在【atomic_questions】节末=被当分档项；在【结论】节末=解析报错）。
+    lines = text.splitlines()
+    qa_idx = next((i for i, ln in enumerate(lines) if ln.strip() == "【qa】"), None)
+    if qa_idx is None:
+        return False, "载荷缺【qa】节——报告收录项进 qa 节，先补 qa 节再 ingest"
+    item_headers = {f"【{h}】" for h in _MD_ITEM_FIELDS}
+    insert_at = len(lines)
+    for i in range(qa_idx + 1, len(lines)):
+        st = lines[i].strip()
+        if (
+            st.startswith("【")
+            and st.endswith("】")
+            and st not in item_headers
+            and not st.startswith("【fields.")
+        ):
+            insert_at = i
+            break
+    section = [
+        "",
+        "【q】",
+        f"{title}（task-id {task_id}）",
+        "【a】",
+        *report.strip().splitlines(),
+        "",
+    ]
+    lines[insert_at:insert_at] = section
+    try:
+        payload_path.write_text("\n".join(lines), encoding="utf-8")
+    except OSError as e:
+        return False, f"写载荷失败：{e}"
+    return True, (
+        f"✓ 已收录 {title}（task-id {task_id}，{len(report)} 字符）-> "
+        f"{payload_path}——其余「待填」填完后 append-trace --from-file 落库"
+    )
 
 
 def scaffold_payload(project_root: Path, name: str) -> tuple[bool, str]:
@@ -3998,6 +4118,11 @@ def main(argv: list[str] | None = None) -> int:
         help="append-trace：生成当前子步骤 .md 载荷骨架到 evidence/.trace-payload-<name>.md 并打印路径（格式脚本管，模型只填「待填」）",
     )
     parser.add_argument(
+        "--ingest-agent",
+        metavar="TASK_ID",
+        help="append-trace：把子代理 agent-<TASK_ID> 的报告原文收录进 .md 载荷 qa 节（脚本提取，禁手工粘贴）",
+    )
+    parser.add_argument(
         "--out",
         action="store_true",
         help="fetch-prompt：骨架落盘 .claude/workflows/<name>/fetch-prompt-skeleton.md 并打印路径（替代 stdout）",
@@ -4042,6 +4167,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "append-trace":
         if args.scaffold:
             ok, msg = scaffold_payload(project_root, name)
+            print(msg, file=sys.stdout if ok else sys.stderr)
+            return 0 if ok else 1
+        if args.ingest_agent:
+            ok, msg = ingest_agent_report(project_root, name, args.ingest_agent)
             print(msg, file=sys.stdout if ok else sys.stderr)
             return 0 if ok else 1
         if not args.from_file:
