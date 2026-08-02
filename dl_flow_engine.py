@@ -2526,6 +2526,38 @@ def _check_causal_ring_no_untested(qa: list, *_ctx) -> str | None:
     return None
 
 
+def _check_value_no_unsourced_inference(qa: list, *_ctx) -> str | None:
+    """value_no_unsourced_inference：价值/结论项推断词形扫描（u:2 子1 专属）。
+
+    动机（2026-08-02 tail_volume_acceleration_annualized u:2 子1 att1）：
+    形式要件（_G2_STEP1_FORM_REQUIREMENTS「结论逐句须有出处」）双侧披露后
+    模型仍把「长期使用意味着会基于显示值做决策」「隐含价值」写进 V1/V2，
+    且自声明「无推断补全」——自声明不可信（v2.37 教训：披露保 judge 判对
+    不保模型写对），词形下沉写侧机械层。
+    词形来自真实违规字面：隐含 / 意味着 / 可能（排除「不可能」否定式）。
+    「推测」标注项豁免：标「推测」另列是形式要件内的合法出口（att2 通过版
+    V2* 即此形态）。
+    分隔度：att1 被 block 载荷（V1 隐含 / V2 意味着）BLOCK、att2 通过载荷
+    PASS（推测豁免+干净项），重放回归见 TestValueNoUnsourcedInference。
+    """
+    for item in qa:
+        q, a = str(item.get("q", "")), str(item.get("a", ""))
+        if "价值" not in q and "结论" not in q:
+            continue
+        if "推测" in a:
+            continue
+        hit = next((m for m in ("隐含", "意味着") if m in a), None)
+        if hit is None and _MAYBE_RE.search(a):
+            hit = "可能"
+        if hit:
+            return (
+                f"「{q[:16]}…」含推断词形「{hit}」——价值/结论只许用户原话或"
+                "会话事实的直接引用（「X 意味着 Y」「隐含 Z」=读出后推出，不是事实）；"
+                "推断须标「推测」另列，不纳入结论"
+            )
+    return None
+
+
 def _load_atomic_questions(project_root: Path, name: str) -> list | None:
     """读子2 最新 trace 的 atomic_questions 分档清单（v2.40）。
 
@@ -2742,6 +2774,7 @@ def _check_user_decision_recorded(qa: list, *_ctx) -> str | None:
 # 未注册名 = nodes 与 engine 配置漂移，fail loud 不静默跳过。
 _MECH_QA_CHECKS = {
     "causal_ring_no_untested": _check_causal_ring_no_untested,
+    "value_no_unsourced_inference": _check_value_no_unsourced_inference,
     "fetch_report_recorded": _check_fetch_report_recorded,
     "fetch_skeleton_out": _check_fetch_skeleton_out,
     "redteam_report_recorded": _check_redteam_report_recorded,

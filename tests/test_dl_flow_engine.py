@@ -5506,6 +5506,81 @@ class TestV237FirstPassRate:
         ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
         assert ok, msg
 
+    # ---- u:2 子1 价值/结论推断词形（value_no_unsourced_inference，v2.48）----
+
+    def test_replay_u2s1_att1_unsourced_inference_blocked(self, tmp_path):
+        # att1 真实形态（2026-08-02 tail_volume_acceleration_annualized）：
+        # V1「隐含价值」/ V2「长期使用意味着会基于显示值做决策」——judge 当年
+        # 拦对但烧了一轮返工；词形下沉后 append-trace 当场拒
+        _write_state_full(tmp_path, "t", "understand", 2, sub_step=1)
+        qa = [
+            {
+                "q": "who（受益者）",
+                "a": "W1 = 项目维护者（用户自述「我是项目维护者/贡献者」）",
+            },
+            {
+                "q": "初步价值（why 值得做）",
+                "a": (
+                    "V1 = 报告数据可信（用户自述「排查代码确认是不是 bug」=真痛点）"
+                    "——价值锚点=用户自述「是不是有问题」（隐含「如果有问题则修复，"
+                    "避免基于错误数据做决策」）。V2 = 不再因显示错误误判"
+                    "（用户自述「一直用 web_ui 翻报告」——长期使用意味着会基于"
+                    "显示值做决策，错误显示会导致误判后续选股/调仓）"
+                ),
+            },
+            {"q": "结论 = ① 目标成立？", "a": "①目标成立——S1→O2、S2→O1"},
+        ]
+        (tmp_path / "payload.json").write_text(
+            json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert not ok and "隐含" in msg and "推测" in msg
+
+    def test_replay_u2s1_att2_real_pass_accepted(self, tmp_path):
+        # att2 真实通过版：V1 干净 + V2* 标「推测」另列（推测豁免生效）
+        _write_state_full(tmp_path, "t", "understand", 2, sub_step=1)
+        qa = [
+            {
+                "q": "who（受益者）",
+                "a": "W1 = 项目维护者（用户自述「我是项目维护者/贡献者」）",
+            },
+            {
+                "q": "初步价值（why 值得做，surgical 改）",
+                "a": (
+                    "V1 = 字面诉求=修复 bug（用户自述「排查代码确认是不是 bug」"
+                    "两处原话直接引用，无推断补全）。\n\n[推测另列，不纳入结论]\n\n"
+                    "V2* = 推测（无用户原话佐证）：用户可能基于显示值做后续决策，"
+                    "但用户未明确陈述此类下游用途。标「推测」不纳入 V1 结论。"
+                ),
+            },
+            {
+                "q": "结论 = ① 目标成立？",
+                "a": "①目标成立——S1→O2、S2→O1；V2* 标「推测」另列不纳入结论",
+            },
+        ]
+        (tmp_path / "payload.json").write_text(
+            json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert ok, msg
+
+    def test_value_scan_maybe_blocked_and_negation_exempt(self, tmp_path):
+        # 「可能」命中；「不可能」否定式合法断言不命中（复用 _MAYBE_RE 口径）
+        qa = [{"q": "初步价值", "a": "V1 = 用户可能会据此调仓"}]
+        err = eng._check_value_no_unsourced_inference(qa)
+        assert err and "可能" in err
+        qa2 = [{"q": "初步价值", "a": "V1 = 单日 ±10% 限制下不可能出现真值 +9529%"}]
+        assert eng._check_value_no_unsourced_inference(qa2) is None
+
+    def test_value_scan_scope_only_value_and_conclusion(self, tmp_path):
+        # who/outcome 项不受扫描（词形只锚价值/结论项——who 项含「意味着」类
+        # 表述不违规，扫描面收窄防 FP）
+        qa = [
+            {"q": "who（受益者）", "a": "长期使用意味着粘性高（会话事实归集）"},
+            {"q": "outcome（达成什么状态）", "a": "O1 = 页面显示正确"},
+        ]
+        assert eng._check_value_no_unsourced_inference(qa) is None
+
     # ---- 占位符全局机械拒 ----
 
     def test_replay_u1s4_placeholder_in_purpose_blocked(self, tmp_path):
