@@ -2518,6 +2518,37 @@ def _check_redteam_report_recorded(qa: list, *_ctx) -> str | None:
     )
 
 
+def _check_user_decision_recorded(qa: list, *_ctx) -> str | None:
+    """user_decision_recorded：读回确认步的用户裁决记录机械核验（v2.45）。
+
+    交接架构（designs/context-handoff-design.md §4）正确性前提：8 个读回步
+    全部 gate=None（trace 存在即过、无 judge），用户裁决此前只在对话里——
+    /clear 换会话后新上下文只能从 trace 还原拍板内容，漏记 = 重问用户或编造。
+    操作化：标题带「裁决」或「读回」的 qa 项（承诺装置同「蒸馏报告」先例）
+    + 内容 ≥50 字（「用户已确认」式空记录交接后无法还原拍板）。
+    分隔度：真实 u:1 子6（699 字）/u:2 子5（543 字）通过；空记录（<10 字）
+    与缺项两形态拦截——margin 两个数量级，非调参数式阈值（§3.5 #15）。
+    """
+    titled = [
+        it
+        for it in qa
+        if "裁决" in str(it.get("q", "")) or "读回" in str(it.get("q", ""))
+    ]
+    if any(len(str(it.get("a", "")).strip()) >= 50 for it in titled):
+        return None
+    if titled:
+        return (
+            "用户裁决记录项内容过薄——「用户已确认」式空记录不算：逐项记录用户"
+            "认/否/拍板结果与答复要点。读回步 gate=None 无 judge 兜底，且 /clear "
+            "交接后新会话只能从 trace 还原拍板内容——空记录 = 重问用户或编造"
+        )
+    return (
+        "缺用户裁决记录项——读回确认步的 trace 须含标题带「裁决」或「读回」的 "
+        "qa 项，逐项记录用户认/否/拍板结果与答复要点（读回步 gate=None，本校验"
+        "是唯一防线；/clear 交接后新会话只能从 trace 还原拍板内容）"
+    )
+
+
 # qa 格式步的写侧机械校验注册表（Step.mech_checks 声明名 -> 检查函数）。
 # 未注册名 = nodes 与 engine 配置漂移，fail loud 不静默跳过。
 _MECH_QA_CHECKS = {
@@ -2525,6 +2556,7 @@ _MECH_QA_CHECKS = {
     "fetch_report_recorded": _check_fetch_report_recorded,
     "fetch_skeleton_out": _check_fetch_skeleton_out,
     "redteam_report_recorded": _check_redteam_report_recorded,
+    "user_decision_recorded": _check_user_decision_recorded,
 }
 
 

@@ -5896,6 +5896,58 @@ class TestRedteamReportRecorded:
         assert ok, msg
 
 
+class TestUserDecisionRecorded:
+    """v2.45 user_decision_recorded：读回确认步的用户裁决记录机械校验。
+
+    交接架构（designs/context-handoff-design.md §4）正确性前提：8 个读回步
+    全部 gate=None（trace 存在即过，无 judge），用户裁决此前只承诺进对话
+    ——/clear 换会话后新上下文只能从 trace 读裁决，漏记 = 重问用户或编造。
+    分隔度：真实 u:1 子6（裁决项 a=699 字）/u:2 子5（543 字）通过；
+    「用户已确认」式空记录（<50 字）与无裁决项两形态拦截——margin 两个
+    数量级，非调参数式阈值（§3.5 #15）。
+    """
+
+    def _append_readback(self, tmp_path, qa):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=6)
+        (tmp_path / "payload.json").write_text(
+            json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
+        )
+        return eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+
+    def test_decision_item_present_accepted(self, tmp_path):
+        # 真实 u:1 子6 形态：标题含「裁决」+ 逐项拍板内容
+        qa = [
+            {
+                "q": "快答轮结果（用户对各 statement 认可）",
+                "a": "S1 = 接受（用户原话已通过 AskUserQuestion 回答记录）；S2 = 接受",
+            },
+            {
+                "q": "硬核裁决轮结果（用户选定本实例处理范围）",
+                "a": "本实例拍板处理 = S1 + S2（验证 raw + 修展示层）。具体处理路径："
+                "S1 直接读取分层回测 json 复核 raw 数值归因；S2 修展示层重复乘 100。",
+            },
+        ]
+        ok, msg = self._append_readback(tmp_path, qa)
+        assert ok, msg
+
+    def test_missing_decision_item_blocked(self, tmp_path):
+        qa = [
+            {"q": "快答轮结果", "a": "S1 接受；S2 接受"},
+            {"q": "本实例处理范围", "a": "S1 + S2，路径：读 json 复核 + 修展示层"},
+        ]
+        ok, msg = self._append_readback(tmp_path, qa)
+        assert not ok and "裁决" in msg and "读回" in msg
+
+    def test_empty_decision_record_blocked(self, tmp_path):
+        # 标题在但内容空——「用户已确认」式记录交接后无法还原拍板内容
+        qa = [
+            {"q": "用户裁决", "a": "用户已确认。"},
+            {"q": "快答轮结果", "a": "S1 接受；S2 接受"},
+        ]
+        ok, msg = self._append_readback(tmp_path, qa)
+        assert not ok and "空记录" in msg
+
+
 class TestFetchTier:
     """v2.40 取证深度分档（designs/fetch-depth-tiering-design.md）。
 

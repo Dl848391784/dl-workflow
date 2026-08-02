@@ -335,6 +335,16 @@ _INTERACTIVE_CHUNKING_RULE = (
     "让用户边读边答快答项"
 )
 
+# 读回确认步的「用户裁决记录」形式要件（v2.45，单源：8 个读回步 purpose 引用
+# + engine _check_user_decision_recorded 同源校验）。交接架构
+# （designs/context-handoff-design.md §4）正确性前提：读回步 gate=None 无
+# judge，裁决只在对话里 = /clear 换会话即丢，新会话只能从 trace 还原拍板。
+_USER_DECISION_RECORD_RULE = (
+    "用户裁决逐项落 trace：标题带「裁决」或「读回」的 qa 项 + 各项认/否/拍板"
+    "结果与答复要点（「用户已确认」式空记录不算，append-trace 机械校验——"
+    "/clear 交接后新会话只能从 trace 还原拍板内容）"
+)
+
 # 「复合句」裁量点钉死（v2.32，2026-07-31 tail_volume plan:1 子5 / plan:2 子4
 # 审计）：两处归一化步各三连 block + 用户强制放行——judge 按词形（「+」「然后」
 # 连接、括号枚举、多项「、」罗列）判复合，与同项携带八字段/五字段的形式要件
@@ -836,7 +846,7 @@ _NODES: dict[str, Node] = {
                     "用户认「这就是问题（集）」；多个问题时用户选定本实例处理哪一个，"
                     "其余带已验证陈述落 evidence + understand.md（供后续 dl 实例接续，不丢弃）；"
                     "用户对各项的认/否/搁置记入 trace（用户认可本身是裁决留痕）；"
-                    f"{_INTERACTIVE_CHUNKING_RULE}。"
+                    f"{_INTERACTIVE_CHUNKING_RULE}。{_USER_DECISION_RECORD_RULE}"
                 ),
                 input="step5.statements",
                 # §substep-gate-at-stop：record=True——Stop 门控以「新 trace」为唯一
@@ -848,6 +858,9 @@ _NODES: dict[str, Node] = {
                     "「证据不足」项显式暴露了吗？用户对各项的认/否/搁置记入 trace 了吗？"
                     "多问题时用户选定本实例处理项、其余落 evidence+understand.md 了吗？"
                 ),
+                # v2.45 交接架构正确性前提：用户裁决必入 trace（gate=None 无 judge，
+                # 机械校验是唯一防线）。
+                mech_checks=("user_decision_recorded",),
                 gate=None,  # 交互步，gate 不跑 judge（trace 存在即过）
             ),
         ),
@@ -1040,7 +1053,7 @@ _NODES: dict[str, Node] = {
                     "用户对各目标的认/否/调层记入 trace；"
                     "多目标时用户圈定本实例处理范围，其余落 evidence + understand.md"
                     "（供后续 dl 实例接续，不丢弃）；"
-                    f"{_INTERACTIVE_CHUNKING_RULE}。"
+                    f"{_INTERACTIVE_CHUNKING_RULE}。{_USER_DECISION_RECORD_RULE}"
                 ),
                 input="step4.statements",
                 record=True,
@@ -1049,6 +1062,9 @@ _NODES: dict[str, Node] = {
                     "「不可量化」项显式暴露了吗？用户对分层与各目标的裁决记入 trace 了吗？"
                     "多目标时用户圈定本实例范围、其余落 evidence+understand.md 了吗？"
                 ),
+                # v2.45 交接架构正确性前提：用户裁决必入 trace（gate=None 无 judge，
+                # 机械校验是唯一防线）。
+                mech_checks=("user_decision_recorded",),
                 gate=None,  # 交互步，gate 不跑 judge（trace 存在即过）
             ),
         ),
@@ -1248,7 +1264,7 @@ _NODES: dict[str, Node] = {
                     "接受——第二规范裁决点）；用户认/否/调整记入 trace；"
                     "多约束/假设时用户圈定本实例处理项，其余落 evidence + "
                     "understand.md（供后续 dl 实例接续，不丢弃）；"
-                    f"{_INTERACTIVE_CHUNKING_RULE}。"
+                    f"{_INTERACTIVE_CHUNKING_RULE}。{_USER_DECISION_RECORD_RULE}"
                 ),
                 input="step4.statements",
                 record=True,
@@ -1258,6 +1274,9 @@ _NODES: dict[str, Node] = {
                     "两项裁决都记入 trace 了吗？多约束/假设时用户圈定本实例"
                     "范围、其余落 evidence+understand.md 了吗？"
                 ),
+                # v2.45 交接架构正确性前提：用户裁决必入 trace（gate=None 无 judge，
+                # 机械校验是唯一防线）。
+                mech_checks=("user_decision_recorded",),
                 gate=None,  # 交互步，gate 不跑 judge（trace 存在即过）
             ),
         ),
@@ -1475,7 +1494,7 @@ _NODES: dict[str, Node] = {
                     f"4 子阶段归一化陈述+本轮裁决直接装配（{SECTIONS_TEXT['understand.md']}；"
                     "禁二次创作；"
                     "未被选定的问题/目标/约束及其一句话陈述也须写入，供后续 dl 实例接续）；"
-                    f"{_INTERACTIVE_CHUNKING_RULE}。"
+                    f"{_INTERACTIVE_CHUNKING_RULE}。{_USER_DECISION_RECORD_RULE}"
                 ),
                 input="step4.statements",
                 record=True,
@@ -1485,6 +1504,9 @@ _NODES: dict[str, Node] = {
                     "退回项显式暴露了吗？"
                     "understand.md 已写主仓 .claude/understands/、是装配而非二次创作吗？"
                 ),
+                # v2.45 交接架构正确性前提：用户裁决必入 trace（gate=None 无 judge，
+                # 机械校验是唯一防线）。
+                mech_checks=("user_decision_recorded",),
                 gate=None,  # 交互步，gate 不跑 judge（trace 存在即过）
             ),
         ),
@@ -1720,7 +1742,7 @@ _NODES: dict[str, Node] = {
                     "拍板后装配 designs/<主题>-design.md（H8 产物=子5 设计包+"
                     "裁决记录的直接装配，禁二次创作）；"
                     f"{_INTERACTIVE_CHUNKING_RULE}；"
-                    "写 trace 记裁决原话 -> STEP_DONE。"
+                    f"{_USER_DECISION_RECORD_RULE}-> STEP_DONE。"
                 ),
                 input="step5.design_statements",
                 record=True,
@@ -1729,6 +1751,9 @@ _NODES: dict[str, Node] = {
                     "用户对选型/权重/假设三项裁决都记入 trace 了吗？"
                     "design.md 是装配而非二次创作吗？"
                 ),
+                # v2.45 交接架构正确性前提：用户裁决必入 trace（gate=None 无 judge，
+                # 机械校验是唯一防线）。
+                mech_checks=("user_decision_recorded",),
                 gate=None,  # 交互步，gate 不跑 judge（trace 存在即过）
             ),
         ),
@@ -1945,7 +1970,8 @@ _NODES: dict[str, Node] = {
                     "②假设接受（风险承担）；"
                     "拍板后装配 plan.md（=子4 归一化执行步骤+裁决记录的直接装配，"
                     "禁二次创作）；"
-                    f"{_INTERACTIVE_CHUNKING_RULE}；写 trace 记裁决原话 -> STEP_DONE。"
+                    f"{_INTERACTIVE_CHUNKING_RULE}；"
+                    f"{_USER_DECISION_RECORD_RULE}-> STEP_DONE。"
                 ),
                 input="step4.execution_steps",
                 record=True,
@@ -1954,6 +1980,9 @@ _NODES: dict[str, Node] = {
                     "用户对阶段粒度/假设两项裁决都记入 trace 了吗？"
                     "plan.md 是装配而非二次创作吗？"
                 ),
+                # v2.45 交接架构正确性前提：用户裁决必入 trace（gate=None 无 judge，
+                # 机械校验是唯一防线）。
+                mech_checks=("user_decision_recorded",),
                 gate=None,  # 交互步，gate 不跑 judge（trace 存在即过）
             ),
         ),
@@ -2193,7 +2222,8 @@ _NODES: dict[str, Node] = {
                     "含要求换绑/卸载/补绑的合法权利）；②假设接受（风险承担）；"
                     f"拍板后装配 plan.md「{_S_CAP_TOOLS}」节（=子5 归一化能力包+裁决记录的"
                     "直接装配，禁二次创作）；"
-                    f"{_INTERACTIVE_CHUNKING_RULE}；写 trace 记裁决原话 -> STEP_DONE。"
+                    f"{_INTERACTIVE_CHUNKING_RULE}；"
+                    f"{_USER_DECISION_RECORD_RULE}-> STEP_DONE。"
                 ),
                 input="step5.capability_packages",
                 record=True,
@@ -2202,6 +2232,9 @@ _NODES: dict[str, Node] = {
                     "用户对映射/假设两项裁决都记入 trace 了吗？"
                     f"plan.md「{_S_CAP_TOOLS}」节是装配而非二次创作吗？"
                 ),
+                # v2.45 交接架构正确性前提：用户裁决必入 trace（gate=None 无 judge，
+                # 机械校验是唯一防线）。
+                mech_checks=("user_decision_recorded",),
                 gate=None,  # 交互步，gate 不跑 judge（trace 存在即过）
             ),
         ),
@@ -2418,7 +2451,7 @@ _NODES: dict[str, Node] = {
                     f"拍板后装配 plan.md「{_S_CHECKPOINTS}」节（=子4 归一化"
                     "执行计划包+裁决记录的直接装配，禁二次创作）；"
                     f"{_INTERACTIVE_CHUNKING_RULE}；"
-                    "写 trace 记裁决原话 -> STEP_DONE。"
+                    f"{_USER_DECISION_RECORD_RULE}-> STEP_DONE。"
                 ),
                 input="step4.execution_plan_packages",
                 record=True,
@@ -2427,6 +2460,9 @@ _NODES: dict[str, Node] = {
                     "用户对密度与类型/假设/冻结策略三项裁决都记入 trace 了吗？"
                     f"plan.md「{_S_CHECKPOINTS}」节是装配而非二次创作吗？"
                 ),
+                # v2.45 交接架构正确性前提：用户裁决必入 trace（gate=None 无 judge，
+                # 机械校验是唯一防线）。
+                mech_checks=("user_decision_recorded",),
                 gate=None,  # 交互步，gate 不跑 judge（trace 存在即过）
             ),
         ),
