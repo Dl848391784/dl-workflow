@@ -77,8 +77,9 @@ SUB_STEP_BLOCK_ESCALATE = 3
 # v2：allow 补 AskUserQuestion + Write/Edit(//<主仓>/.claude/**) 路径规则
 # （2026-08-01 understand:1 审计：24 次裁决 316.6s 全 allow 纯税，其中
 # AskUserQuestion 3 次均值 46.2s 被误归因为用户思考时间）。
-SETTINGS_TEMPLATE_VERSION = 3  # v3：注册 SessionStart hook（workflow_session.py，
-# v2.45 /clear 交接包注入）
+SETTINGS_TEMPLATE_VERSION = 4  # v4：删死规则 Write(//path)（文件权限只认 Edit(path)，
+# 启动警告实证）+ 短路面修正注释（auto 下 Write/AskQ/Agent 不短路，根治在 launcher
+# --permission-mode acceptEdits，2026-08-02 审计）。v3：注册 SessionStart hook（workflow_session.py，v2.45 /clear 交接包注入）
 
 
 # ---------- 推进（design §5.1 advance）----------

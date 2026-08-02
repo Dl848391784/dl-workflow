@@ -226,17 +226,20 @@ wf_state_mark_artifact() {
 # permissions.allow 宽白名单（2026-07-30 审计实测）：会话跑在 auto 权限模式时，
 # 每次改造型工具调用都要过一次端点裁决（慢 provider 上实测中位 14-17s/次，
 # debug 日志 "Slow permission decision"，单会话累计 ~45min）。
-# 白名单命中跳过裁决。威胁模型 = 弱遵从而非对抗（SKILL 症状 O 原则 4），宽白名单可接受。
+# ⚠ 短路面修正（2026-08-02 tail_volume_acceleration_annualized 审计，128 调用 vs
+#   37 裁决逐条配对）：auto 模式下 **只有 Bash 前缀规则真短路**；Write/AskUserQuestion/
+#   Agent 裸规则在册仍全过端点（Write 20/21、AskQ 8/8、Agent 3/3 被税）。
+#   根治 = dl-launch.sh 钉 --permission-mode acceptEdits（CLI flag 优先级最高，
+#   defaultMode 压不住持久化的 auto）；本白名单退居 Bash 短路与非 acceptEdits 兜底。
+#   另：`Write(//path/**)` 路径规则是死规则（启动警告：文件权限只认 Edit(path)
+#   规则）——v4 模板已删，cwd 外写主仓 .claude/ 由 Edit(//...) 覆盖。
+# 威胁模型 = 弱遵从而非对抗（SKILL 症状 O 原则 4），宽白名单可接受。
 # 覆盖三类（2026-07-30 tail_volume 会话 116 次 Bash + 66 次 Write 实测归集）：
 #   ① 编排命令：dl-cmd.sh 全子命令 / dl_flow_engine.py / sqlite3 / codegraph；
-#   ② 写工具裸规则：Write/Edit/MultiEdit（acceptEdits 本意，未生效根因未查明，裸规则兜底）；
+#   ② 写工具裸规则：Write/Edit/MultiEdit（acceptEdits 本意，非 acceptEdits 模式兜底）；
 #   ③ 只读/常用命令头 + execute 期工具链（pytest/ruff/mypy/git/python3）。
 # ④（2026-08-01 tail_volume_acceleration_annualized understand:1 审计补）：
-#   - 裸 "Write" 兜不住 **cwd（worktree）外** 写入——工作流 trace-payload 与阶段
-#     产物按 2026-07-28 决议都写主仓 .claude/，auto 模式下每次过端点（实测
-#     Write 16 次 134.9s）。路径规则 `Write(//<绝对路径去掉前导斜杠>/**)` 才覆盖
-#     cwd 外路径（gitignore 语义，`//` 前缀 = 绝对路径）。
-#   - AskUserQuestion 不在名单 -> auto 模式每次裁决均值 46.2s（3 次 138.6s，
+#   - AskUserQuestion 在 auto 模式每次裁决均值 46.2s（3 次 138.6s，
 #     一度被误归因为「用户思考时间」）。交互工具本无裁决必要，直接放行。
 #   本次审计权限税合计 24 次 316.6s = 墙钟 14%，全部 behavior=allow 纯浪费。
 # 已知漏网（命中即缴一次税，可接受）：env 前缀形式（`DB=... sqlite3`，规则语法
@@ -256,7 +259,6 @@ wf_write_settings() {
       "Write",
       "Edit",
       "MultiEdit",
-      "Write(//${WF_REPO_ROOT#/}/.claude/**)",
       "Edit(//${WF_REPO_ROOT#/}/.claude/**)",
       "AskUserQuestion",
       "WebFetch",

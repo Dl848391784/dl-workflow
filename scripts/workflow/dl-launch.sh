@@ -197,9 +197,19 @@ if [ "$WF_DEBUG" = "1" ]; then
   DEBUG_ARGS=(--debug api,hooks --debug-file "$WF_META_ROOT/$WF_NAME/cc_debug.log")
 fi
 
+# --permission-mode acceptEdits 钉死（2026-08-02 tail_volume_acceleration_annualized 审计实测）：
+# auto 模式下 Write/AskUserQuestion/Agent 无视静态 allowlist 一律过端点分类器
+#（该会话 128 次调用 37 次裁决逐条配对：Write 20/21、AskQ 8/8、Agent 3/3 全被税，
+# 裸 "Write"/"AskUserQuestion"/"Agent" 规则在册仍不短路；Bash 前缀规则则正常短路，
+# 唯复合命令破匹配缴税——v2.32 已知）。per-wf settings 的 defaultMode: acceptEdits
+# 压不住持久化的 auto 选择，唯 CLI flag 优先级最高。v2.36「入 allowlist 即根治」
+# 只对 Bash 成立。acceptEdits 下 Edit/Write 本地放行零裁决，AskQ 照常弹窗，
+# codegraph_gate（H15）等 PreToolUse hook 不受影响。放在 "$@" 前，用户显式传值可覆盖。
+PERM_ARGS=(--permission-mode acceptEdits)
+
 # resume：用钉死的 session_id 恢复；否则用 --session-id 钉死
 if [ "$WF_RESUME" = "1" ] && [ -n "${SESSION_ID:-}" ]; then
-  exec claude --resume "$SESSION_ID" "${SETTINGS_ARGS[@]}" "${SYS_PROMPT_ARGS[@]}" "${DEBUG_ARGS[@]}" "$@" 2>>"$WF_META_ROOT/$WF_NAME/cc_sdk.log"
+  exec claude --resume "$SESSION_ID" "${SETTINGS_ARGS[@]}" "${SYS_PROMPT_ARGS[@]}" "${DEBUG_ARGS[@]}" "${PERM_ARGS[@]}" "$@" 2>>"$WF_META_ROOT/$WF_NAME/cc_sdk.log"
 else
-  exec claude --session-id "$SESSION_ID" "${SETTINGS_ARGS[@]}" "${SYS_PROMPT_ARGS[@]}" "${DEBUG_ARGS[@]}" "$@" 2>>"$WF_META_ROOT/$WF_NAME/cc_sdk.log"
+  exec claude --session-id "$SESSION_ID" "${SETTINGS_ARGS[@]}" "${SYS_PROMPT_ARGS[@]}" "${DEBUG_ARGS[@]}" "${PERM_ARGS[@]}" "$@" 2>>"$WF_META_ROOT/$WF_NAME/cc_sdk.log"
 fi
