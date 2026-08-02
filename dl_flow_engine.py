@@ -853,6 +853,167 @@ def read_evidence_for_step(
 HANDOFF_NUDGE_THRESHOLD = 150_000
 
 
+# ---------- 产物机械装配（render-artifact，v2.59）----------
+#
+# 四桶分工审计（2026-08-02 用户指令全系统检查）：产物装配 purpose 自写
+# 「直接装配、禁二次创作」=系统承认这是转录，却让模型手工抄 trace 拼产物
+# 再由 ARTIFACT_CONTAINS 门检查抄对没有——脚本一条命令的事，模型花一整步
+# +一轮门控还多抄错/抄漏失败面。render-artifact 从各节点最新 statements/
+# 裁决 trace 机械装配 understand.md/plan.md，模型零接触产物文件。
+# 内容要改 = 改对应步 trace 后重渲染（trace 仍是唯一真源）。
+# design.md 动态文件名（designs/<主题>-design.md）暂留模型装配（独立项）。
+_ARTIFACT_RENDER_SOURCES: dict[str, dict] = {
+    "understand.md": {
+        # 节名 = ARTIFACT_SECTIONS 单源；源 = (minor_stage, 归一化步 sub_step)。
+        "sections": {
+            "真实问题重述": ("ProblemContext", 5),
+            "目标价值": ("GoalsAndValue", 4),
+            "范围约束": ("ScopeAndConstraints", 4),
+            "成功标准验收包": ("SuccessCriteria", 4),
+        },
+        # 读回步（裁决记录源：qa 标题含「裁决」/「读回」的项原文收录）。
+        "decision_steps": (
+            ("ProblemContext", 6),
+            ("GoalsAndValue", 5),
+            ("ScopeAndConstraints", 5),
+            ("SuccessCriteria", 5),
+        ),
+        # 未选定与接续：understand 四节点 trace 中含「剔除」/「未选定」的
+        # qa 项原文收录（供后续 dl 实例接续）。
+        "unselected_minors": (
+            "ProblemContext",
+            "GoalsAndValue",
+            "ScopeAndConstraints",
+            "SuccessCriteria",
+        ),
+        "require_all": True,  # understand:4 子5 装配时四节源都必须已存在
+        "out_dir": "understands",
+    },
+    "plan.md": {
+        "sections": {
+            "执行步骤": ("TaskBreakdown", 4),
+            "能力与工具": ("CapabilityToolSelection", 5),
+            "执行计划与检查点": ("ExecutionPlanCheckpoints", 4),
+        },
+        "decision_steps": (
+            ("DesignSolution", 6),
+            ("TaskBreakdown", 5),
+            ("CapabilityToolSelection", 6),
+            ("ExecutionPlanCheckpoints", 5),
+        ),
+        "unselected_minors": (),
+        # plan:2/3/4 分工增量装配——只渲染已有源的节，缺源节跳过（输出里
+        # 点名，不写进文件）；重渲染幂等覆盖。
+        "require_all": False,
+        "out_dir": "plans",
+    },
+}
+
+
+def _trace_qa_items(rec: dict) -> list[dict]:
+    """trace 记录的 q/a 平行数组 -> [{"q","a"}] 列表（读侧统一形态）。"""
+    return [
+        {"q": q, "a": a}
+        for q, a in zip(rec.get("q") or [], rec.get("a") or [], strict=False)
+    ]
+
+
+def render_artifact(project_root: Path, name: str, basename: str) -> tuple[bool, str]:
+    """render-artifact：从 evidence 最新 trace 机械装配产物（v2.59）。
+
+    返回 (ok, 消息)。源 trace 缺失时按 spec 处理（require_all=缺一节即拒；
+    否则跳过该节并在输出点名）。幂等覆盖写，落主仓 .claude/<out_dir>/<name>.md。
+    """
+    spec = _ARTIFACT_RENDER_SOURCES.get(basename)
+    if spec is None:
+        return False, (
+            f"render-artifact 不支持 {basename}（支持："
+            + "/".join(sorted(_ARTIFACT_RENDER_SOURCES))
+            + "；design.md 动态文件名暂留模型装配）"
+        )
+    text = read_evidence(project_root, name)
+    if not text:
+        return False, f"evidence 缺失——{name}.jsonl 不存在或为空"
+    latest: dict[tuple, dict] = {}
+    for line in text.splitlines():
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if rec.get("kind") != "skill-trace":
+            continue
+        latest[(rec.get("minor_stage"), rec.get("sub_step"))] = rec
+
+    parts = [
+        f"# {name} · {basename}",
+        "",
+        "（render-artifact 机械装配，禁手改——改内容请改对应步 trace 后重渲染）",
+        "",
+    ]
+    missing = []
+    for sec, (minor, stp) in spec["sections"].items():
+        rec = latest.get((minor, stp))
+        stmts = (rec or {}).get("statements")
+        if not stmts:
+            missing.append(f"{sec}（{minor} 子{stp} 无 statements trace）")
+            continue
+        parts.append(f"## {sec}")
+        parts.append("")
+        for it in stmts:
+            extras = [str(it.get("type_label") or ""), str(it.get("boundary") or "")]
+            extras += [
+                f"{k}={v}"
+                for k, v in (it.get("fields") or {}).items()
+                if str(v).strip()
+            ]
+            tail = "；".join(x for x in extras if x.strip())
+            parts.append(f"- {it.get('text', '')}" + (f"（{tail}）" if tail else ""))
+        parts.append("")
+    if missing and spec["require_all"]:
+        return False, "装配源 trace 缺失：" + "、".join(missing)
+
+    decisions = []
+    for minor, stp in spec["decision_steps"]:
+        rec = latest.get((minor, stp))
+        for it in _trace_qa_items(rec or {}):
+            if "裁决" in str(it["q"]) or "读回" in str(it["q"]):
+                decisions.append(it)
+    if decisions:
+        parts.append("## 裁决记录")
+        parts.append("")
+        for it in decisions:
+            parts.append(f"- 【{it['q']}】{it['a']}")
+        parts.append("")
+
+    if spec["unselected_minors"]:
+        dropped = []
+        for (minor, _stp), rec in latest.items():
+            if minor not in spec["unselected_minors"]:
+                continue
+            for it in _trace_qa_items(rec):
+                blob = str(it["q"]) + str(it["a"])
+                if "剔除" in blob or "未选定" in blob:
+                    dropped.append(it)
+        if dropped:
+            parts.append("## 未选定与接续")
+            parts.append("")
+            for it in dropped:
+                parts.append(f"- 【{it['q']}】{it['a']}")
+            parts.append("")
+
+    out = project_root / ".claude" / spec["out_dir"] / f"{name}.md"
+    try:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text("\n".join(parts) + "\n", encoding="utf-8")
+    except OSError as e:
+        return False, f"写产物失败：{e}"
+    note = f"；跳过缺源节：{'、'.join(missing)}" if missing else ""
+    return (
+        True,
+        f"✓ 已装配 {out}（{len(spec['sections']) - len(missing)} 节 + 裁决记录{note}）",
+    )
+
+
 def estimate_context_tokens(transcript_path: str | Path) -> int | None:
     """从 session transcript 尾部最近一条 assistant usage 估算当前上下文 tokens。
 
@@ -3813,6 +3974,7 @@ def main(argv: list[str] | None = None) -> int:
             "append-trace",
             "redteam-prompt",
             "fetch-prompt",
+            "render-artifact",
         ],
     )
     parser.add_argument(
@@ -3821,7 +3983,9 @@ def main(argv: list[str] | None = None) -> int:
         help="工作流名（不填则从 cwd 反查）；render-phase-rules 时为 phase-rules 模板路径",
     )
     parser.add_argument(
-        "value", nargs="?", help="fence 的值（on|off）/ state-reset 的回退目标"
+        "value",
+        nargs="?",
+        help="fence 的值（on|off）/ state-reset 的回退目标 / render-artifact 的产物名（understand.md|plan.md）",
     )
     parser.add_argument("--cwd", help="覆盖 cwd（默认进程 cwd）")
     parser.add_argument(
@@ -3921,6 +4085,16 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         sys.stdout.write(prompt + "\n")
         return 0
+    if args.cmd == "render-artifact":
+        if not args.value:
+            print(
+                "✗ 用法: render-artifact [name] <understand.md|plan.md>",
+                file=sys.stderr,
+            )
+            return 1
+        ok, msg = render_artifact(project_root, name, args.value)
+        print(msg, file=sys.stdout if ok else sys.stderr)
+        return 0 if ok else 1
     if args.cmd == "status":
         return _cmd_status(project_root, name)
     if args.cmd == "current":

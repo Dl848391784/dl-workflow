@@ -1607,11 +1607,11 @@ _NODES: dict[str, Node] = {
                     "不可检验退回项显式暴露由用户裁决"
                     "（降低标准/回退目标定义/接受定性验收）；"
                     "用户认/否/调整记入 trace。"
-                    "裁决完成后装配 understand.md（写主仓 "
-                    ".claude/understands/<name>.md——产物落主仓，worktree 归档删除即丢）："
-                    f"4 子阶段归一化陈述+本轮裁决直接装配（{SECTIONS_TEXT['understand.md']}；"
-                    "禁二次创作；"
-                    "未被选定的问题/目标/约束及其一句话陈述也须写入，供后续 dl 实例接续）；"
+                    "裁决完成后装配 understand.md = 运行 `python3 "
+                    "~/.dl-workflow/dl_flow_engine.py render-artifact understand.md`"
+                    "（脚本从 4 子阶段最新归一化陈述+裁决/未选定 trace 机械装配，"
+                    "落主仓 .claude/understands/<name>.md；禁手写产物文件——"
+                    "内容要改就改对应步 trace 后重渲染）；"
                     f"{_INTERACTIVE_CHUNKING_RULE}。{_USER_DECISION_RECORD_RULE}"
                 ),
                 input="step4.statements",
@@ -1620,7 +1620,7 @@ _NODES: dict[str, Node] = {
                     "呈现了归一化标准+验收包+退回项+「验收手段待建」清单+不确定性吗？"
                     "用户对阈值拍板与验收方式认可的两项裁决都记入 trace 了吗？"
                     "退回项显式暴露了吗？"
-                    "understand.md 已写主仓 .claude/understands/、是装配而非二次创作吗？"
+                    "understand.md 已用 render-artifact 装配落主仓了吗（禁手写产物）？"
                 ),
                 # v2.45 交接架构正确性前提：用户裁决必入 trace（gate=None 无 judge，
                 # 机械校验是唯一防线）。
@@ -2086,8 +2086,11 @@ _NODES: dict[str, Node] = {
                     "用户两裁决——①阶段/粒度拍板（本节点唯一规范裁决点，"
                     "含要求合并/拆细/重排阶段的合法权利，断点位置是用户风险偏好）；"
                     "②假设接受（风险承担）；"
-                    "拍板后装配 plan.md（=子4 归一化执行步骤+裁决记录的直接装配，"
-                    "禁二次创作）；"
+                    "拍板后装配 plan.md = 运行 `python3 "
+                    "~/.dl-workflow/dl_flow_engine.py render-artifact plan.md`"
+                    "（脚本从本节点归一化 statements+裁决 trace 机械装配本节，"
+                    "落主仓 .claude/plans/<name>.md；禁手写产物文件——"
+                    "内容要改就改对应步 trace 后重渲染）；"
                     f"{_INTERACTIVE_CHUNKING_RULE}；"
                     f"{_USER_DECISION_RECORD_RULE}-> STEP_DONE。"
                 ),
@@ -2338,8 +2341,10 @@ _NODES: dict[str, Node] = {
                     "+不加载清单+新增候选（子1 检出若有）+不确定性；"
                     "用户两裁决——①映射拍板（本节点唯一规范裁决点，"
                     "含要求换绑/卸载/补绑的合法权利）；②假设接受（风险承担）；"
-                    f"拍板后装配 plan.md「{_S_CAP_TOOLS}」节（=子5 归一化能力包+裁决记录的"
-                    "直接装配，禁二次创作）；"
+                    f"拍板后装配 plan.md「{_S_CAP_TOOLS}」节 = 运行 `python3 "
+                    "~/.dl-workflow/dl_flow_engine.py render-artifact plan.md`"
+                    "（脚本机械装配本节，落主仓 .claude/plans/<name>.md；"
+                    "禁手写产物文件——内容要改就改对应步 trace 后重渲染）；"
                     f"{_INTERACTIVE_CHUNKING_RULE}；"
                     f"{_USER_DECISION_RECORD_RULE}-> STEP_DONE。"
                 ),
@@ -2566,8 +2571,10 @@ _NODES: dict[str, Node] = {
                     "[commit message+execute 完成时偏离清单]，大改=/dl back "
                     "回 plan 修订重过闸门；禁 execute 内直接改 plan.md——"
                     "judge 逐条核的对象不能是执行期可随手改的）；"
-                    f"拍板后装配 plan.md「{_S_CHECKPOINTS}」节（=子4 归一化"
-                    "执行计划包+裁决记录的直接装配，禁二次创作）；"
+                    f"拍板后装配 plan.md「{_S_CHECKPOINTS}」节 = 运行 `python3 "
+                    "~/.dl-workflow/dl_flow_engine.py render-artifact plan.md`"
+                    "（脚本机械装配本节，落主仓 .claude/plans/<name>.md；"
+                    "禁手写产物文件——内容要改就改对应步 trace 后重渲染）；"
                     f"{_INTERACTIVE_CHUNKING_RULE}；"
                     f"{_USER_DECISION_RECORD_RULE}-> STEP_DONE。"
                 ),

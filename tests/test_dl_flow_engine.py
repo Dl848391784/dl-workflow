@@ -1963,7 +1963,7 @@ class TestPlan1Orchestration:
         s6 = self._steps()[5]
         assert s6.gate is None  # 交互步，trace 存在即过
         assert s6.record is True
-        for needle in ("选型拍板", "权重", "假设接受", "design.md", "禁二次创作"):
+        for needle in ("选型拍板", "权重", "假设接受", "design.md", "禁二次创作"):  # design.md 暂留模型装配（动态文件名），防二次创作钉字面保留
             assert needle in s6.purpose, f"子6 purpose 缺 {needle}"
 
     def test_selfcheck_no_quality_criteria_leak(self):
@@ -2117,7 +2117,7 @@ class TestPlan2Orchestration:
         s5 = self._steps()[4]
         assert s5.gate is None  # 交互步，trace 存在即过
         assert s5.record is True
-        for needle in ("阶段/粒度拍板", "假设接受", "plan.md", "禁二次创作"):
+        for needle in ("阶段/粒度拍板", "假设接受", "plan.md", "render-artifact", "禁手写产物"):
             assert needle in s5.purpose, f"子5 purpose 缺 {needle}"
 
     def test_selfcheck_no_quality_criteria_leak(self):
@@ -2273,7 +2273,7 @@ class TestPlan3Orchestration:
         s6 = self._steps()[5]
         assert s6.gate is None  # 交互步，trace 存在即过
         assert s6.record is True
-        for needle in ("映射拍板", "假设接受", "plan.md", "禁二次创作"):
+        for needle in ("映射拍板", "假设接受", "plan.md", "render-artifact", "禁手写产物"):
             assert needle in s6.purpose, f"子6 purpose 缺 {needle}"
 
     def test_selfcheck_no_quality_criteria_leak(self):
@@ -2441,7 +2441,8 @@ class TestPlan4Orchestration:
             "假设接受",
             "冻结策略",
             "plan.md",
-            "禁二次创作",
+            "render-artifact",
+            "禁手写产物",
         ):
             assert needle in s5.purpose, f"子5 purpose 缺 {needle}"
 
@@ -7245,3 +7246,119 @@ class TestScaffoldPayload:
             .strip()
         )
         assert 'f"{val * 100:.2f}%"' in rec["a"][0]  # 引号零转义落库
+
+
+class TestRenderArtifact:
+    """v2.59 render-artifact：产物机械装配（四桶分工审计违规①根治）。
+
+    产物装配原为模型手工转录（purpose 自写「直接装配、禁二次创作」），
+    现从各节点最新 statements/裁决 trace 机械装配，模型零接触产物文件。
+    """
+
+    def _stmt_trace(self, minor, step, texts):
+        return json.dumps(
+            {
+                "kind": "skill-trace",
+                "minor_stage": minor,
+                "sub_step": step,
+                "statements": [
+                    {
+                        "text": t,
+                        "type_label": "证实",
+                        "boundary": f"证据指针 x.py:{i + 1}",
+                        "fields": {"confidence": "高"},
+                    }
+                    for i, t in enumerate(texts)
+                ],
+            },
+            ensure_ascii=False,
+        )
+
+    def _qa_trace(self, minor, step, items):
+        return json.dumps(
+            {
+                "kind": "skill-trace",
+                "minor_stage": minor,
+                "sub_step": step,
+                "q": [q for q, _ in items],
+                "a": [a for _, a in items],
+            },
+            ensure_ascii=False,
+        )
+
+    def _full_understand_evidence(self, tmp_path):
+        recs = [
+            self._stmt_trace("ProblemContext", 5, ["年化显示 9529.8% 异常"]),
+            self._stmt_trace("GoalsAndValue", 4, ["修正显示防误决策"]),
+            self._stmt_trace("ScopeAndConstraints", 4, ["允许改模板层"]),
+            self._stmt_trace("SuccessCriteria", 4, ["年化显示=95.3%"]),
+            self._qa_trace("ProblemContext", 6, [("裁决：who 与目标", "用户认可")]),
+            self._qa_trace("ProblemContext", 4, [("处置后问题集", "H3 剔除：无证据")]),
+        ]
+        _write_evidence(tmp_path, "t", recs)
+
+    def test_understand_md_full_assembly(self, tmp_path):
+        self._full_understand_evidence(tmp_path)
+        ok, msg = eng.render_artifact(tmp_path, "t", "understand.md")
+        assert ok, msg
+        out = tmp_path / ".claude" / "understands" / "t.md"
+        text = out.read_text(encoding="utf-8")
+        for sec in ("真实问题重述", "目标价值", "范围约束", "成功标准验收包"):
+            assert f"## {sec}" in text
+        assert "年化显示 9529.8% 异常（证实；证据指针 x.py:1；confidence=高）" in text
+        assert "## 裁决记录" in text and "用户认可" in text
+        assert "## 未选定与接续" in text and "H3 剔除" in text
+        # CONTAINS 机械门对象全满足（节名单源 ARTIFACT_SECTIONS）
+        for sec in eng.ARTIFACT_SECTIONS["understand.md"]:
+            assert sec in text
+
+    def test_understand_md_missing_source_rejected(self, tmp_path):
+        _write_evidence(tmp_path, "t", [self._stmt_trace("ProblemContext", 5, ["x"])])
+        ok, msg = eng.render_artifact(tmp_path, "t", "understand.md")
+        assert not ok and "GoalsAndValue" in msg and "装配源" in msg
+        assert not (tmp_path / ".claude" / "understands" / "t.md").exists()
+
+    def test_plan_md_partial_assembly_tolerated(self, tmp_path):
+        # plan:2 装配时点后两节源不存在——渲染已有节并点名跳过（幂等覆盖）
+        _write_evidence(
+            tmp_path,
+            "t",
+            [
+                self._stmt_trace("TaskBreakdown", 4, ["步骤1 修模板"]),
+                self._qa_trace(
+                    "TaskBreakdown", 5, [("裁决：阶段拍板", "用户拍板 3 阶段")]
+                ),
+            ],
+        )
+        ok, msg = eng.render_artifact(tmp_path, "t", "plan.md")
+        assert ok, msg
+        assert "跳过缺源节" in msg
+        text = (tmp_path / ".claude" / "plans" / "t.md").read_text(encoding="utf-8")
+        assert "## 执行步骤" in text and "步骤1 修模板" in text
+        assert "## 能力与工具" not in text
+        assert "用户拍板 3 阶段" in text
+
+    def test_plan_md_idempotent_regrowth(self, tmp_path):
+        # plan:3 再跑：两节齐备（幂等覆盖不丢前节）
+        self.test_plan_md_partial_assembly_tolerated(tmp_path)
+        ev = eng._evidence_path(tmp_path, "t")
+        with ev.open("a", encoding="utf-8") as f:
+            f.write(self._stmt_trace("CapabilityToolSelection", 5, ["能力包 X"]) + "\n")
+        ok, _ = eng.render_artifact(tmp_path, "t", "plan.md")
+        assert ok
+        text = (tmp_path / ".claude" / "plans" / "t.md").read_text(encoding="utf-8")
+        assert "## 执行步骤" in text and "## 能力与工具" in text
+
+    def test_unsupported_basename_rejected(self, tmp_path):
+        ok, msg = eng.render_artifact(tmp_path, "t", "design.md")
+        assert not ok and "动态文件名" in msg
+
+    def test_old_format_qa_readback_items_collected(self, tmp_path):
+        # q/a 平行数组形态（append-trace 实际落库形态）的裁决项也能收
+        self._full_understand_evidence(tmp_path)
+        ok, _ = eng.render_artifact(tmp_path, "t", "understand.md")
+        assert ok
+        text = (tmp_path / ".claude" / "understands" / "t.md").read_text(
+            encoding="utf-8"
+        )
+        assert "【裁决：who 与目标】用户认可" in text
