@@ -94,14 +94,14 @@ class TestEvidenceBlockExamples:
 
     def test_good_bad_examples_present(self):
         ctx = wp._format_injection(_state(3), PROJECT_ROOT)
-        assert "✓ 正例" in ctx
+        assert "骨架（推荐）" in ctx
         assert "✗ 反例（必 block）" in ctx
 
     def test_payload_schema_and_append_trace_command(self):
         # v2.14：载荷只含 purpose/q/a；结构字段脚本从 state 填（不再注入给模型照抄）
         ctx = wp._format_injection(_state(3), PROJECT_ROOT)
-        assert '"purpose":"<该步目的>"' in ctx
-        assert ".trace-payload-demo.json" in ctx
+        assert "【purpose】" in ctx  # v2.58 标记文本载荷（模型零接触 JSON）
+        assert ".trace-payload-demo.md" in ctx
         assert "append-trace" in ctx
         assert "脚本从 state 自动填" in ctx
 

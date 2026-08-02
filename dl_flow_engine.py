@@ -2417,57 +2417,53 @@ def _source_step_index(step, cur: int) -> int | None:
 
 
 def payload_format_hint(step) -> list[str]:
-    """注入用载荷示例行（按步 record_format；单源，phase hook 直接渲染）。"""
+    """注入用载荷格式说明行（按步 record_format；单源，phase hook 直接渲染）。
+
+    v2.58：载荷格式从 JSON 换成分节标记文本——模型零接触 JSON（Edit 填
+    JSON 会被内容里的 ASCII 引号弄崩；四桶分工「脚本管格式」的正治）。
+    """
+    head = [
+        "   载荷 = 分节标记文本（.md，零转义——内容随便带引号/换行/代码，"
+        "格式全归脚本；标头独占一行顶格写）：",
+        "   骨架（推荐）：`python3 ~/.dl-workflow/dl_flow_engine.py append-trace "
+        "--scaffold` 生成 .md 骨架，把所有「待填」换成内容后 "
+        "append-trace --from-file <骨架路径>",
+    ]
     if getattr(step, "record_format", "qa") == "statements":
         req = getattr(step, "statement_fields", ()) or ()
-        fields_seg = ""
-        fields_note = ""
-        if req:
-            fields_seg = ',"fields":{' + ",".join(f'"{k}":"<{k}>"' for k in req) + "}"
-            fields_note = (
-                "；fields 逐键非空（"
-                + "/".join(req)
-                + "）——字段齐备由 append-trace 机械校验，缺键即拒"
-            )
-        return [
-            "   骨架（推荐）：`python3 ~/.dl-workflow/dl_flow_engine.py append-trace "
-            "--scaffold` 生成可填载荷骨架——格式脚本管，你只把「待填」换成内容",
-            '   {"purpose":"<该步目的>","statements":[{"text":"<单句陈述>",'
-            '"type_label":"<类型标签>","boundary":"<边界/实现指针>"'
-            + fields_seg
-            + "}]}（逐项一个对象；text 只许 outcome-level——实现侧名词/file:line "
-            "只能进 boundary，text 会被机械扫描打回" + fields_note + "）",
-            '   ✓ 正例："statements":[{"text":"因子卡片年化数字允许被更新",'
-            '"type_label":"in","boundary":"实现指针：web_ui/templates/_macros.html"}]',
+        fields_seg = "".join(f"【fields.{k}】" for k in req)
+        fields_note = (
+            "；fields 逐键非空（" + "/".join(req) + "）——缺键 append-trace 当场拒"
+            if req
+            else ""
+        )
+        return head + [
+            "   【purpose】<该步目的> →【statements】→ 逐项 "
+            f"【text】<单句陈述>【type_label】<类型标签>【boundary】<边界/实现指针>{fields_seg}"
+            "（text 只许 outcome-level——实现侧名词/file:line 只能进 boundary，"
+            "text 会被机械扫描打回" + fields_note + "）",
             "   ✗ 反例（必拒）：text 含文件名/类名（挪 boundary）；"
-            "或照抄 `<...>` 占位符字面",
+            "或残留「待填」占位符（漏填当场拒）",
         ]
     extra = getattr(step, "extra_payload_keys", ()) if step is not None else ()
-    segs = []
+    seen = []
     for e in extra:
-        k, spec = e[0], e[1]
-        if isinstance(spec, str):
-            # v2.40 数组型键（逐项校验注册表）：精确结构见本步 purpose
-            segs.append(f',"{k}":[<逐项对象数组——结构见本步 purpose>]')
-        else:
-            segs.append(f',"{k}":"<{"/".join(spec)} 开头+逐句出处>"')
-    extra_seg = "".join(segs)
+        if e[0] not in seen:
+            seen.append(e[0])
+    extra_seg = "".join(f" →【{k}】" for k in seen)
     extra_note = (
-        "；顶层还须含 "
-        + "/".join(e[0] for e in extra)
-        + " 键（append-trace 机械校验存在性与格式，缺键/格式错当场拒）"
+        "；"
+        + "/".join(seen)
+        + " 键 append-trace 机械校验存在性与格式，缺键/格式错当场拒"
         if extra
         else ""
-    )
-    return [
-        "   骨架（推荐）：`python3 ~/.dl-workflow/dl_flow_engine.py append-trace "
-        "--scaffold` 生成可填载荷骨架——格式脚本管，你只把「待填」换成内容",
-        '   {"purpose":"<该步目的>","qa":[{"q":"<q1>","a":"<a1>"}]' + extra_seg + "}"
-        "（一问一答配对成对象——不对齐在结构上不可表示）" + extra_note,
-        '   ✓ 正例："qa":[{"q":"who=当前提问者身份？",'
-        '"a":"用户原话：「我是唯一维护者」（本会话）"}]',
-        '   ✗ 反例（必 block）："qa":[{"q":"理解问题","a":"已理解"}]'
-        "（汇总声明非记录）；或照抄 `<...>` 占位符字面",
+    ) + "（逐项结构见本步 purpose）"
+    return head + [
+        "   【purpose】<该步目的> →【qa】→ 逐项【q】<问题>【a】<答案>"
+        + extra_seg
+        + extra_note,
+        "   ✗ 反例（必 block）：【a】写「已理解」式汇总声明（非记录）；"
+        "或残留「待填」占位符（漏填当场拒）",
     ]
 
 
@@ -3058,16 +3054,126 @@ _MECH_QA_CHECKS = {
 }
 
 
-def scaffold_payload(project_root: Path, name: str) -> tuple[bool, str]:
-    """append-trace --scaffold：当前子步骤载荷骨架生成并落盘钉死路径（v2.57）。
+_MD_HEADER_RE = re.compile(r"^【([^】]+)】\s*$")
+_MD_ITEM_FIELDS = frozenset(
+    {"q", "a", "text", "type_label", "boundary", "tier", "tier_reason"}
+)
 
-    动机（2026-08-02 tail_volume_acceleration_annualized u:1 审计）：模型手写
-    全量 JSON 载荷出语法错（Extra data char 3895）白烧一轮——§3.6 #10
-    自检信号：语法错误不该归「模型基本功」，杠杆=脚本生成骨架（redteam-prompt
-    「AI 定内容脚本管格式」同款）。骨架由 json.dumps 产出保证可解析；占位符
-    统一用「待填」——_placeholder_hit 全局扫描兜底，漏填任何字段都过不了
-    append-trace（漏填在结构上不可提交）。
-    落盘路径钉死 evidence/.trace-payload-<name>.json（v2.42 同款纪律：路径
+
+class _MdErr(Exception):
+    """标记文本解析错误（fail loud 给模型指路）。"""
+
+
+def _parse_trace_md(raw: str, step) -> tuple[dict | None, str | None]:
+    """分节标记文本 -> 载荷 dict（v2.58：模型零接触 JSON 的正治）。
+
+    四桶分工（AI 定写什么/脚本定怎么写）的兑现：v2.57 scaffold 只缩小了
+    JSON 接触面——Edit 填内容时 ASCII 双引号/反斜杠照样崩 JSON（真实
+    trace 含 f"{val*100:.2f}%" 类代码原文）。标记文本零转义：内容随便带
+    引号/换行/代码，序列化全归脚本。
+    格式：标头独占一行（顶格）；【purpose】/【qa】/【q】/【a】/【statements】/
+    【text】/【type_label】/【boundary】/【fields.<k>】/【结论】等声明键。
+    数组键（qa/statements/atomic_questions）内首个字段标头重复 = 新一项；
+    标量键（purpose/结论）收文本到下一标头。内容行想以【开头：缩进一格即
+    不算标头（逃生口）。
+    """
+    array_keys: set[str] = set()
+    scalar_keys = {"purpose"}
+    if getattr(step, "record_format", "qa") == "statements":
+        array_keys.add("statements")
+    else:
+        array_keys.add("qa")
+    for e in getattr(step, "extra_payload_keys", ()):
+        k, spec = e[0], e[1]
+        if isinstance(spec, str):
+            array_keys.add(k)
+        else:
+            scalar_keys.add(k)
+
+    payload: dict = {}
+    key: str | None = None  # 当前顶层键
+    item: dict | None = None  # 当前数组项
+    field: str | None = None  # 当前项内字段
+    first_field: dict[str, str] = {}  # 数组键 -> 首字段名（重复=新一项）
+    buf: list[str] = []
+
+    def _flush() -> None:
+        nonlocal buf
+        val = "\n".join(buf).strip("\n")
+        buf = []
+        if key is None:
+            if val.strip():
+                raise _MdErr("首个标头前有多余内容——从【purpose】开始")
+            return
+        if key in array_keys:
+            if item is None or field is None:
+                if val.strip():
+                    raise _MdErr(
+                        f"【{key}】节内须先给字段标头（如【q】/【text】）再写内容"
+                    )
+                return
+            if field.startswith("fields."):
+                item.setdefault("fields", {})[field.split(".", 1)[1]] = val
+            else:
+                item[field] = val
+        else:
+            payload[key] = val
+
+    try:
+        for ln in raw.splitlines():
+            m = None if ln[:1] in (" ", "\t") else _MD_HEADER_RE.match(ln)
+            if not m:
+                # 逃生口：缩进 + 【 开头 = 内容（剥掉转义缩进）
+                if ln[:1] in (" ", "\t") and ln.lstrip()[:1] == "【":
+                    ln = ln.lstrip()
+                buf.append(ln)
+                continue
+            h = m.group(1).strip()
+            _flush()
+            if h in scalar_keys:
+                if h in payload:
+                    raise _MdErr(f"标头【{h}】重复——同一键只写一次")
+                key, item, field = h, None, None
+            elif h in array_keys:
+                key, item, field = h, None, None
+                payload.setdefault(h, [])
+            elif h in _MD_ITEM_FIELDS or h.startswith("fields."):
+                if key not in array_keys:
+                    raise _MdErr(
+                        f"【{h}】是数组项字段标头，须写在数组键节内"
+                        f"（{'/'.join(sorted(array_keys))}），当前节=【{key}】"
+                    )
+                ff = first_field.setdefault(key, h)
+                if h == ff:
+                    item = {}
+                    payload[key].append(item)
+                elif item is None:
+                    raise _MdErr(f"【{key}】节每项都须以【{ff}】开头")
+                field = h
+            else:
+                raise _MdErr(
+                    f"未知标头【{h}】——本步合法标头："
+                    + "/".join(f"【{x}】" for x in sorted(scalar_keys | array_keys))
+                    + " + 数组项字段【q】【a】/【text】【type_label】【boundary】"
+                    "（内容行想以【开头：缩进一格即不算标头）"
+                )
+        _flush()
+    except _MdErr as e:
+        return None, str(e)
+    return payload, None
+
+
+def scaffold_payload(project_root: Path, name: str) -> tuple[bool, str]:
+    """append-trace --scaffold：当前子步骤载荷骨架生成并落盘钉死路径。
+
+    v2.57 动机（2026-08-02 tail_volume_acceleration_annualized u:1 审计）：
+    模型手写全量 JSON 载荷出语法错（Extra data char 3895）白烧一轮——
+    §3.6 #10 自检信号：语法错误不该归「模型基本功」，杠杆=脚本生成骨架。
+    v2.58 正治：骨架从 JSON 换成分节标记文本（.md，零转义）——Edit 填
+    JSON 仍会被内容里的 ASCII 引号弄崩（四桶分工没贯彻到底的半吊子），
+    标记文本让模型全程零接触序列化格式。占位符统一用「待填」——
+    _placeholder_hit 全局扫描兜底，漏填任何字段都过不了 append-trace。
+    落盘路径钉死 evidence/.trace-payload-<name>.md（v2.42 同款纪律：路径
     归脚本不归模型自选）；已存在载荷拒覆盖（防抹掉在写工作）。
     """
     state = load_state(project_root, name)
@@ -3085,44 +3191,38 @@ def scaffold_payload(project_root: Path, name: str) -> tuple[bool, str]:
     if step is None:
         return False, f"子步骤 {cur} 不存在"
 
-    skeleton: dict = {"purpose": "待填：本步目的/本轮做了什么（一句话）"}
+    parts = ["【purpose】\n待填：本步目的/本轮做了什么（一句话）"]
     if getattr(step, "record_format", "qa") == "statements":
-        item: dict = {
-            "text": "待填：单句陈述（outcome 层，禁实现侧名词/file:line）",
-            "type_label": "待填：类型标签（如 in/out）",
-            "boundary": "待填：边界/实现指针",
-        }
-        req = getattr(step, "statement_fields", ()) or ()
-        if req:
-            item["fields"] = {k: f"待填：{k}" for k in req}
-        skeleton["statements"] = [item]
+        seg = (
+            "【statements】\n【text】\n待填：单句陈述（outcome 层，禁实现侧名词/file:line）"
+            "\n【type_label】\n待填：类型标签（如 in/out）\n【boundary】\n待填：边界/实现指针"
+        )
+        for k in getattr(step, "statement_fields", ()) or ():
+            seg += f"\n【fields.{k}】\n待填：{k}"
+        parts.append(seg)
     else:
-        skeleton["qa"] = [
-            {
-                "q": "待填：问题1",
-                "a": "待填：答案1（用户原话/会话事实/证据指针 file:line）",
-            }
-        ]
+        parts.append(
+            "【qa】\n【q】\n待填：问题1\n【a】\n待填：答案1（用户原话/会话事实/证据指针 file:line）"
+        )
+    seen: set[str] = set()
     for e in getattr(step, "extra_payload_keys", ()):
         k, spec = e[0], e[1]
-        if k in skeleton:
+        if k in seen:
             continue  # 同键多 spec（fetch_tier_items + atomic_mece_alignment）只取首个
+        seen.add(k)
         if isinstance(spec, str):
-            # 数组型键（注册表逐项校验）：骨架给一项示例对象（u:1 子2 分档清单）
             if spec == "fetch_tier_items":
-                skeleton[k] = [
-                    {
-                        "q": "待填：原子问题（与 MECE 声明标签一一对应）",
-                        "tier": "待填：none|light|full（拿不准标 light）",
-                        "tier_reason": "待填：分档理由（none 档须含仓内路径）",
-                    }
-                ]
+                parts.append(
+                    f"【{k}】\n【q】\n待填：原子问题（与 MECE 声明标签一一对应）"
+                    "\n【tier】\n待填：none|light|full（拿不准标 light）"
+                    "\n【tier_reason】\n待填：分档理由（none 档须含仓内路径）"
+                )
             else:
-                skeleton[k] = [{"q": "待填"}]
+                parts.append(f"【{k}】\n【q】\n待填")
         else:
-            skeleton[k] = f"待填：{'/'.join(spec)} 开头+逐句出处"
+            parts.append(f"【{k}】\n待填：{'/'.join(spec)} 开头+逐句出处")
 
-    out = _evidence_path(project_root, name).parent / f".trace-payload-{name}.json"
+    out = _evidence_path(project_root, name).parent / f".trace-payload-{name}.md"
     if out.exists():
         return False, (
             f"载荷已存在：{out}——直接在它上面填内容（Edit），或删除后重跑 "
@@ -3130,14 +3230,13 @@ def scaffold_payload(project_root: Path, name: str) -> tuple[bool, str]:
         )
     try:
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(
-            json.dumps(skeleton, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        out.write_text("\n\n".join(parts) + "\n", encoding="utf-8")
     except OSError as e:
         return False, f"写骨架失败：{e}"
     return True, (
         f"✓ 骨架已生成 {out}（子步骤 {cur} {step.ref}）——"
-        "把所有「待填」换成实际内容（漏填会被占位符扫描当场拒），"
+        "把所有「待填」换成实际内容（漏填会被占位符扫描当场拒；"
+        "内容随便带引号/换行/代码，格式全归脚本），"
         f"然后 Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace --from-file {out}`"
     )
 
@@ -3178,9 +3277,16 @@ def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool
     except OSError as e:
         return False, f"读载荷失败：{e}（先用 Write 写载荷文件再调 append-trace）"
     try:
-        payload = json.loads(raw)
+        payload = json.loads(raw) if pf.suffix != ".md" else None
     except json.JSONDecodeError as e:
-        return False, f"载荷不是合法 JSON：{e}（载荷只需普通 JSON，Write 原样写即可）"
+        return False, (
+            f"载荷不是合法 JSON：{e}——推荐改用标记文本载荷（.md，零转义）："
+            "append-trace --scaffold 生成骨架，内容随便带引号/换行/代码"
+        )
+    if pf.suffix == ".md":
+        payload, md_err = _parse_trace_md(raw, step)
+        if md_err:
+            return False, f"载荷标记文本解析失败：{md_err}"
     if not isinstance(payload, dict):
         return False, '载荷须是 JSON 对象：{"purpose":..., "qa":[{"q":..., "a":...}]}'
     leaked = [k for k in _TRACE_STRUCT_FIELDS if k in payload]
@@ -3719,12 +3825,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--cwd", help="覆盖 cwd（默认进程 cwd）")
     parser.add_argument(
-        "--from-file", help="append-trace 的载荷文件路径（Write 写的 purpose/qa JSON）"
+        "--from-file",
+        help="append-trace 的载荷文件路径（.md 分节标记文本[推荐，零转义] 或 .json）",
     )
     parser.add_argument(
         "--scaffold",
         action="store_true",
-        help="append-trace：生成当前子步骤载荷骨架到 evidence/.trace-payload-<name>.json 并打印路径（v2.57——骨架脚本管格式，模型只填内容）",
+        help="append-trace：生成当前子步骤 .md 载荷骨架到 evidence/.trace-payload-<name>.md 并打印路径（格式脚本管，模型只填「待填」）",
     )
     parser.add_argument(
         "--out",

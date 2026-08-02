@@ -393,10 +393,11 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
         # §autocontinue-fence-notice：文案单源在 engine（pass/block 续轮共用）。
         if cur is not None:
             lines.append("  " + engine.engagement_fence_notice(cur))
-        # evidence 写法（v2.14 append-trace：AI 定内容，脚本管格式/路径/结构字段）
+        # evidence 写法（v2.14 append-trace：AI 定内容，脚本管格式/路径/结构字段；
+        # v2.58 标记文本载荷——模型零接触 JSON）
         if project_root is not None:
             ev_dir = f"{project_root}/.claude/evidence"
-            payload_path = f"{ev_dir}/.trace-payload-{name}.json"
+            payload_path = f"{ev_dir}/.trace-payload-{name}.md"
             fields_word = (
                 getattr(cur, "record_format", "qa") if cur is not None else "qa"
             )
@@ -404,7 +405,8 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
                 "  evidence 记录（record 步必写，两动作——你定内容，脚本管格式）："
             )
             lines.append(
-                f"   ① Write 载荷到 `{payload_path}`（只含 purpose 与 {fields_word} 内容字段；"
+                f"   ① 写载荷到 `{payload_path}`（分节标记文本，只含 purpose 与 "
+                f"{fields_word} 内容字段；"
                 "kind/major_stage/minor_stage/sub_step/skill 由脚本从 state 自动填，不要写）："
             )
             # v2.27：示例按当前步 record_format 渲染（qa 配对 / statements 陈述集）

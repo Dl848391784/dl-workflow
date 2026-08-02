@@ -7080,76 +7080,168 @@ class TestArtifactSectionsSync:
         )
 
 
-class TestScaffoldPayload:
-    """v2.57 append-trace --scaffold：载荷骨架生成（语法错误结构上不可表示）。
+class TestTraceMdParser:
+    """v2.58 分节标记文本载荷（模型零接触 JSON，四桶分工正治）。
 
-    动机（2026-08-02 tail_volume u:1 审计）：模型手写全量 JSON 载荷出
-    「Extra data char 3895」语法错白烧一轮——格式归脚本，模型只填内容。
-    骨架 json.dumps 产出保证可解析；占位符「待填」被 _placeholder_hit
-    全局扫描兜底，漏填不可提交。
+    v2.57 scaffold 是半吊子：Edit 填 JSON 仍会被内容里的 ASCII 双引号
+    弄崩（真实 trace 含 f"{val*100:.2f}%" 类代码原文）。标记文本零转义，
+    序列化全归脚本。
+    """
+
+    def _step(self, phase, sub, idx):
+        return eng.get_node(phase, sub).sub_steps[idx]
+
+    def test_qa_with_quotes_code_newlines(self):
+        # 核心场景：内容带 ASCII 双引号/代码/多行——零转义原样进 dict
+        step = self._step("understand", 1, 0)
+        md = (
+            "【purpose】\n逼问问题定义\n\n【qa】\n【q】\nwho=身份？\n【a】\n"
+            '未自述。代码原文 f"{val * 100:.2f}%"（formatters.py:92）\n第二行'
+            "依然属于同一字段\n【结论】\n①问题成立。主语=未自述身份。"
+        )
+        payload, err = eng._parse_trace_md(md, step)
+        assert err is None
+        assert payload["purpose"] == "逼问问题定义"
+        assert payload["qa"] == [
+            {
+                "q": "who=身份？",
+                "a": '未自述。代码原文 f"{val * 100:.2f}%"（formatters.py:92）\n第二行依然属于同一字段',
+            }
+        ]
+        assert payload["结论"].startswith("①")
+
+    def test_multi_items_and_tier_fields(self):
+        step = self._step("understand", 1, 1)
+        md = (
+            "【purpose】\np\n【qa】\n【q】\nq1\n【a】\na1\n【q】\nq2\n【a】\na2\n"
+            "【atomic_questions】\n【q】\nA. 问题\n【tier】\nlight\n"
+            "【tier_reason】\n外部锚点\n【q】\nB. 问题2\n【tier】\nnone\n"
+            "【tier_reason】\nx.py:1"
+        )
+        payload, err = eng._parse_trace_md(md, step)
+        assert err is None
+        assert [it["q"] for it in payload["qa"]] == ["q1", "q2"]
+        assert [it["tier"] for it in payload["atomic_questions"]] == ["light", "none"]
+
+    def test_statements_with_fields(self):
+        step = self._step("understand", 3, 3)
+        md = (
+            "【purpose】\np\n【statements】\n【text】\n年化数字允许被更新\n"
+            "【type_label】\nin\n【boundary】\n实现指针：_macros.html"
+        )
+        payload, err = eng._parse_trace_md(md, step)
+        assert err is None
+        assert payload["statements"][0]["text"] == "年化数字允许被更新"
+
+    def test_unknown_header_rejected(self):
+        step = self._step("understand", 1, 0)
+        _, err = eng._parse_trace_md(
+            "【purpose】\np\n【qa】\n【q】\nx\n【a】\ny\n【结伦】\n①", step
+        )
+        assert err and "未知标头" in err and "【结论】" in err  # 指路列出合法标头
+
+    def test_preamble_rejected(self):
+        step = self._step("understand", 1, 0)
+        _, err = eng._parse_trace_md("垃圾前奏\n【purpose】\np", step)
+        assert err and "首个标头" in err
+
+    def test_field_header_outside_array_rejected(self):
+        step = self._step("understand", 1, 0)
+        _, err = eng._parse_trace_md("【purpose】\np\n【q】\nx", step)
+        assert err and "字段标头" in err
+
+    def test_scalar_repeat_rejected(self):
+        step = self._step("understand", 1, 0)
+        _, err = eng._parse_trace_md("【purpose】\np\n【purpose】\np2", step)
+        assert err and "重复" in err
+
+    def test_indented_bracket_line_is_content(self):
+        # 逃生口：缩进的【行不算标头
+        step = self._step("understand", 1, 0)
+        md = "【purpose】\np\n【qa】\n【q】\nx\n【a】\n  【q】缩进后是内容"
+        payload, err = eng._parse_trace_md(md, step)
+        assert err is None and payload["qa"][0]["a"] == "【q】缩进后是内容"
+
+
+class TestScaffoldPayload:
+    """append-trace --scaffold 载荷骨架（v2.57 起；v2.58 换 .md 标记文本）。
+
+    骨架占位符「待填」被 _placeholder_hit 全局扫描兜底，漏填不可提交。
     """
 
     def test_scaffold_qa_step_with_extra_keys(self, tmp_path):
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
         ok, msg = eng.scaffold_payload(tmp_path, "t")
         assert ok, msg
-        out = tmp_path / ".claude" / "evidence" / ".trace-payload-t.json"
-        skel = json.loads(out.read_text(encoding="utf-8"))  # 可解析=格式正确
-        assert skel["purpose"].startswith("待填")
-        assert skel["qa"] == [
-            {
-                "q": "待填：问题1",
-                "a": "待填：答案1（用户原话/会话事实/证据指针 file:line）",
-            }
-        ]
-        assert skel["结论"].startswith("待填：①/②")  # extra_payload_keys 进骨架
+        out = tmp_path / ".claude" / "evidence" / ".trace-payload-t.md"
+        text = out.read_text(encoding="utf-8")
+        assert "【purpose】" in text and "【qa】" in text and "【结论】" in text
+        # 骨架自身可被解析器读回（格式自洽）
+        step = eng.get_node("understand", 1).sub_steps[0]
+        payload, err = eng._parse_trace_md(text, step)
+        assert err is None and payload["qa"][0]["q"].startswith("待填")
 
     def test_scaffold_tier_items_shape(self, tmp_path):
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=2)
         ok, msg = eng.scaffold_payload(tmp_path, "t")
         assert ok, msg
-        out = tmp_path / ".claude" / "evidence" / ".trace-payload-t.json"
-        skel = json.loads(out.read_text(encoding="utf-8"))
-        aq = skel["atomic_questions"][0]
-        assert set(aq) == {"q", "tier", "tier_reason"}
+        out = tmp_path / ".claude" / "evidence" / ".trace-payload-t.md"
+        step = eng.get_node("understand", 1).sub_steps[1]
+        payload, err = eng._parse_trace_md(out.read_text(encoding="utf-8"), step)
+        assert err is None
+        assert set(payload["atomic_questions"][0]) == {"q", "tier", "tier_reason"}
 
     def test_scaffold_statements_step_with_fields(self, tmp_path):
         _write_state_full(tmp_path, "t", "understand", 3, sub_step=4)
         ok, msg = eng.scaffold_payload(tmp_path, "t")
         assert ok, msg
-        out = tmp_path / ".claude" / "evidence" / ".trace-payload-t.json"
-        skel = json.loads(out.read_text(encoding="utf-8"))
-        item = skel["statements"][0]
-        assert {"text", "type_label", "boundary"} <= set(item)
+        out = tmp_path / ".claude" / "evidence" / ".trace-payload-t.md"
+        step = eng.get_node("understand", 3).sub_steps[3]
+        payload, err = eng._parse_trace_md(out.read_text(encoding="utf-8"), step)
+        assert err is None
+        assert {"text", "type_label", "boundary"} <= set(payload["statements"][0])
 
     def test_scaffold_refuses_overwrite(self, tmp_path):
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
-        out = tmp_path / ".claude" / "evidence" / ".trace-payload-t.json"
+        out = tmp_path / ".claude" / "evidence" / ".trace-payload-t.md"
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text('{"purpose":"在写工作"}', encoding="utf-8")
+        out.write_text("【purpose】\n在写工作\n", encoding="utf-8")
         ok, msg = eng.scaffold_payload(tmp_path, "t")
         assert not ok and "已存在" in msg
-        assert json.loads(out.read_text(encoding="utf-8"))["purpose"] == "在写工作"
+        assert "在写工作" in out.read_text(encoding="utf-8")
 
     def test_scaffold_unfilled_rejected_by_placeholder_scan(self, tmp_path):
-        # 漏填在结构上不可提交：骨架原样 append 被占位符扫描当场拒
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
         ok, _ = eng.scaffold_payload(tmp_path, "t")
         assert ok
-        out = tmp_path / ".claude" / "evidence" / ".trace-payload-t.json"
+        out = tmp_path / ".claude" / "evidence" / ".trace-payload-t.md"
         ok, msg = eng.append_trace(tmp_path, "t", str(out))
         assert not ok and "待填" in msg and "占位" in msg
 
     def test_scaffold_fill_and_append_happy_path(self, tmp_path):
-        # 端到端：骨架 -> 填内容 -> append 成功（记录进 evidence）
+        # 端到端：骨架 -> Edit 填内容（含 ASCII 引号代码，JSON 时代会崩的形态）
+        # -> append 成功
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
         ok, _ = eng.scaffold_payload(tmp_path, "t")
         assert ok
-        out = tmp_path / ".claude" / "evidence" / ".trace-payload-t.json"
-        skel = json.loads(out.read_text(encoding="utf-8"))
-        skel["purpose"] = "逼问问题定义"
-        skel["qa"] = [{"q": "who=当前提问者身份？", "a": "未自述身份。"}]
-        skel["结论"] = "①问题成立。具体主语 = 未自述身份（who=未自述）。"
-        out.write_text(json.dumps(skel, ensure_ascii=False), encoding="utf-8")
+        out = tmp_path / ".claude" / "evidence" / ".trace-payload-t.md"
+        text = out.read_text(encoding="utf-8")
+        text = text.replace("待填：本步目的/本轮做了什么（一句话）", "逼问问题定义")
+        text = text.replace("待填：问题1", "who=当前提问者身份？")
+        text = text.replace(
+            "待填：答案1（用户原话/会话事实/证据指针 file:line）",
+            '未自述身份。代码原文 f"{val * 100:.2f}%"（formatters.py:92）',
+        )
+        text = text.replace(
+            "待填：①/② 开头+逐句出处",
+            "①问题成立。具体主语 = 未自述身份（who=未自述）。",
+        )
+        out.write_text(text, encoding="utf-8")
         ok, msg = eng.append_trace(tmp_path, "t", str(out))
         assert ok, msg
+        rec = json.loads(
+            (tmp_path / ".claude" / "evidence" / "t.jsonl")
+            .read_text(encoding="utf-8")
+            .strip()
+        )
+        assert 'f"{val * 100:.2f}%"' in rec["a"][0]  # 引号零转义落库

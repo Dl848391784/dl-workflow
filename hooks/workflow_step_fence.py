@@ -279,7 +279,7 @@ def main() -> int:
             same = False
         if same:
             _log_deny(project_root, name, "evidence_direct_write_deny", f"tool={tool}")
-            payload_path = f"{project_root}/.claude/evidence/.trace-payload-{name}.json"
+            payload_path = f"{project_root}/.claude/evidence/.trace-payload-{name}.md"
             return _deny(
                 "evidence 落库走 append-trace（你定内容，脚本管格式/路径/结构字段）：\n"
                 "① Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace --scaffold`"
