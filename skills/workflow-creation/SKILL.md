@@ -9,7 +9,7 @@ version: 2.5
 > 建工作流 + 运行诊断手册的**瘦路由**。系统全景在本文件；重型参考拆在 `references/`，**命中下方路由表才 Read 对应文件，不预读全部**（base directory 即本目录）。真源 = `~/.dl-workflow/designs/workflow-system-design.md`。
 > **dl-workflow 版本核心事实**：跨所有项目生效，装在**用户级**。两类 artifacts 装法不同：
 > - **skill / output-style / command**：`install.sh` **copy** 到 `~/.claude/`（Claude Code 硬编码加载路径）。改后跑 `install.sh` 重 copy + 重启会话加载。
-> - **hooks（4 个 .py）**：**不 copy**，`settings.json` 直接引用 `~/.dl-workflow/hooks/*.py` 源（shell 执行时展开 `~`）。改 hook 源后 `git pull` 即生效，**连 `install.sh` 都不用，更无需重建 worktree**——这是与 v1.x 项目内嵌版本的关键差别（v1.x 里 hook 是 worktree 内 git 快照，改后必须 commit + 重建 worktree）。
+> - **hooks（5 个 .py）**：**不 copy**，`settings.json` 直接引用 `~/.dl-workflow/hooks/*.py` 源（shell 执行时展开 `~`）。改 hook 源后 `git pull` 即生效，**连 `install.sh` 都不用，更无需重建 worktree**——这是与 v1.x 项目内嵌版本的关键差别（v1.x 里 hook 是 worktree 内 git 快照，改后必须 commit + 重建 worktree）。
 
 ## 0. 系统全景（5 秒理解）
 
@@ -25,6 +25,7 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
      │     ⚠ 注入走 attachment，部分模型（ark-code-latest）收不到；output-style 已加 fallback：看不到注入时模型用 Bash 跑 dl-cmd.sh status 自取阶段（allowlist 免提示）。见症状 D
      ├─ ~/.dl-workflow/hooks/workflow_advance.py (Stop) -> 委托 dl_flow_engine.run_gate（机械+judge）；检完成信号(### PHASE_DONE/SUB_DONE) -> pass 推进 / block 返 additionalContext 续轮(模型自动重试)；有 sub_steps 节点走 gate_sub_step_at_stop（evidence hash 触发，症状 J）
      ├─ ~/.dl-workflow/hooks/workflow_step_fence.py (PreToolUse) -> S15 前置参与围栏（零 trace 窗口白名单，为用户任务探查首调即 deny 指回编排，症状 O）+ S10 步骤围栏：当前子步骤有未判决 trace 时 deny 一切工具调用（逼模型 STEP_DONE+end_turn）；开关 state.enforce_step_fence（/dl fence on|off，实时生效）
+     ├─ ~/.dl-workflow/hooks/workflow_session.py (SessionStart) -> /clear/startup 且工作流有 trace 时注入交接包（engine.handoff_pack：前序证据+用户裁决+产物指针；resume/compact 不注入）——上下文交接架构（designs/context-handoff-design.md，v2.45）：会话不重置则 token 成本=轮次×单调涨的上下文=平方膨胀；pass 续轮超 150k 阈值附 /clear nudge（纯建议）。正确性前置=读回步 user_decision_recorded 机械校验（裁决必入 trace）
      ├─ ~/.dl-workflow/dl_flow_engine.py (编排内核,被 hook 咨询) -> 节点树+gate判据+推进 唯一真源；gate-pass 时 write_gate_verdict 写 kind=gate 裁决记录到 evidence/<name>.jsonl（替代旧 ### EVIDENCE 溯源，§8.6c）
      └─ /dl status|next|back|jump|gate|done  → ~/.dl-workflow/scripts/workflow/dl-cmd.sh
 ```
@@ -84,6 +85,7 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
 - "工具被围栏拒绝 / PreToolUse deny / 围栏没拦" → references/diagnostics.md 症状 O
 - "门栏 / 闸门 / 扣留 / 停在某阶段不走 / 改围栏位置（哪个围栏？先消歧：工具围栏=症状 O；推进围栏=门栏/闸门）" → references/diagnostics.md 症状 M「门栏/闸门位置变更专项」
 - "跑太慢 / 耗时长 / token 消耗大 / 程序应该毫秒级 / 成本审计" → references/diagnostics.md 症状 R
+- "上下文越来越大 / token 平方膨胀 / 交接 /clear / 会话重置接续" → designs/context-handoff-design.md（v2.45 交接架构）
 - "工具调用挂起 / 会话卡死不动 / step-pass 没反应 / tool_use 无返回" → references/diagnostics.md 症状 S
 - "审计这轮运行 / 符合预期吗 / 哪些 error 返工可避免 / judge 输入膨胀 / 重建丢弃" → references/rubric-design.md §3.6
 - "设计新编排节点 / 拆几个子步骤 / 每步什么目的 / 要不要取证步 / 步数怎么定 / 代码设计拆步 / 拆解任务 / 任务切分 / 执行计划 plan.md" → references/node-design.md §3.8
