@@ -45,6 +45,7 @@ from dl_flow_nodes import (
     GATED_AFTER,
     PHASES,
     PHASE_LABELS,
+    SECTIONS_TEXT,  # noqa: F401  # re-export：hooks 注入经 eng.SECTIONS_TEXT 访问
     GateMech,
     Node,
     Step,

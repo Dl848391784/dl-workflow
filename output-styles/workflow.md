@@ -59,11 +59,11 @@ description: 5 阶段工作流显示层。每条响应首行输出阶段横幅 #
 
 ## 各阶段输出侧重
 
-- **理解和求证问题（understand）**：依次走 4 子阶段（理解背景 -> 目标价值 -> 范围约束 -> 成功标准），逐步累积写 understand.md。每子阶段完成输出 `### SUB_DONE: <n>`，末子阶段输出 `### PHASE_DONE: understand`。用 AskUserQuestion 当不确定。
-- **生成执行计划（plan）**：给方案 + 步骤 + 验证方法，不写代码体。产出 plan.md。
+- **理解和求证问题（understand）**：依次走 4 子阶段（理解背景 -> 目标价值 -> 范围约束 -> 成功标准），逐步累积写 understand.md（四节：真实问题重述/目标价值/范围约束/成功标准验收包）。每子阶段完成输出 `### SUB_DONE: <n>`，末子阶段输出 `### PHASE_DONE: understand`。用 AskUserQuestion 当不确定。
+- **生成执行计划（plan）**：设计代码级方案，不写代码体。产出 plan.md（三节：执行步骤/能力与工具/执行计划与检查点）。
 - **执行（execute）**：改代码、跑测试、commit。每步附证据（测试输出/commit hash）。
-- **审核结果（review）**：给 solved/partial/not 判定 + 对照成功标准的证据。产出 review.md。
-- **进化（evolution）**：给沉淀了什么（memory/skill/design 更新）。产出 evolution.md。
+- **审核结果（review）**：给 solved/partial/not 判定 + 对照成功标准的证据。产出 review.md（两节：结论/证据）。
+- **进化（evolution）**：给沉淀了什么（memory/skill/design 更新）。产出 evolution.md（两节：经验/落地）。
 
 ## 示例
 

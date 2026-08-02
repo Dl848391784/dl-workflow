@@ -47,14 +47,14 @@ PHASE_RULES = {
         "goal": "理清真实问题（问题背后要解决的本质，非字面请求）",
         "allow": "Read/Grep/Glob/codegraph 查证/AskUserQuestion 澄清",
         "deny": "Edit/Write 任何源码",
-        "artifact": "understand.md（真实问题重述 + 边界 + 成功标准）",
+        "artifact": f"understand.md（{engine.SECTIONS_TEXT['understand.md']}）",
         "advance": "自动推进到 plan（无闸门——2026-07-28 起围栏只设在 plan 完成）",
     },
     "plan": {
         "goal": "针对真实问题设计实现方案",
         "allow": "understand 的工具 + 起草 design.md(H8)",
         "deny": "改源码",
-        "artifact": "plan.md（方案 + 步骤 + 验证方法）",
+        "artifact": f"plan.md（{engine.SECTIONS_TEXT['plan.md']}）",
         "advance": "闸门：完成后需用户 /dl gate 放行才进 execute",
     },
     "execute": {
@@ -68,14 +68,14 @@ PHASE_RULES = {
         "goal": "对照真实问题判定 solved/partial/not（证据 file:line / 测试输出）",
         "allow": "评审 subagent(Agent)/codegraph impact/跑测试",
         "deny": "改实现",
-        "artifact": "review.md（结论 + 证据）",
+        "artifact": f"review.md（{engine.SECTIONS_TEXT['review.md']}）",
         "advance": "自动推进到 evolution（无闸门）",
     },
     "evolution": {
         "goal": "沉淀经验（写 memory 事实/更新 skill/补 design）",
         "allow": "写 memory/调 skill/补 design",
         "deny": "—",
-        "artifact": "evolution.md + memory 写入",
+        "artifact": f"evolution.md（{engine.SECTIONS_TEXT['evolution.md']} + memory 写入）",
         "advance": "终结（输出 PHASE_DONE: evolution 后工作流结束）",
     },
 }
