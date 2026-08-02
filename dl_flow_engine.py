@@ -839,6 +839,178 @@ def read_evidence_for_step(
     return "\n".join(latest[k] for k in sorted(latest))
 
 
+# ---------- 上下文交接（context-handoff-design，v2.45）----------
+#
+# 主会话成本 = Σ(每轮)当前上下文长度；会话不重置则上下文单调涨（u:1 实测
+# 54k->283k），成本随轮次平方膨胀。交接架构：子步边界 /clear 换全新上下文，
+# 只带机械装配的交接包——成本掰成线性。门控读磁盘状态（state+evidence），
+# 天然会话无关，这是架构成立的地基。
+
+# /clear nudge 阈值（tokens）：Stop hook 估算当前上下文超过则在 pass 续轮附
+# /clear 建议。纯建议非围栏；读不到 usage 不 nudge（宁纵勿枉）。
+HANDOFF_NUDGE_THRESHOLD = 150_000
+
+
+def estimate_context_tokens(transcript_path: str | Path) -> int | None:
+    """从 session transcript 尾部最近一条 assistant usage 估算当前上下文 tokens。
+
+    = input + cache_read + cache_creation（该轮看到的全部前缀）。
+    文件缺失/无 usage/解析失败 -> None（宁纵勿枉：不 nudge）。
+    只读尾部 512KB——transcript 可上 MB，全量读是纯浪费；usage 在每行
+    assistant 记录里，尾部窗口足够覆盖最后一轮。
+    """
+    try:
+        p = Path(transcript_path)
+        size = p.stat().st_size
+        with open(p, "rb") as f:
+            f.seek(max(0, size - 512 * 1024))
+            tail = f.read().decode("utf-8", errors="replace")
+    except (OSError, ValueError):
+        return None
+    for line in reversed(tail.splitlines()):
+        if '"usage"' not in line:
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue  # 尾部窗口可能切在半行上
+        u = (rec.get("message") or {}).get("usage")
+        if not isinstance(u, dict):
+            continue
+        try:
+            return (
+                int(u.get("input_tokens", 0))
+                + int(u.get("cache_read_input_tokens", 0))
+                + int(u.get("cache_creation_input_tokens", 0))
+            )
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def handoff_pack(project_root: Path, name: str) -> str | None:
+    """机械装配交接包（/clear 后新会话注入，context-handoff-design §3）。
+
+    内容（单源生成，禁模型自选）：
+    1. 当前位置（节点 + 子步指针；逐步 purpose 由 workflow_phase 每轮注入，不重复）；
+    2. 当前节点已完成各子步的**最新** trace（返工历史不带——judge 输入裁剪同
+       逻辑，v2.12 read_evidence_for_step 已验证）；
+    3. 前序已完成节点：归一化步（倒数第 2 步）+ 读回步（末步，含用户裁决原话——
+       v2.45 user_decision_recorded 机械保证其存在）的最新 trace；
+    4. 当前步最新 block 判词（/clear 发生在返工中段时，新会话须知道修什么）；
+    5. 已装配产物清单（路径指针，禁全文——全文内联 = 把省下的 token 又花回去）。
+
+    无任何 trace -> None（首次启动不注入，调用方静默）。
+    """
+    state = load_state(project_root, name)
+    if state is None:
+        return None
+    state = normalize_state(state)
+    cur_phase, cur_sub = state["phase"], state["sub_index"]
+    try:
+        cur_node = get_node(cur_phase, cur_sub)
+    except KeyError:
+        return None
+    text = read_evidence(project_root, name)
+    if not text:
+        return None
+
+    # 单遍扫描：最新 trace（按 minor_stage+sub_step）+ 最新 block 判词（按 node+sub_step）。
+    # 容一行多 JSON 对象（raw_decode，同 _iter_trace_segments 的容错动机）。
+    latest_trace: dict[tuple, str] = {}
+    latest_block: dict[tuple, str] = {}
+    decoder = json.JSONDecoder()
+    for line in text.splitlines():
+        s = line.strip()
+        idx = 0
+        while idx < len(s):
+            nxt = s.find("{", idx)
+            if nxt == -1:
+                break
+            idx = nxt
+            try:
+                rec, end = decoder.raw_decode(s, idx)
+            except json.JSONDecodeError:
+                break
+            seg = s[idx:end]
+            idx = end
+            if not isinstance(rec, dict):
+                continue
+            if rec.get("kind") == "skill-trace":
+                latest_trace[(rec.get("minor_stage"), rec.get("sub_step"))] = seg
+            elif (
+                rec.get("kind") == "gate"
+                and rec.get("gate") == "blocked"
+                and rec.get("reason")
+            ):
+                latest_block[(rec.get("node"), rec.get("sub_step"))] = rec["reason"]
+    if not latest_trace:
+        return None
+
+    cur_step = state.get("sub_step_index", 1)
+    cur_key = (phase_index(cur_phase), cur_sub)
+    lines = [
+        "## WORKFLOW 上下文交接包（/clear 接续——以下为机械装配的前序证据，",
+        "禁止重做已完成步骤；从当前子步继续）",
+        "",
+        f"### 当前位置：{cur_node.label}（{node_id(cur_phase, cur_sub)}）子步骤 {cur_step}",
+        "",
+    ]
+    # 当前节点已完成步的最新 trace（含当前步已有 trace——返工中段 clear 的场景）
+    cur_traces = [
+        (k[1], seg)
+        for k, seg in latest_trace.items()
+        if k[0] == cur_node.minor_key and k[1] <= cur_step
+    ]
+    if cur_traces:
+        lines.append(f"### 本节点（{cur_node.label}）各步最新留痕")
+        for _step, seg in sorted(cur_traces):
+            lines.append(seg)
+        lines.append("")
+    # 当前步最新 block 判词（返工中段 clear：新会话要知道修什么）
+    reason = latest_block.get((node_id(cur_phase, cur_sub), cur_step))
+    if reason:
+        lines.append(f"### 当前子步最新门控判词（未通过，按此返工）\n{reason}\n")
+    # 前序已完成节点：归一化步 + 读回步的最新 trace
+    prior_sections = []
+    for ph in PHASES:
+        subs = range(1, sub_total(ph) + 1) if sub_total(ph) else [0]
+        for sub in subs:
+            if (phase_index(ph), sub) >= cur_key:
+                continue
+            try:
+                node = get_node(ph, sub)
+            except KeyError:
+                continue
+            if not node.sub_steps or not node.minor_key:
+                continue
+            n = len(node.sub_steps)
+            keep = [
+                latest_trace[k]
+                for k in ((node.minor_key, n - 1), (node.minor_key, n))
+                if k in latest_trace
+            ]
+            if keep:
+                prior_sections.append(
+                    f"### 前序节点「{node.label}」归一化陈述 + 用户裁决\n"
+                    + "\n".join(keep)
+                )
+    if prior_sections:
+        lines.extend(prior_sections)
+        lines.append("")
+    # 产物清单（指针非全文）
+    artifacts = []
+    for ph, adir in _PHASE_ARTIFACT_DIRS.items():
+        f = project_root / ".claude" / adir / f"{name}.md"
+        if f.is_file():
+            artifacts.append(f"- {f}")
+    if artifacts:
+        lines.append("### 已装配产物（按需 Read，勿重复装配）")
+        lines.extend(artifacts)
+        lines.append("")
+    return "\n".join(lines)
+
+
 def _advance_sub_step(
     project_root: Path, name: str, state: dict[str, Any], node: Node, cur: int, via: str
 ) -> dict[str, Any]:

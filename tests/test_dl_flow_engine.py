@@ -5948,6 +5948,97 @@ class TestUserDecisionRecorded:
         assert not ok and "空记录" in msg
 
 
+class TestHandoffPack:
+    """v2.45 handoff_pack：/clear 交接包机械装配（context-handoff-design §3）。
+
+    交接包 = 当前位置 + 当前节点已完成步最新 trace + 前序节点归一化/读回步
+    最新 trace + 当前步最新 block 判词 + 产物清单（指针）。无任何 trace ->
+    None（首次启动不注入）。
+    """
+
+    def _write_evidence(self, tmp_path, records):
+        ev = tmp_path / ".claude" / "evidence"
+        ev.mkdir(parents=True, exist_ok=True)
+        with open(ev / "t.jsonl", "w", encoding="utf-8") as f:
+            for r in records:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+    def _trace(self, minor, step, marker):
+        return {
+            "kind": "skill-trace",
+            "major_stage": "Understand",
+            "minor_stage": minor,
+            "sub_step": step,
+            "skill": "s",
+            "purpose": "p",
+            "q": [f"q{marker}"],
+            "a": [f"a{marker}"],
+        }
+
+    def test_first_launch_returns_none(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        assert eng.handoff_pack(tmp_path, "t") is None
+
+    def test_pack_contents_and_trimming(self, tmp_path):
+        # u:1 全 6 步 + u:2 子1-2（各含返工历史一条），当前 u:2 子3
+        recs = []
+        for step in range(1, 7):
+            recs.append(self._trace("ProblemContext", step, f"_u1s{step}_old"))
+            recs.append(self._trace("ProblemContext", step, f"_u1s{step}_new"))
+        for step in (1, 2):
+            recs.append(self._trace("GoalsAndValue", step, f"_u2s{step}"))
+        recs.append(
+            {
+                "kind": "gate",
+                "node": "understand:2",
+                "phase": "understand",
+                "sub": 2,
+                "sub_step": 3,
+                "gate": "blocked",
+                "reason": "缺 X 条款",
+                "ts": "2026-08-02T15:00:00",
+            }
+        )
+        self._write_evidence(tmp_path, recs)
+        _write_state_full(tmp_path, "t", "understand", 2, sub_step=3)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None
+        # 当前位置
+        assert "understand:2" in pack and "子步骤 3" in pack
+        # 当前节点已完成步最新 trace（不含返工历史）
+        assert "_u2s1" in pack and "_u2s2" in pack
+        # 前序节点只带归一化（子5）+读回（子6）的最新 trace
+        assert "_u1s5_new" in pack and "_u1s6_new" in pack
+        assert "_u1s5_old" not in pack and "_u1s6_old" not in pack
+        # 前序节点的中间步（子1-4）不进交接包
+        for step in range(1, 5):
+            assert f"_u1s{step}_new" not in pack
+        # 当前步最新 block 判词
+        assert "缺 X 条款" in pack
+
+
+class TestEstimateContextTokens:
+    """v2.45 estimate_context_tokens：transcript 尾部 usage 估算（宁纵勿枉）。"""
+
+    def test_reads_last_usage(self, tmp_path):
+        tp = tmp_path / "s.jsonl"
+        lines = [
+            {"type": "assistant", "message": {"usage": {"input_tokens": 100, "cache_read_input_tokens": 50000, "cache_creation_input_tokens": 0}}},
+            {"type": "user", "message": {"content": "x"}},
+            {"type": "assistant", "message": {"usage": {"input_tokens": 200, "cache_read_input_tokens": 160000, "cache_creation_input_tokens": 3000}}},
+        ]
+        tp.write_text("\n".join(json.dumps(r) for r in lines), encoding="utf-8")
+        assert eng.estimate_context_tokens(tp) == 163200
+
+    def test_missing_file_returns_none(self, tmp_path):
+        assert eng.estimate_context_tokens(tmp_path / "nope.jsonl") is None
+
+    def test_no_usage_returns_none(self, tmp_path):
+        tp = tmp_path / "s.jsonl"
+        tp.write_text('{"type":"user","message":{"content":"hi"}}\n', encoding="utf-8")
+        assert eng.estimate_context_tokens(tp) is None
+
+
 class TestFetchTier:
     """v2.40 取证深度分档（designs/fetch-depth-tiering-design.md）。
 
