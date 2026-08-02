@@ -1592,7 +1592,9 @@ class TestGateAndAdvanceSubStep:
         # run_judge 收到 artifact=None 时应判 block；用真实 run_judge 行为模拟
         captured = {}
 
-        def _spy(rubric, label, output, artifact_content=None, prior_verdicts=None):
+        def _spy(
+            rubric, label, output, artifact_content=None, prior_verdicts=None, **_
+        ):
             captured["artifact"] = artifact_content
             return (False, "evidence 缺失")
 
@@ -1615,7 +1617,9 @@ class TestGateAndAdvanceSubStep:
         )
         captured = {}
 
-        def _spy(rubric, label, output, artifact_content=None, prior_verdicts=None):
+        def _spy(
+            rubric, label, output, artifact_content=None, prior_verdicts=None, **_
+        ):
             captured["artifact"] = artifact_content
             return (True, "")
 
@@ -4038,6 +4042,52 @@ def _result_line(result_text: str, is_error: bool = False) -> str:
 
 
 class TestRunJudge:
+    def test_prior_verdicts_quote_requirement_in_prompt(self, monkeypatch):
+        # v2.52 抗「已修还判」：prior_verdicts 非空时 prompt 钉「判 block 引用
+        # 的违规内容须是本轮产物原文短语，引不出不得作依据」——8/2 晚 u:1 子1
+        # att2 judge 照前轮判词描述 block 已修问题（payload 里根本没有该字面）
+        captured = {}
+
+        def _fake(cmd, **kw):
+            captured["prompt"] = cmd[-1]
+            import types
+
+            r = types.SimpleNamespace()
+            r.returncode = 0
+            r.stdout = _result_line('{"pass": true}')
+            r.stderr = ""
+            return r
+
+        monkeypatch.setattr(eng.subprocess, "run", _fake)
+        eng.run_judge("rubric", "节点", "输出", prior_verdicts=["上轮缺 X"])
+        assert "原文" in captured["prompt"] and "本轮" in captured["prompt"]
+
+    def test_mech_scope_pinned_in_prompt(self, monkeypatch):
+        # v2.52：mech_scope 非空时 prompt 钉「写侧机械校验已过，形式要件勿
+        # 重复判」（v2.34 存在性钉死同范式——rubric 内嵌句被 prior_verdicts
+        # 压制过一轮，提为独立钉句）
+        captured = {}
+
+        def _fake(cmd, **kw):
+            captured["prompt"] = cmd[-1]
+            import types
+
+            r = types.SimpleNamespace()
+            r.returncode = 0
+            r.stdout = _result_line('{"pass": true}')
+            r.stderr = ""
+            return r
+
+        monkeypatch.setattr(eng.subprocess, "run", _fake)
+        eng.run_judge("rubric", "节点", "输出", mech_scope="user_quote_channel")
+        assert (
+            "机械校验" in captured["prompt"]
+            and "user_quote_channel" in captured["prompt"]
+        )
+        # 重放逮住初版过度抑制（scope 含「结论前缀」被 judge 泛化成
+        # 「结论全免判」，结论推断被放过）——钉句双侧：非枚举项照判不误
+        assert "照判" in captured["prompt"]
+
     def test_pass(self, monkeypatch):
         monkeypatch.setattr(
             eng.subprocess, "run", _fake_run_factory(0, _result_line('{"pass": true}'))
@@ -4333,7 +4383,9 @@ class TestReadEvidenceForStep:
         )
         captured = {}
 
-        def _spy(rubric, label, output, artifact_content=None, prior_verdicts=None):
+        def _spy(
+            rubric, label, output, artifact_content=None, prior_verdicts=None, **_
+        ):
             captured["artifact"] = artifact_content
             return (True, "")
 
@@ -6090,6 +6142,76 @@ class TestV237FirstPassRate:
         )
         ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
         assert not ok and "通道" in msg
+
+    # ---- v2.52：claim 词扩面（自述）+ 标签锚定 + judge 抗已修还判 ----
+    # 2026-08-02 晚第二集：模型换「自述」绕开 v2.51 的「原话」词表（新 att1
+    # 「用户自述「项目维护者」（AskUserQuestion 选中选项标签全文）」），judge
+    # 按失真判对（但规则文本自己把选中叫「合法自述」=判词与文本矛盾，§3.5
+    # #23 修文本撤词）；新 att2 按 att1 判词范例改干净后 judge 仍照 att1
+    # 判词描述 block（「已修还判」第二实例——判词描述的文本本轮已不存在）。
+
+    def test_replay_u1s1_0802b_att1_zishu_mislabel_blocked(self):
+        # 新 att1 逐字：「自述」前缀 + 选中标签 = 换词版标注失真
+        qa = [
+            {
+                "q": "who=你和这个项目的关系是？",
+                "a": "用户自述「项目维护者」（AskUserQuestion 选中选项标签全文，"
+                "属会话事实级佐证）。事实并非来自仓库事实。",
+            },
+        ]
+        err = eng._check_user_quote_channel(qa)
+        assert err is not None and "失真" in err
+
+    def test_zishu_meta_discussion_not_claim_accepted(self):
+        # FP 守卫：「自述」出现在元讨论（非标签+引用形态）不拦——
+        # 「本步仅认用户自述。」的自述后无引用冒号/引号
+        qa = [
+            {
+                "q": "who=当前提问者身份？",
+                "a": "「我是项目唯一维护者」（AskUserQuestion 选中）。"
+                "仓库事实仅证明归属——本步仅认用户自述。",
+            },
+        ]
+        assert eng._check_user_quote_channel(qa) is None
+
+    def test_replay_u1s1_0802b_att2_clean_selected_accepted(self):
+        # 新 att2 逐字：按判词范例改干净的形态（无前缀词，选中标注）——
+        # mech 必须放行（judge 已修还判是判侧问题，写侧不能跟着错）
+        qa = [
+            {
+                "q": "who=你和这个项目的关系是？",
+                "a": "项目维护者（AskUserQuestion 选中选项标签全文，AskUserQuestion 选中）",
+            },
+            {
+                "q": "trigger=什么时候注意到的？",
+                "a": "今天刚打开 web_ui 看到（AskUserQuestion 选中选项标签全文，"
+                "AskUserQuestion 选中）",
+            },
+        ]
+        assert eng._check_user_quote_channel(qa) is None
+
+    def test_append_trace_u1s1_zishu_integration(self, tmp_path):
+        # 管道集成：「自述」换词形态经 append-trace 当场拒
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        (tmp_path / "payload.json").write_text(
+            json.dumps(
+                {
+                    "purpose": "p",
+                    "qa": [
+                        {
+                            "q": "who=你和这个项目的关系是？",
+                            "a": "用户自述「项目维护者」（AskUserQuestion "
+                            "选中选项标签全文，属会话事实级佐证）。",
+                        }
+                    ],
+                    "结论": "①问题成立：主语=项目维护者",
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert not ok and "失真" in msg
 
     # ---- FP 面：无 mech_checks 声明的步不受链环扫描影响 ----
 

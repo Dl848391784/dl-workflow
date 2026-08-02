@@ -1681,12 +1681,18 @@ def gate_sub_step_at_stop(
     else:
         artifact = read_evidence_for_step(project_root, name, cur, mk)
         priors = prior_block_reasons(project_root, name, cur, mk)
+        # v2.52：写侧机械校验覆盖面钉给 judge（勿重复判已过的形式要件）
+        scope_items = list(getattr(step, "mech_checks", ()) or ())
+        for _k, _spec in getattr(step, "extra_payload_keys", ()):
+            scope_items.append(_spec if isinstance(_spec, str) else f"{_k}前缀")
+        mech_scope = "、".join(scope_items) or None
         ok, reason = run_judge(
             step.gate,
             f"{node.label} · 子步骤{cur}",
             "",
             artifact_content=artifact,
             prior_verdicts=priors,
+            mech_scope=mech_scope,
         )
     if ok and cur == len(node.sub_steps):
         # 末步产物机械门（§8.3）：judge（或 gate=None 自动过）≠ 产物已落盘。
@@ -1983,6 +1989,7 @@ def run_judge(
     model_output: str,
     artifact_content: str | None = None,
     prior_verdicts: list[str] | None = None,
+    mech_scope: str | None = None,
 ) -> tuple[bool, str]:
     """起 stateless claude -p 当评审 judge。返回 (pass, reason)。
 
@@ -2046,11 +2053,28 @@ def run_judge(
         )
         prompt += (
             "\n一致性要求（判据未变，前轮判词=裁量先例）："
-            "①前轮点名的问题已修复的方向，不得翻案判回；"
+            "①前轮点名的问题已修复的方向，不得翻案判回——前轮判词描述的违规"
+            "写法在本轮产物中已不存在的=已修复；判 block 引用的违规内容须是"
+            "本轮产物中的原文短语（逐字引用或可定位片段），引不出原文的条目"
+            "不得作为 block 依据（判本轮产物实况，不判前轮判词的描述）；"
             "②前轮 trace 中已存在且未被判违规的写法，不得仅因裁量收紧而新判违规；"
             "③本轮判 block 须在 reason 引用判据的具体条款；"
             "④判 block 时 reason 还须附 1 个正确改写范例——把被判内容的一条"
             "改成合规形式（指模式不指实例位置，模型下轮照模式修，不打地鼠）。"
+        )
+    if mech_scope:
+        # v2.52（「已修还判」第二实例，8/2 晚 u:1 子1 att2）：judge 无视
+        # rubric 内嵌的「已机械校验」句，照前轮判词描述 block 已修形态——
+        # 提为独立钉句（v2.34 存在性钉死同范式）：机械层已过的形式要件
+        # 不是 judge 的判面。双侧钉（重放逮住初版过度抑制：scope 含
+        # 「结论前缀」被 judge 泛化成「结论全免判」，结论无出处推断被
+        # 放过 PASS）——枚举项勿重复判，非枚举项照判不误。
+        prompt += (
+            f"\n（本载荷提交时已通过 append-trace 写侧机械校验：{mech_scope}"
+            "——仅限上述枚举项覆盖的形式要件（词形/存在性/对齐/标注通道/"
+            "前缀）勿重复判、勿以之为 block 依据；判据中的其它一切（含结论"
+            "与答案的内容质量、出处真实性、非枚举项的形式要件）仍是你的"
+            "判面，照判不误。）"
         )
     prompt += "\n只回上面的 JSON。"
 
@@ -2905,40 +2929,48 @@ def _check_user_decision_recorded(qa: list, *_ctx) -> str | None:
 # 声称 + AskUserQuestion 出处 + 无通道标注；选项标签标「原话」=标注失真
 # （声称的佐证等级高于实际）。通道两态与 _USER_QUOTE_FORMS_RULE 一一对应：
 # 「选中」=选项标签（会话事实级自述，不得标原话）/「自由输入」=打字原话。
-_ASKQ_CITE_RE = re.compile(r"AskUserQuestion")
-_QUOTE_CLAIM_RE = re.compile(r"原话")
+# v2.52 扩面（同日晚第二集）：模型换「自述」绕开「原话」词表（逐字取自
+# 新 att1）；锚定改「标签+引用」近端形态（自述/原话 + 冒号/引号），防
+# 「本步仅认用户自述」式元讨论 FP。
+_QUOTE_LABEL_RE = re.compile(r"(?:用户)?(?:身份)?(?:原话|自述)[^，。；]{0,6}[:：『「]")
+_ASKQ_ANN_RE = re.compile(r"（[^）]{0,50}AskUserQuestion[^）]{0,50}）")
 
 
 def _check_user_quote_channel(qa: list, *_ctx) -> str | None:
-    """user_quote_channel：AskUserQuestion 出处「原话」声称的通道标注校验
+    """user_quote_channel：AskUserQuestion 出处「原话/自述」标签的通道校验
     （u:1 子1 专属，nodes 声明）。
 
-    只判标注形态不判真值：声称「原话」且引 AskUserQuestion 为出处时——
-    含「选中」=选项标签标原话，标注失真当场拒；含「自由输入」=自称打字
-    原话，真值归 judge；两者皆无=通道未声明当场拒。无「原话」声称的
-    AskUserQuestion 引用不拦（宁纵勿枉）。
-    分隔度：att1/att2/att3 真实载荷逐字 BLOCK（通道未声明），合法两态
-    与既有 子1 fixture（无 AskUserQuestion 字样）零 FP。
+    只判标注形态不判真值：「原话/自述」作标签引出引用（后接冒号/引号）
+    且近端有 AskUserQuestion 出处括注时——括注含「选中」=选项标签带等级
+    前缀，标注失真当场拒；含「自由输入」=自称打字原话，真值归 judge；
+    皆无=通道未声明当场拒。无标签形态（如「标签全文（AskUserQuestion
+    选中）」）与元讨论里的「自述」字样不拦（宁纵勿枉）。
+    分隔度：att1-3（v2.51 集）+ 新 att1（v2.52 集「自述」换词）逐字 BLOCK；
+    合法两态、新 att2 干净形态、元讨论 FP 守卫全 PASS。
     """
     for item in qa:
         a = str(item.get("a", ""))
-        if not (_ASKQ_CITE_RE.search(a) and _QUOTE_CLAIM_RE.search(a)):
-            continue
-        if "选中" in a:
+        for m in _QUOTE_LABEL_RE.finditer(a):
+            window = a[m.start() : m.start() + 140]
+            ann = _ASKQ_ANN_RE.search(window)
+            if ann is None:
+                continue  # 直接对话原话等——不涉 AskUserQuestion 通道
+            if "选中" in ann.group(0):
+                return (
+                    "选项标签不得带「原话/自述」前缀——标注失真（声称的佐证"
+                    "等级高于实际）：选中项=用户主动声明行为，是合法佐证但属"
+                    "会话事实级，记录=选项标签全文+「（AskUserQuestion 选中）」"
+                    "并去掉「原话/自述」前缀词"
+                )
+            if "自由输入" in ann.group(0):
+                continue
             return (
-                "选项标签不得标「原话」——标注失真（声称的佐证等级高于实际）："
-                "选中项=用户主动声明行为，是合法自述但属会话事实级佐证，"
-                "改写为 选项标签全文+「（AskUserQuestion 选中）」并去掉「原话」声称"
+                f"AskUserQuestion 出处的「原话/自述」声称未标注通道"
+                f"（{str(item.get('q', ''))[:20]}…）：「（AskUserQuestion 选中）」"
+                "=选项标签（会话事实级，须去掉「原话/自述」前缀）/"
+                "「（AskUserQuestion 自由输入）」=打字原话——补通道标注；"
+                "是选中则去掉前缀词，是打字则标「自由输入」"
             )
-        if "自由输入" in a:
-            continue
-        return (
-            f"AskUserQuestion 出处的「原话」声称未标注通道"
-            f"（{str(item.get('q', ''))[:20]}…）：「（AskUserQuestion 选中）」"
-            "=选项标签（会话事实级，不得标「原话」）/「（AskUserQuestion "
-            "自由输入）」=打字原话——补通道标注；是选中则去掉「原话」声称，"
-            "是打字则标「自由输入」"
-        )
     return None
 
 
