@@ -329,6 +329,13 @@ wf_write_settings() {
           { "type": "command", "command": "python3 $hk/workflow_advance.py" }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python3 $hk/workflow_session.py" }
+        ]
+      }
     ]
   }
 }
