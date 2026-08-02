@@ -2899,10 +2899,54 @@ def _check_user_decision_recorded(qa: list, *_ctx) -> str | None:
     )
 
 
+# v2.51 原话标注通道（2026-08-02 u:1 子1 三连 block att1-3 逐字）：
+# 用户全程只点 AskUserQuestion 选项（transcript 实证零打字原话），judge 按
+# 「who 只认用户自述」临场发明「原话全文引用」要件——三轮共同形态=「原话」
+# 声称 + AskUserQuestion 出处 + 无通道标注；选项标签标「原话」=标注失真
+# （声称的佐证等级高于实际）。通道两态与 _USER_QUOTE_FORMS_RULE 一一对应：
+# 「选中」=选项标签（会话事实级自述，不得标原话）/「自由输入」=打字原话。
+_ASKQ_CITE_RE = re.compile(r"AskUserQuestion")
+_QUOTE_CLAIM_RE = re.compile(r"原话")
+
+
+def _check_user_quote_channel(qa: list, *_ctx) -> str | None:
+    """user_quote_channel：AskUserQuestion 出处「原话」声称的通道标注校验
+    （u:1 子1 专属，nodes 声明）。
+
+    只判标注形态不判真值：声称「原话」且引 AskUserQuestion 为出处时——
+    含「选中」=选项标签标原话，标注失真当场拒；含「自由输入」=自称打字
+    原话，真值归 judge；两者皆无=通道未声明当场拒。无「原话」声称的
+    AskUserQuestion 引用不拦（宁纵勿枉）。
+    分隔度：att1/att2/att3 真实载荷逐字 BLOCK（通道未声明），合法两态
+    与既有 子1 fixture（无 AskUserQuestion 字样）零 FP。
+    """
+    for item in qa:
+        a = str(item.get("a", ""))
+        if not (_ASKQ_CITE_RE.search(a) and _QUOTE_CLAIM_RE.search(a)):
+            continue
+        if "选中" in a:
+            return (
+                "选项标签不得标「原话」——标注失真（声称的佐证等级高于实际）："
+                "选中项=用户主动声明行为，是合法自述但属会话事实级佐证，"
+                "改写为 选项标签全文+「（AskUserQuestion 选中）」并去掉「原话」声称"
+            )
+        if "自由输入" in a:
+            continue
+        return (
+            f"AskUserQuestion 出处的「原话」声称未标注通道"
+            f"（{str(item.get('q', ''))[:20]}…）：「（AskUserQuestion 选中）」"
+            "=选项标签（会话事实级，不得标「原话」）/「（AskUserQuestion "
+            "自由输入）」=打字原话——补通道标注；是选中则去掉「原话」声称，"
+            "是打字则标「自由输入」"
+        )
+    return None
+
+
 # qa 格式步的写侧机械校验注册表（Step.mech_checks 声明名 -> 检查函数）。
 # 未注册名 = nodes 与 engine 配置漂移，fail loud 不静默跳过。
 _MECH_QA_CHECKS = {
     "causal_ring_no_untested": _check_causal_ring_no_untested,
+    "user_quote_channel": _check_user_quote_channel,
     "value_no_unsourced_inference": _check_value_no_unsourced_inference,
     "fetch_report_recorded": _check_fetch_report_recorded,
     "fetch_skeleton_out": _check_fetch_skeleton_out,

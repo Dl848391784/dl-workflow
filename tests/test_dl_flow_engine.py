@@ -5981,6 +5981,116 @@ class TestV237FirstPassRate:
         ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
         assert not ok and "结构字段" in msg
 
+    # ---- v2.51：原话标注通道（user_quote_channel，u:1 子1）----
+    # 2026-08-02 tail_volume_acceleration_annualized u:1 子1 三连 block：
+    # 用户全程只点选项（transcript 实证零打字原话），judge 按「who 只认
+    # 用户自述」临场发明「原话全文引用」要件——模型被要求引用物理不
+    # 存在的东西（§3.5 #7 佐证无合法获取路径 + #4 裁量点未钉死）。
+    # 三轮真实违规字面：att1「（本会话 AskUserQuestion 回答）」、att2
+    # 「第一轮回答」、att3「用户回答原话全文引用，怀疑点 Q 选项 A」——
+    # 共同形态=「原话」声称 + AskUserQuestion 出处 + 无通道标注；
+    # 选项标签标「原话」=标注失真（声称的佐证等级高于实际）。
+
+    def test_replay_u1s1_att1_bare_askq_annotation_blocked(self):
+        # att1 逐字：「原话」声称 + AskUserQuestion 出处，无通道标注
+        qa = [
+            {
+                "q": "who=当前提问者身份？",
+                "a": "用户原话：「我是项目唯一维护者」（本会话 AskUserQuestion 回答）。"
+                "仓库事实 git user=Dl848391784 仅证明仓库由谁维护，不证明当前提问者"
+                "就是那个人——本步仅认用户自述。",
+            },
+        ]
+        err = eng._check_user_quote_channel(qa)
+        assert err is not None and "通道" in err
+
+    def test_replay_u1s1_att3_option_labeled_as_quote_blocked(self):
+        # att3 逐字：选项标签标成「用户回答原话全文引用」（含 Q 选项 A 自披露）
+        qa = [
+            {
+                "q": "pain-1=用户怀疑点 1（量级）？",
+                "a": "用户原话全文：「数字量级本身不合理」（本会话 AskUserQuestion "
+                "第一轮用户回答原话全文引用，怀疑点 Q 选项 A）。",
+            },
+        ]
+        err = eng._check_user_quote_channel(qa)
+        assert err is not None and "通道" in err
+
+    def test_quote_claim_with_selected_mislabel_blocked(self):
+        # 标注失真：选中标签标成「原话」——声称的佐证等级高于实际
+        qa = [
+            {
+                "q": "who=当前提问者身份？",
+                "a": "用户原话：「我是项目唯一维护者」（AskUserQuestion 选中）。",
+            },
+        ]
+        err = eng._check_user_quote_channel(qa)
+        assert err is not None and "失真" in err
+
+    def test_option_label_with_selected_annotation_accepted(self):
+        # 合法形态②：选中标签全文+「（AskUserQuestion 选中）」=会话事实级
+        # 自述（不声称「原话」）
+        qa = [
+            {
+                "q": "who=当前提问者身份？",
+                "a": "「我是项目唯一维护者」（AskUserQuestion 选中）。",
+            },
+        ]
+        assert eng._check_user_quote_channel(qa) is None
+
+    def test_quote_with_free_input_accepted(self):
+        # 合法形态①：打字原话标自由输入（真值归 judge/用户，mech 只判标注形态）
+        qa = [
+            {
+                "q": "who=当前提问者身份？",
+                "a": "用户原话：「这个项目就我一个人维护」（AskUserQuestion 自由输入）。",
+            },
+        ]
+        assert eng._check_user_quote_channel(qa) is None
+
+    def test_direct_dialogue_quote_accepted(self):
+        # 直接对话原话（无 AskUserQuestion 出处声称）不涉通道——不拦
+        qa = [
+            {
+                "q": "who=当前提问者身份？",
+                "a": "用户原话：「这项目就我一个人在维护」（首轮对话）。",
+            },
+        ]
+        assert eng._check_user_quote_channel(qa) is None
+
+    def test_bare_askq_without_quote_claim_accepted(self):
+        # 无「原话」声称的 AskUserQuestion 引用——未声称不判（宁纵勿枉）
+        qa = [
+            {
+                "q": "why-now=产出？",
+                "a": "答案：修代码（本会话 AskUserQuestion 回答）。",
+            },
+        ]
+        assert eng._check_user_quote_channel(qa) is None
+
+    def test_append_trace_u1s1_quote_channel_integration(self, tmp_path):
+        # 管道集成：u:1 子1 mech_checks 挂载生效（att1 形态全载荷当场拒）
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        (tmp_path / "payload.json").write_text(
+            json.dumps(
+                {
+                    "purpose": "p",
+                    "qa": [
+                        {
+                            "q": "who=当前提问者身份？",
+                            "a": "用户原话：「我是项目唯一维护者」"
+                            "（本会话 AskUserQuestion 回答）。",
+                        }
+                    ],
+                    "结论": "①问题成立：主语=项目维护者",
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert not ok and "通道" in msg
+
     # ---- FP 面：无 mech_checks 声明的步不受链环扫描影响 ----
 
     def test_causal_scan_only_where_declared(self, tmp_path):
