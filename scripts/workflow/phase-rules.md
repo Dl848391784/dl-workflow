@@ -66,7 +66,7 @@
 <!-- BEGIN GENERATED sub_steps understand:4 -->
 （本段由 dl-launch.sh 调 dl_flow_engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
 <!-- END GENERATED sub_steps understand:4 -->
-     - **子5 产物装配**：子5 用户裁决（阈值拍板 + 验收方式认可）后**装配 understand.md**（= 4 子阶段归一化陈述 + 用户裁决记录的直接装配：真实问题重述 + 目标价值 + 范围约束 + 成功标准验收包；**禁二次创作**；未被选定的问题/目标/约束及其一句话陈述也须写入，供后续 dl 实例接续）——在写子5 trace 前完成；**写主仓 `.claude/understands/<name>.md`**（注入「产物路径」行给绝对路径——worktree 归档删除即丢，禁写 worktree 内）；阶段写围栏已放行。
+     - **子5 产物装配**：子5 用户裁决（阈值拍板 + 验收方式认可）后**装配 understand.md**（= 4 子阶段归一化陈述 + 用户裁决记录的直接装配，四节：{{artifact_sections:understand.md}}；**禁二次创作**；未被选定的问题/目标/约束及其一句话陈述也须写入，供后续 dl 实例接续）——在写子5 trace 前完成；**写主仓 `.claude/understands/<name>.md`**（注入「产物路径」行给绝对路径——worktree 归档删除即丢，禁写 worktree 内）；阶段写围栏已放行。
      - **末步自动推进（无门栏、无阶段闸门）**：末子步骤(5) 通过门控后**自动推进并续轮开做 plan:1 子1**（跨阶段自动续轮，2026-07-28 起 understand->plan 无闸门——围栏只设在 plan 完成）。**不要输出 `### PHASE_DONE: understand`**——推进已由 Stop 门控完成，输出它会撞守卫。
 - 允许：Read / Grep / Glob / codegraph 查证 / AskUserQuestion 澄清。
 - 禁止：Edit / Write 任何源码。
@@ -93,7 +93,7 @@
 <!-- BEGIN GENERATED sub_steps plan:2 -->
 （本段由 dl-launch.sh 调 dl_flow_engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
 <!-- END GENERATED sub_steps plan:2 -->
-     - **子5 产物装配**：子5 用户拍板后**装配 plan.md**（= 子4 归一化执行步骤 + 用户裁决记录的直接装配，**禁二次创作**）——在写子5 trace 前完成；**写主仓 `.claude/plans/<name>.md`**（注入「产物路径」行给绝对路径——worktree 归档删除即丢，禁写 worktree 内）；阶段写围栏已放行。
+     - **子5 产物装配**：子5 用户拍板后**装配 plan.md「{{artifact_sections:plan.md#0}}」节**（= 子4 归一化执行步骤 + 用户裁决记录的直接装配，**禁二次创作**）——在写子5 trace 前完成；**写主仓 `.claude/plans/<name>.md`**（注入「产物路径」行给绝对路径——worktree 归档删除即丢，禁写 worktree 内）；阶段写围栏已放行。
      - **末步自动推进（无门栏）**：末子步骤(5) 通过门控后**自动推进并续轮开做 plan:3 子1**（2026-07-28 起 plan:1/2/3 边界无门栏）。不要输出 `### PHASE_DONE: plan`——plan 还有 plan:3 未完成。
   3. **选择能力与工具**（**子步骤编排，6 步逐步 STEP_DONE 门控**，严格时序不可乱序）：
      - 编排强制语义与 understand:1 **完全相同**（①横幅后按「▶ 当前子步骤」块逐步执行；②写 evidence 是 STEP_DONE 前置（append-trace 两动作）；③输完 STEP_DONE 即 end_turn；④S15/S10/S13/阶段写围栏；⑤连续 block 3 次升级用户裁决）——见上方 understand:1 各条，不再重复。
@@ -103,7 +103,7 @@
 <!-- BEGIN GENERATED sub_steps plan:3 -->
 （本段由 dl-launch.sh 调 dl_flow_engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
 <!-- END GENERATED sub_steps plan:3 -->
-     - **子6 产物装配**：子6 用户拍板后**装配 plan.md「能力与工具」节**（= 子5 归一化能力包 + 用户裁决记录的直接装配，**禁二次创作**）——在写子6 trace 前完成；**写主仓 `.claude/plans/<name>.md`**（同 plan:2，禁写 worktree 内）；阶段写围栏已放行。
+     - **子6 产物装配**：子6 用户拍板后**装配 plan.md「{{artifact_sections:plan.md#1}}」节**（= 子5 归一化能力包 + 用户裁决记录的直接装配，**禁二次创作**）——在写子6 trace 前完成；**写主仓 `.claude/plans/<name>.md`**（同 plan:2，禁写 worktree 内）；阶段写围栏已放行。
      - **末步自动推进（无门栏）**：末子步骤(6) 通过门控后**自动推进并续轮开做 plan:4 子1**（2026-07-28 起 plan:1/2/3 边界无门栏）。不要输出 `### PHASE_DONE: plan`——plan 还有 plan:4 未完成。
   4. **制定执行计划和检查点**（**子步骤编排，5 步逐步 STEP_DONE 门控**，严格时序不可乱序）：
      - 编排强制语义与 understand:1 **完全相同**（①横幅后按「▶ 当前子步骤」块逐步执行；②写 evidence 是 STEP_DONE 前置（append-trace 两动作）；③输完 STEP_DONE 即 end_turn；④S15/S10/S13/阶段写围栏；⑤连续 block 3 次升级用户裁决）——见上方 understand:1 各条，不再重复。
@@ -113,29 +113,32 @@
 <!-- BEGIN GENERATED sub_steps plan:4 -->
 （本段由 dl-launch.sh 调 dl_flow_engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
 <!-- END GENERATED sub_steps plan:4 -->
-     - **子5 产物装配**：子5 用户拍板后**装配 plan.md「执行计划与检查点」节**（= 子4 归一化执行计划包 + 用户裁决记录的直接装配，**禁二次创作**）——在写子5 trace 前完成；**写主仓 `.claude/plans/<name>.md`**（同 plan:2，禁写 worktree 内）；阶段写围栏已放行。
+     - **子5 产物装配**：子5 用户拍板后**装配 plan.md「{{artifact_sections:plan.md#2}}」节**（= 子4 归一化执行计划包 + 用户裁决记录的直接装配，**禁二次创作**）——在写子5 trace 前完成；**写主仓 `.claude/plans/<name>.md`**（同 plan:2，禁写 worktree 内）；阶段写围栏已放行。
      - **子阶段门栏（hold_for_gate，全工作流唯一门栏——围栏只设在 plan 完成，2026-07-28 用户决议）**：末子步骤(5) 通过门控后**推进被扣留**。等用户 `/dl gate` 放行（用户也可 /dl back 回退、/dl state-reset <n> 重测）。**扣留期间不要做收尾外的事**；`/dl step-pass` 末步放行 ≠ 门栏放行。
-     - **门栏放行后（本节点放行 ≠ 推进）**：`/dl gate` 放行门栏后你**仍在本子阶段**——此时输出 `### PHASE_DONE: plan` 撞 plan->execute 大闸门——大闸门仍需用户**第二次 `/dl gate`** 放行才进 execute（两次连拍是设计内行为）。plan.md「执行计划与检查点」节已在子5 装配完成，不要重做已通过的子步骤。
+     - **门栏放行后（本节点放行 ≠ 推进）**：`/dl gate` 放行门栏后你**仍在本子阶段**——此时输出 `### PHASE_DONE: plan` 撞 plan->execute 大闸门——大闸门仍需用户**第二次 `/dl gate`** 放行才进 execute（两次连拍是设计内行为）。plan.md「{{artifact_sections:plan.md#2}}」节已在子5 装配完成，不要重做已通过的子步骤。
 - 允许：understand 的工具 + 起草 design.md（H8）。
 - 禁止：改源码。
-- 完成：plan:1/plan:2/plan:3/plan:4 用 `### STEP_DONE: <n>` 逐步推进（plan:1/2/3 末步通过门控自动进下一子阶段；**plan:4 末步门栏扣留等 `/dl gate`**）；plan:2 子5 装配 `plan.md`（方案 + 步骤 + 验证方法），plan:3 子6 追加装配 `plan.md`「能力与工具」节，plan:4 子5 追加装配 `plan.md`「执行计划与检查点」节，plan:4 门栏放行后输出 `### PHASE_DONE: plan`。
+- 完成：plan:1/plan:2/plan:3/plan:4 用 `### STEP_DONE: <n>` 逐步推进（plan:1/2/3 末步通过门控自动进下一子阶段；**plan:4 末步门栏扣留等 `/dl gate`**）；plan:2 子5 装配 `plan.md`「{{artifact_sections:plan.md#0}}」节，plan:3 子6 追加装配「{{artifact_sections:plan.md#1}}」节，plan:4 子5 追加装配「{{artifact_sections:plan.md#2}}」节，plan:4 门栏放行后输出 `### PHASE_DONE: plan`。
 - **此阶段完成后是闸门**：需用户 `/dl gate` 放行才进 execute。
 
 ### execute（执行）
-- 目标：按计划改代码。**首步 = 读主仓 `.claude/plans/<name>.md`（执行步骤 + 能力与工具节 + 执行计划与检查点节）**——它是唯一执行合同（orchestrator 按调度方案派发、按检查点停验、按失败路由处置；偏离需留痕理由，禁执行期直接改 plan.md——冻结策略见 plan.md 裁决记录）。守项目铁律（H9 ≤3 文件/≤200 行、H11 日志格式、H15 改已有源码先 codegraph impact、no silent fallback）。
+- 目标：按计划改代码。**首步 = 读主仓 `.claude/plans/<name>.md`（三节：{{artifact_sections:plan.md}}）**——它是唯一执行合同（orchestrator 按调度方案派发、按检查点停验、按失败路由处置；偏离需留痕理由，禁执行期直接改 plan.md——冻结策略见 plan.md 裁决记录）。守项目铁律（H9 ≤3 文件/≤200 行、H11 日志格式、H15 改已有源码先 codegraph impact、no silent fallback）。
+- **产物信息不足回查**：上游产物（plan.md/understand.md）找不到所需细节 → 先 `python3 ~/.dl-workflow/scripts/workflow/evidence_show.py <name> <主仓根>` 回查证据链（各步 trace + gate 裁决记录）→ 仍不足 → AskUserQuestion 问用户；**禁凭训练记忆补全**。
 - 完成：实现 + 跑通测试 + frequent small commits，然后输出 `### PHASE_DONE: execute`。
 - 自动推进到 review（无闸门）。
 
 ### review（审核结果）
 - 目标：对照 understand.md 的真实问题 + 成功标准，判定 solved / partial / not。
 - 允许：起评审 subagent（Agent 工具）/ codegraph impact / 跑测试。禁止改实现。
-- 完成：写出 review.md（结论 + 证据 file:line / 测试输出）——**写主仓 `.claude/reviews/<name>.md`**（注入「产物路径」行给绝对路径，禁写 worktree 内）——然后输出 `### PHASE_DONE: review`。
+- **产物信息不足回查**：上游产物（understand.md/plan.md）找不到所需细节 → 先 `python3 ~/.dl-workflow/scripts/workflow/evidence_show.py <name> <主仓根>` 回查证据链（各步 trace + gate 裁决记录）→ 仍不足 → AskUserQuestion 问用户；**禁凭训练记忆补全**。
+- 完成：写出 review.md（两节：{{artifact_sections:review.md}}——结论 = solved/partial/not 判定，证据 = file:line / 测试输出）——**写主仓 `.claude/reviews/<name>.md`**（注入「产物路径」行给绝对路径，禁写 worktree 内）——然后输出 `### PHASE_DONE: review`。
 - 自动推进到 evolution（无闸门）。
 
 ### evolution（进化）
 - 目标：沉淀本次经验。
 - 允许：写 memory 事实（仅非显然的、可复用的）/ 更新 skill / 补 design。
-- 完成：写出 evolution.md——**写主仓 `.claude/evolutions/<name>.md`**（注入「产物路径」行给绝对路径，禁写 worktree 内）——然后输出 `### PHASE_DONE: evolution`（终结）。
+- **产物信息不足回查**：review.md/产物找不到所需细节 → 先 `python3 ~/.dl-workflow/scripts/workflow/evidence_show.py <name> <主仓根>` 回查证据链（各步 trace + gate 裁决记录）→ 仍不足 → AskUserQuestion 问用户；**禁凭训练记忆补全**。
+- 完成：写出 evolution.md（两节：{{artifact_sections:evolution.md}}——经验 = 沉淀了什么非显然可复用经验，落地 = 写到哪个 memory/skill/design 文件附路径）——**写主仓 `.claude/evolutions/<name>.md`**（注入「产物路径」行给绝对路径，禁写 worktree 内）——然后输出 `### PHASE_DONE: evolution`（终结）。
 
 ## 显示约束（output style）
 

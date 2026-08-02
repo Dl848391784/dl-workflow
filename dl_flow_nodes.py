@@ -149,6 +149,8 @@ ARTIFACT_SECTIONS: dict[str, tuple[str, ...]] = {
     # evolution.md 最小两节（新增结构要求）：沉淀了什么 + 落到哪个 memory/skill/design。
     "evolution.md": ("经验", "落地"),
 }
+# 各产物节名的「 + 」连接文本（purpose/装配行插值用，免嵌套引号）。
+SECTIONS_TEXT: dict[str, str] = {k: " + ".join(v) for k, v in ARTIFACT_SECTIONS.items()}
 
 
 # understand:1 子1 的形式要件（单源：purpose 模型侧与 gate judge 侧都引用）。
@@ -1449,8 +1451,8 @@ _NODES: dict[str, Node] = {
                     "用户认/否/调整记入 trace。"
                     "裁决完成后装配 understand.md（写主仓 "
                     ".claude/understands/<name>.md——产物落主仓，worktree 归档删除即丢）："
-                    "4 子阶段归一化陈述+本轮裁决直接装配（真实问题重述 + 目标价值 + "
-                    "范围约束 + 成功标准验收包；禁二次创作；"
+                    f"4 子阶段归一化陈述+本轮裁决直接装配（{SECTIONS_TEXT['understand.md']}；"
+                    "禁二次创作；"
                     "未被选定的问题/目标/约束及其一句话陈述也须写入，供后续 dl 实例接续）；"
                     f"{_INTERACTIVE_CHUNKING_RULE}。"
                 ),
@@ -2158,7 +2160,7 @@ _NODES: dict[str, Node] = {
             ),
             Step(
                 kind="skill",
-                ref="AskUserQuestion / Bash(plan.md 追加「能力与工具」节)",
+                ref=f"AskUserQuestion / Bash(plan.md 追加「{_S_CAP_TOOLS}」节)",
                 short="读回装配",
                 # 带证据读回（同构 plan:2 子5）：只给结论不给依据地「通知」用户 =
                 # 无依据确认；plan.md「能力与工具」节 = 子5 能力包+裁决记录的
@@ -2168,7 +2170,7 @@ _NODES: dict[str, Node] = {
                     "+不加载清单+新增候选（子1 检出若有）+不确定性；"
                     "用户两裁决——①映射拍板（本节点唯一规范裁决点，"
                     "含要求换绑/卸载/补绑的合法权利）；②假设接受（风险承担）；"
-                    "拍板后装配 plan.md「能力与工具」节（=子5 归一化能力包+裁决记录的"
+                    f"拍板后装配 plan.md「{_S_CAP_TOOLS}」节（=子5 归一化能力包+裁决记录的"
                     "直接装配，禁二次创作）；"
                     f"{_INTERACTIVE_CHUNKING_RULE}；写 trace 记裁决原话 -> STEP_DONE。"
                 ),
@@ -2177,7 +2179,7 @@ _NODES: dict[str, Node] = {
                 selfcheck=(
                     "呈现了映射摘要+可用性状态+假设清单+不加载清单+新增候选吗？"
                     "用户对映射/假设两项裁决都记入 trace 了吗？"
-                    "plan.md「能力与工具」节是装配而非二次创作吗？"
+                    f"plan.md「{_S_CAP_TOOLS}」节是装配而非二次创作吗？"
                 ),
                 gate=None,  # 交互步，gate 不跑 judge（trace 存在即过）
             ),
@@ -2376,7 +2378,7 @@ _NODES: dict[str, Node] = {
             ),
             Step(
                 kind="skill",
-                ref="AskUserQuestion / Edit(plan.md 追加「执行计划与检查点」节)",
+                ref=f"AskUserQuestion / Edit(plan.md 追加「{_S_CHECKPOINTS}」节)",
                 short="读回装配",
                 # 带证据读回（同构 plan:2 子5/plan:3 子6）。三裁决点的第三个
                 # （冻结策略）是制度裁决：进 execute 前拍板 plan.md 的合同
@@ -2392,7 +2394,7 @@ _NODES: dict[str, Node] = {
                     "[commit message+execute 完成时偏离清单]，大改=/dl back "
                     "回 plan 修订重过闸门；禁 execute 内直接改 plan.md——"
                     "judge 逐条核的对象不能是执行期可随手改的）；"
-                    "拍板后装配 plan.md「执行计划与检查点」节（=子4 归一化"
+                    f"拍板后装配 plan.md「{_S_CHECKPOINTS}」节（=子4 归一化"
                     "执行计划包+裁决记录的直接装配，禁二次创作）；"
                     f"{_INTERACTIVE_CHUNKING_RULE}；"
                     "写 trace 记裁决原话 -> STEP_DONE。"
@@ -2402,7 +2404,7 @@ _NODES: dict[str, Node] = {
                 selfcheck=(
                     "呈现了分组+互斥面核验状态+检查点清单+假设清单+新增候选吗？"
                     "用户对密度与类型/假设/冻结策略三项裁决都记入 trace 了吗？"
-                    "plan.md「执行计划与检查点」节是装配而非二次创作吗？"
+                    f"plan.md「{_S_CHECKPOINTS}」节是装配而非二次创作吗？"
                 ),
                 gate=None,  # 交互步，gate 不跑 judge（trace 存在即过）
             ),

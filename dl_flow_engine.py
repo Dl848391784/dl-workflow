@@ -2044,10 +2044,40 @@ def render_phase_rules(template_text: str) -> str:
     """把模板里所有 GENERATED sub_steps 标记段替换为 engine 渲染产物。
 
     无标记段 -> 原样返回（向后兼容）；标记的节点 id 非法 -> 抛错（调用方 fail loud）。
+    两阶段：先 GENERATED 块，后 artifact_sections 内联 token（互不感知）。
     """
-    return _GENERATED_RE.sub(
+    rendered = _GENERATED_RE.sub(
         lambda m: render_substeps_section(m.group(1)), template_text
     )
+    return _ARTIFACT_TOKEN_RE.sub(_render_artifact_token, rendered)
+
+
+# ---------- 产物节名内联 token（2026-08-02，artifact-handoff-hardening-design）----------
+#
+# 模板装配行/消费指令里的节名用 {{artifact_sections:<basename>[#<idx>]}} 占位，
+# 渲染时从 ARTIFACT_SECTIONS 单源替换——节标题三通道（engine 门/phase-rules/注入）
+# 同改同归，消灭「注入与装配 spec 措辞不一」类漂移（CONTAINS 扩面的前置）。
+_ARTIFACT_TOKEN_RE = re.compile(r"\{\{artifact_sections:([\w.-]+?)(?:#(\d+))?\}\}")
+
+
+def _render_artifact_token(m: re.Match) -> str:
+    """{{artifact_sections:<basename>[#<idx>]}} -> 全节「 + 」连接 或 单节名。
+
+    产物名/索引非法 -> 抛错（调用方 fail loud，与 GENERATED 渲染同纪律）。
+    """
+    basename, idx_s = m.group(1), m.group(2)
+    sections = ARTIFACT_SECTIONS.get(basename)
+    if sections is None:
+        raise ValueError(f"artifact_sections token 产物名未知：{basename!r}")
+    if idx_s is not None:
+        idx = int(idx_s)
+        if idx >= len(sections):
+            raise ValueError(
+                f"artifact_sections token 索引越界：{basename}#{idx}"
+                f"（共 {len(sections)} 节）"
+            )
+        return sections[idx]
+    return " + ".join(sections)
 
 
 # ---------- 机械化记录写入（「AI 定写什么，脚本定怎么写」，2026-07-26）----------
