@@ -3310,6 +3310,23 @@ class TestRunJudgeHarnessTrim:
         for needle in ("RUBRIC_X", "LABEL_Y", "OUTPUT_Z", "ART_W"):
             assert needle in prompt
 
+    def test_judge_invocation_disables_thinking(self, monkeypatch):
+        # v2.44：judge 子进程 MAX_THINKING_TOKENS=0。MiniMax-M3 实测 thinking
+        # 占 judge 输出 92%（3529->278 tok、39.2s->6.3s，同载荷判决方向一致）。
+        captured = {}
+
+        class _Res:
+            returncode = 0
+            stdout = '{"is_error":false,"result":"{\\"pass\\": true, \\"reason\\": \\"\\"}"}\n'
+
+        def _run(cmd, **kw):
+            captured["env"] = kw.get("env") or {}
+            return _Res()
+
+        monkeypatch.setattr(eng.subprocess, "run", _run)
+        eng.run_judge("rubric", "label", "out")
+        assert captured["env"].get("MAX_THINKING_TOKENS") == "0"
+
 
 class TestRunJudgeCostMeta:
     """judge 成本可见性（2026-07-26）：claude -p 返回 JSON 的 usage/duration/cost
@@ -5807,6 +5824,75 @@ class TestFetchReportRecorded:
             tmp_path / ".claude" / "workflows" / "t" / "fetch-prompt-skeleton.md"
         ).write_text("骨架", encoding="utf-8")
         ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert ok, msg
+
+
+class TestRedteamReportRecorded:
+    """v2.44 redteam_report_recorded：子4 红队输出原文收录机械核验（u:1 子4 专属）。
+
+    实证（2026-08-02 tail_volume u:1 子4）：模型先撞占位符扫描（「待补」机械拒、
+    判词已指路「等红队归位再提交」），改写措辞绕开扫描（「未归/仍在跑中」）
+    仍提前提交 -> judge block（3.5min + 1 次 judge 白烧）。词表打地鼠无效，
+    结构信号分隔度经全量历史 trace 重放验证（7 条真实子4 trace）：
+    「task-id 出现 = 已派发」×「收录项标题含「红队」「原文收录」」——
+    被 block 载荷 = 有 task-id 无收录项；通过载荷 = 两者皆有；
+    未触发/未派发 = 无 task-id 放行交 judge（宁纵勿枉）。
+    """
+
+    def _append_s4(self, tmp_path, qa):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=4)
+        (tmp_path / "payload.json").write_text(
+            json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
+        )
+        return eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+
+    _DISPATCH_A = (
+        "触发条件判定：verdict 决定大方向（指向 layered_backtest.py:655）"
+        "——触发条件满足。红队派发：redteam-prompt 生成，Agent 工具单发起"
+        "（task-id a5ca6ea271e5e937e）。"
+    )
+
+    def test_dispatched_not_recorded_blocked(self, tmp_path):
+        # 真实被 block 载荷形态：已派发（含 task-id）无收录项
+        qa = [
+            {"q": "① 三关质检", "a": "E1 针对性 pass / 独立性 pass / 可追溯 pass"},
+            {
+                "q": "② 条件触发对抗复核（红队子代理）",
+                "a": self._DISPATCH_A + "红队归位状态：未归。",
+            },
+            {"q": "③ 四态结论合成", "a": "初步 verdict：Q1 部分成立"},
+        ]
+        ok, msg = self._append_s4(tmp_path, qa)
+        assert not ok and "红队" in msg and "原文收录" in msg
+
+    def test_dispatched_and_recorded_accepted(self, tmp_path):
+        # 真实通过载荷形态：收录项标题含「红队」「原文收录」
+        qa = [
+            {"q": "① 三关质检", "a": "E1 针对性 pass / 独立性 pass / 可追溯 pass"},
+            {
+                "q": "② 条件触发对抗复核（红队子代理）",
+                "a": self._DISPATCH_A + "红队归位状态：已归位。",
+            },
+            {
+                "q": "②.5 红队蒸馏报告原文收录（task-id a5ca6ea271e5e937e）",
+                "a": "=== 红队蒸馏报告原文开始 ===\n总判断：…\nQ1 部分成立，置信度中",
+            },
+            {"q": "③ 四态结论合成", "a": "按红队修订：Q1 部分成立"},
+        ]
+        ok, msg = self._append_s4(tmp_path, qa)
+        assert ok, msg
+
+    def test_not_triggered_accepted(self, tmp_path):
+        # 合法双结论分支：未触发声明（无 task-id 可引）-> 交 judge 判真值
+        qa = [
+            {"q": "① 三关质检", "a": "E1 针对性 pass / 独立性 pass / 可追溯 pass"},
+            {
+                "q": "② 条件触发对抗复核（红队子代理）",
+                "a": "触发条件判定：verdict 不影响大方向——触发条件不满足，未起红队。",
+            },
+            {"q": "③ 四态结论合成", "a": "Q1 部分成立，推理链…"},
+        ]
+        ok, msg = self._append_s4(tmp_path, qa)
         assert ok, msg
 
 

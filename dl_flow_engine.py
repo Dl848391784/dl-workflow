@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -1905,6 +1906,15 @@ def _run_judge_once(prompt: str) -> tuple[bool, str, bool]:
     一律 False，调用方直接降级。
     """
     try:
+        # v2.44：judge 子进程禁思考链（MAX_THINKING_TOKENS=0）。实证
+        # （2026-08-02 tail_volume u:1）：judge 两次离群 115s/99s、输出
+        # 10.8k/11.4k tok 而可见判词仅数百字——推理模型 judge 的 thinking
+        # 占输出 ~92%。MiniMax-M3 同一真实载荷 A/B：3529 tok/39.2s ->
+        # 278 tok/6.3s（-92%/-84%），判决方向一致。judge 任务是按判据
+        # 比对，非开放推理，思考链成本不成比例。只覆盖 judge 子进程 env，
+        # 主会话与 provider/认证链不动（K3 端点忽略该 var，无副作用）。
+        env = dict(os.environ)
+        env["MAX_THINKING_TOKENS"] = "0"
         res = subprocess.run(
             # --tools ""：judge 明确不调工具，裁掉全套工具 schema（harness 开销大头）。
             # --system-prompt：judge 人设替换 coding 助手人设，减人设冲突干扰。
@@ -1929,6 +1939,7 @@ def _run_judge_once(prompt: str) -> tuple[bool, str, bool]:
             # （judge 的 Stop 又生 judge，2026-07-25 demo 实测链式爆炸 + 全员超时）。
             # 非 git 目录下 hooks 反查不到项目根，自然静默退出。
             cwd=tempfile.gettempdir(),
+            env=env,
         )
     except subprocess.TimeoutExpired as e:
         LAST_JUDGE_META["judge_error"] = type(e).__name__
@@ -2474,12 +2485,46 @@ def _check_fetch_skeleton_out(qa, project_root, name):
     return None
 
 
+def _check_redteam_report_recorded(qa: list, *_ctx) -> str | None:
+    """redteam_report_recorded：子4 红队输出原文收录机械核验（u:1 子4 专属，v2.44）。
+
+    实证（2026-08-02 tail_volume u:1 子4）：模型先撞占位符扫描（「待补」机械拒、
+    拒绝消息已指路「等红队归位再提交」），改写措辞绕开扫描（「未归/仍在跑中」
+    不含禁词）仍提前提交 -> judge block（~3.5min 返工 + 1 次 judge 白烧）。
+    §3.5 #14/#20：词表扩词 = 打地鼠，行为禁令的闭环 = 写侧机械核验。
+
+    信号分隔度经全量历史子4 trace 重放验证（7 条真实载荷）：
+    「task-id 出现 = 红队已派发」（红队经 Agent 工具单发起，派发即有 task-id；
+    未触发合法分支无 agent 可引，两条真实未派发载荷均无 task-id）×
+    收录项 = 标题含「红队」且含「原文收录」的 qa 项（与子3「蒸馏报告」标题
+    承诺装置同范式）。被 block 载荷 = 有 task-id 无收录项；通过载荷 = 两者皆有。
+    未派发（含未触发声明、触发满足但未起）-> None 交 judge 判真值（宁纵勿枉）。
+    """
+    text_all = "\n".join(f"{item.get('q', '')}\n{item.get('a', '')}" for item in qa)
+    if "task-id" not in text_all and "task_id" not in text_all:
+        return None
+    recorded = any(
+        "红队" in str(item.get("q", "")) and "原文收录" in str(item.get("q", ""))
+        for item in qa
+    )
+    if recorded:
+        return None
+    return (
+        "红队已派发（trace 含 task-id）但输出未原文收录——缺标题含「红队」"
+        "「原文收录」的 qa 项（完整粘贴其 verdict/推理链/置信度）。"
+        "等 Agent 归位收录原文后再提交；agent 失败/空结果则重派或升级用户裁决"
+        "——「已派发等归位」式状态说明不算记录（提前提交 = 红队结论缺席的裁决，"
+        "下游子5 会拿到未经对抗复核的问题集）"
+    )
+
+
 # qa 格式步的写侧机械校验注册表（Step.mech_checks 声明名 -> 检查函数）。
 # 未注册名 = nodes 与 engine 配置漂移，fail loud 不静默跳过。
 _MECH_QA_CHECKS = {
     "causal_ring_no_untested": _check_causal_ring_no_untested,
     "fetch_report_recorded": _check_fetch_report_recorded,
     "fetch_skeleton_out": _check_fetch_skeleton_out,
+    "redteam_report_recorded": _check_redteam_report_recorded,
 }
 
 
