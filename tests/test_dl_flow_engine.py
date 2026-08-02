@@ -5515,6 +5515,192 @@ class TestV237FirstPassRate:
         ]
         assert eng._check_causal_ring_no_untested(qa) is None
 
+    # ---- v2.50：「待子3取证/降格」独占 Why 环（占环位）+ 原子标签对齐 ----
+    # 2026-08-02 tail_volume_acceleration_annualized u:1 子2 三连 block 复盘：
+    # v2.49 词表修完上一家族，本轮换家族照样三连——att1「待子3取证/降格」
+    # 声明独占主链环位（规则早有反例但词形未下沉）+ atomic_questions 5 项
+    # vs 声明 3 原子口径不一致（judge 判两轮，其中一轮判词搬旧数字失真）。
+
+    def test_replay_u1s2_0802_att1_demote_occupies_ring_blocked(self):
+        # att1 逐字形态：Why4 整环=「待子3取证」待办、Why5 整环=「降格进
+        # 竞争假设」声明——环内无 file:line 指针 = 占环位（声明占环位=未降格）
+        qa = [
+            {
+                "q": "原子 B (回测端) 5Whys 因果链主链 + 每环 file:line？",
+                "a": (
+                    "Why1: 分层模式 percentile 5 层（layered_backtest.py:10）；"
+                    "Why4: 计算公式具体内容 (复利期数/单复利/单位) 在 backtest/ 下文件, "
+                    "待子3取证; Why5: 主链到「数据契约+加载路径」实测层终止 — "
+                    "公式内容降格进竞争假设待子3验证"
+                ),
+            },
+        ]
+        err = eng._check_causal_ring_no_untested(qa)
+        assert err is not None and "占环位" in err
+
+    def test_demote_tail_pointer_with_evidence_accepted(self):
+        # 同日 att3 形态（judge 已接受 B 链）：环终止于实测层（含 :N 指针），
+        # 尾部「降格进竞争假设分支待子 3 验证」是去向指针非占位——不拒
+        qa = [
+            {
+                "q": "原子 B (回测端) 5Whys 因果链主链？",
+                "a": (
+                    "Why5: 主链终止于 — schema 字段语义未显式标注 (PROJECT.md:1200 "
+                    "schema 路径锁定但内容未 Read), 公式层 raw 0-1 语义与项目惯例 "
+                    "_format_pct 一致 (layered_backtest.py:41-61), ls_mean=0.3781 "
+                    "的物理解释降格进竞争假设分支待子 3 验证"
+                ),
+            },
+        ]
+        assert eng._check_causal_ring_no_untested(qa) is None
+
+    def test_demote_in_non_ring_item_not_scanned(self):
+        # 自查/元描述项（无 WhyN: 环段）汇报降格去向 = 合法，宁纵勿枉
+        qa = [
+            {
+                "q": "主链每个环是否都停在实测层 + 是否悬空/占主环位?",
+                "a": (
+                    "原子 B 主链 4 环 (Why1-Why4) 全部 file:line 实测, Why5 物理解释 "
+                    "降格进竞争假设分支 B_root H3, 标待子3取证, 不悬空、不占主环位"
+                ),
+            },
+        ]
+        assert eng._check_causal_ring_no_untested(qa) is None
+
+    def test_demote_negation_not_banned(self):
+        # 「未降格」是否定式合法陈述（规则文本自用词），不命中
+        qa = [
+            {
+                "q": "原子 A → 因果链",
+                "a": "Why5: 主链挖到实测层即终止，无未降格占位环",
+            },
+        ]
+        assert eng._check_causal_ring_no_untested(qa) is None
+
+    def test_replay_u1s2_0802_att1_extra_atom_labels_blocked(self):
+        # att1 真实形态：声明 MECE 三原子（A/B/C）但 atomic_questions 实列
+        # 5 项（A./B./C./D./E.）——D/E 未声明 = 口径不一致机械拒
+        qa = [
+            {
+                "q": "单一/复合判定?",
+                "a": "复合痛点, MECE 三原子互不重叠: A=因子端, B=回测端, C=展示端",
+            },
+            {"q": "原子 A (因子端) 5Whys 主链?", "a": "Why1: 实测（:115）"},
+            {"q": "原子 B (回测端) 5Whys 主链?", "a": "Why1: 实测（:10）"},
+            {"q": "原子 C (展示端) 5Whys 主链?", "a": "Why1: 实测（:38）"},
+        ]
+        aq = [
+            {"q": "A. 因子值域", "tier": "none", "tier_reason": "x.py:1"},
+            {"q": "B. 回测公式", "tier": "none", "tier_reason": "x.py:1"},
+            {"q": "C. 渲染逻辑", "tier": "none", "tier_reason": "x.py:1"},
+            {"q": "D. 模板注册", "tier": "none", "tier_reason": "x.py:1"},
+            {"q": "E. 其它因子对照", "tier": "light", "tier_reason": "外部对照"},
+        ]
+        err = eng._check_atomic_mece_alignment(aq, qa)
+        assert err is not None and "D" in err and "E" in err
+
+    def test_atomic_alignment_root_suffix_labels_accepted(self):
+        # 同日 att2/att3 通过形态：aq 用「A_root 验证:…」标签 = 声明原子的
+        # 根因验证项，标签集合一致无重复 → 过
+        qa = [
+            {"q": "原子 A (因子端) 5Whys 主链?", "a": "Why1: 实测（:115）"},
+            {"q": "原子 B (回测端) 5Whys 主链?", "a": "Why1: 实测（:10）"},
+            {"q": "原子 C (展示端) 5Whys 主链?", "a": "Why1: 实测（:38）"},
+        ]
+        aq = [
+            {"q": "A_root 验证: 因子值域", "tier": "none", "tier_reason": "x.py:1"},
+            {"q": "B_root 验证: 回测公式", "tier": "none", "tier_reason": "x.py:1"},
+            {"q": "C_root 验证: 渲染逻辑", "tier": "none", "tier_reason": "x.py:1"},
+        ]
+        assert eng._check_atomic_mece_alignment(aq, qa) is None
+
+    def test_atomic_alignment_unlabeled_skipped(self):
+        # 历史通过 fixture 形态：aq 无字母标签（「数值正确性」「展示精度」）——
+        # 无标签属 judge 裁量，机械宁纵勿枉不拒（FP 守卫）
+        qa = [
+            {"q": "原子 A=数值正确性 → 5Whys 因果链", "a": "Why1 实测（:655）"},
+            {"q": "原子 B=展示精度 → 5Whys 因果链", "a": "Why1 实测（:901）"},
+        ]
+        aq = [
+            {"q": "数值正确性", "tier": "none", "tier_reason": "x.py:655"},
+            {"q": "展示精度", "tier": "none", "tier_reason": "x.py:901"},
+        ]
+        assert eng._check_atomic_mece_alignment(aq, qa) is None
+
+    def test_atomic_alignment_duplicate_label_blocked(self):
+        # 一原子多条 = 非一一对应（att1 判词「A 2 项」形态）
+        qa = [
+            {"q": "原子 A (因子端) 5Whys?", "a": "Why1: 实测（:115）"},
+            {"q": "原子 B (回测端) 5Whys?", "a": "Why1: 实测（:10）"},
+        ]
+        aq = [
+            {"q": "A. 值域", "tier": "none", "tier_reason": "x.py:1"},
+            {"q": "A. 实现细节", "tier": "none", "tier_reason": "x.py:2"},
+            {"q": "B. 公式", "tier": "none", "tier_reason": "x.py:3"},
+        ]
+        err = eng._check_atomic_mece_alignment(aq, qa)
+        assert err is not None and "重复" in err
+
+    def test_atomic_alignment_single_atom_skipped(self):
+        # 单一痛点（无「原子 X」声明）→ 无对齐基准，交 judge，不拒
+        qa = [{"q": "单一/复合判定?", "a": "单一（无复合理由：痛点只有一项）"}]
+        aq = [{"q": "A. 唯一问题", "tier": "none", "tier_reason": "x.py:1"}]
+        assert eng._check_atomic_mece_alignment(aq, qa) is None
+
+    def test_atomic_alignment_no_qa_skipped(self):
+        # statements 格式步 qa=None → 跳过（调用管道签名兼容守卫）
+        aq = [{"q": "A. x", "tier": "none", "tier_reason": "x.py:1"}]
+        assert eng._check_atomic_mece_alignment(aq, None) is None
+
+    def test_append_trace_atomic_alignment_integration(self, tmp_path):
+        # 管道集成：extra_payload_keys 逐项校验须拿到 qa（声明侧）——
+        # att1 形态全载荷经 append_trace 拒（chains 先过禁词扫描）
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=2)
+        qa = [
+            {
+                "q": "单一/复合判定?",
+                "a": "复合痛点, MECE 三原子: A=因子端, B=回测端, C=展示端",
+            },
+            {"q": "原子 A (因子端) 5Whys 主链?", "a": "Why1: 实测（:115）"},
+            {"q": "原子 B (回测端) 5Whys 主链?", "a": "Why1: 实测（:10）"},
+            {"q": "原子 C (展示端) 5Whys 主链?", "a": "Why1: 实测（:38）"},
+        ]
+        aq = [
+            {
+                "q": "A. 因子值域",
+                "tier": "none",
+                "tier_reason": "factor_definitions.py:115 仓内可证伪",
+            },
+            {
+                "q": "B. 回测公式",
+                "tier": "none",
+                "tier_reason": "layered_backtest.py:713 仓内可证伪",
+            },
+            {
+                "q": "C. 渲染逻辑",
+                "tier": "none",
+                "tier_reason": "_section_backtest.html:38 仓内可证伪",
+            },
+            {
+                "q": "D. 模板注册",
+                "tier": "none",
+                "tier_reason": "run_pipeline.py:80 仓内可证伪",
+            },
+            {
+                "q": "E. 其它因子对照",
+                "tier": "light",
+                "tier_reason": "同页其它因子量级外部对照",
+            },
+        ]
+        (tmp_path / "payload.json").write_text(
+            json.dumps(
+                {"purpose": "p", "qa": qa, "atomic_questions": aq}, ensure_ascii=False
+            ),
+            encoding="utf-8",
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert not ok and "D" in msg and "声明" in msg
+
     def test_replay_u1s2_att3_real_pass_accepted(self, tmp_path):
         # att3 真实通过版：主链每环实测（含模板 :38 Jinja 片段），零禁词
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=2)

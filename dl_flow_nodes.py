@@ -300,6 +300,15 @@ _SCOPE_VERB_RULE = (
 # 「降格至竞争假设分支」声明写进主链环占位（声明≠降格）；③拼接产物路径
 # （「实际产物路径 = …」）补反例；④行号跨度要件双侧化——att2 judge 临场
 # 发明「:565-771 不算精确指针」，规则文本未写（正例跨度 ≤17，阈值钉 50）。
+# v2.50 补（同日晚三连 block 第二 episode 复盘——v2.49 修完词形家族，
+# 换家族照样三连）：①「待子3取证/降格」声明独占 Why 环（环内无指针）
+# =占环位，词形下沉机械层（att1 逐字）；②「每环有 file:line」≠「每环是
+# 因果环」——调用拓扑/schema 路径/数据契约描述满足全部已披露要件仍被
+# judge 三连判（att3 自查逐项答「停在实测层」仍 block = 操作化分歧实锤，
+# §3.5 #9 第三形态）——「异常数值如何形成」正反范例双侧钉死（正例取
+# att3 judge 改写例、反例取 att2 真实违规字面）；③atomic_questions 与
+# MECE 声明原子计数/标签对齐下沉机械层（att1 声明 3 交 5，att2 judge
+# 判词搬旧计数失真——机械接管后 judge 不再碰计数）。
 _CAUSAL_CHAIN_EVIDENCE_RULE = (
     "「证据出处」操作化：主因果链（5 Whys 各 Why 环）每环须为实际证据指针"
     "（file:line/数据值/日志原文/用户原话——Read 是本步合法且足够的取证通道）；"
@@ -321,7 +330,18 @@ _CAUSAL_CHAIN_EVIDENCE_RULE = (
     "主链环位=未降格（反例「Why5=…降格至竞争假设分支」：声明占环位，主链仍"
     "悬空）；主链挖到实测层即终止——不悬空、不贴「未实测/推断」充数（链环文本含"
     "「未实测/待实测/未验证/待验证/可能/需…验证类待办桥接/若…则假设形态/"
-    "≥50 行行号跨度」append-trace 当场机械拒（「不可能」是否定式合法断言，除外））"
+    "≥50 行行号跨度」append-trace 当场机械拒（「不可能」是否定式合法断言，除外）；"
+    "「待子3取证/降格」声明独占某 Why 环且环内无 file:line 指针=占环位，"
+    "append-trace 当场机械拒——环终止于实测层（环内有指针）、尾部带降格去向"
+    "声明是合法形态）。"
+    "「每环有 file:line 证据指针」不等于「每环是因果环」——每环须回答"
+    "「异常数值/现象如何形成」，指针背书的是模块调用拓扑/schema 路径/"
+    "数据契约描述则不算因果环：正例「Why1=web_ui 取字段原值=95.298 未做单位"
+    "判断（_section_backtest.html:69 原文 _ann_pct=(_ann*100)，读出即事实）」"
+    "——环内容=数值形成机制；反例「Why2=输出 schema="
+    "layered_backtest_result.schema.json（PROJECT.md:1200，读出即事实）」"
+    "——指针背书的只是产物路径/注册事实，不解释 95.298 如何产生，"
+    "有指针仍判 block"
 )
 
 # v2.40 取证深度分档规则（单源：子2 定档指引 purpose/selfcheck/gate 与
@@ -593,7 +613,9 @@ _NODES: dict[str, Node] = {
                     "（逐项 "
                     '{"q":<原子问题>, "tier":"none|light|full", "tier_reason":<分档理由>}，'
                     "与 MECE 清单一一对应——append-trace 逐项机械校验："
-                    "tier 枚举/理由非空/none 档理由须含仓内路径，缺项当场拒）。"
+                    "tier 枚举/理由非空/none 档理由须含仓内路径，缺项当场拒；"
+                    "首字母标签与 MECE 声明「原子 X」集合对齐"
+                    "（未声明标签/同标签重复当场拒））。"
                     "输出走 evidence skill-trace（q/a 数组），不建单独 md。"
                 ),
                 input="step1.real_problem",
@@ -604,9 +626,13 @@ _NODES: dict[str, Node] = {
                     "主链每环是实际证据指针吗（「未实测/推断」标注不算出处，"
                     "只允许出现在竞争假设分支——"
                     f"{_CAUSAL_CHAIN_EVIDENCE_RULE}）？"
+                    "每环回答的是「异常数值如何形成」还是「谁调用谁/产物路径/"
+                    "schema 描述」（后者有 file:line 也不算因果环）？"
                     "每个问题有 ≥1 竞争假设+排除/保留理由吗？近因/根因区分和置信度标了吗？"
                     "每个原子问题定档了吗（atomic_questions 逐项 q/tier/tier_reason，"
                     "拿不准标 light；none 档理由含仓内路径）？"
+                    "atomic_questions 与 MECE 声明原子一一对应吗"
+                    "（标签一致、一原子恰好一条）？"
                 ),
                 # 门控分工：judge 只判结构完整性（清单/链/竞争假设/出处），
                 # 根因对不对归子3验真 + 子5用户认可（§3.5 三层分工）。
@@ -633,7 +659,13 @@ _NODES: dict[str, Node] = {
                 # v2.40：原子问题分档清单（逐项 q/tier/tier_reason JSON 校验，
                 # spec=engine._MECH_EXTRA_ITEM_CHECKS 注册名）——分类纠偏前置
                 # 到本子步 gate（便宜环节），子3 只执行不重新定档（禁降档）。
-                extra_payload_keys=(("atomic_questions", "fetch_tier_items"),),
+                # v2.50：+atomic_mece_alignment——aq 首字母标签与 MECE 声明
+                # 「原子 X」集合对齐（att1 声明 3 原子交 5 条，judge 判两轮且
+                # 判词搬旧计数失真；集合运算下沉后 judge 不再碰计数）。
+                extra_payload_keys=(
+                    ("atomic_questions", "fetch_tier_items"),
+                    ("atomic_questions", "atomic_mece_alignment"),
+                ),
             ),
             # 子3/子4（2026-07-26 重设计，designs/step3-verify-redesign-design.md）：
             # 旧单步「验真」对 F1 主张不可检验/F2 确认偏误/F5 证据不可追溯/F7 单视角

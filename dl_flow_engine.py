@@ -2507,6 +2507,16 @@ _WIDE_SPAN_LIMIT = 50
 # 与 _CAUSAL_CHAIN_EVIDENCE_RULE 排除/保留拆分一一对应）。
 _EXCLUDE_INFERENCE_RE = re.compile(r"未实测|待实测|未验证|待验证|推测|(?<!不)可能")
 
+# v2.50 占环位词形（2026-08-02 u:1 子2 三连 block att1 逐字：Why4「…待子3
+# 取证」、Why5「…降格进竞争假设待子3验证」整环无指针）——「待子3取证/降格」
+# 声明独占环位=未降格（规则反例早已双侧钉死，词形本轮首现，按逐字纪律补下沉）。
+# 环段锚 WhyN 带冒号：自查/元描述项的「Why1-Why4」式环引用不切段，合法汇报
+# 降格去向不误扫（att3 自查项零 FP）；段内带 :\d+ 指针的尾部降格去向声明
+# 合法（att3 B Why5 形态 judge 已接受）——占环位的操作化=环内无实测指针。
+_RING_START_RE = re.compile(r"Why\d+[:：]")
+_DEMOTE_RING_RE = re.compile(r"待子\s*3\s*(?:取证|验证)|(?<![不未无])降格")
+_EVIDENCE_POINTER_RE = re.compile(r":\d+")
+
 
 def _check_causal_ring_no_untested(qa: list, *_ctx) -> str | None:
     """causal_ring_no_untested：因果链环禁词扫描（u:1 子2 专属，nodes 声明）。
@@ -2525,6 +2535,8 @@ def _check_causal_ring_no_untested(qa: list, *_ctx) -> str | None:
     分隔度：8/2 真实被 block 载荷（Q1 未实测/Q4 可能）BLOCK、真实通过载荷
     与 demo 载荷 PASS；v2.49 扩面信号（需…验证/若…则/行号跨度/排除句推断）
     同口径重放（3 条被 block 载荷逐字 BLOCK、通过载荷零 FP）。
+    v2.50 占环位扫描（WhyN: 环段级「待子3取证/降格」+ 全段无「:行号」指针）：
+    同日三连 block att1 逐字 BLOCK、att3 尾部去向声明形态与自查项零 FP。
     """
     banned = ("未实测", "待实测", "未验证", "待验证")
     for item in qa:
@@ -2570,6 +2582,20 @@ def _check_causal_ring_no_untested(qa: list, *_ctx) -> str | None:
                     f"{int(m.group(2)) - int(m.group(1))} 行（{q[:20]}…）——"
                     f"跨度 ≥{_WIDE_SPAN_LIMIT} 行不算精确指针："
                     "收窄到具体语句行（定义/赋值/调用行），并附该行原文"
+                )
+        # v2.50 占环位扫描：WhyN: 环段内含「待子3取证/降格」且全段无 :\d+
+        # 实测指针 = 声明独占环位（规则反例「Why5=…降格至竞争假设分支」）
+        ring_starts = list(_RING_START_RE.finditer(a))
+        for i, m in enumerate(ring_starts):
+            end = ring_starts[i + 1].start() if i + 1 < len(ring_starts) else len(a)
+            seg = a[m.end() : end]
+            dm = _DEMOTE_RING_RE.search(seg)
+            if dm and not _EVIDENCE_POINTER_RE.search(seg):
+                return (
+                    f"因果链环以「{dm.group(0)}」占环位（{q[:20]}…，该环无 "
+                    "file:line 指针）——「待子3取证/降格」声明独占环位=未降格："
+                    "把该环从主链移除、改写进竞争假设分支（「待子3取证」的合法"
+                    "位置在那里），主链挖到实测层（环内带 file:line 指针）即终止"
                 )
     return None
 
@@ -2638,12 +2664,13 @@ _NONE_TIER_PATH_RE = re.compile(
 )
 
 
-def _check_fetch_tier_items(items: list) -> str | None:
+def _check_fetch_tier_items(items: list, qa: list | None = None) -> str | None:
     """fetch_tier_items：atomic_questions 逐项校验（u:1 子2 专属，nodes 声明）。
 
     逐项 {q 非空, tier∈none|light|full, tier_reason 非空；none 档理由须含
     仓内路径指针}。拿不准标 light（默认档——漂到 light 的 full 类问题由
     升档机制救回；none 漏取证是质量问题，full 是成本问题）。
+    qa 形参为管道统一签名（v2.50）：本检查不用，对齐校验用。
     """
     for i, it in enumerate(items):
         if not isinstance(it, dict):
@@ -2674,11 +2701,65 @@ def _check_fetch_tier_items(items: list) -> str | None:
     return None
 
 
+# atomic_questions 原子标签 ↔ MECE 声明对齐（v2.50，2026-08-02 u:1 子2
+# 三连 block att1/att2 复盘）：att1 声明 A/B/C 三原子却交 5 条（D/E 未声明），
+# judge 判两轮且 att2 判词把 att1 已修的计数原样再判（陈旧判词失真）——
+# 计数/标签对齐是纯集合运算，下沉机械层后 judge 不再碰计数（§3.5 #13
+# ID 传导覆盖核对同款）。锚定纪律（§3.5 #21 三原则）：声明侧只认「原子 X」
+# 字面（出过事的形态），aq 侧只认首字母标签（A. / A_root 形态）；声明 <2 个
+# （单一/无复合）或 aq 无标签（历史通过形态「数值正确性」）= 无机械基准，
+# 交 judge——宁纵勿枉，贪宽=FP。
+_DECLARED_ATOM_RE = re.compile(r"原子\s*([A-Z])")
+_AQ_LABEL_RE = re.compile(r"^([A-Z])(?=[._、：:\s])")
+
+
+def _check_atomic_mece_alignment(items: list, qa: list | None = None) -> str | None:
+    """atomic_mece_alignment：atomic_questions 标签与 MECE 声明原子对齐。
+
+    声明侧从 qa 的 q/a 全文提「原子 X」字母集合（「假设」标题项除外——竞争
+    假设里的 H 编号不是原子声明）；aq 侧提首字母标签（A. / A_root 验证 形态）。
+    违规两形态：aq 标签未在声明集（att1 的 D/E）、同标签重复（一原子多条）。
+    qa=None（statements 格式步）跳过——本校验只服务 qa 格式的 u:1 子2。
+    """
+    if not qa:
+        return None
+    declared: set[str] = set()
+    for it in qa:
+        if "假设" in str(it.get("q", "")):
+            continue
+        declared.update(_DECLARED_ATOM_RE.findall(str(it.get("q", ""))))
+        declared.update(_DECLARED_ATOM_RE.findall(str(it.get("a", ""))))
+    if len(declared) < 2:
+        return None
+    labels: list[str] = []
+    for it in items:
+        m = _AQ_LABEL_RE.match(str(it.get("q", "")).strip())
+        if m:
+            labels.append(m.group(1))
+    if not labels:
+        return None
+    extra = sorted(set(labels) - declared)
+    if extra:
+        return (
+            f"atomic_questions 原子标签 {extra} 未在 MECE 声明 {sorted(declared)} "
+            "中——与原子清单一一对应：每声明原子恰好 1 条；未声明的问题要么"
+            "并入某原子的 q 文本、要么补进 MECE 清单（声明侧同步改）"
+        )
+    dup = sorted({x for x in labels if labels.count(x) > 1})
+    if dup:
+        return (
+            f"atomic_questions 原子标签 {dup} 重复——一原子恰好 1 条"
+            "（子问题合并进同条的 q 文本，不拆多条）"
+        )
+    return None
+
+
 # 载荷顶层额外必填键的逐项校验注册表（extra_payload_keys 的 spec 为字符串时
 # 查本表——v2.40 从「字符串+前缀」泛化到「数组+逐项校验」）。
 # 未注册名 = nodes 与 engine 配置漂移，fail loud。
 _MECH_EXTRA_ITEM_CHECKS = {
     "fetch_tier_items": _check_fetch_tier_items,
+    "atomic_mece_alignment": _check_atomic_mece_alignment,
 }
 
 
@@ -2887,6 +2968,7 @@ def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool
             f"trace 是完成记录——含占位标记「{marker}」（位于 {loc}）；"
             "待决项到位后再提交（红队未归：等 Agent 返回并原文收录后再 append-trace）"
         )
+    qa: list | None = None  # qa 格式分支赋值；extra 逐项校验的声明侧上下文（v2.50）
     if getattr(step, "record_format", "qa") == "statements":
         # v2.27 statements 结构化载荷（清单型产出步）：三字段校验 +
         # 机械预检（方案名词扫描 + 源步 ID 传导覆盖）——词形判据下沉机械层。
@@ -3025,7 +3107,7 @@ def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool
                     "顶层提交非空数组，逐项 "
                     '{"q":..., "tier":..., "tier_reason":...}'
                 )
-            err = fn(v)
+            err = fn(v, qa)
             if err:
                 return False, err
             extra_fields[key] = v
