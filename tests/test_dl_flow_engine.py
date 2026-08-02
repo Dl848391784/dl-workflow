@@ -5704,6 +5704,70 @@ class TestFetchPromptOut:
         assert not self._out_path(tmp_path).exists()
 
 
+class TestFetchSkeletonOut:
+    """v2.43 fetch_skeleton_out：子3 骨架 --out 落盘机械核验（EXISTS+新鲜度）。
+
+    v2.42 把路径钉死 per-workflow 目录，但「模型是否真的用了 --out」仍靠
+    文案——模型重定向 stdout 自选路径则形同虚设。下沉机械层（§8.3 产物门
+    同范式）：骨架文件须存在于 .claude/workflows/<name>/ 且 mtime 不早于
+    本节点 entered_at（残留防御；entered_at 不可考 -> 降级仅存在性，
+    宁纵勿枉）。全 none 档短路消息同样经 --out 落盘，检查口径一致。
+    """
+
+    def _setup_sub3(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=3)
+        qa = [
+            {"q": "原子 A 可检验 claim", "a": "claim：X；证实：Y；证伪：Z"},
+            {
+                "q": "原子 A 子代理蒸馏报告（原文收录）",
+                "a": "反证查询（先）：…；支持证据（后）：…；五层状态表：…",
+            },
+        ]
+        (tmp_path / "payload.json").write_text(
+            json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
+        )
+
+    def _skeleton_path(self, tmp_path) -> Path:
+        return tmp_path / ".claude" / "workflows" / "t" / "fetch-prompt-skeleton.md"
+
+    def test_missing_skeleton_blocked(self, tmp_path):
+        self._setup_sub3(tmp_path)
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert not ok and "骨架未落盘" in msg and "fetch-prompt --out" in msg
+
+    def test_fresh_skeleton_passes(self, tmp_path):
+        self._setup_sub3(tmp_path)
+        self._skeleton_path(tmp_path).write_text("骨架", encoding="utf-8")
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert ok, msg
+
+    def test_stale_skeleton_blocked(self, tmp_path):
+        self._setup_sub3(tmp_path)
+        self._skeleton_path(tmp_path).write_text("骨架", encoding="utf-8")
+        st = eng.load_state(tmp_path, "t")
+        st["history"] = [
+            {
+                "phase": "understand",
+                "sub": 1,
+                "entered_at": "2099-01-01T00:00:00",
+                "exited_at": None,
+                "via": "test",
+            }
+        ]
+        eng.save_state(tmp_path, "t", st)
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert not ok and "骨架陈旧" in msg
+
+    def test_no_entered_at_degrades_to_existence(self, tmp_path):
+        # 降级纪律（宁纵勿枉）：history 无 entered_at -> 仅存在性检查
+        self._setup_sub3(tmp_path)
+        self._skeleton_path(tmp_path).write_text("骨架", encoding="utf-8")
+        st = eng.load_state(tmp_path, "t")
+        assert not st["history"]  # _write_state_full 默认空 history
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert ok, msg
+
+
 class TestFetchReportRecorded:
     """v2.38 fetch_report_recorded：子3 报告收录形式要件机械化。
 
@@ -5737,6 +5801,11 @@ class TestFetchReportRecorded:
         (tmp_path / "payload.json").write_text(
             json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
         )
+        # v2.43 起子3 append-trace 前置：骨架 --out 落盘（本测试报告收录，
+        # 骨架存在性是正交前置）
+        (
+            tmp_path / ".claude" / "workflows" / "t" / "fetch-prompt-skeleton.md"
+        ).write_text("骨架", encoding="utf-8")
         ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
         assert ok, msg
 
@@ -5820,6 +5889,11 @@ class TestFetchTier:
 
     def _append_s3_reports(self, tmp_path, n_reports):
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=3)
+        # v2.43 起子3 append-trace 前置：骨架 --out 落盘（本类测报告计数，
+        # 骨架存在性是正交前置）
+        (
+            tmp_path / ".claude" / "workflows" / "t" / "fetch-prompt-skeleton.md"
+        ).write_text("骨架", encoding="utf-8")
         qa = [
             {
                 "q": f"原子{i} 子代理蒸馏报告（原文收录）",

@@ -2438,11 +2438,48 @@ def _check_fetch_report_recorded(qa: list, *_ctx) -> str | None:
     )
 
 
+def _check_fetch_skeleton_out(qa, project_root, name):
+    """fetch_skeleton_out：子3 骨架 --out 落盘机械核验（u:1 子3 专属，v2.43）。
+
+    v2.42 把骨架路径钉死 per-workflow 目录，但「模型是否真的用了 --out」
+    仍靠文案——模型重定向 stdout 自选路径则钉死形同虚设。下沉机械层
+    （§8.3 产物门同范式）：骨架文件须存在于 .claude/workflows/<name>/ 且
+    mtime 不早于本节点 entered_at（残留防御；entered_at 不可考 -> 降级
+    仅存在性，宁纵勿枉）。全 none 档短路消息同样经 --out 落盘，口径一致。
+    """
+    if project_root is None or name is None:
+        return None
+    f = project_root / ".claude" / "workflows" / name / "fetch-prompt-skeleton.md"
+    if not f.is_file():
+        return (
+            f"骨架未落盘：{f} 不存在——子3 派发取证子代理前须先跑 "
+            "`python3 ~/.dl-workflow/dl_flow_engine.py fetch-prompt --out`"
+            "（骨架路径钉死 per-workflow 目录，禁 stdout 重定向自选路径），"
+            "落盘后重试"
+        )
+    state = load_state(project_root, name)
+    if state is not None:
+        state = normalize_state(state)
+        try:
+            not_before = _node_entered_at(
+                state, get_node(state["phase"], state["sub_index"])
+            )
+        except KeyError:
+            not_before = None
+        if not_before is not None and f.stat().st_mtime < not_before:
+            return (
+                f"骨架陈旧：{f} 最后修改早于本节点进入时间——须在本节点内重新 "
+                "fetch-prompt --out 落盘（禁残留），落盘后重试"
+            )
+    return None
+
+
 # qa 格式步的写侧机械校验注册表（Step.mech_checks 声明名 -> 检查函数）。
 # 未注册名 = nodes 与 engine 配置漂移，fail loud 不静默跳过。
 _MECH_QA_CHECKS = {
     "causal_ring_no_untested": _check_causal_ring_no_untested,
     "fetch_report_recorded": _check_fetch_report_recorded,
+    "fetch_skeleton_out": _check_fetch_skeleton_out,
 }
 
 

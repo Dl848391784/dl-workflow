@@ -685,13 +685,18 @@ _NODES: dict[str, Node] = {
                 fence_allow=("Bash", "Agent"),
                 # v2.38：报告收录形式要件机械化——judge 重放实证旧形态（无报告项）
                 # 也被判 PASS（内容丰富被当实质满足），形式核验下沉机械层。
-                mech_checks=("fetch_report_recorded",),
+                # v2.43：fetch_skeleton_out——骨架 --out 落盘机械核验
+                # （EXISTS+entered_at 新鲜度，§8.3 同范式），「模型是否真的
+                # 用了 --out」不再靠文案。
+                mech_checks=("fetch_report_recorded", "fetch_skeleton_out"),
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace 且 sub_step==3 的记录；"
                     "形式要件：每个 tier≠none 的原子问题有可检验化 claim（含证实/证伪判定标准）；"
                     "子代理蒸馏报告原文收录——报告收录项数已由 append-trace 按档"
                     "机械核验（none 档豁免），judge 不重复判缺失，只判收录真实性"
-                    "（提及/概括转述冒充原文收录判 block）——full 档报告含"
+                    "（提及/概括转述冒充原文收录判 block）；骨架 --out 落盘"
+                    "per-workflow 目录已由 append-trace 机械核验（存在性+新鲜度），"
+                    "judge 不重复判——full 档报告含"
                     "反证查询（先）→支持证据（后）分段 + 五层状态表（每层指针或"
                     "「未取证+原因」合法标记），light 档报告为锚点值+来源+量级对比；"
                     "codegraph 新鲜度查询留痕；执行档与标称档逐项一致。"
