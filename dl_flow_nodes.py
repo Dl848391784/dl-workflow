@@ -76,10 +76,13 @@ class Step:
     # 查表）——词形判据下沉机械层，judge 不再为词形烧调用（v2.36 钉死保 judge
     # 判对但不保模型写对：tail_volume u:1 子2 钉死后 relaunch 仍同症两连 block）。
     mech_checks: tuple[str, ...] = ()
-    # v2.37 extra_payload_keys：载荷顶层额外必填内容键——（键名, 合法前缀元组）。
-    # 结构形式要件（如 u:1 子1 结论二选一）从 judge 判词变 JSON 校验，
-    # 值并入 record 顶层（judge 读原始行自动可见）。
-    extra_payload_keys: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    # v2.37 extra_payload_keys：载荷顶层额外必填内容键——（键名, spec）。
+    # spec 为前缀元组 = 字符串值+前缀校验（u:1 子1 结论二选一）；
+    # spec 为字符串 = engine._MECH_EXTRA_ITEM_CHECKS 注册名，值须非空数组
+    # 过逐项校验（v2.40 u:1 子2 atomic_questions 分档清单）。
+    # 结构形式要件从 judge 判词变 JSON 校验，值并入 record 顶层
+    # （judge 读原始行自动可见）。
+    extra_payload_keys: tuple[tuple[str, tuple[str, ...] | str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -275,6 +278,19 @@ _CAUSAL_CHAIN_EVIDENCE_RULE = (
     "不算出处。挖不动实测的深层：整体降格进竞争假设分支并标「待子3取证」，"
     "主链挖到实测层即终止——不悬空、不贴「未实测/推断」充数（链环文本含"
     "「未实测/待实测/未验证/待验证/可能」append-trace 当场机械拒）"
+)
+
+# v2.40 取证深度分档规则（单源：子2 定档指引 purpose/selfcheck/gate 与
+# 子3 执行面都引用；designs/fetch-depth-tiering-design.md）。
+# 雏形考古：子2「挖不动的深层降格标『待子3取证』」本就是隐式二分类，
+# v2.40 显式化并细分三档——动机是一刀切五层源对仓内可答问题纯烧 token。
+_FETCH_TIER_RULE = (
+    "取证深度三档（逐原子问题定档，拿不准标 light——默认档）："
+    "none=答案仓内可达（函数行为/数据契约/配置/日志），仅内查不派外部 "
+    "agent，tier_reason 须指出仓内取证路径（文件/file:line）；"
+    "light=单一事实/数值 claim，公开有权威锚点（如年化量级合理性判断），"
+    "≤2 层源 ≤4 curl 单向点查即收；"
+    "full=方法论/设计/开放问题，无单一权威答案，五层源双向充分取证"
 )
 
 # 交互读回步的提问拆分规则（2026-07-30 tail_volume understand:4 子5 审计）：
@@ -517,7 +533,13 @@ _NODES: dict[str, Node] = {
                     "5 Whys/鱼骨/时序分析），每环必须有可观察证据，禁纯叙事——"
                     f"{_CAUSAL_CHAIN_EVIDENCE_RULE}；"
                     "③每个问题 ≥1 个竞争假设 + 排除理由（或当前假设为何最可能）；"
-                    "④区分近因与根因，标注置信度。"
+                    "④区分近因与根因，标注置信度；"
+                    f"⑤每个原子问题定取证深度档——{_FETCH_TIER_RULE}。"
+                    "原子问题清单连档作为载荷顶层 atomic_questions 键提交"
+                    "（逐项 "
+                    '{"q":<原子问题>, "tier":"none|light|full", "tier_reason":<分档理由>}，'
+                    "与 MECE 清单一一对应——append-trace 逐项机械校验："
+                    "tier 枚举/理由非空/none 档理由须含仓内路径，缺项当场拒）。"
                     "输出走 evidence skill-trace（q/a 数组），不建单独 md。"
                 ),
                 input="step1.real_problem",
@@ -529,6 +551,8 @@ _NODES: dict[str, Node] = {
                     "只允许出现在竞争假设分支——"
                     f"{_CAUSAL_CHAIN_EVIDENCE_RULE}）？"
                     "每个问题有 ≥1 竞争假设+排除/保留理由吗？近因/根因区分和置信度标了吗？"
+                    "每个原子问题定档了吗（atomic_questions 逐项 q/tier/tier_reason，"
+                    "拿不准标 light；none 档理由含仓内路径）？"
                 ),
                 # 门控分工：judge 只判结构完整性（清单/链/竞争假设/出处），
                 # 根因对不对归子3验真 + 子5用户认可（§3.5 三层分工）。
@@ -537,14 +561,25 @@ _NODES: dict[str, Node] = {
                     "形式要件：①原子问题清单（≥1 个；单问题须附「无复合」理由）；"
                     "②每个问题 ≥2 环因果链到根因，主链每环为实际证据指针"
                     f"（{_CAUSAL_CHAIN_EVIDENCE_RULE}）；"
-                    "③每个问题 ≥1 竞争假设 + 排除/保留理由；④近因与根因区分明确。"
+                    "③每个问题 ≥1 竞争假设 + 排除/保留理由；④近因与根因区分明确；"
+                    f"⑤每个原子问题已定取证深度档（{_FETCH_TIER_RULE}）——"
+                    "档枚举/理由非空/none 档路径指针已由 append-trace 机械校验，"
+                    "judge 不重复判缺失，只判分档合理性。"
                     "质量判据（从严裁量）：证据非编造、非循环复述提问；"
                     "根因非症状换说法（「X 慢因为 X 运行慢」式同义反复判 block）；"
-                    "竞争假设非稻草人（明显不成立拿来凑数判 block）。"
+                    "竞争假设非稻草人（明显不成立拿来凑数判 block）；"
+                    "分档与问题性质匹配——重点抽查 none 档：问题含外部知识依赖"
+                    "（行业常识/第三方库行为/方法论/数值合理性）却标 none = 漏取证，"
+                    "判 block；该 full（开放设计问题）标 light 且无升档空间论证"
+                    "判 block。"
                 ),
                 # v2.37：链环禁词（未实测/待实测/未验证/待验证/可能）写侧机械拒——
                 # v2.36 钉死后 relaunch 仍两连 block，词形部分下沉机械层。
                 mech_checks=("causal_ring_no_untested",),
+                # v2.40：原子问题分档清单（逐项 q/tier/tier_reason JSON 校验，
+                # spec=engine._MECH_EXTRA_ITEM_CHECKS 注册名）——分类纠偏前置
+                # 到本子步 gate（便宜环节），子3 只执行不重新定档（禁降档）。
+                extra_payload_keys=(("atomic_questions", "fetch_tier_items"),),
             ),
             # 子3/子4（2026-07-26 重设计，designs/step3-verify-redesign-design.md）：
             # 旧单步「验真」对 F1 主张不可检验/F2 确认偏误/F5 证据不可追溯/F7 单视角
@@ -568,35 +603,51 @@ _NODES: dict[str, Node] = {
                 # 实测主会话先做 3min 内部仓库层再派发 agent，之后空等 10min
                 # （agent 4-8min 墙钟是最长杆），串行白烧 ~20% 步耗时；
                 # ①→④ 编号即执行序，②末尾明示禁先内查后派发。
+                # v2.40（designs/fetch-depth-tiering-design.md）：标称档来自子2
+                # atomic_questions——none 禁派发（仅③内查）/ light 参数块 /
+                # 禁降档（纠偏归子2 gate）/ light→full 升档留痕。
                 purpose=(
-                    "双向取证（外部层卸子代理，主会话只收蒸馏报告；"
+                    "按档取证（标称档 = 子2 atomic_questions，本步只执行不重定档；"
+                    "外部层卸子代理，主会话只收蒸馏报告；"
                     "执行序钉死=①→②→③→④，禁调换）："
-                    "①主张可检验化（主会话做）——每个原子问题 → 可证伪 claim + "
-                    "事先写死「什么证据会证实/什么证据会证伪」；不可检验的主张退回子2，"
-                    "不进入取证。"
-                    "②立即派发外部五层源取证子代理——`python3 ~/.dl-workflow/dl_flow_engine.py fetch-prompt` "
-                    "生成子代理 prompt 骨架（自动携带子1-2 trace + 已验证命令模板 + 返回契约），"
-                    "只在末尾 claim 补充区逐原子填 claim（骨架其余一字不动，禁手拼）；"
-                    "每原子一个 Agent 子代理**同一条消息并行单发**；"
+                    "①主张可检验化（主会话做）——每个 tier≠none 的原子问题 → "
+                    "可证伪 claim + 事先写死「什么证据会证实/什么证据会证伪」；"
+                    "不可检验的主张退回子2，不进入取证。"
+                    "②立即派发外部取证子代理——`python3 ~/.dl-workflow/dl_flow_engine.py fetch-prompt` "
+                    "生成子代理 prompt 骨架（自动携带子1-2 trace + 已分档原子清单 + "
+                    "已验证命令模板 + 返回契约），只在末尾 claim 补充区逐原子填 claim"
+                    "（骨架其余一字不动，禁手拼）；none 档原子禁派发（仅③内查）；"
+                    "light 档原子按骨架【分档执行参数】light 参数块执行，claim 区"
+                    "另指定 ≤2 层源；**禁降档**——标 full 的原子必须按 full 参数跑"
+                    "（五层源双向；分档纠偏归子2 gate，不在本步）；每原子一个 Agent 子代理"
+                    "**同一条消息并行单发**，且该 agent 的 claim 补充区只保留本原子的 "
+                    "[tier=X] 行（其余原子行删除——台账按此标记归属统计轮次）；"
                     "**派发后才开始③——禁先内查后派发**（agent 运行 4-8min 是最长杆，"
                     "串行=白等，③与 agent 运行天然重叠）；"
                     "禁 tavily_search/WebSearch/WebFetch（WebFetch 本环境域验证全挂）。"
                     "③内部仓库层（agent 运行期间主会话自查）——codegraph 新鲜度前置（>72h 先 "
                     "codegraph sync，查询结果留痕）+ Read/Grep/Bash 查数据，"
-                    "证实/证伪问题在本仓存在 + 查已有解法。"
+                    "证实/证伪问题在本仓存在 + 查已有解法；none 档原子在此全覆盖"
+                    "（仓内可达即定答，无外部源）。"
                     "④收报告——子代理蒸馏报告**原文收录**进本步 trace（提及/概括转述不算记录——"
                     "报告结构天然保证反证先/支持后时序可读）；报告未归不 append-trace"
-                    "（占位符机械拒）。"
+                    "（占位符机械拒）；light 报告标「建议升档 full」时，对该原子补派 "
+                    "full agent——原 light 报告与升档理由同样原文收录（升档留痕）。"
                     "禁拿训练记忆冒充外部证据（无 URL/工具留痕的「业界通常」= 编造）。"
                 ),
                 input="step2.problem_list",
                 record=True,
                 selfcheck=(
-                    "每个原子问题有可检验 claim（含证实/证伪判定标准）吗？"
+                    "每个 tier≠none 的原子问题有可检验 claim（含证实/证伪判定标准）吗？"
+                    "none 档原子未派发 agent（仅③内查）吗？"
                     "fetch-prompt 骨架只补了 claim 区、其余一字未动吗？"
+                    "light 档按 light 参数块（≤2 层源/≤4 curl/单向锚点）执行、"
+                    "claim 区指定了 ≤2 层源吗？标 full 的按 full 参数跑了吗（禁降档）？"
+                    "每个 agent 的 claim 补充区只保留本原子 [tier=X] 行吗？"
                     "Agent 子代理先于内部仓库层派发了吗（先派发后内查，禁串行白等）？"
                     "每原子一个子代理并行单发、蒸馏报告原文收录进 trace 了吗"
-                    "（提及/转述不算记录）？内部仓库层 codegraph 新鲜度查询留痕了吗？"
+                    "（提及/转述不算记录）？标「建议升档 full」的原子补派 full agent "
+                    "并原文收录升档理由了吗？内部仓库层 codegraph 新鲜度查询留痕了吗？"
                 ),
                 # S15 前置围栏：本步合法工具 = 内部仓库层（Bash）+ 取证子代理（Agent）；
                 # 子代理进程内的 curl 经同一 PreToolUse 围栏、本步声明 Bash 故放行；
@@ -607,15 +658,20 @@ _NODES: dict[str, Node] = {
                 mech_checks=("fetch_report_recorded",),
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace 且 sub_step==3 的记录；"
-                    "形式要件：每个原子问题有可检验化 claim（含证实/证伪判定标准）；"
-                    "子代理蒸馏报告原文收录——报告收录项的存在性已由 append-trace "
-                    "机械校验，judge 不重复判缺失，只判收录真实性（提及/概括转述"
-                    "冒充原文收录判 block）——报告含"
+                    "形式要件：每个 tier≠none 的原子问题有可检验化 claim（含证实/证伪判定标准）；"
+                    "子代理蒸馏报告原文收录——报告收录项数已由 append-trace 按档"
+                    "机械核验（none 档豁免），judge 不重复判缺失，只判收录真实性"
+                    "（提及/概括转述冒充原文收录判 block）——full 档报告含"
                     "反证查询（先）→支持证据（后）分段 + 五层状态表（每层指针或"
-                    "「未取证+原因」合法标记）；codegraph 新鲜度查询留痕。"
+                    "「未取证+原因」合法标记），light 档报告为锚点值+来源+量级对比；"
+                    "codegraph 新鲜度查询留痕；执行档与标称档逐项一致。"
                     "质量判据（从严裁量）：凡声称外部证据须带可追溯指针（真实 URL/工具调用留痕），"
                     "用训练记忆冒充外部证据 = 编造，判 block；"
-                    "证据须直接针对 claim 谓词，非泛泛行业常识。"
+                    "证据须直接针对 claim 谓词，非泛泛行业常识；"
+                    "禁降档——标 full 的原子按 light 参数取证（无五层状态表/"
+                    "仅 1-2 层源）判 block；light 报告标「建议升档 full」而未补派 "
+                    "full agent（或未原文收录升档理由）判 block；none 档原子出现"
+                    "外部取证报告 = 违规派发或子2 档标错，判 block。"
                 ),
             ),
             Step(

@@ -1,4 +1,4 @@
-# 取证深度分档设计（v2.40 提案，2026-08-02）
+# 取证深度分档设计（v2.40，2026-08-02 落地）
 
 > 关联：`step3-fetch-subagent-design.md`（子3 子代理化，v2.38/2.39 优化执行面）；本文优化**取证深度面**——不再对所有原子问题无差别跑五层源。
 > 对齐结论（2026-08-02 用户四决策）：①分类挂子2 输出带 tier 字段；②light 档参数 = ≤4 curl / ≤2 层源 / 单向锚点；③拿不准默认 light；④禁降档。
@@ -64,3 +64,9 @@
 - pytest 全绿 + 新增 TestFetchTier*（枚举校验/none 档路径理由/tier-aware 报告核验/light 台账计数）。
 - judge 重放回归：tail_volume 旧 trace（无键 → 机械拒）+ 构造新形态（三档混合 → PASS；none 档无内部依赖理由 → block）。
 - 下一个真实实例观察子3 成本对比（token / 轮次 / agent 数）。
+
+## 9. 落地结果（2026-08-02）
+
+- 526 tests 全绿（新增 TestFetchTier×11 + 台账 tier/curl×2；2 个 v2.37 重放 fixture 补分档键；1 个台账 pinning 改 pin 新形状）。
+- judge 重放三案全中：合理分档 PASS / 外部依赖标 none → BLOCK（判词精确引用「数值合理性属外部知识依赖」）/ full 标称交 light 式报告 → BLOCK（禁降档，附改写范例）。
+- 注意：skill 文档真源在 `~/.dl-workflow/skills/`，`~/.claude/skills/` 是 install 副本——本次先改副本再回拷真源，下次直接改真源。

@@ -316,6 +316,12 @@ def _evidence_path(project_root: Path, name: str) -> Path:
     return project_root / ".claude" / "evidence" / (name + ".jsonl")
 
 
+# v2.40 台账提取常量：agent prompt 的档标记（fetch-prompt 骨架预填）与
+# light 档 curl 轮次上限（fetch-prompt 分档执行参数文案里的 ≤4 与此同源）。
+_AGENT_TIER_RE = re.compile(r"\[tier=(none|light|full)\]", re.IGNORECASE)
+_LIGHT_TIER_CURL_CAP = 4
+
+
 def _subagent_retry_stats(project_root: Path, name: str) -> dict | None:
     """扫描本会话子代理 transcript，统计空响应重试（out=0 的 assistant 请求）。
 
@@ -326,6 +332,11 @@ def _subagent_retry_stats(project_root: Path, name: str) -> dict | None:
     out=0 + in>0 = 空完成启发式（正常 tool_use/文本响应 out 均 >0）。
     无子代理 / state 缺字段 / transcript 目录不存在 -> None（字段省略，
     不算 fallback：无子代理的步骤本就没有重试暴露）。
+
+    v2.40 扩展：per-agent 记 tier + curl 轮次——tier 从 prompt 的 [tier=X]
+    标记提取（fetch-prompt 骨架预填；claim 区只保留本原子一行时归属唯一，
+    混合行=模型未按纪律裁剪，tiers 记全部命中、违例判定只认纯 light）；
+    light 档 >4 curl 记 light_tier_violations（分档轮次上限的机械台账）。
     """
     state = load_state(project_root, name)
     if not state:
@@ -346,8 +357,12 @@ def _subagent_retry_stats(project_root: Path, name: str) -> dict | None:
     if not d.is_dir():
         return None
     agents = empty = burned = 0
+    per_agent = []
     for fp in sorted(d.glob("agent-*.jsonl")):
         agents += 1
+        tiers: set[str] = set()
+        curl_calls = 0
+        first_user_read = False
         try:
             f = fp.open(encoding="utf-8")
         except OSError:
@@ -358,16 +373,48 @@ def _subagent_retry_stats(project_root: Path, name: str) -> dict | None:
                     m = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                if m.get("type") != "assistant":
+                mtype = m.get("type")
+                if mtype == "user" and not first_user_read:
+                    first_user_read = True
+                    content = m.get("message", {}).get("content")
+                    if isinstance(content, str):
+                        text = content
+                    elif isinstance(content, list):
+                        text = " ".join(
+                            str(b.get("text", ""))
+                            for b in content
+                            if isinstance(b, dict)
+                        )
+                    else:
+                        text = ""
+                    tiers.update(t.lower() for t in _AGENT_TIER_RE.findall(text))
+                if mtype != "assistant":
                     continue
-                u = m.get("message", {}).get("usage", {})
+                msg = m.get("message", {})
+                u = msg.get("usage", {})
                 if u.get("output_tokens", 0) == 0 and u.get("input_tokens", 0) > 0:
                     empty += 1
                     burned += u["input_tokens"]
+                for b in msg.get("content") or []:
+                    if (
+                        isinstance(b, dict)
+                        and b.get("type") == "tool_use"
+                        and b.get("name") == "Bash"
+                        and "curl" in str((b.get("input") or {}).get("command", ""))
+                    ):
+                        curl_calls += 1
+        per_agent.append({"tiers": sorted(tiers), "curl_calls": curl_calls})
+    light_violations = sum(
+        1
+        for a in per_agent
+        if a["tiers"] == ["light"] and a["curl_calls"] > _LIGHT_TIER_CURL_CAP
+    )
     return {
         "agents": agents,
         "empty_responses": empty,
         "burned_input_tokens": burned,
+        "per_agent": per_agent,
+        "light_tier_violations": light_violations,
     }
 
 
@@ -2158,13 +2205,18 @@ def payload_format_hint(step) -> list[str]:
             "或照抄 `<...>` 占位符字面",
         ]
     extra = getattr(step, "extra_payload_keys", ()) if step is not None else ()
-    extra_seg = "".join(
-        f',"{k}":"<{"/".join(p)} 开头+逐句出处>"' for k, p in extra
-    )
+    segs = []
+    for k, spec in extra:
+        if isinstance(spec, str):
+            # v2.40 数组型键（逐项校验注册表）：精确结构见本步 purpose
+            segs.append(f',"{k}":[<逐项对象数组——结构见本步 purpose>]')
+        else:
+            segs.append(f',"{k}":"<{"/".join(spec)} 开头+逐句出处>"')
+    extra_seg = "".join(segs)
     extra_note = (
         "；顶层还须含 "
         + "/".join(k for k, _ in extra)
-        + " 键（append-trace 机械校验存在性与前缀，缺键/前缀错当场拒）"
+        + " 键（append-trace 机械校验存在性与格式，缺键/格式错当场拒）"
         if extra
         else ""
     )
@@ -2228,7 +2280,7 @@ def _placeholder_hit(payload: dict) -> tuple[str, str] | None:
     return _walk(payload, "")
 
 
-def _check_causal_ring_no_untested(qa: list) -> str | None:
+def _check_causal_ring_no_untested(qa: list, *_ctx) -> str | None:
     """causal_ring_no_untested：因果链环禁词扫描（u:1 子2 专属，nodes 声明）。
 
     主链环只许实测事实；「未实测」类状态标签与「可能」类推断词不是出处——
@@ -2252,7 +2304,81 @@ def _check_causal_ring_no_untested(qa: list) -> str | None:
     return None
 
 
-def _check_fetch_report_recorded(qa: list) -> str | None:
+def _load_atomic_questions(project_root: Path, name: str) -> list | None:
+    """读子2 最新 trace 的 atomic_questions 分档清单（v2.40）。
+
+    子2 载荷顶层 atomic_questions 键并入 record 顶层（append-trace 校验后
+    落库），本函数从 evidence JSONL 直接取最新一条子2 trace 的该键——
+    fetch_prompt 分档与 fetch_report_recorded tier-aware 核验共用。
+    无文件 / 无子2 trace / 旧形态 trace 无该键（v2.40 前实例）-> None
+    （调用方按 legacy 行为处理，不算 silent fallback：旧实例本就没有分档）。
+    """
+    text = read_evidence(project_root, name)
+    if not text:
+        return None
+    pc_minor = _NODES["understand:1"].minor_key
+    found = None
+    for _seg, rec in _iter_trace_segments(text, 2, pc_minor):
+        aq = rec.get("atomic_questions")
+        if isinstance(aq, list) and aq:
+            found = aq
+    return found
+
+
+# v2.40 取证深度分档（designs/fetch-depth-tiering-design.md）：三档枚举单源。
+# none=仅内查 / light=点查锚点(≤4 curl,≤2 层源,单向) / full=五层源双向(现状)。
+_FETCH_TIERS = ("none", "light", "full")
+
+# none 档理由须含仓内取证路径指针（文件扩展名 或 file:line）——
+# 机械代理判据，防空判偷懒（「我觉得仓里有」）；语义由 judge 判。
+_NONE_TIER_PATH_RE = re.compile(r"[\w./-]+\.(?:py|md|json|jsonl|parquet|yaml|yml|toml|sql)|\d+:\d+|:\d+")
+
+
+def _check_fetch_tier_items(items: list) -> str | None:
+    """fetch_tier_items：atomic_questions 逐项校验（u:1 子2 专属，nodes 声明）。
+
+    逐项 {q 非空, tier∈none|light|full, tier_reason 非空；none 档理由须含
+    仓内路径指针}。拿不准标 light（默认档——漂到 light 的 full 类问题由
+    升档机制救回；none 漏取证是质量问题，full 是成本问题）。
+    """
+    for i, it in enumerate(items):
+        if not isinstance(it, dict):
+            return (
+                f"atomic_questions[{i}] 须为对象 "
+                '{"q":..., "tier":"none|light|full", "tier_reason":...}'
+            )
+        if not isinstance(it.get("q"), str) or not it["q"].strip():
+            return f"atomic_questions[{i}] 缺非空 q（与原子问题清单一一对应）"
+        tier = it.get("tier")
+        if tier not in _FETCH_TIERS:
+            return (
+                f"atomic_questions[{i}].tier 须为 none/light/full，当前 {tier!r}"
+                "——拿不准标 light（默认档）"
+            )
+        reason = it.get("tier_reason")
+        if not isinstance(reason, str) or not reason.strip():
+            return (
+                f"atomic_questions[{i}].tier_reason 须非空（分档理由必填，"
+                "防空判偷懒——judge 会判理由与问题性质是否匹配）"
+            )
+        if tier == "none" and not _NONE_TIER_PATH_RE.search(reason):
+            return (
+                f"atomic_questions[{i}] 标 none 档但 tier_reason 无仓内取证路径"
+                "指针（文件路径/file:line）——none=答案仓内可达，理由须指出"
+                "去哪查（如 formatters.py:92）；指不出路径的问题不得标 none"
+            )
+    return None
+
+
+# 载荷顶层额外必填键的逐项校验注册表（extra_payload_keys 的 spec 为字符串时
+# 查本表——v2.40 从「字符串+前缀」泛化到「数组+逐项校验」）。
+# 未注册名 = nodes 与 engine 配置漂移，fail loud。
+_MECH_EXTRA_ITEM_CHECKS = {
+    "fetch_tier_items": _check_fetch_tier_items,
+}
+
+
+def _check_fetch_report_recorded(qa: list, *_ctx) -> str | None:
     """fetch_report_recorded：子3 蒸馏报告原文收录机械核验（u:1 子3 专属）。
 
     judge 重放实证（2026-08-01 v2.38 落地验证）：无子代理报告的旧形态 trace
@@ -2260,14 +2386,29 @@ def _check_fetch_report_recorded(qa: list) -> str | None:
     形式要件被裁量放过（子代理编排可被绕过，主上下文卸载落空）。形式要件
     下沉机械层：每原子一个标题含「蒸馏报告」的 q 项（标题=承诺装置+结构），
     judge 只判内容质量。
+
+    v2.40 tier-aware：需外部取证的原子 = 子2 atomic_questions 里 tier≠none
+    的项（none 档仅内查、豁免报告项）；报告项数须 ≥ 该数（逐项对齐由 judge
+    判，机械只数总数）。子2 trace 无 atomic_questions（v2.40 前实例）->
+    legacy 行为（≥1 个报告项）。
     """
-    for item in qa:
-        if "蒸馏报告" in str(item.get("q", "")):
-            return None
+    found = sum(1 for item in qa if "蒸馏报告" in str(item.get("q", "")))
+    required = 1
+    if _ctx and _ctx[0] is not None:
+        aq = _load_atomic_questions(_ctx[0], _ctx[1])
+        if aq:
+            required = max(
+                1,
+                sum(1 for it in aq if isinstance(it, dict) and it.get("tier") != "none"),
+            )
+    if found >= required:
+        return None
     return (
-        "缺子代理蒸馏报告收录项——每原子问题一个 q 项标题含「蒸馏报告」"
+        f"蒸馏报告收录项不足——需外部取证的原子 {required} 个（tier≠none），"
+        f"trace 里标题含「蒸馏报告」的 q 项仅 {found} 个：每原子一个报告项"
         "（fetch-prompt 骨架派发 Agent，报告原文收录非转述；"
-        "外部取证不走主会话直连——命令模板在 fetch-prompt 骨架里）"
+        "外部取证不走主会话直连——命令模板在 fetch-prompt 骨架里；"
+        "none 档原子豁免——仅内查不派 agent）"
     )
 
 
@@ -2447,7 +2588,7 @@ def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool
                     f"mech_checks 配置错误：「{chk}」未在 _MECH_QA_CHECKS 注册"
                     "（nodes 与 engine 漂移，fail loud）"
                 )
-            err = fn(qa)
+            err = fn(qa, project_root, name)
             if err:
                 return False, err
         q = [item["q"] for item in qa]
@@ -2456,9 +2597,29 @@ def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool
 
     # v2.37 extra_payload_keys：步声明的载荷顶层必填内容键（两格式通用）——
     # 存在性 + 非空 + 前缀机械校验，值并入 record 顶层（judge 读原始行自动可见）。
+    # v2.40 泛化：spec 为字符串时是 _MECH_EXTRA_ITEM_CHECKS 注册名——值须为
+    # 非空数组并过逐项校验（如 atomic_questions 分档清单）。
     extra_fields: dict = {}
-    for key, prefixes in getattr(step, "extra_payload_keys", ()):
+    for key, spec in getattr(step, "extra_payload_keys", ()):
         v = payload.get(key)
+        if isinstance(spec, str):
+            fn = _MECH_EXTRA_ITEM_CHECKS.get(spec)
+            if fn is None:
+                return False, (
+                    f"extra_payload_keys 配置错误：「{spec}」未在 "
+                    "_MECH_EXTRA_ITEM_CHECKS 注册（nodes 与 engine 漂移，fail loud）"
+                )
+            if not isinstance(v, list) or not v:
+                return False, (
+                    f"载荷缺必填键「{key}」——本步形式要件（append-trace 机械校验）："
+                    "顶层提交非空数组，逐项 " '{"q":..., "tier":..., "tier_reason":...}'
+                )
+            err = fn(v)
+            if err:
+                return False, err
+            extra_fields[key] = v
+            continue
+        prefixes = spec
         if not isinstance(v, str) or not v.strip():
             return False, (
                 f"载荷缺必填键「{key}」——本步形式要件（append-trace 机械校验）："
@@ -2551,6 +2712,10 @@ def fetch_prompt(project_root: Path, name: str) -> str | None:
     遇 provider 空响应重试 26 次烧掉 1.19M input（占其总 input 90%）——
     上下文越胖每轮越慢、重试越贵；轮次无上限时换同义词重试边际收益递减
     （Q4 最终被证伪，证伪是合法产出但不该付无上限探索成本）。
+    v2.40（designs/fetch-depth-tiering-design.md）：按子2 atomic_questions
+    标称档分派执行参数——full 档五层源双向（现状）；light 档 ≤2 层源 /
+    ≤4 curl / 单向锚点（数值事实类点查）；none 档不进骨架（仅内查）。
+    无 atomic_questions（v2.40 前实例）-> 全按 full 档（legacy 行为）。
     """
     pc_minor = _NODES["understand:1"].minor_key
     if not sub_step_has_trace(project_root, name, 2, pc_minor):
@@ -2558,6 +2723,40 @@ def fetch_prompt(project_root: Path, name: str) -> str | None:
     evidence = read_evidence_for_step(project_root, name, 2, pc_minor)
     if evidence is None:
         return None
+    # v2.40：标称档预填进 claim 补充区——[tier=X] 标记随骨架进 agent
+    # transcript（台账 _subagent_retry_stats 按此提取 per-agent 档与轮次）。
+    aq = _load_atomic_questions(project_root, name)
+    claim_seg = ""
+    if aq is not None:
+        fetch_atoms = []
+        none_atoms = []
+        for i, it in enumerate(aq, 1):
+            if not isinstance(it, dict):
+                continue
+            q = str(it.get("q", "")).strip()
+            if it.get("tier") == "none":
+                none_atoms.append(f"原子{i}「{q}」")
+            else:
+                note = (
+                    "（light 档：调用方在 claim 区另指定 ≤2 层源）"
+                    if it.get("tier") == "light"
+                    else ""
+                )
+                fetch_atoms.append(f"- 原子{i} [tier={it.get('tier')}]：{q}{note}")
+        if not fetch_atoms:
+            return (
+                "全部原子问题为 none 档（仅内查）——无需派发外部取证 agent："
+                "直接做③内部仓库层，trace 注明「全 none 档未派发」。"
+            )
+        claim_seg = (
+            "\n已分档原子清单（子2 标称档，禁降档——标 full 必须按 full 参数跑）：\n"
+            + "\n".join(fetch_atoms)
+        )
+        if none_atoms:
+            claim_seg += (
+                "\nnone 档原子（仅内查，禁为其派发取证 agent）："
+                + "；".join(none_atoms)
+            )
     return (
         "你是外部取证子代理。一个工作流正在对若干原子问题做双向取证——"
         "你只负责外部源取证并回蒸馏报告，不裁决、不写 evidence。\n\n"
@@ -2567,7 +2766,8 @@ def fetch_prompt(project_root: Path, name: str) -> str | None:
         "1. 单层：禁止再 spawn 子代理。\n"
         "2. 不写 evidence、不裁决（裁决归后续质检步）——只产出蒸馏取证报告。\n"
         "3. 禁 WebFetch（本环境域验证全挂）；禁 tavily_search/WebSearch。\n"
-        "4. 五层源逐层尝试；失败/空结果标「未取证+原因」是合法留痕，禁止补编。\n"
+        "4. 层源范围与轮次上限按【分档执行参数】（每原子标称档见 claim 补充区 "
+        "[tier=X]）；失败/空结果标「未取证+原因」是合法留痕，禁止补编。\n"
         "5. GitHub API 401 → 直接标「未取证+未认证」——禁止探查凭证"
         "（扫 env/配置文件找 token 是红线，必被安全分类器拦截）。\n"
         "6. 内部仓库层（codegraph/Read 仓内文件）不归你，主会话自查。\n"
@@ -2576,9 +2776,17 @@ def fetch_prompt(project_root: Path, name: str) -> str | None:
         "超大响应先 -o /tmp/fetch_<层>_<n>.out 落盘再 head/jq 读。"
         "全量响应禁直接进你的上下文——单条 API 响应可达数万 token，"
         "上下文越胖每轮请求越慢、空响应重试越贵。\n"
-        "9. 轮次上限：≤12 次 curl（含重试）。超限未收敛 = 带现有结果返回，"
-        "五层状态表如实标「部分取证+轮次用尽」——禁止换同义查询词无限重试"
-        "（边际收益递减；证伪方向取到 1-2 条强反证即可收）。\n\n"
+        "9. 轮次上限按档：full ≤12 / light ≤4 次 curl（含重试）。超限未收敛 = "
+        "带现有结果返回并如实标注「部分取证+轮次用尽」——禁止换同义查询词"
+        "无限重试（边际收益递减；证伪方向取到 1-2 条强反证即可收）。\n\n"
+        "【分档执行参数（按 claim 补充区每原子 [tier=X] 执行；禁降档——"
+        "标 full 的原子必须按 full 参数跑）】\n"
+        "- tier=full：五层源逐层尝试；≤12 curl；双向取证（反证查询先、支持证据后）；"
+        "报告 ≤120 行/原子 + 五层状态表（每层一行：证据指针 或 未取证+原因）。\n"
+        "- tier=light：只跑 claim 区为该原子指定的 ≤2 层源；≤4 curl；单向锚点"
+        "（不双向、免五层状态表）——报告 ≤60 行：锚点值 + 来源 URL + "
+        "一句量级对比。锚点不收敛/来源冲突 → 报告末尾标「建议升档 full + 理由」"
+        "即返回，不自行加码轮次。\n\n"
         "【命令模板（本机验证可用，逐字使用，只换查询词）】\n"
         "- 学术·OpenAlex：curl -sS -m 25 \"https://api.openalex.org/works?search=<q>&per_page=3\"\n"
         "- 学术·arXiv（必须 https + UA，http/无 UA 静默空返回）："
@@ -2601,10 +2809,12 @@ def fetch_prompt(project_root: Path, name: str) -> str | None:
         "2. 支持证据（后）：同构逐条；\n"
         "3. 五层状态表：学术（OpenAlex/arXiv)/社区（SE/HN)/开源（GitHub)/定点网页"
         "——每层一行：证据指针 或 未取证+原因。\n"
-        "报告正文即留痕，反证段必须先于支持段（时序从文本直接可读）。\n\n"
+        "报告正文即留痕，反证段必须先于支持段（时序从文本直接可读）。\n"
+        "light 档原子免上述格式，按【分档执行参数】light 契约返回（≤60 行）。\n\n"
         "【claim 补充区】\n"
         "（以下为调用方逐原子填写的可检验 claim 与证实/证伪标准——按 claim 谓词"
         "取证，证据须直接针对谓词，不泛泛取行业常识）"
+        + claim_seg
     )
 
 

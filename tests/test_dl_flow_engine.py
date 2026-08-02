@@ -867,6 +867,11 @@ class TestSubagentRetryStats:
             "agents": 2,
             "empty_responses": 2,
             "burned_input_tokens": 11000,
+            "per_agent": [
+                {"tiers": [], "curl_calls": 0},
+                {"tiers": [], "curl_calls": 0},
+            ],
+            "light_tier_violations": 0,
         }
 
     def test_attached_to_gate_record(self, tmp_path, monkeypatch):
@@ -890,6 +895,78 @@ class TestSubagentRetryStats:
         )
         assert rec["subagent_retry"]["empty_responses"] == 1
         assert rec["subagent_retry"]["burned_input_tokens"] == 4000
+
+    def test_per_agent_tier_and_curl_counted(self, tmp_path, monkeypatch):
+        # v2.40：[tier=X] 标记归属 + curl 轮次计数 + light 档 >4 违例
+        curl_msg = {
+            "type": "assistant",
+            "message": {
+                "usage": {"input_tokens": 100, "output_tokens": 10},
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "name": "Bash",
+                        "input": {"command": "curl -sS -m 25 https://api.openalex.org/x"},
+                    }
+                ],
+            },
+        }
+        self._mk_subagents(
+            tmp_path,
+            monkeypatch,
+            {
+                "agent-light.jsonl": [
+                    {
+                        "type": "user",
+                        "message": {"content": "骨架…原子2 [tier=light]：年化量级…"},
+                    },
+                    *[curl_msg for _ in range(5)],
+                ],
+                "agent-full.jsonl": [
+                    {
+                        "type": "user",
+                        "message": {"content": "骨架…原子3 [tier=full]：系统设计…"},
+                    },
+                    *[curl_msg for _ in range(9)],
+                ],
+            },
+        )
+        stats = eng._subagent_retry_stats(tmp_path, "t")
+        assert stats["per_agent"][0] == {"tiers": ["full"], "curl_calls": 9}
+        assert stats["per_agent"][1] == {"tiers": ["light"], "curl_calls": 5}
+        # light 档 5 > 4 违例；full 档 9 ≤ 12 不违例
+        assert stats["light_tier_violations"] == 1
+
+    def test_mixed_tier_markers_not_counted_as_light(self, tmp_path, monkeypatch):
+        # claim 区未按纪律裁剪（多原子行同进一个 prompt）-> tiers 记全部，
+        # 归属不唯一不算纯 light，违例判定保守不计
+        curl_msg = {
+            "type": "assistant",
+            "message": {
+                "usage": {"input_tokens": 100, "output_tokens": 10},
+                "content": [
+                    {"type": "tool_use", "name": "Bash", "input": {"command": "curl x"}}
+                ],
+            },
+        }
+        self._mk_subagents(
+            tmp_path,
+            monkeypatch,
+            {
+                "agent-mix.jsonl": [
+                    {
+                        "type": "user",
+                        "message": {
+                            "content": "原子1 [tier=full]：…\n原子2 [tier=light]：…"
+                        },
+                    },
+                    *[curl_msg for _ in range(6)],
+                ],
+            },
+        )
+        stats = eng._subagent_retry_stats(tmp_path, "t")
+        assert stats["per_agent"][0]["tiers"] == ["full", "light"]
+        assert stats["light_tier_violations"] == 0
 
     def test_none_without_state_or_dir(self, tmp_path):
         # 无 state -> None（字段省略）；有 state 无 subagents 目录 -> None
@@ -973,6 +1050,8 @@ class TestUnderstand1Orchestration:
         # 子3 双向取证（v2.38 子代理化，designs/step3-fetch-subagent-design.md）：
         # 外部层卸 fetch-prompt 子代理（蒸馏报告原文收录）+ 内部仓库层主会话自查
         # + 禁 tavily/WebSearch/WebFetch（2026-08-01 用户复核维持禁令）
+        # v2.40 分档（designs/fetch-depth-tiering-design.md）：标称档来自子2
+        # atomic_questions——none 禁派发 / 禁降档 / 升档留痕 / [tier=X] 归属标记。
         node = eng.get_node("understand", 1)
         s3 = node.sub_steps[2]
         assert s3.kind == "tool"
@@ -983,6 +1062,10 @@ class TestUnderstand1Orchestration:
             "禁 tavily_search/WebSearch/WebFetch",
             "fetch-prompt",
             "原文收录",
+            "禁降档",
+            "[tier=X]",
+            "建议升档 full",
+            "none 档原子禁派发",
         ):
             assert needle in s3.purpose, f"子3 purpose 缺 {needle}"
         for needle in (
@@ -990,6 +1073,9 @@ class TestUnderstand1Orchestration:
             "反证查询（先）→支持证据（后）分段",
             "训练记忆冒充外部证据",
             "蒸馏报告原文收录",
+            "禁降档",
+            "建议升档 full",
+            "none 档",
         ):
             assert needle in s3.gate, f"子3 gate 缺 {needle}"
         assert "tavily" not in s3.ref
@@ -5219,11 +5305,39 @@ class TestV237FirstPassRate:
             },
             {"q": "近因 vs 根因 + 置信度", "a": "近因=:655 直接产生数值；根因候选 R1（置信度中高）"},
         ]
+        # v2.40：同版内容补分档键——旧内容在新校验下仍应通过（回归）
+        aq = [
+            {
+                "q": "数值正确性",
+                "tier": "none",
+                "tier_reason": "年化公式 layered_backtest.py:655 仓内可证伪",
+            },
+            {
+                "q": "展示精度",
+                "tier": "none",
+                "tier_reason": "渲染链 _section_backtest.html:38 仓内可证伪",
+            },
+        ]
+        (tmp_path / "payload.json").write_text(
+            json.dumps(
+                {"purpose": "p", "qa": qa, "atomic_questions": aq}, ensure_ascii=False
+            ),
+            encoding="utf-8",
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert ok, msg
+
+    def test_replay_u1s2_legacy_payload_without_tier_key_rejected(self, tmp_path):
+        # v2.40：旧形态（无 atomic_questions 键）写侧机械拒——分档是必填形式要件
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=2)
+        qa = [
+            {"q": "原子 A → 5Whys 因果链", "a": "Why1 实测值（:655）"},
+        ]
         (tmp_path / "payload.json").write_text(
             json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
         )
         ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
-        assert ok, msg
+        assert not ok and "atomic_questions" in msg and "非空数组" in msg
 
     def test_causal_scan_scope_excludes_hypothesis_items(self, tmp_path):
         # 禁词只扫 q 含「因果链」的项——竞争假设项携带「可能/未实测」合法（留子3 消化）
@@ -5238,8 +5352,12 @@ class TestV237FirstPassRate:
                 "a": "H1=X（待子3取证，两种可能）；H2=Y（未实测，保留理由：…）",
             },
         ]
+        aq = [{"q": "原子 A", "tier": "full", "tier_reason": "开放问题需五层源双向"}]
         (tmp_path / "payload.json").write_text(
-            json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
+            json.dumps(
+                {"purpose": "p", "qa": qa, "atomic_questions": aq}, ensure_ascii=False
+            ),
+            encoding="utf-8",
         )
         ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
         assert ok, msg
@@ -5482,3 +5600,172 @@ class TestFetchReportRecorded:
         )
         ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
         assert ok, msg
+
+
+class TestFetchTier:
+    """v2.40 取证深度分档（designs/fetch-depth-tiering-design.md）。
+
+    子2 定档（atomic_questions 逐项校验）→ 子3 按档执行（fetch_prompt
+    预填标称档 + fetch_report_recorded tier-aware 数报告项）→ 台账按
+    [tier=X] 归属统计轮次。默认档 light；none 档理由须含仓内路径。
+    """
+
+    def _append_s2(self, tmp_path, aq):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=2)
+        qa = [{"q": "原子 A → 5Whys 因果链", "a": "Why1 实测值（:655）"}]
+        (tmp_path / "payload.json").write_text(
+            json.dumps(
+                {"purpose": "p", "qa": qa, "atomic_questions": aq}, ensure_ascii=False
+            ),
+            encoding="utf-8",
+        )
+        return eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+
+    def test_tier_enum_invalid_rejected(self, tmp_path):
+        ok, msg = self._append_s2(
+            tmp_path, [{"q": "A", "tier": "deep", "tier_reason": "r"}]
+        )
+        assert not ok and "none/light/full" in msg and "拿不准标 light" in msg
+
+    def test_tier_reason_empty_rejected(self, tmp_path):
+        ok, msg = self._append_s2(tmp_path, [{"q": "A", "tier": "full", "tier_reason": " "}])
+        assert not ok and "tier_reason 须非空" in msg
+
+    def test_none_tier_requires_repo_path(self, tmp_path):
+        ok, msg = self._append_s2(
+            tmp_path, [{"q": "A", "tier": "none", "tier_reason": "我觉得仓里有"}]
+        )
+        assert not ok and "仓内取证路径" in msg
+
+    def test_item_not_dict_rejected(self, tmp_path):
+        ok, msg = self._append_s2(tmp_path, ["原子A"])
+        assert not ok and "须为对象" in msg
+
+    def test_three_tier_mix_accepted(self, tmp_path):
+        aq = [
+            {"q": "仓内行为", "tier": "none", "tier_reason": "layered_backtest.py:655 可证伪"},
+            {"q": "年化量级合理性", "tier": "light", "tier_reason": "数值 claim 有公开锚点"},
+            {"q": "系统怎么设计", "tier": "full", "tier_reason": "开放方法论问题"},
+        ]
+        ok, msg = self._append_s2(tmp_path, aq)
+        assert ok, msg
+
+    # ---- fetch_report_recorded tier-aware（none 档豁免报告项）----
+
+    def _write_step2_trace_with_aq(self, tmp_path, aq):
+        rec = json.dumps(
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "ProblemContext",
+                "sub_step": 2,
+                "skill": "causal-inference-root-cause",
+                "purpose": "p",
+                "q": ["清单"],
+                "a": ["…"],
+                "atomic_questions": aq,
+            },
+            ensure_ascii=False,
+        )
+        _write_evidence(tmp_path, "t", [rec])
+
+    def _append_s3_reports(self, tmp_path, n_reports):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=3)
+        qa = [
+            {
+                "q": f"原子{i} 子代理蒸馏报告（原文收录）",
+                "a": "反证查询（先）：…；支持证据（后）：…",
+            }
+            for i in range(n_reports)
+        ]
+        (tmp_path / "payload.json").write_text(
+            json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
+        )
+        return eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+
+    def test_report_count_must_cover_non_none_atoms(self, tmp_path):
+        self._write_step2_trace_with_aq(
+            tmp_path,
+            [
+                {"q": "A", "tier": "full", "tier_reason": "r"},
+                {"q": "B", "tier": "light", "tier_reason": "r"},
+            ],
+        )
+        ok, msg = self._append_s3_reports(tmp_path, 1)
+        assert not ok and "2 个" in msg and "仅 1 个" in msg
+
+    def test_none_atom_exempt_from_report(self, tmp_path):
+        self._write_step2_trace_with_aq(
+            tmp_path,
+            [
+                {"q": "A", "tier": "none", "tier_reason": "x.py:1 仓内可证伪"},
+                {"q": "B", "tier": "full", "tier_reason": "r"},
+            ],
+        )
+        ok, msg = self._append_s3_reports(tmp_path, 1)
+        assert ok, msg
+
+    def test_reports_covering_non_none_accepted(self, tmp_path):
+        self._write_step2_trace_with_aq(
+            tmp_path,
+            [
+                {"q": "A", "tier": "full", "tier_reason": "r"},
+                {"q": "B", "tier": "light", "tier_reason": "r"},
+            ],
+        )
+        ok, msg = self._append_s3_reports(tmp_path, 2)
+        assert ok, msg
+
+    # ---- fetch_prompt 分档骨架 ----
+
+    def test_fetch_prompt_prefills_tier_markers(self, tmp_path):
+        self._write_step2_trace_with_aq(
+            tmp_path,
+            [
+                {"q": "仓内行为", "tier": "none", "tier_reason": "x.py:1"},
+                {"q": "年化量级", "tier": "light", "tier_reason": "数值锚点"},
+                {"q": "系统设计", "tier": "full", "tier_reason": "开放问题"},
+            ],
+        )
+        prompt = eng.fetch_prompt(tmp_path, "t")
+        assert prompt is not None
+        assert "[tier=light]" in prompt and "[tier=full]" in prompt
+        assert "none 档原子（仅内查，禁为其派发取证 agent）" in prompt
+        assert "仓内行为" in prompt  # none 档列入豁免说明
+        # 分档执行参数块
+        assert "分档执行参数" in prompt
+        assert "≤4 curl" in prompt and "≤12 curl" in prompt
+        assert "单向锚点" in prompt and "≤60 行" in prompt
+        assert "建议升档 full" in prompt
+        assert "禁降档" in prompt
+
+    def test_fetch_prompt_all_none_short_circuits(self, tmp_path):
+        self._write_step2_trace_with_aq(
+            tmp_path,
+            [{"q": "仓内行为", "tier": "none", "tier_reason": "x.py:1"}],
+        )
+        out = eng.fetch_prompt(tmp_path, "t")
+        assert out is not None
+        assert "全部原子问题为 none 档" in out
+        assert "命令模板" not in out  # 不是骨架，是短路指引
+
+    def test_fetch_prompt_legacy_trace_full_tier_unchanged(self, tmp_path):
+        # 无 atomic_questions（v2.40 前实例）-> legacy：骨架无分档预填
+        rec = json.dumps(
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "ProblemContext",
+                "sub_step": 2,
+                "skill": "s",
+                "purpose": "p",
+                "q": ["原子问题清单"],
+                "a": ["原子A=数值正确性"],
+            },
+            ensure_ascii=False,
+        )
+        _write_evidence(tmp_path, "t", [rec])
+        prompt = eng.fetch_prompt(tmp_path, "t")
+        assert prompt is not None
+        assert "已分档原子清单" not in prompt
+        assert "分档执行参数" in prompt  # 参数块常驻（legacy 全按 full）
