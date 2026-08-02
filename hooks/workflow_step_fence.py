@@ -5,8 +5,9 @@ PreToolUse hook：子步骤围栏（S15 前置参与 + S10）+ 阶段写权限�
 S15（§step-engage-prefence）：当前子步骤「零 trace 窗口」（一条 skill-trace
 都没写）时进入白名单模式——仅编排工具可用（常驻集：AskUserQuestion / Skill /
 Task* / Read / Grep / Glob / Write 系仅 evidence 文件 / Bash 仅 dl-cmd.sh、
-evidence 绝对路径 append、codegraph；外加 Step.fence_allow 的步骤声明），
-其它工具调用一律 deny。把 S13（Stop 参与围栏，回合末才纠偏）的判据前置到
+evidence 绝对路径 append、codegraph、只读发现命令（find/ls/grep/cat/head/
+tail/git log 等——v2.53，见 _s15_bash_readonly_discovery）；外加
+Step.fence_allow 的步骤声明），其它工具调用一律 deny。把 S13（Stop 参与围栏，回合末才纠偏）的判据前置到
 工具调用级：模型为「直接回答用户」发起的第一个工具调用即被拦并指回编排
 （2026-07-26 demo b01d6507：MiniMax-M3 首回合 Bash 探查抢答，S13 因用户
 中断没机会开火）。与 S10 互斥互补：零 trace->S15 白名单；有未判决 trace->
@@ -134,6 +135,49 @@ def _s15_bash_orchestration(cmd: str, ev_file: Path) -> bool:
     return re.search(r"\bcodegraph\b", cmd) is not None
 
 
+# S15 只读发现通道（v2.53，2026-08-02 tail_volume_acceleration_annualized
+# u:1 运行实证）：claude-code 2.1.x 默认隐藏 Glob/Grep（会话报
+# "No such tool available: Glob" 并指路用 Bash find/grep），而 S15 零 trace
+# 窗口只放行 Read、deny 全部 Bash——子2 判据要求主链每环 file:line 证据
+# 指针，发现通道却全关：实测 25 次盲 Read 猜路径全 miss + 6 次 find/ls/
+# git log 被 deny + 4 次 no-such-tool（41 个工具报错中 35 个同根因）。
+# Read 单独不构成「合法且足够的取证通道」（rubric §3.5 #7）——harness
+# 指路的通道（Bash find/grep）就必须同时是围栏合法通道，否则判据要求的
+# 证据指针没有低成本合法获取路径。历史：红队子代理同症曾以 prompt 钉
+# 「都不要试」绕开（engine.redteam_prompt），本修是正治。
+# 按段校验：|/&&/||/;/换行 拆段，每段都须命中只读白名单；含输出重定向
+# （>，2>/dev/null 类除外）/$( /反引号/xargs/tee 即拒。已知限制：引号内
+# 走私（grep 模式里的 >）会误伤、复合只读命令换写法即可——威胁模型是
+# 弱遵从模型非对抗攻击，同 S11 的 Bash 盲区，接受。
+_S15_READONLY_CMD_RE = re.compile(
+    r"^\s*(?:find|ls|grep|rg|cat|head|tail|wc|sort|uniq|file|stat|"
+    r"realpath|readlink|pwd|echo|tree|diff|du)\b"
+)
+_S15_GIT_READONLY_RE = re.compile(
+    r"^\s*git\s+(?:log|show|status|diff|blame|grep|ls-files|rev-parse)\b"
+)
+
+
+def _s15_bash_readonly_discovery(cmd: str) -> bool:
+    """Bash 只读发现命令判定（v2.53）：find/ls/grep/cat/head/git log 等。
+
+    全命令按段（管道/&&/;/换行）校验，段段只读才放行；写意图信号
+    （输出重定向/命令替换/xargs/tee）一票否决。
+    """
+    if re.search(r"`|\$\(|\bxargs\b|\btee\b", cmd):
+        return False
+    if re.search(r"(?<![0-9>])>", cmd):  # 输出重定向（2>/dev/null 豁免）
+        return False
+    for seg in re.split(r"\|\||&&|[|;\n]", cmd):
+        seg = seg.strip()
+        if not seg:
+            continue
+        if _S15_READONLY_CMD_RE.match(seg) or _S15_GIT_READONLY_RE.match(seg):
+            continue
+        return False
+    return True
+
+
 def _s15_allowed(
     tool: str, tool_input: dict, ev_file: Path, step: "engine.Step", cwd: str
 ) -> bool:
@@ -154,7 +198,10 @@ def _s15_allowed(
         # 直写 <name>.jsonl 本体由 S14 在前置段单独 deny（收编到 append-trace）。
         return bool(fp) and rp.parent == ev_file.parent
     if tool == "Bash":
-        return _s15_bash_orchestration(str(tool_input.get("command") or ""), ev_file)
+        cmd = str(tool_input.get("command") or "")
+        return _s15_bash_orchestration(cmd, ev_file) or _s15_bash_readonly_discovery(
+            cmd
+        )
     return False
 
 
@@ -296,9 +343,10 @@ def main() -> int:
                 f"子步骤 {step_no}（{step_obj.ref}）尚未开始：当前子步骤没有任何 "
                 "evidence skill-trace，处于前置参与围栏窗口（S15）。\n"
                 f"本步目的：{step_obj.purpose[:150]}{'…' if len(step_obj.purpose) > 150 else ''}\n"
-                "窗口内仅编排工具可用：AskUserQuestion / Skill / Task* / Read / Grep / "
-                f"Glob / codegraph / dl-cmd / 写 evidence（append-trace 落库）{extra}。\n"
-                "直接回答用户、为用户任务探查（Bash/WebFetch/WebSearch/Agent 等）= 违规。\n"
+                "窗口内仅编排工具可用：AskUserQuestion / Skill / Task* / Read / "
+                "Bash 只读发现（find/ls/grep/cat/head/git log 等，禁写命令）/ "
+                f"codegraph / dl-cmd / 写 evidence（append-trace 落库）{extra}。\n"
+                "直接回答用户、为用户任务做写操作或重型探查（WebFetch/WebSearch/Agent 等）= 违规。\n"
                 f"正确动作：按注入的子步骤清单执行子步骤 {step_no}（invoke 对应 skill / "
                 f"用 AskUserQuestion 问用户），完成后写 evidence 再输出 ### STEP_DONE: {step_no} 并 end_turn。\n"
                 "（此硬约束可用 /dl fence off 关闭，回文案约束）"

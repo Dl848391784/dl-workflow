@@ -118,7 +118,10 @@ class TestS15EngagePreFence:
     """零 trace 窗口：白名单模式。"""
 
     def test_bash_user_task_denied(self, wf_repo, monkeypatch, capsys):
-        # 核心防回归：demo b01d6507 场景——子1 零 trace 时为用户问题跑 ls/grep
+        # 核心防回归：demo b01d6507 场景——子1 零 trace 时为用户问题跑探查抢答。
+        # v2.53 边界修正：只读发现命令（ls/grep/find）不再 deny（harness 隐藏
+        # Glob/Grep 后它是唯一合法发现通道，deny 它只制造盲 Read 猜路径）——
+        # 抢答防御回到 S13（纯 text 抢答在 Stop 兜底）；写/执行类命令仍 deny。
         _write_state(wf_repo, sub_step=1)
         mod = _load_hook()
         decision, reason = _run_hook(
@@ -127,7 +130,7 @@ class TestS15EngagePreFence:
             monkeypatch,
             capsys,
             "Bash",
-            {"command": "ls && grep -c def x.py"},
+            {"command": "python3 run_analysis.py"},
         )
         assert decision == "deny"
         assert "子步骤 1" in reason
@@ -364,3 +367,62 @@ class TestS15EngagePreFence:
             mod, wf_repo, monkeypatch, capsys, "Bash", {"command": "ls"}
         )
         assert decision is None
+
+
+class TestS15ReadonlyDiscovery:
+    """v2.53：S15 零 trace 窗口放开 Bash 只读发现通道。
+
+    实证（2026-08-02 tail_volume_acceleration_annualized u:1）：harness 默认
+    隐藏 Glob/Grep 并指路 Bash find/grep，S15 却只放行 Read——判据要求
+    file:line 证据指针而发现通道全关（25 次盲 Read miss + 6 次 find/ls/
+    git log 被 deny）。只读发现是围栏设计内「无害只读」的补齐，不是扩权。
+    """
+
+    def test_find_allowed(self, wf_repo, monkeypatch, capsys):
+        _write_state(wf_repo, sub_step=1)
+        mod = _load_hook()
+        decision, _ = _run_hook(
+            mod,
+            wf_repo,
+            monkeypatch,
+            capsys,
+            "Bash",
+            {"command": "find /x -maxdepth 4 -name '*.py' | grep -iE 'report'"},
+        )
+        assert decision is None
+
+    def test_ls_gitlog_allowed(self, wf_repo, monkeypatch, capsys):
+        _write_state(wf_repo, sub_step=1)
+        mod = _load_hook()
+        for cmd in ("ls /x 2>/dev/null", "git log --oneline -20", "cat a | head -20"):
+            decision, _ = _run_hook(
+                mod, wf_repo, monkeypatch, capsys, "Bash", {"command": cmd}
+            )
+            assert decision is None, f"{cmd} 应放行"
+
+    def test_write_intent_denied(self, wf_repo, monkeypatch, capsys):
+        _write_state(wf_repo, sub_step=1)
+        mod = _load_hook()
+        for cmd in (
+            "find /x -name '*.py' > /tmp/out",  # 输出重定向
+            "find /x -name '*.py' | xargs rm",  # xargs 走私
+            "echo $(cat /etc/passwd)",  # 命令替换
+            "ls /x && rm -rf /x",  # 复合写命令
+            "python3 -c 'print(1)'",  # 非白名单命令
+        ):
+            decision, reason = _run_hook(
+                mod, wf_repo, monkeypatch, capsys, "Bash", {"command": cmd}
+            )
+            assert decision == "deny", f"{cmd} 应 deny"
+            assert "S15" in reason
+
+    def test_unit_matcher(self):
+        mod = _load_hook()
+        ok = mod._s15_bash_readonly_discovery
+        assert ok("find . -name '*.py'")
+        assert ok("git show HEAD~1 --stat")
+        assert ok("grep -rn 'x' . 2>/dev/null | head -5")
+        assert not ok("ls > out")
+        assert not ok("cat `which ls`")
+        assert not ok("find . | tee out")
+        assert not ok("echo hi; rm x")

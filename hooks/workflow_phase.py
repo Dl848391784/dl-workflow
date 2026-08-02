@@ -45,7 +45,7 @@ def _subphases(phase: str) -> list[str]:
 PHASE_RULES = {
     "understand": {
         "goal": "理清真实问题（问题背后要解决的本质，非字面请求）",
-        "allow": "Read/Grep/Glob/codegraph 查证/AskUserQuestion 澄清",
+        "allow": "Read/Bash 只读发现（find/ls/grep 等）/codegraph 查证/AskUserQuestion 澄清",
         "deny": "Edit/Write 任何源码",
         "artifact": f"understand.md（{engine.SECTIONS_TEXT['understand.md']}）",
         "advance": "自动推进到 plan（无闸门——2026-07-28 起围栏只设在 plan 完成）",

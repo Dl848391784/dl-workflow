@@ -26,7 +26,7 @@
 - 拆 **4 子阶段**，依次完成（understand:1/2/3/4 均有子步骤编排逐步门控，子阶段间无闸门无门栏——末步通过门控即自动续轮进下一子阶段）：
   1. **理解问题和背景**（**子步骤编排，逐步 STEP_DONE 门控**，严格时序不可乱序）：
      - **① 先出阶段横幅**（`## PHASE: ...` + 子阶段标记），横幅后**按注入的「▶ 当前子步骤」块逐子步骤执行**（当前步 purpose 全文在注入置顶；全 6 步 purpose 见下方生成段，与注入同源）。
-     - **skill 步 invoke 时序**：子步骤 ref 为 skill 名的（子1 define-problem / 子2 causal-inference-root-cause / 子5、子6 define-problem），横幅后立即、在其它任何动作之前 invoke；`### STEP_DONE` / 探查证据（Bash/Read/Grep/Glob/codegraph）**一律不得在 invoke 之前或与之并行**。
+     - **skill 步 invoke 时序**：子步骤 ref 为 skill 名的（子1 define-problem / 子2 causal-inference-root-cause / 子5、子6 define-problem），横幅后立即、在其它任何动作之前 invoke；`### STEP_DONE` / 探查证据（Bash/Read/codegraph）**一律不得在 invoke 之前或与之并行**。
      - 全 6 子步骤 purpose（engine 渲染，与注入逐字同源）：
 <!-- BEGIN GENERATED sub_steps understand:1 -->
 （本段由 dl-launch.sh 调 dl_flow_engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
@@ -38,7 +38,7 @@
      - **强制（含简单查询）**：**任何**进 understand:1 的提问--哪怕看似简单事实查询（如"有多少个因子"）--都**必须先走编排**（横幅 -> invoke define-problem -> 子步骤1 逼问），**禁止直接 Bash/Read 抢答**。判断"这是简单查询可绕过编排"= 违规（等同未建清单就干活）。简单查询的真实问题往往是"为何要查这个/查了要做什么"，编排正是逼出它。
      - **evidence 强制**：record 子步骤（子1/2/3/4/5/6）**必须**用 append-trace 落 evidence skill-trace 后才许输 STEP_DONE；无 evidence 的 STEP_DONE = 违规（Stop hook 读不到新 trace -> 不推进，子步骤卡住）。子6（gate=None）也要写--记用户确认内容（确认本身是裁决留痕，且是 Stop 门控的完成触发信号）。路径/格式/结构字段全归脚本，无需手写也不用关心绝对/相对路径。skill 内部 Q/A 不门控，按需 record 落 evidence；子步骤边界（STEP_DONE）才门控。
      - **门控升级（连续 block 达阈值）**：子步骤被 Stop 门控连续 block 3 次后，你会收到「已达升级阈值」的续轮提示--此时**停止盲目重做**，用 AskUserQuestion 请用户裁决：①用户补充信息/澄清后你重做 ②用户同意强制放行后，你运行 `bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh step-pass`（裁决记录落 evidence）③用户要求回退 `/dl back`。门控判据（rubric）是编排内部定义，**禁止**自行变通判据或伪造 evidence 求过；出口只有用户裁决。⚠ `dl-cmd.sh` 一律**原样裸跑**，禁追加 `2>&1`、`| tail` 等管道/重定向——输出仅一两行无需截断；复合命令会破坏权限白名单匹配，每次多付 ~15s 裁决延迟甚至挂起无响应（实测挂起 28min + 317k token 全量缓存重读）。
-     - **前置参与围栏（PreToolUse，S15）**：当前子步骤**落 evidence 前**（零 trace 窗口），仅编排工具可用——AskUserQuestion / Skill / Task* / Read / Grep / Glob / codegraph / dl-cmd / 写 evidence（Write 载荷 + append-trace 落库），外加当前子步骤注入清单声明的额外工具；**为用户任务探查（其它 Bash/WebFetch/WebSearch/Agent 等）会被 deny 指回当前子步骤**。「先快速回答用户的问题再走编排」不存在——当前子步骤就是你要做的事，用户对原问题的答案会随编排推进自然获得。
+     - **前置参与围栏（PreToolUse，S15）**：当前子步骤**落 evidence 前**（零 trace 窗口），仅编排工具可用——AskUserQuestion / Skill / Task* / Read / Bash 只读发现（find/ls/grep/cat/head/git log 等，禁写命令）/ codegraph / dl-cmd / 写 evidence（Write 载荷 + append-trace 落库），外加当前子步骤注入清单声明的额外工具；**为用户任务做写操作或重型探查（WebFetch/WebSearch/Agent 等）会被 deny 指回当前子步骤**。「先快速回答用户的问题再走编排」不存在——当前子步骤就是你要做的事，用户对原问题的答案会随编排推进自然获得。
      - **硬围栏（PreToolUse，S10）**：写完当前子步骤 evidence 后、Stop 门控判决前，**工具调用会被围栏拒绝**（deny 提示「等待门控判决」；**清单记账工具 TaskCreate/TaskUpdate/TaskList/TaskGet 豁免**——同步 TaskList 随时可做）--这是硬约束不是建议。被拒后唯一正确动作：输出 `### STEP_DONE: <n>` 并 end_turn。**禁止**绕过（换工具/换说法重试=违规）。用户可随时 `/dl fence off` 关闭此围栏（回文案约束）、`/dl fence on` 重新开启。
      - **参与围栏（Stop）**：当前子步骤**没写 evidence 就结束回合 = 违规**，Stop hook 会强制你继续（deny 续轮）--「这是简单查询所以不走编排」之类的判断不成立，走不走编排**不是你的选择**。中途需要用户输入：**必须用 AskUserQuestion 工具**（回合内完成），禁止「文本提问 + 结束回合等回复」。
      - **阶段写围栏（PreToolUse，系统硬约束无开关）**：understand/plan 阶段 Edit/Write/MultiEdit/NotebookEdit **只能写白名单路径**（本阶段产物 .md、designs/*.md、.claude/evidence/、.claude/{understands,plans,reviews,evolutions}/（各限本阶段）），写源码/实现会被 deny--「禁止改源码」是硬约束。已知限制：Bash 写（重定向/sed -i）不在围栏内，但用 Bash 写源码 = 违规（文案约束仍有效）。
@@ -68,7 +68,7 @@
 <!-- END GENERATED sub_steps understand:4 -->
      - **子5 产物装配**：子5 用户裁决（阈值拍板 + 验收方式认可）后**装配 understand.md**（= 4 子阶段归一化陈述 + 用户裁决记录的直接装配，四节：{{artifact_sections:understand.md}}；**禁二次创作**；未被选定的问题/目标/约束及其一句话陈述也须写入，供后续 dl 实例接续）——在写子5 trace 前完成；**写主仓 `.claude/understands/<name>.md`**（注入「产物路径」行给绝对路径——worktree 归档删除即丢，禁写 worktree 内）；阶段写围栏已放行。
      - **末步自动推进（无门栏、无阶段闸门）**：末子步骤(5) 通过门控后**自动推进并续轮开做 plan:1 子1**（跨阶段自动续轮，2026-07-28 起 understand->plan 无闸门——围栏只设在 plan 完成）。**不要输出 `### PHASE_DONE: understand`**——推进已由 Stop 门控完成，输出它会撞守卫。
-- 允许：Read / Grep / Glob / codegraph 查证 / AskUserQuestion 澄清。
+- 允许：Read / Bash 只读发现（find/ls/grep 等）/ codegraph 查证 / AskUserQuestion 澄清。
 - 禁止：Edit / Write 任何源码。
 - 完成：understand:1/2/3/4 用 `### STEP_DONE: <n>` 逐步推进（各子阶段末步通过门控即自动进下一子阶段）；understand:4 子5 装配 `understand.md`（写主仓 `.claude/understands/<name>.md`），末步通过门控后自动进 plan:1（不输出 PHASE_DONE: understand）。
 - **此阶段无闸门**：understand 完成自动进入 plan（2026-07-28 起围栏只设在 plan 完成）。

@@ -1908,10 +1908,11 @@ def engagement_fence_notice(step: Step) -> str:
     )
     return (
         "🚧 前置参与围栏（S15，PreToolUse 硬约束）：当前子步骤写 evidence 前，"
-        "仅编排工具可用（AskUserQuestion / Skill / Task* / Read / Grep / Glob / "
+        "仅编排工具可用（AskUserQuestion / Skill / Task* / Read / Bash 只读发现"
+        "（find/ls/grep/cat/head/git log 等，禁写命令）/ "
         f"codegraph / dl-cmd / 写 evidence{extra}）；"
-        "为用户任务探查（Bash/WebFetch/WebSearch/Agent 等）会被 deny 指回本步——"
-        "「先回答用户问题再走编排」不存在，当前子步骤就是你要做的事。"
+        "为用户任务做写操作或重型探查（WebFetch/WebSearch/Agent 等）会被 deny "
+        "指回本步——「先回答用户问题再走编排」不存在，当前子步骤就是你要做的事。"
     )
 
 
