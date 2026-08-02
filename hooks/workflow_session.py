@@ -51,8 +51,7 @@ def build_injection(project_root: Path, name: str, source: str) -> str | None:
     if pack is None:
         return None
     return (
-        pack
-        + "\n当前子步的 purpose/围栏/自查提示由每轮 UserPromptSubmit 注入提供"
+        pack + "\n当前子步的 purpose/围栏/自查提示由每轮 UserPromptSubmit 注入提供"
         "（本包不含，非缺失）。继续当前子步即可。\n"
     )
 

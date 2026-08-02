@@ -6023,9 +6023,27 @@ class TestEstimateContextTokens:
     def test_reads_last_usage(self, tmp_path):
         tp = tmp_path / "s.jsonl"
         lines = [
-            {"type": "assistant", "message": {"usage": {"input_tokens": 100, "cache_read_input_tokens": 50000, "cache_creation_input_tokens": 0}}},
+            {
+                "type": "assistant",
+                "message": {
+                    "usage": {
+                        "input_tokens": 100,
+                        "cache_read_input_tokens": 50000,
+                        "cache_creation_input_tokens": 0,
+                    }
+                },
+            },
             {"type": "user", "message": {"content": "x"}},
-            {"type": "assistant", "message": {"usage": {"input_tokens": 200, "cache_read_input_tokens": 160000, "cache_creation_input_tokens": 3000}}},
+            {
+                "type": "assistant",
+                "message": {
+                    "usage": {
+                        "input_tokens": 200,
+                        "cache_read_input_tokens": 160000,
+                        "cache_creation_input_tokens": 3000,
+                    }
+                },
+            },
         ]
         tp.write_text("\n".join(json.dumps(r) for r in lines), encoding="utf-8")
         assert eng.estimate_context_tokens(tp) == 163200
