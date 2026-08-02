@@ -181,7 +181,9 @@ def _block_continue(reason: str) -> int:
     )
 
 
-def _sub_step_continue(prev_desc: str, node: "engine.Node", n: int) -> int:
+def _sub_step_continue(
+    prev_desc: str, node: "engine.Node", n: int, extra: str = ""
+) -> int:
     """pass 自动续轮指令（非末步 & 跨子阶段进下一编排节点子1 共用，单源）。
 
     pass 自动续轮（2026-07-25 决议）：pass 也返 additionalContext 指令模型当轮
@@ -215,6 +217,26 @@ def _sub_step_continue(prev_desc: str, node: "engine.Node", n: int) -> int:
         + engine.selfcheck_hint(step)
         + "\n"
         + engine.engagement_fence_notice(step)
+        + extra
+    )
+
+
+def _handoff_nudge(transcript_path: str) -> str:
+    """上下文交接建议（v2.45，context-handoff-design §2）：超阈值才附，纯建议非围栏。
+
+    成本公式 = 轮次 × 上下文长度——会话不重置则平方膨胀。/clear 换全新
+    上下文后 SessionStart hook 自动注入交接包（前序证据+用户裁决+产物
+    指针），接续零损失。读不到 usage -> 空串（宁纵勿枉，不 nudge）。
+    """
+    est = engine.estimate_context_tokens(transcript_path)
+    if est is None or est < engine.HANDOFF_NUDGE_THRESHOLD:
+        return ""
+    return (
+        f"\n🔄 上下文交接建议（纯建议，非围栏）：当前会话上下文已约 "
+        f"{est // 1000}k tokens（阈值 {engine.HANDOFF_NUDGE_THRESHOLD // 1000}k），"
+        "后续每轮都全量重读它。建议 /clear 后回复「继续」——交接包"
+        "（前序证据+用户裁决+产物指针）会在新会话自动注入，接续零损失；"
+        "不清也完全可行，只是后续更贵。"
     )
 
 
@@ -261,6 +283,15 @@ def main() -> int:
         _log(project_root, "no_state", wf=name)
         return 0
     state = engine.normalize_state(state)
+
+    # v2.45：早提取 transcript_path 供 pass 续轮的 /clear nudge 估算上下文
+    # （后方 PHASE_DONE 分支另有同款提取，幂等不冲突）。
+    transcript_path = ""
+    for key in ("transcript_path", "transcriptPath", "transcript"):
+        val = payload.get(key)
+        if isinstance(val, str) and val:
+            transcript_path = val
+            break
 
     cur_phase = state.get("phase", "understand")
     cur_sub = state.get("sub_index", 1)
@@ -379,7 +410,10 @@ def main() -> int:
                         f"{nxt_node.label} 子步骤 1（自动续轮）\n"
                     )
                     return _sub_step_continue(
-                        f"子阶段「{cur_node0.label}」的全部子步骤", nxt_node, 1
+                        f"子阶段「{cur_node0.label}」的全部子步骤",
+                        nxt_node,
+                        1,
+                        extra=_handoff_nudge(transcript_path),
                     )
                 _emit(f"✓ 子步骤 {judged_step} 通过门控 -> 子阶段推进")
                 return 0
@@ -389,7 +423,12 @@ def main() -> int:
             sys.stderr.write(
                 f"✓ 子步骤 {judged_step} 通过门控 -> 子步骤 {nxt}（自动续轮）\n"
             )
-            return _sub_step_continue(f"子步骤 {judged_step}", cur_node0, nxt)
+            return _sub_step_continue(
+                f"子步骤 {judged_step}",
+                cur_node0,
+                nxt,
+                extra=_handoff_nudge(transcript_path),
+            )
         else:
             # block / escalate：同轮返工（S4/S7）
             attempts = (st or state).get("node_attempts", 0)

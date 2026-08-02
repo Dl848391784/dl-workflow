@@ -390,3 +390,46 @@ class TestP4PhaseDoneFallthrough:
         assert "阶段切换" not in out
         st = json.loads((wf_repo / ".claude/workflows/t/state.json").read_text())
         assert st["phase"] == "plan"
+
+
+class TestHandoffNudge:
+    """v2.45 /clear nudge：超阈值才附、读不到 usage 不附（宁纵勿枉）、纯建议。"""
+
+    def _transcript(self, tmp_path, cache_read):
+        tp = tmp_path / "s.jsonl"
+        rec = {
+            "type": "assistant",
+            "message": {
+                "usage": {
+                    "input_tokens": 200,
+                    "cache_read_input_tokens": cache_read,
+                    "cache_creation_input_tokens": 0,
+                }
+            },
+        }
+        tp.write_text(json.dumps(rec) + "\n", encoding="utf-8")
+        return str(tp)
+
+    def test_over_threshold_nudges(self, tmp_path):
+        mod = _load_hook()
+        tp = self._transcript(tmp_path, mod.engine.HANDOFF_NUDGE_THRESHOLD + 10_000)
+        nudge = mod._handoff_nudge(tp)
+        assert "交接" in nudge and "/clear" in nudge
+
+    def test_under_threshold_silent(self, tmp_path):
+        mod = _load_hook()
+        tp = self._transcript(tmp_path, mod.engine.HANDOFF_NUDGE_THRESHOLD - 60_000)
+        assert mod._handoff_nudge(tp) == ""
+
+    def test_missing_transcript_silent(self, tmp_path):
+        mod = _load_hook()
+        assert mod._handoff_nudge(str(tmp_path / "nope.jsonl")) == ""
+        assert mod._handoff_nudge("") == ""
+
+    def test_nudge_appended_to_pass_continue(self, tmp_path, capsys):
+        mod = _load_hook()
+        node = mod.engine.get_node("understand", 1)
+        mod._sub_step_continue("子步骤 1", node, 2, extra="\n🔄 NUDGE_MARK")
+        out = json.loads(capsys.readouterr().out)
+        body = out["hookSpecificOutput"]["additionalContext"]
+        assert body.endswith("🔄 NUDGE_MARK")
