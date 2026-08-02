@@ -1683,7 +1683,8 @@ def gate_sub_step_at_stop(
         priors = prior_block_reasons(project_root, name, cur, mk)
         # v2.52：写侧机械校验覆盖面钉给 judge（勿重复判已过的形式要件）
         scope_items = list(getattr(step, "mech_checks", ()) or ())
-        for _k, _spec in getattr(step, "extra_payload_keys", ()):
+        for _e in getattr(step, "extra_payload_keys", ()):
+            _k, _spec = _e[0], _e[1]
             scope_items.append(_spec if isinstance(_spec, str) else f"{_k}前缀")
         mech_scope = "、".join(scope_items) or None
         ok, reason = run_judge(
@@ -2441,7 +2442,8 @@ def payload_format_hint(step) -> list[str]:
         ]
     extra = getattr(step, "extra_payload_keys", ()) if step is not None else ()
     segs = []
-    for k, spec in extra:
+    for e in extra:
+        k, spec = e[0], e[1]
         if isinstance(spec, str):
             # v2.40 数组型键（逐项校验注册表）：精确结构见本步 purpose
             segs.append(f',"{k}":[<逐项对象数组——结构见本步 purpose>]')
@@ -2450,7 +2452,7 @@ def payload_format_hint(step) -> list[str]:
     extra_seg = "".join(segs)
     extra_note = (
         "；顶层还须含 "
-        + "/".join(k for k, _ in extra)
+        + "/".join(e[0] for e in extra)
         + " 键（append-trace 机械校验存在性与格式，缺键/格式错当场拒）"
         if extra
         else ""
@@ -2785,6 +2787,34 @@ def _check_atomic_mece_alignment(items: list, qa: list | None = None) -> str | N
 _MECH_EXTRA_ITEM_CHECKS = {
     "fetch_tier_items": _check_fetch_tier_items,
     "atomic_mece_alignment": _check_atomic_mece_alignment,
+}
+
+
+def _check_conclusion_no_speculation(v: str) -> str | None:
+    """conclusion_no_speculation：u:1 子1「结论」键禁推测形态（v2.54）。
+
+    实证（2026-08-02 tail_volume_acceleration_annualized u:1 子1 att1）：
+    模型 who 项写得合规（「未自述身份…不冒充身份出处」——它知道规则），
+    顶层结论却写「具体主语 = 项目维护者（推测，来源未自述身份 +
+    CLAUDE.md §6 + 分支命名佐证）」——who 规则钉在 q/a 项，结论字段成
+    漏网面，judge 判对但白烧一轮（钉死保判对不保写对，§3.5 #16）。
+    词形取 att1 逐字（「推测」），锚定结论字段（§3.5 #21：q/a 项里
+    「推测另列」是合法形态，只扫结论）；分隔度重放：att1 含 att2 不含。
+    """
+    if "推测" not in v:
+        return None
+    return (
+        "「结论」含「推测」= 无出处推断进了结论——结论逐句须有出处"
+        "（用户原话/会话事实），推断只能标「推测」另列在 q/a 项、不进结论；"
+        "who 未自述身份就如实写「具体主语 = 未自述身份（who=未自述）」，"
+        "仓库事实/分支命名不能证明当前提问者身份"
+    )
+
+
+# 载荷顶层字符串键的内容校验注册表（extra_payload_keys 条目第三元素，
+# 前缀校验之后执行——v2.54 从「前缀合规」扩到「内容词形」）。
+_MECH_EXTRA_STR_CHECKS = {
+    "conclusion_no_speculation": _check_conclusion_no_speculation,
 }
 
 
@@ -3169,7 +3199,11 @@ def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool
     # v2.40 泛化：spec 为字符串时是 _MECH_EXTRA_ITEM_CHECKS 注册名——值须为
     # 非空数组并过逐项校验（如 atomic_questions 分档清单）。
     extra_fields: dict = {}
-    for key, spec in getattr(step, "extra_payload_keys", ()):
+    for entry in getattr(step, "extra_payload_keys", ()):
+        key, spec = entry[0], entry[1]
+        # v2.54：条目第三元素 = _MECH_EXTRA_STR_CHECKS 注册名（字符串键的
+        # 内容词形校验，前缀校验通过后执行）。
+        str_check = entry[2] if len(entry) > 2 else None
         v = payload.get(key)
         if isinstance(spec, str):
             fn = _MECH_EXTRA_ITEM_CHECKS.get(spec)
@@ -3200,6 +3234,16 @@ def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool
                 f"「{key}」须以 {'/'.join(prefixes)} 开头（二选一必出），"
                 f"当前开头：{v.strip()[:12]!r}"
             )
+        if str_check is not None:
+            fn = _MECH_EXTRA_STR_CHECKS.get(str_check)
+            if fn is None:
+                return False, (
+                    f"extra_payload_keys 配置错误：「{str_check}」未在 "
+                    "_MECH_EXTRA_STR_CHECKS 注册（nodes 与 engine 漂移，fail loud）"
+                )
+            err = fn(v.strip())
+            if err:
+                return False, err
         extra_fields[key] = v.strip()
 
     record = {

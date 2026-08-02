@@ -6015,6 +6015,54 @@ class TestV237FirstPassRate:
         )
         assert rec["结论"].startswith("①")
 
+    # ---- v2.54：结论禁推测形态（conclusion_no_speculation，u:1 子1）----
+    # 2026-08-02 tail_volume_acceleration_annualized u:1 子1 att1：who 项
+    # 写得合规（模型知道「仓库事实不能证明提问者身份」），顶层结论却写
+    # 「具体主语 = 项目维护者（推测，来源未自述身份 + CLAUDE.md §6 +
+    # 分支命名佐证）」——规则钉在 q/a 项，结论字段成漏网面。词形取 att1
+    # 逐字，重放两侧：att1 拒 / att2 放行。
+
+    def test_replay_u1s1_att1_conclusion_speculation_rejected(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        (tmp_path / "payload.json").write_text(
+            json.dumps(
+                {
+                    "purpose": "p",
+                    "qa": [{"q": "who=当前提问者身份？", "a": "未自述身份。"}],
+                    "结论": "①问题成立（可证伪定义）。具体主语 = 项目维护者"
+                    "（推测，来源未自述身份 + CLAUDE.md §6 + 当前分支命名佐证）。",
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert not ok and "推测" in msg and "未自述身份" in msg
+
+    def test_replay_u1s1_att2_conclusion_clean_accepted(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        (tmp_path / "payload.json").write_text(
+            json.dumps(
+                {
+                    "purpose": "p",
+                    "qa": [{"q": "who=当前提问者身份？", "a": "未自述身份。"}],
+                    "结论": "①问题成立（可证伪定义）。具体主语 = 未自述身份"
+                    "（who=未自述）。",
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert ok, msg
+
+    def test_conclusion_no_speculation_unit(self):
+        fn = eng._MECH_EXTRA_STR_CHECKS["conclusion_no_speculation"]
+        assert fn("①问题成立。具体主语 = 项目维护者（推测，来源…）。") is not None
+        assert fn("①问题成立。具体主语 = 未自述身份（who=未自述）。") is None
+        # q/a 项里「推测另列」是合法形态——本校验只锚结论字段，不扫 qa
+        assert fn("②问题不成立（用户声明无真实痛点，原话佐证）。") is None
+
     def test_extra_keys_leak_check_not_triggered(self, tmp_path):
         # extra_payload_keys 声明的键不是结构字段泄漏（kind/sub_step 等仍拒）
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)

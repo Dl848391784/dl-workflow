@@ -588,7 +588,9 @@ _NODES: dict[str, Node] = {
                     f"{_STEP1_METHOD_GUIDANCE}"
                     f"{_USER_QUOTE_FORMS_RULE}。"
                     "结论作为载荷顶层「结论」键提交（①或②开头——append-trace "
-                    "机械校验存在性与前缀，缺键/前缀错当场拒，不进入 gate）"
+                    "机械校验存在性与前缀，缺键/前缀错当场拒，不进入 gate；"
+                    "结论禁推测形态——逐句须有出处，推断标「推测」只能另列 "
+                    "q/a 项，「结论」值含「推测」当场拒）"
                 ),
                 input=None,
                 record=True,
@@ -606,8 +608,9 @@ _NODES: dict[str, Node] = {
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace 且 sub_step==1 的记录；"
                     f"形式要件：{_STEP1_FORM_REQUIREMENTS}。"
-                    "（结论的存在性与①/②前缀已由 append-trace 机械校验——"
-                    "judge 不重复判缺结论，只判结论内容与出处质量。）"
+                    "（结论的存在性与①/②前缀/无推测形态已由 append-trace "
+                    "机械校验——judge 不重复判缺结论与推测词形，只判结论内容"
+                    "与出处质量。）"
                     "质量判据（从严裁量）：各答案非空泛复述；①的痛点须可观察、"
                     "非编造包装（「好奇心缺口」式伪痛点判 block）；②的无痛点声明"
                     "须以原话为证——本步 AskUserQuestion 事实性补问的回答原话"
@@ -622,7 +625,9 @@ _NODES: dict[str, Node] = {
                 ),
                 # v2.37：结论二选一从判据惯例升级为载荷顶层必填键（存在性+①/②
                 # 前缀机械校验）——tail_volume u:1 子1 att1 缺结论白烧一轮 judge。
-                extra_payload_keys=(("结论", ("①", "②")),),
+                # v2.54：+conclusion_no_speculation——att1 模型 who 项合规却在
+                # 结论写「项目维护者（推测…）」，字段漏网面词形下沉。
+                extra_payload_keys=(("结论", ("①", "②"), "conclusion_no_speculation"),),
                 # v2.51：原话标注通道（att1-3 三连 block——选项标签标「原话」
                 # /通道未声明，词形下沉；选中即合法的正面退路见规则常量）。
                 mech_checks=("user_quote_channel",),
