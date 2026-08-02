@@ -388,13 +388,23 @@ _CAUSAL_CHAIN_EVIDENCE_RULE = (
 # 子3 执行面都引用；designs/fetch-depth-tiering-design.md）。
 # 雏形考古：子2「挖不动的深层降格标『待子3取证』」本就是隐式二分类，
 # v2.40 显式化并细分三档——动机是一刀切五层源对仓内可答问题纯烧 token。
+# v2.56 补（2026-08-02 tail_volume_acceleration_annualized u:1 子2 att1）：
+# 模型 Why2 论证引 M19 annual_return = valid_mean*252*coverage 仓外公式
+# 判量级合理性，却把该原子标 none——「外部知识依赖」枚举只在 gate judge
+# 侧，模型侧无操作测试（单侧钉死，§3.5 #12）。补操作测试：论证过程用到
+# 仓外知识 = 问题含外部知识依赖。
 _FETCH_TIER_RULE = (
     "取证深度三档（逐原子问题定档，拿不准标 light——默认档）："
     "none=答案仓内可达（函数行为/数据契约/配置/日志），仅内查不派外部 "
     "agent，tier_reason 须指出仓内取证路径（文件/file:line）；"
     "light=单一事实/数值 claim，公开有权威锚点（如年化量级合理性判断），"
     "≤2 层源 ≤4 curl 单向点查即收；"
-    "full=方法论/设计/开放问题，无单一权威答案，五层源双向充分取证"
+    "full=方法论/设计/开放问题，无单一权威答案，五层源双向充分取证。"
+    "外部知识依赖操作测试：问题本身或你的论证过程（因果链/tier_reason）"
+    "用到仓外知识——行业常识/第三方库行为/方法论/数值合理性公式"
+    "（如年化 = 均值×252）——即含外部知识依赖，不得标 none（至少 "
+    "light）；反例「论证引 annual_return = valid_mean*252*coverage 公式"
+    "判量级合理性，却标 none」= 漏取证，判 block"
 )
 
 # 交互读回步的提问拆分规则（2026-07-30 tail_volume understand:4 子5 审计）：
@@ -684,7 +694,8 @@ _NODES: dict[str, Node] = {
                     "schema 描述」（后者有 file:line 也不算因果环）？"
                     "每个问题有 ≥1 竞争假设+排除/保留理由吗？近因/根因区分和置信度标了吗？"
                     "每个原子问题定档了吗（atomic_questions 逐项 q/tier/tier_reason，"
-                    "拿不准标 light；none 档理由含仓内路径）？"
+                    "拿不准标 light；none 档理由含仓内路径；你的论证用到的公式/"
+                    "量级锚点都在仓内吗——在仓外=含外部知识依赖，不得标 none）？"
                     "atomic_questions 与 MECE 声明原子一一对应吗"
                     "（标签一致、一原子恰好一条）？"
                 ),

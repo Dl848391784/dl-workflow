@@ -6833,6 +6833,21 @@ class TestFetchTier:
         )
         assert not ok and "none/light/full" in msg and "拿不准标 light" in msg
 
+    def test_external_knowledge_test_pinned_both_sides(self):
+        # v2.56 双侧钉死（2026-08-02 u:1 子2 att1：模型 Why2 引 M19 年化公式
+        # 判量级却标 none——外部知识依赖枚举原只在 gate 侧，模型侧无操作
+        # 测试）：_FETCH_TIER_RULE 含操作测试文本，purpose/selfcheck/gate
+        # 三面同源引用。live 重放：att1 真实载荷新 gate 仍 BLOCK（判词引
+        # 「外部知识依赖」新条款）、surgical 修复版 PASS。
+        import dl_flow_nodes as nodes
+
+        rule = nodes._FETCH_TIER_RULE
+        assert "外部知识依赖操作测试" in rule and "不得标 none" in rule
+        assert "valid_mean*252*coverage" in rule  # 反例取 att1 逐字
+        step = eng.get_node("understand", 1).sub_steps[1]
+        assert rule in step.purpose and rule in step.gate
+        assert "在仓外=含外部知识依赖" in step.selfcheck
+
     def test_tier_reason_empty_rejected(self, tmp_path):
         ok, msg = self._append_s2(
             tmp_path, [{"q": "A", "tier": "full", "tier_reason": " "}]
