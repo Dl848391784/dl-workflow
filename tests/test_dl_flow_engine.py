@@ -5679,6 +5679,71 @@ class TestV237FirstPassRate:
         ]
         assert eng._check_atomic_mece_alignment(aq, qa) is None
 
+    # ---- v2.55：全局否定断言（「没有/缺失 X」跨文件存在性命题）----
+    # 2026-08-02 tail_volume_acceleration_annualized u:1 子2 第三 episode：
+    # att1/att2 同一 Why4「没有显式契约约定…且无 unit test 钉住…」「根因是
+    # 层契约缺失」——模型把「读了文件没看到 X」当读出事实。读出的是
+    # 「有什么」不是「没有什么」；全局否定断言的合法出处只有全域扫描零
+    # 命中留痕，否则降格进竞争假设分支。初版锚 WhyN 分段空转（真实载荷
+    # Why1=/Why4（根因层）= 形态不匹配 `Why\d+[:：]`）——改项级扫描。
+
+    def test_replay_u1s2_0802c_att2_absence_claim_blocked(self):
+        # att2 逐字（Why4 根因层 + 尾段「根因是层契约缺失」）
+        qa = [
+            {
+                "q": "原子问题 Q1 = +9529.8% 如何形成（主因果链）？",
+                "a": (
+                    "Why1=模板 _ann_pct = (_ann * 100)（web_ui/templates/"
+                    "_section_backtest.html:69 原文 set _ann_pct = (_ann * 100) "
+                    "if _ann is not none else 0），读出即事实。\n\n"
+                    "Why4（根因层）= 数据层完成小数到百分比 *100 转换后，模板层"
+                    "没有显式契约约定接收方不应再 *100，两个 *100 分别由 "
+                    "data_loaders 与 _section_backtest.html 各承担一次 ——环内容="
+                    "层边界语义所有权不清晰，且无 unit test 钉住 display_value "
+                    "与 raw_value 的比例契约。指针 + 因果机制。\n\n"
+                    "主链终止于实测层（Why4 含 file:line 指针 + 内容）；根因是"
+                    "层契约缺失而非魔法值、除零、NaN 等其他机制。"
+                ),
+            },
+        ]
+        err = eng._check_causal_ring_no_untested(qa)
+        assert err is not None and "全局否定断言" in err
+
+    def test_absence_with_exhaustive_grep_accepted(self):
+        # 合法出口①：全域扫描零命中留痕（grep 命令原文+零命中）
+        qa = [
+            {
+                "q": "原子 A → 因果链",
+                "a": "Why3=无显式契约（grep -rn 'annual_contract' . 扫描全仓"
+                "零命中，0 结果原文留痕）；Why4=主链终止（:69 原文）。",
+            },
+        ]
+        assert eng._check_causal_ring_no_untested(qa) is None
+
+    def test_absence_demoted_tail_accepted(self):
+        # 合法出口②：主链终止于实测层 + 尾部降格去向声明（v2.50 钉的合法
+        # 形态）——「契约缺失」后 16 字符内接降格，跳过
+        qa = [
+            {
+                "q": "原子 A → 因果链",
+                "a": "Why1=模板再乘 100（_section_backtest.html:69 原文 "
+                "_ann_pct=(_ann*100)，读出即事实）。主链终止于实测层；"
+                "契约缺失降格至竞争假设分支标待子3取证。",
+            },
+        ]
+        assert eng._check_causal_ring_no_untested(qa) is None
+
+    def test_local_negation_not_absence_claim(self):
+        # FP 守卫：局部可读否定（v2.50 正例「未做单位判断」+该行原文）不收
+        qa = [
+            {
+                "q": "原子 A → 因果链",
+                "a": "Why1=web_ui 取字段原值=95.298 未做单位判断"
+                "（_section_backtest.html:69 原文 _ann_pct=(_ann*100)，读出即事实）",
+            },
+        ]
+        assert eng._check_causal_ring_no_untested(qa) is None
+
     def test_atomic_alignment_duplicate_label_blocked(self):
         # 一原子多条 = 非一一对应（att1 判词「A 2 项」形态）
         qa = [

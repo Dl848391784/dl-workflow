@@ -2542,6 +2542,19 @@ _EXCLUDE_INFERENCE_RE = re.compile(r"未实测|待实测|未验证|待验证|推
 # 合法（att3 B Why5 形态 judge 已接受）——占环位的操作化=环内无实测指针。
 _RING_START_RE = re.compile(r"Why\d+[:：]")
 _DEMOTE_RING_RE = re.compile(r"待子\s*3\s*(?:取证|验证)|(?<![不未无])降格")
+
+# v2.55 全局否定断言扫描（2026-08-02 tail_volume_acceleration_annualized
+# u:1 子2 att2 block 实证）：Why4「没有显式契约约定…」「无 unit test 钉住…」
+# 「根因是层契约缺失」——模型把「读了文件没看到 X」当读出事实，实则
+# 跨文件存在性命题（全局否定断言）=「读出后推出」同族：读出的是「有什么」，
+# 不是「没有什么」。词形取 att1/att2 逐字（两 att 同一 Why4 文本）；豁免口与
+# 合法出口一一对应（§3.5 #21③）：全域扫描零命中留痕（grep/扫描/零命中）
+# 与尾部降格去向声明（v2.50 钉的合法形态）不拦。局部可读否定（「未做 X」
+# 有该行原文背书）不在词表——v2.50 正例「未做单位判断（:69 原文…）」是
+# 合法环，贪宽=FP。
+_ABSENCE_CLAIM_RE = re.compile(r"没有显式|无显式|无\s*[Uu]nit\s*test|无单测|契约缺失")
+_ABSENCE_EXEMPT_RE = re.compile(r"grep|扫描|零命中|无命中")
+_ABSENCE_DEMOTE_RE = re.compile(r"降格|待子\s*3\s*取证|竞争假设")
 _EVIDENCE_POINTER_RE = re.compile(r":\d+")
 
 
@@ -2564,6 +2577,11 @@ def _check_causal_ring_no_untested(qa: list, *_ctx) -> str | None:
     同口径重放（3 条被 block 载荷逐字 BLOCK、通过载荷零 FP）。
     v2.50 占环位扫描（WhyN: 环段级「待子3取证/降格」+ 全段无「:行号」指针）：
     同日三连 block att1 逐字 BLOCK、att3 尾部去向声明形态与自查项零 FP。
+    v2.55 全局否定断言扫描（同日第三 episode att1/att2「没有显式契约/无 unit
+    test/契约缺失」当主链根因）：项级扫描不锚 WhyN 分段（真实载荷 Why1=/
+    Why4（根因层）= 形态分段全空转——锚内容结构不锚措辞）；豁免=全域扫描
+    零命中留痕/降格去向声明。重放：两条真实被 block 载荷 REJECT、demo 通过
+    载荷零 FP、降格去向/grep 留痕两合法形态 PASS。
     """
     banned = ("未实测", "待实测", "未验证", "待验证")
     for item in qa:
@@ -2612,6 +2630,24 @@ def _check_causal_ring_no_untested(qa: list, *_ctx) -> str | None:
                 )
         # v2.50 占环位扫描：WhyN: 环段内含「待子3取证/降格」且全段无 :\d+
         # 实测指针 = 声明独占环位（规则反例「Why5=…降格至竞争假设分支」）
+        # v2.55 全局否定断言扫描（项级，不锚 WhyN 分段——真实载荷 Why1=/
+        # Why4（根因层）= 形态 ring 分段全空转，§3.5 #21「锚内容结构不锚
+        # 措辞」）：跨文件存在性命题（无显式契约/无 unit test/契约缺失）
+        # 不是读出事实——读出的是「有什么」不是「没有什么」。豁免口与合法
+        # 出口一一对应：a 内有全域扫描零命中留痕（grep/扫描/零命中）全豁免；
+        # 命中后 16 字符内接降格去向声明（v2.50 合法尾部形态）跳过该命中。
+        # 局部可读否定（「未做 X」+该行原文背书）不在词表——贪宽=FP。
+        if not _ABSENCE_EXEMPT_RE.search(a):
+            for am in _ABSENCE_CLAIM_RE.finditer(a):
+                if _ABSENCE_DEMOTE_RE.search(a, am.end(), am.end() + 16):
+                    continue
+                return (
+                    f"因果链环含全局否定断言「{am.group(0)}」（{q[:20]}…）——"
+                    "「没有/缺失 X」是跨文件存在性命题=推断不是读出事实："
+                    "合法出处只有全域扫描零命中留痕（grep -rn 命令原文+零命中"
+                    "结果）；否则主链终止于可直接读证的环，「没有 X」降格进"
+                    "竞争假设分支标「待子3取证」"
+                )
         ring_starts = list(_RING_START_RE.finditer(a))
         for i, m in enumerate(ring_starts):
             end = ring_starts[i + 1].start() if i + 1 < len(ring_starts) else len(a)
