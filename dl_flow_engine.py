@@ -2430,6 +2430,8 @@ def payload_format_hint(step) -> list[str]:
                 + "）——字段齐备由 append-trace 机械校验，缺键即拒"
             )
         return [
+            "   骨架（推荐）：`python3 ~/.dl-workflow/dl_flow_engine.py append-trace "
+            "--scaffold` 生成可填载荷骨架——格式脚本管，你只把「待填」换成内容",
             '   {"purpose":"<该步目的>","statements":[{"text":"<单句陈述>",'
             '"type_label":"<类型标签>","boundary":"<边界/实现指针>"'
             + fields_seg
@@ -2458,6 +2460,8 @@ def payload_format_hint(step) -> list[str]:
         else ""
     )
     return [
+        "   骨架（推荐）：`python3 ~/.dl-workflow/dl_flow_engine.py append-trace "
+        "--scaffold` 生成可填载荷骨架——格式脚本管，你只把「待填」换成内容",
         '   {"purpose":"<该步目的>","qa":[{"q":"<q1>","a":"<a1>"}]' + extra_seg + "}"
         "（一问一答配对成对象——不对齐在结构上不可表示）" + extra_note,
         '   ✓ 正例："qa":[{"q":"who=当前提问者身份？",'
@@ -3054,6 +3058,90 @@ _MECH_QA_CHECKS = {
 }
 
 
+def scaffold_payload(project_root: Path, name: str) -> tuple[bool, str]:
+    """append-trace --scaffold：当前子步骤载荷骨架生成并落盘钉死路径（v2.57）。
+
+    动机（2026-08-02 tail_volume_acceleration_annualized u:1 审计）：模型手写
+    全量 JSON 载荷出语法错（Extra data char 3895）白烧一轮——§3.6 #10
+    自检信号：语法错误不该归「模型基本功」，杠杆=脚本生成骨架（redteam-prompt
+    「AI 定内容脚本管格式」同款）。骨架由 json.dumps 产出保证可解析；占位符
+    统一用「待填」——_placeholder_hit 全局扫描兜底，漏填任何字段都过不了
+    append-trace（漏填在结构上不可提交）。
+    落盘路径钉死 evidence/.trace-payload-<name>.json（v2.42 同款纪律：路径
+    归脚本不归模型自选）；已存在载荷拒覆盖（防抹掉在写工作）。
+    """
+    state = load_state(project_root, name)
+    if state is None:
+        return False, f"工作流 {name} 的 state.json 缺失"
+    state = normalize_state(state)
+    try:
+        node = get_node(state["phase"], state["sub_index"])
+    except KeyError:
+        return False, f"节点 {state['phase']}:{state['sub_index']} 不存在"
+    if not node.sub_steps:
+        return False, f"节点 {node_id(node.phase, node.sub)} 无子步骤编排"
+    cur = state.get("sub_step_index", 1)
+    step = sub_step_at(node, cur)
+    if step is None:
+        return False, f"子步骤 {cur} 不存在"
+
+    skeleton: dict = {"purpose": "待填：本步目的/本轮做了什么（一句话）"}
+    if getattr(step, "record_format", "qa") == "statements":
+        item: dict = {
+            "text": "待填：单句陈述（outcome 层，禁实现侧名词/file:line）",
+            "type_label": "待填：类型标签（如 in/out）",
+            "boundary": "待填：边界/实现指针",
+        }
+        req = getattr(step, "statement_fields", ()) or ()
+        if req:
+            item["fields"] = {k: f"待填：{k}" for k in req}
+        skeleton["statements"] = [item]
+    else:
+        skeleton["qa"] = [
+            {
+                "q": "待填：问题1",
+                "a": "待填：答案1（用户原话/会话事实/证据指针 file:line）",
+            }
+        ]
+    for e in getattr(step, "extra_payload_keys", ()):
+        k, spec = e[0], e[1]
+        if k in skeleton:
+            continue  # 同键多 spec（fetch_tier_items + atomic_mece_alignment）只取首个
+        if isinstance(spec, str):
+            # 数组型键（注册表逐项校验）：骨架给一项示例对象（u:1 子2 分档清单）
+            if spec == "fetch_tier_items":
+                skeleton[k] = [
+                    {
+                        "q": "待填：原子问题（与 MECE 声明标签一一对应）",
+                        "tier": "待填：none|light|full（拿不准标 light）",
+                        "tier_reason": "待填：分档理由（none 档须含仓内路径）",
+                    }
+                ]
+            else:
+                skeleton[k] = [{"q": "待填"}]
+        else:
+            skeleton[k] = f"待填：{'/'.join(spec)} 开头+逐句出处"
+
+    out = _evidence_path(project_root, name).parent / f".trace-payload-{name}.json"
+    if out.exists():
+        return False, (
+            f"载荷已存在：{out}——直接在它上面填内容（Edit），或删除后重跑 "
+            "--scaffold（拒覆盖防抹掉在写工作）"
+        )
+    try:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(
+            json.dumps(skeleton, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except OSError as e:
+        return False, f"写骨架失败：{e}"
+    return True, (
+        f"✓ 骨架已生成 {out}（子步骤 {cur} {step.ref}）——"
+        "把所有「待填」换成实际内容（漏填会被占位符扫描当场拒），"
+        f"然后 Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace --from-file {out}`"
+    )
+
+
 def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool, str]:
     """载荷（purpose + qa 配对；旧 q/a 平行数组写侧已退役硬拒）+ state 结构字段 -> 校验 -> 单行 skill-trace append。
 
@@ -3634,6 +3722,11 @@ def main(argv: list[str] | None = None) -> int:
         "--from-file", help="append-trace 的载荷文件路径（Write 写的 purpose/qa JSON）"
     )
     parser.add_argument(
+        "--scaffold",
+        action="store_true",
+        help="append-trace：生成当前子步骤载荷骨架到 evidence/.trace-payload-<name>.json 并打印路径（v2.57——骨架脚本管格式，模型只填内容）",
+    )
+    parser.add_argument(
         "--out",
         action="store_true",
         help="fetch-prompt：骨架落盘 .claude/workflows/<name>/fetch-prompt-skeleton.md 并打印路径（替代 stdout）",
@@ -3676,6 +3769,10 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     if args.cmd == "append-trace":
+        if args.scaffold:
+            ok, msg = scaffold_payload(project_root, name)
+            print(msg, file=sys.stdout if ok else sys.stderr)
+            return 0 if ok else 1
         if not args.from_file:
             print("✗ 用法: append-trace [name] --from-file <载荷路径>", file=sys.stderr)
             return 1

@@ -7078,3 +7078,78 @@ class TestArtifactSectionsSync:
             eng.get_node("evolution", 0).artifact_contains
             == eng.ARTIFACT_SECTIONS["evolution.md"]
         )
+
+
+class TestScaffoldPayload:
+    """v2.57 append-trace --scaffold：载荷骨架生成（语法错误结构上不可表示）。
+
+    动机（2026-08-02 tail_volume u:1 审计）：模型手写全量 JSON 载荷出
+    「Extra data char 3895」语法错白烧一轮——格式归脚本，模型只填内容。
+    骨架 json.dumps 产出保证可解析；占位符「待填」被 _placeholder_hit
+    全局扫描兜底，漏填不可提交。
+    """
+
+    def test_scaffold_qa_step_with_extra_keys(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        ok, msg = eng.scaffold_payload(tmp_path, "t")
+        assert ok, msg
+        out = tmp_path / ".claude" / "evidence" / ".trace-payload-t.json"
+        skel = json.loads(out.read_text(encoding="utf-8"))  # 可解析=格式正确
+        assert skel["purpose"].startswith("待填")
+        assert skel["qa"] == [
+            {
+                "q": "待填：问题1",
+                "a": "待填：答案1（用户原话/会话事实/证据指针 file:line）",
+            }
+        ]
+        assert skel["结论"].startswith("待填：①/②")  # extra_payload_keys 进骨架
+
+    def test_scaffold_tier_items_shape(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=2)
+        ok, msg = eng.scaffold_payload(tmp_path, "t")
+        assert ok, msg
+        out = tmp_path / ".claude" / "evidence" / ".trace-payload-t.json"
+        skel = json.loads(out.read_text(encoding="utf-8"))
+        aq = skel["atomic_questions"][0]
+        assert set(aq) == {"q", "tier", "tier_reason"}
+
+    def test_scaffold_statements_step_with_fields(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 3, sub_step=4)
+        ok, msg = eng.scaffold_payload(tmp_path, "t")
+        assert ok, msg
+        out = tmp_path / ".claude" / "evidence" / ".trace-payload-t.json"
+        skel = json.loads(out.read_text(encoding="utf-8"))
+        item = skel["statements"][0]
+        assert {"text", "type_label", "boundary"} <= set(item)
+
+    def test_scaffold_refuses_overwrite(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        out = tmp_path / ".claude" / "evidence" / ".trace-payload-t.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text('{"purpose":"在写工作"}', encoding="utf-8")
+        ok, msg = eng.scaffold_payload(tmp_path, "t")
+        assert not ok and "已存在" in msg
+        assert json.loads(out.read_text(encoding="utf-8"))["purpose"] == "在写工作"
+
+    def test_scaffold_unfilled_rejected_by_placeholder_scan(self, tmp_path):
+        # 漏填在结构上不可提交：骨架原样 append 被占位符扫描当场拒
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        ok, _ = eng.scaffold_payload(tmp_path, "t")
+        assert ok
+        out = tmp_path / ".claude" / "evidence" / ".trace-payload-t.json"
+        ok, msg = eng.append_trace(tmp_path, "t", str(out))
+        assert not ok and "待填" in msg and "占位" in msg
+
+    def test_scaffold_fill_and_append_happy_path(self, tmp_path):
+        # 端到端：骨架 -> 填内容 -> append 成功（记录进 evidence）
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        ok, _ = eng.scaffold_payload(tmp_path, "t")
+        assert ok
+        out = tmp_path / ".claude" / "evidence" / ".trace-payload-t.json"
+        skel = json.loads(out.read_text(encoding="utf-8"))
+        skel["purpose"] = "逼问问题定义"
+        skel["qa"] = [{"q": "who=当前提问者身份？", "a": "未自述身份。"}]
+        skel["结论"] = "①问题成立。具体主语 = 未自述身份（who=未自述）。"
+        out.write_text(json.dumps(skel, ensure_ascii=False), encoding="utf-8")
+        ok, msg = eng.append_trace(tmp_path, "t", str(out))
+        assert ok, msg

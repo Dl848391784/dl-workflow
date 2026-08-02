@@ -282,8 +282,10 @@ def main() -> int:
             payload_path = f"{project_root}/.claude/evidence/.trace-payload-{name}.json"
             return _deny(
                 "evidence 落库走 append-trace（你定内容，脚本管格式/路径/结构字段）：\n"
-                f'① Write 载荷 {{"purpose":...,"qa":[{{"q":...,"a":...}}]}} 到 {payload_path}\n'
-                "② Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace "
+                "① Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace --scaffold`"
+                f" 生成载荷骨架（或手写 JSON 到 {payload_path}）\n"
+                "② 把骨架里的「待填」全部换成实际内容\n"
+                "③ Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace "
                 f"--from-file {payload_path}`\n"
                 "直写 evidence jsonl（含覆盖/编辑旧行）一律禁止——修正旧记录的方式是"
                 "用 append-trace 追加新行（judge 以最后一条为准）。"
@@ -323,7 +325,8 @@ def main() -> int:
                 )
                 return _deny(
                     "evidence 落库走 append-trace（脚本管路径/格式，相对路径事故不存在）：\n"
-                    f"① Write 载荷到 {project_root}/.claude/evidence/.trace-payload-{name}.json\n"
+                    "① Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace "
+                    "--scaffold` 生成载荷骨架，填掉「待填」\n"
                     "② Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace "
                     "--from-file <载荷>`"
                 )
