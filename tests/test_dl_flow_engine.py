@@ -5647,6 +5647,63 @@ class TestFetchPrompt:
         assert eng.fetch_prompt(tmp_path, "t") is None
 
 
+class TestFetchPromptOut:
+    """v2.42 fetch-prompt --out：骨架落盘 per-workflow 目录，归属钉死。
+
+    此前 engine 只输出 stdout，落盘路径由模型自选——tail_volume 实例选了
+    共享 .claude/evidence/fetch-prompt-skeleton.md：文件名无工作流归属、
+    下一个工作流覆盖上一轮的留痕、残留旧 trace 误导后续会话。--out 让
+    engine 把骨架写到 .claude/workflows/<name>/（与 state.json/cc_debug.log
+    同目录同生命周期）并打印路径，路径不再由模型决定。
+    """
+
+    def _write_step2_trace(self, tmp_path):
+        rec = json.dumps(
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "ProblemContext",
+                "sub_step": 2,
+                "skill": "causal-inference-root-cause",
+                "purpose": "p",
+                "q": ["原子问题清单"],
+                "a": ["原子A=数值正确性"],
+            },
+            ensure_ascii=False,
+        )
+        _write_evidence(tmp_path, "t", [rec])
+
+    def _out_path(self, tmp_path) -> Path:
+        return tmp_path / ".claude" / "workflows" / "t" / "fetch-prompt-skeleton.md"
+
+    def test_out_writes_skeleton_to_workflow_dir(self, tmp_path, capsys):
+        _init_git(tmp_path)
+        self._write_step2_trace(tmp_path)
+        rc = eng.main(["fetch-prompt", "t", "--out", "--cwd", str(tmp_path)])
+        assert rc == 0
+        out_path = self._out_path(tmp_path)
+        assert str(out_path) in capsys.readouterr().out
+        text = out_path.read_text(encoding="utf-8")
+        assert "原子A=数值正确性" in text
+        assert "五层状态表" in text
+        assert "claim 补充区" in text
+
+    def test_out_no_step2_trace_returns_1_and_no_file(self, tmp_path, capsys):
+        _init_git(tmp_path)
+        _write_evidence(tmp_path, "t", [_trace_line(1)])
+        rc = eng.main(["fetch-prompt", "t", "--out", "--cwd", str(tmp_path)])
+        assert rc == 1
+        assert not self._out_path(tmp_path).exists()
+
+    def test_no_out_keeps_stdout_and_writes_no_file(self, tmp_path, capsys):
+        _init_git(tmp_path)
+        self._write_step2_trace(tmp_path)
+        rc = eng.main(["fetch-prompt", "t", "--cwd", str(tmp_path)])
+        assert rc == 0
+        assert "五层状态表" in capsys.readouterr().out
+        assert not self._out_path(tmp_path).exists()
+
+
 class TestFetchReportRecorded:
     """v2.38 fetch_report_recorded：子3 报告收录形式要件机械化。
 

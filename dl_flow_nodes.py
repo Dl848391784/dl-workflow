@@ -631,6 +631,9 @@ _NODES: dict[str, Node] = {
                 # v2.40（designs/fetch-depth-tiering-design.md）：标称档来自子2
                 # atomic_questions——none 禁派发（仅③内查）/ light 参数块 /
                 # 禁降档（纠偏归子2 gate）/ light→full 升档留痕。
+                # v2.42：fetch-prompt --out 落盘 per-workflow 目录——此前落盘
+                # 路径由模型自选（tail_volume 实例选了共享 evidence/ 通用文件名：
+                # 无归属、下一轮覆盖、残留旧 trace 误导），路径改由 engine 钉死。
                 purpose=(
                     "按档取证（标称档 = 子2 atomic_questions，本步只执行不重定档；"
                     "外部层卸子代理，主会话只收蒸馏报告；"
@@ -638,10 +641,11 @@ _NODES: dict[str, Node] = {
                     "①主张可检验化（主会话做）——每个 tier≠none 的原子问题 → "
                     "可证伪 claim + 事先写死「什么证据会证实/什么证据会证伪」；"
                     "不可检验的主张退回子2，不进入取证。"
-                    "②立即派发外部取证子代理——`python3 ~/.dl-workflow/dl_flow_engine.py fetch-prompt` "
-                    "生成子代理 prompt 骨架（自动携带子1-2 trace + 已分档原子清单 + "
+                    "②立即派发外部取证子代理——`python3 ~/.dl-workflow/dl_flow_engine.py fetch-prompt --out` "
+                    "落盘子代理 prompt 骨架到本工作流目录（stdout 打印路径，Read 该文件取骨架；"
+                    "骨架自动携带子1-2 trace + 已分档原子清单 + "
                     "已验证命令模板 + 返回契约），只在末尾 claim 补充区逐原子填 claim"
-                    "（骨架其余一字不动，禁手拼）；none 档原子禁派发（仅③内查）；"
+                    "（骨架其余一字不动，禁手拼，禁自选落盘路径）；none 档原子禁派发（仅③内查）；"
                     "light 档原子按骨架【分档执行参数】light 参数块执行，claim 区"
                     "另指定 ≤2 层源；**禁降档**——标 full 的原子必须按 full 参数跑"
                     "（五层源双向；分档纠偏归子2 gate，不在本步）；每原子一个 Agent 子代理"
@@ -665,7 +669,8 @@ _NODES: dict[str, Node] = {
                 selfcheck=(
                     "每个 tier≠none 的原子问题有可检验 claim（含证实/证伪判定标准）吗？"
                     "none 档原子未派发 agent（仅③内查）吗？"
-                    "fetch-prompt 骨架只补了 claim 区、其余一字未动吗？"
+                    "fetch-prompt 骨架经 --out 落盘到本工作流目录（未自选共享路径）、"
+                    "只补了 claim 区、其余一字未动吗？"
                     "light 档按 light 参数块（≤2 层源/≤4 curl/单向锚点）执行、"
                     "claim 区指定了 ≤2 层源吗？标 full 的按 full 参数跑了吗（禁降档）？"
                     "每个 agent 的 claim 补充区只保留本原子 [tier=X] 行吗？"

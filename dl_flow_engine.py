@@ -3010,6 +3010,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--from-file", help="append-trace 的载荷文件路径（Write 写的 purpose/qa JSON）"
     )
+    parser.add_argument(
+        "--out",
+        action="store_true",
+        help="fetch-prompt：骨架落盘 .claude/workflows/<name>/fetch-prompt-skeleton.md 并打印路径（替代 stdout）",
+    )
     args = parser.parse_args(argv)
 
     # meta 是静态常量,不需要 git repo / name。
@@ -3072,6 +3077,21 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 1
+        # v2.42 --out：骨架落盘 per-workflow 目录（归属钉死，与 state.json 同
+        # 生命周期）——此前落盘路径由模型自选，tail_volume 实例选了共享
+        # evidence/ 通用文件名：无归属、下一轮覆盖、残留旧 trace 误导。
+        if args.out:
+            out_path = (
+                project_root
+                / ".claude"
+                / "workflows"
+                / name
+                / "fetch-prompt-skeleton.md"
+            )
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(prompt + "\n", encoding="utf-8")
+            print(out_path)
+            return 0
         sys.stdout.write(prompt + "\n")
         return 0
     if args.cmd == "status":
