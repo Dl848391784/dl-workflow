@@ -1014,6 +1014,87 @@ def render_artifact(project_root: Path, name: str, basename: str) -> tuple[bool,
     )
 
 
+def render_readback(project_root: Path, name: str) -> tuple[bool, str]:
+    """render-readback：读回步呈现材料机械装配（v2.61，stdout 输出）。
+
+    四桶分工审计违规③根治：8 个读回步 purpose 要求「完整呈现」归一化陈述
+    +假设/不确定性——完整=无取舍=纯装配，模型却要从 traces 手抄成长文本
+    （转录+重打 token 双浪费）。脚本装配打印（Bash 输出用户可见=呈现），
+    模型只负责按逐问原则提问+把裁决记入 trace。
+    内容：本节点归一化 statements（最新）+ 本节点各步含「假设/不确定/
+    退回/候选」标题的 qa 项（逐字收录，无损即完整）。
+    """
+    state = load_state(project_root, name)
+    if state is None:
+        return False, f"工作流 {name} 的 state.json 缺失"
+    state = normalize_state(state)
+    try:
+        node = get_node(state["phase"], state["sub_index"])
+    except KeyError:
+        return False, f"节点 {state['phase']}:{state['sub_index']} 不存在"
+    text = read_evidence(project_root, name)
+    if not text:
+        return False, "evidence 缺失——本节点还无可呈现的 trace"
+    latest: dict[int, dict] = {}
+    for line in text.splitlines():
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if (
+            rec.get("kind") == "skill-trace"
+            and rec.get("minor_stage") == node.minor_key
+        ):
+            latest[rec.get("sub_step")] = rec
+    if not latest:
+        return False, f"本节点（{node.label}）还没有任何 trace——先完成前序子步骤"
+
+    cur = state.get("sub_step_index", 1)
+    parts = [
+        f"# 读回材料（{node.label} · 子{cur}）",
+        "（render-readback 机械装配——逐字呈现给用户，禁手改；裁决经提问获取后记入 trace）",
+        "",
+    ]
+    stmts_rec = next(
+        (
+            latest[k]
+            for k in sorted(latest, reverse=True)
+            if latest[k].get("statements")
+        ),
+        None,
+    )
+    if stmts_rec:
+        parts.append(f"## 归一化陈述（子{stmts_rec['sub_step']} 最新）")
+        parts.append("")
+        for it in stmts_rec["statements"]:
+            extras = [str(it.get("type_label") or ""), str(it.get("boundary") or "")]
+            extras += [
+                f"{k}={v}"
+                for k, v in (it.get("fields") or {}).items()
+                if str(v).strip()
+            ]
+            tail = "；".join(x for x in extras if x.strip())
+            parts.append(f"- {it.get('text', '')}" + (f"（{tail}）" if tail else ""))
+        parts.append("")
+    extras_items = []
+    for k in sorted(latest):
+        for it in _trace_qa_items(latest[k]):
+            if any(w in str(it["q"]) for w in ("假设", "不确定", "退回", "候选")):
+                extras_items.append((k, it))
+    if extras_items:
+        parts.append("## 假设 / 不确定性 / 退回与候选项（各步 trace 逐字）")
+        parts.append("")
+        for k, it in extras_items:
+            parts.append(f"- （子{k}）【{it['q']}】{it['a']}")
+        parts.append("")
+    if not stmts_rec and not extras_items:
+        return (
+            False,
+            "本节点 traces 里还拿不出呈现材料（无归一化 statements、无假设类项）",
+        )
+    return True, "\n".join(parts)
+
+
 def estimate_context_tokens(transcript_path: str | Path) -> int | None:
     """从 session transcript 尾部最近一条 assistant usage 估算当前上下文 tokens。
 
@@ -4095,6 +4176,7 @@ def main(argv: list[str] | None = None) -> int:
             "redteam-prompt",
             "fetch-prompt",
             "render-artifact",
+            "render-readback",
         ],
     )
     parser.add_argument(
@@ -4222,6 +4304,10 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 1
         ok, msg = render_artifact(project_root, name, args.value)
+        print(msg, file=sys.stdout if ok else sys.stderr)
+        return 0 if ok else 1
+    if args.cmd == "render-readback":
+        ok, msg = render_readback(project_root, name)
         print(msg, file=sys.stdout if ok else sys.stderr)
         return 0 if ok else 1
     if args.cmd == "status":

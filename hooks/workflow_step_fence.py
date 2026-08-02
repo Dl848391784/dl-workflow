@@ -133,6 +133,7 @@ def _s15_bash_orchestration(cmd: str, ev_file: Path) -> bool:
         or "redteam-prompt" in cmd
         or "fetch-prompt" in cmd
         or "render-artifact" in cmd
+        or "render-readback" in cmd
     ):
         return True
     return re.search(r"\bcodegraph\b", cmd) is not None

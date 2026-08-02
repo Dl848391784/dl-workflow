@@ -7481,3 +7481,94 @@ class TestIngestAgentReport:
         self._scaffold(tmp_path)
         ok, msg = eng.ingest_agent_report(tmp_path, "t", "zzz999")
         assert not ok and "找不到子代理 transcript" in msg
+
+
+class TestRenderReadback:
+    """v2.61 render-readback：读回材料机械装配（审计违规③根治）。
+
+    8 个读回步「完整呈现」= 无取舍 = 纯装配，原由模型手抄 traces——
+    脚本装配打印（Bash 输出即呈现），模型只提问+记裁决。
+    """
+
+    def _seed(self, tmp_path, phase="understand", sub=1, step=6):
+        _write_state_full(tmp_path, "t", phase, sub, sub_step=step)
+        recs = [
+            json.dumps(
+                {
+                    "kind": "skill-trace",
+                    "minor_stage": "ProblemContext",
+                    "sub_step": 4,
+                    "q": ["处置后问题集", "不确定性"],
+                    "a": ["H3 剔除：无证据", "覆盖率数据只到 6 月"],
+                },
+                ensure_ascii=False,
+            ),
+            json.dumps(
+                {
+                    "kind": "skill-trace",
+                    "minor_stage": "ProblemContext",
+                    "sub_step": 5,
+                    "statements": [
+                        {
+                            "text": "年化显示 9529.8% 异常",
+                            "type_label": "证实",
+                            "boundary": "x.py:69",
+                            "fields": {"confidence": "高"},
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+        ]
+        _write_evidence(tmp_path, "t", recs)
+
+    def test_material_contains_statements_and_uncertainty(self, tmp_path):
+        self._seed(tmp_path)
+        ok, msg = eng.render_readback(tmp_path, "t")
+        assert ok, msg
+        assert "年化显示 9529.8% 异常（证实；x.py:69；confidence=高）" in msg
+        assert "不确定性" in msg and "覆盖率数据只到 6 月" in msg
+        assert "机械装配" in msg
+
+    def test_other_node_traces_excluded(self, tmp_path):
+        self._seed(tmp_path)
+        ev = eng._evidence_path(tmp_path, "t")
+        with ev.open("a", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "kind": "skill-trace",
+                        "minor_stage": "GoalsAndValue",
+                        "sub_step": 1,
+                        "q": ["不确定性"],
+                        "a": ["别节点的不确定不进来"],
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+        ok, msg = eng.render_readback(tmp_path, "t")
+        assert ok and "别节点的不确定不进来" not in msg
+
+    def test_no_trace_fail_loud(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 2, sub_step=5)
+        _write_evidence(tmp_path, "t", [])  # 文件在但本节点零 trace
+        ok, msg = eng.render_readback(tmp_path, "t")
+        assert not ok and "还没有任何 trace" in msg
+
+    def test_readback_purpose_points_to_script(self):
+        # 8 个读回步 purpose 全部指向 render-readback（禁手抄）
+        for phase, sub in (
+            ("understand", 1),
+            ("understand", 2),
+            ("understand", 3),
+            ("understand", 4),
+            ("plan", 1),
+            ("plan", 2),
+            ("plan", 3),
+            ("plan", 4),
+        ):
+            node = eng.get_node(phase, sub)
+            last = node.sub_steps[-1]
+            assert "render-readback" in last.purpose, f"{phase}:{sub} 末步"
+            assert "禁手抄" in last.purpose, f"{phase}:{sub} 末步"
