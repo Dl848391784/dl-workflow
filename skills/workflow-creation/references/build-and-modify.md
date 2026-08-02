@@ -22,6 +22,7 @@ dl <name> --done          # 归档（删 worktree+分支+元数据）
 
 ### 1.2 改工作流脚本/hook/command 后
 - 改 `~/.dl-workflow/hooks/*.py` -> **无需 install.sh**（settings.json 直接引用源），下轮 hook 触发即最新版（无需重建 worktree）。
+- 改 `dl_flow_engine.py` / `dl_flow_nodes.py` -> 同 hook：**对在跑实例即时生效**（hooks 运行时 import，区别于 phase-rules 的 launch 快照）——**改载荷契约/机械校验必须评估在跑实例兼容**（2026-08-02 v2.40 沉淀）：①**写侧硬拒新键**=自愈合——旧 purpose 指导下的模型不知新键，但报错文本指路，当轮补键重交即可；②**读历史 trace 的校验**（如 fetch_report_recorded 读子2 atomic_questions）必须对旧形态 trace 走 legacy 路径（无键→旧行为），否则在跑实例的旧 trace 永远过不了新校验=卡死。legacy 分支是版本兼容，不算 silent fallback（注释写明 + 测试 pinning）。
 - 改 `~/.dl-workflow/output-styles/*.md` 或 `commands/*.md` 或 `skills/` -> 跑 `~/.dl-workflow/install.sh` copy 到 `~/.claude/`，再**重启会话**加载（output-style / slash command 在会话启动时载入）。
 - 改 `~/.dl-workflow/scripts/workflow/*.sh` -> 无需 install（launcher 直接从 dl-workflow 内跑），下次 `dl <name> --resume` 或新建即最新。
 - 改 `phase-rules.md`（append-system-prompt）-> 仅新开会话生效（append-system-prompt 是启动时载入）；已有会话不同步。**v2.12 起 phase-rules.md 是模板**：understand:1 的 6 条子步骤 purpose 段是 `<!-- BEGIN/END GENERATED sub_steps -->` 标记占位，launcher 每次启动调 `dl_flow_engine.py render-phase-rules` 渲染到 per-wf `phase-rules.rendered.md`（渲染失败中止启动）——**改 engine 的 Step.purpose 即自动同步双通道，新启动会话即生效，无需 install、无需手改 phase-rules**；phase-rules 静态部分（围栏/强制语义/完成标记）仍手维护。
