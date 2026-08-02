@@ -250,3 +250,30 @@ class TestSettingsStalenessNotice:
     def test_malformed_json_silent(self, tmp_path):
         self._write_settings(tmp_path, "{oops")
         assert wp._settings_staleness_notice(tmp_path, "t") == ""
+
+
+class TestArtifactSectionsSync:
+    """注入 + output-style 的产物节名与单源一致（2026-08-02，P2 #4）。
+
+    断链场景：有人把动态构建改回手写字面量并写错节名 -> 此红。
+    """
+
+    def test_injection_artifact_strings_contain_sections(self):
+        cases = {
+            "understand": "understand.md",
+            "plan": "plan.md",
+            "review": "review.md",
+            "evolution": "evolution.md",
+        }
+        for phase, basename in cases.items():
+            desc = wp.PHASE_RULES[phase]["artifact"]
+            for s in wp.engine.ARTIFACT_SECTIONS[basename]:
+                assert s in desc, (phase, s)
+
+    def test_output_style_contains_sections(self):
+        text = (DLWF_ROOT / "output-styles" / "workflow.md").read_text(
+            encoding="utf-8"
+        )
+        for secs in wp.engine.ARTIFACT_SECTIONS.values():
+            for s in secs:
+                assert s in text

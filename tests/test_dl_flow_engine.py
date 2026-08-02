@@ -5830,3 +5830,73 @@ class TestFetchTier:
         assert prompt is not None
         assert "已分档原子清单" not in prompt
         assert "分档执行参数" in prompt  # 参数块常驻（legacy 全按 full）
+
+
+# ---------- ARTIFACT_SECTIONS 单源同步（2026-08-02，artifact-handoff-hardening P2）----------
+
+
+class TestArtifactSectionsSync:
+    """节标题单源 -> 门/模板/消费契约 不漂移：断链在此红，不在运行期爆。
+
+    覆盖设计 §1.2 的五个静态断言（注入/output-style 侧在 test_workflow_phase.py）。
+    """
+
+    def test_plan_sections_equals_assembly_division(self):
+        # #1：plan.md 三节 = plan:2/3/4 分工装配节之并（顺序 = 装配顺序）
+        secs = eng.ARTIFACT_SECTIONS["plan.md"]
+        assert eng.get_node("plan", 2).artifact_contains == secs[0:1]
+        assert eng.get_node("plan", 3).artifact_contains == secs[1:2]
+        assert eng.get_node("plan", 4).artifact_contains == secs  # 出口全量查
+
+    def test_md_artifact_nodes_contains_subset_of_single_source(self):
+        # #2：每个 .md 产物节点 = CONTAINS 门 + 节 ∈ 单源（禁游离节名）
+        md_nodes = [
+            (nid, n)
+            for nid, n in eng._NODES.items()
+            if n.artifact and n.artifact.endswith(".md")
+        ]
+        assert md_nodes, "节点表至少应有一个 .md 产物节点"
+        for nid, node in md_nodes:
+            assert node.gate_mech == eng.GateMech.ARTIFACT_CONTAINS, nid
+            known = eng.ARTIFACT_SECTIONS[node.artifact]
+            assert set(node.artifact_contains) <= set(known), nid
+
+    def test_render_no_token_residue_and_all_sections_present(self):
+        # #3：模板渲染后无 token 残留 + 全部单源节名在渲染产物里
+        tpl_path = (
+            Path(eng.__file__).resolve().parent / "scripts" / "workflow" / "phase-rules.md"
+        )
+        rendered = eng.render_phase_rules(tpl_path.read_text(encoding="utf-8"))
+        assert "{{" not in rendered
+        for secs in eng.ARTIFACT_SECTIONS.values():
+            for s in secs:
+                assert s in rendered
+
+    def test_artifact_token_unknown_basename_raises(self):
+        # token 产物名非法 -> fail loud（与 GENERATED 渲染同纪律）
+        import pytest
+
+        with pytest.raises(ValueError, match="产物名未知"):
+            eng.render_phase_rules("{{artifact_sections:nope.md}}")
+
+    def test_consumption_contract_anchors(self):
+        # #5：消费契约锚点——下游读到的产物结构已被上游出口门保证
+        # execute 首步读 plan.md 三节 -> plan 出口节点（plan:4）全量查
+        assert (
+            eng.get_node("plan", 4).artifact_contains
+            == eng.ARTIFACT_SECTIONS["plan.md"]
+        )
+        # review 对照 understand.md -> understand 出口节点（understand:4）全量查
+        assert (
+            eng.get_node("understand", 4).artifact_contains
+            == eng.ARTIFACT_SECTIONS["understand.md"]
+        )
+        # review/evolution 自身产物 = 最小两节（2026-08-02 用户决议）
+        assert (
+            eng.get_node("review", 0).artifact_contains
+            == eng.ARTIFACT_SECTIONS["review.md"]
+        )
+        assert (
+            eng.get_node("evolution", 0).artifact_contains
+            == eng.ARTIFACT_SECTIONS["evolution.md"]
+        )
