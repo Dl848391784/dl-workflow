@@ -271,9 +271,7 @@ class TestArtifactSectionsSync:
                 assert s in desc, (phase, s)
 
     def test_output_style_contains_sections(self):
-        text = (DLWF_ROOT / "output-styles" / "workflow.md").read_text(
-            encoding="utf-8"
-        )
+        text = (DLWF_ROOT / "output-styles" / "workflow.md").read_text(encoding="utf-8")
         for secs in wp.engine.ARTIFACT_SECTIONS.values():
             for s in secs:
                 assert s in text

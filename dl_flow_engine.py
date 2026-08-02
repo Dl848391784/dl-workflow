@@ -348,14 +348,7 @@ def _subagent_retry_stats(project_root: Path, name: str) -> dict | None:
         return None
     # Claude Code 项目目录编码：路径非字母数字字符一律转 '-'
     enc = "".join(c if c.isalnum() else "-" for c in str(wt))
-    d = (
-        Path.home()
-        / ".claude"
-        / "projects"
-        / enc
-        / sid
-        / "subagents"
-    )
+    d = Path.home() / ".claude" / "projects" / enc / sid / "subagents"
     if not d.is_dir():
         return None
     agents = empty = burned = 0
@@ -2253,11 +2246,8 @@ def payload_format_hint(step) -> list[str]:
         else ""
     )
     return [
-        '   {"purpose":"<该步目的>","qa":[{"q":"<q1>","a":"<a1>"}]'
-        + extra_seg
-        + "}"
-        "（一问一答配对成对象——不对齐在结构上不可表示）"
-        + extra_note,
+        '   {"purpose":"<该步目的>","qa":[{"q":"<q1>","a":"<a1>"}]' + extra_seg + "}"
+        "（一问一答配对成对象——不对齐在结构上不可表示）" + extra_note,
         '   ✓ 正例："qa":[{"q":"who=当前提问者身份？",'
         '"a":"用户原话：「我是唯一维护者」（本会话）"}]',
         '   ✗ 反例（必 block）："qa":[{"q":"理解问题","a":"已理解"}]'
@@ -2363,7 +2353,9 @@ _FETCH_TIERS = ("none", "light", "full")
 
 # none 档理由须含仓内取证路径指针（文件扩展名 或 file:line）——
 # 机械代理判据，防空判偷懒（「我觉得仓里有」）；语义由 judge 判。
-_NONE_TIER_PATH_RE = re.compile(r"[\w./-]+\.(?:py|md|json|jsonl|parquet|yaml|yml|toml|sql)|\d+:\d+|:\d+")
+_NONE_TIER_PATH_RE = re.compile(
+    r"[\w./-]+\.(?:py|md|json|jsonl|parquet|yaml|yml|toml|sql)|\d+:\d+|:\d+"
+)
 
 
 def _check_fetch_tier_items(items: list) -> str | None:
@@ -2431,7 +2423,9 @@ def _check_fetch_report_recorded(qa: list, *_ctx) -> str | None:
         if aq:
             required = max(
                 1,
-                sum(1 for it in aq if isinstance(it, dict) and it.get("tier") != "none"),
+                sum(
+                    1 for it in aq if isinstance(it, dict) and it.get("tier") != "none"
+                ),
             )
     if found >= required:
         return None
@@ -2644,7 +2638,8 @@ def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool
             if not isinstance(v, list) or not v:
                 return False, (
                     f"载荷缺必填键「{key}」——本步形式要件（append-trace 机械校验）："
-                    "顶层提交非空数组，逐项 " '{"q":..., "tier":..., "tier_reason":...}'
+                    "顶层提交非空数组，逐项 "
+                    '{"q":..., "tier":..., "tier_reason":...}'
                 )
             err = fn(v)
             if err:
@@ -2785,9 +2780,8 @@ def fetch_prompt(project_root: Path, name: str) -> str | None:
             + "\n".join(fetch_atoms)
         )
         if none_atoms:
-            claim_seg += (
-                "\nnone 档原子（仅内查，禁为其派发取证 agent）："
-                + "；".join(none_atoms)
+            claim_seg += "\nnone 档原子（仅内查，禁为其派发取证 agent）：" + "；".join(
+                none_atoms
             )
     return (
         "你是外部取证子代理。一个工作流正在对若干原子问题做双向取证——"
@@ -2820,19 +2814,19 @@ def fetch_prompt(project_root: Path, name: str) -> str | None:
         "一句量级对比。锚点不收敛/来源冲突 → 报告末尾标「建议升档 full + 理由」"
         "即返回，不自行加码轮次。\n\n"
         "【命令模板（本机验证可用，逐字使用，只换查询词）】\n"
-        "- 学术·OpenAlex：curl -sS -m 25 \"https://api.openalex.org/works?search=<q>&per_page=3\"\n"
+        '- 学术·OpenAlex：curl -sS -m 25 "https://api.openalex.org/works?search=<q>&per_page=3"\n'
         "- 学术·arXiv（必须 https + UA，http/无 UA 静默空返回）："
-        "curl -sS -m 25 -A \"Mozilla/5.0 (research)\" "
-        "\"https://export.arxiv.org/api/query?search_query=all:%22<q>%22&max_results=3\"\n"
-        "- 社区·StackExchange：先 curl -sS -m 25 \"https://api.stackexchange.com/2.3/search/advanced?"
-        "order=desc&sort=relevance&q=<q>&site=quant&pagesize=3\"；"
+        'curl -sS -m 25 -A "Mozilla/5.0 (research)" '
+        '"https://export.arxiv.org/api/query?search_query=all:%22<q>%22&max_results=3"\n'
+        '- 社区·StackExchange：先 curl -sS -m 25 "https://api.stackexchange.com/2.3/search/advanced?'
+        'order=desc&sort=relevance&q=<q>&site=quant&pagesize=3"；'
         "取正文用 /questions/<id>/answers?order=desc&sort=votes&site=quant&filter=withbody"
         "（页面 HTML 直抓 403——正文一律走 API withbody，禁抓页面）\n"
-        "- 社区·HN：curl -sS -m 25 \"https://hn.algolia.com/api/v1/search?query=<q>&tags=story&hitsPerPage=3\""
+        '- 社区·HN：curl -sS -m 25 "https://hn.algolia.com/api/v1/search?query=<q>&tags=story&hitsPerPage=3"'
         "（空结果常见，标「未取证+无相关讨论」即可）\n"
         "- 开源·GitHub（认证头必须，否则 401）：curl -sS -m 25 "
-        "-H \"Authorization: Bearer $GITHUB_TOKEN\" -H \"Accept: application/vnd.github+json\" "
-        "\"https://api.github.com/search/code?q=%22<q>%22&per_page=3\"\n"
+        '-H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" '
+        '"https://api.github.com/search/code?q=%22<q>%22&per_page=3"\n'
         "- 定点网页：curl -sS -m 25 直抓上述层发现的 URL（403/超时→标未取证+原因）\n"
         "- 提取用 jq（不要手写 python 一行流）：jq -r '.items[]?.link' / jq -r '.items[]?.title'\n\n"
         "【返回契约（蒸馏——原始 curl 输出留在你的上下文，只回 distilled）】\n"
@@ -2845,8 +2839,7 @@ def fetch_prompt(project_root: Path, name: str) -> str | None:
         "light 档原子免上述格式，按【分档执行参数】light 契约返回（≤60 行）。\n\n"
         "【claim 补充区】\n"
         "（以下为调用方逐原子填写的可检验 claim 与证实/证伪标准——按 claim 谓词"
-        "取证，证据须直接针对谓词，不泛泛取行业常识）"
-        + claim_seg
+        "取证，证据须直接针对谓词，不泛泛取行业常识）" + claim_seg
     )
 
 

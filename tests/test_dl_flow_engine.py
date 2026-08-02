@@ -841,11 +841,15 @@ class TestSubagentRetryStats:
                     {"type": "user", "message": {}},
                     {
                         "type": "assistant",
-                        "message": {"usage": {"input_tokens": 5000, "output_tokens": 0}},
+                        "message": {
+                            "usage": {"input_tokens": 5000, "output_tokens": 0}
+                        },
                     },
                     {
                         "type": "assistant",
-                        "message": {"usage": {"input_tokens": 6000, "output_tokens": 0}},
+                        "message": {
+                            "usage": {"input_tokens": 6000, "output_tokens": 0}
+                        },
                     },
                     {
                         "type": "assistant",
@@ -857,7 +861,9 @@ class TestSubagentRetryStats:
                 "agent-a2.jsonl": [
                     {
                         "type": "assistant",
-                        "message": {"usage": {"input_tokens": 2000, "output_tokens": 50}},
+                        "message": {
+                            "usage": {"input_tokens": 2000, "output_tokens": 50}
+                        },
                     },
                 ],
             },
@@ -882,7 +888,9 @@ class TestSubagentRetryStats:
                 "agent-a1.jsonl": [
                     {
                         "type": "assistant",
-                        "message": {"usage": {"input_tokens": 4000, "output_tokens": 0}},
+                        "message": {
+                            "usage": {"input_tokens": 4000, "output_tokens": 0}
+                        },
                     },
                 ],
             },
@@ -906,7 +914,9 @@ class TestSubagentRetryStats:
                     {
                         "type": "tool_use",
                         "name": "Bash",
-                        "input": {"command": "curl -sS -m 25 https://api.openalex.org/x"},
+                        "input": {
+                            "command": "curl -sS -m 25 https://api.openalex.org/x"
+                        },
                     }
                 ],
             },
@@ -2453,7 +2463,10 @@ class TestPlan4Orchestration:
         _write_evidence(tmp_path, "t", [_epc_trace_line(5)])
         # §8.3 机械门（ARTIFACT_CONTAINS）：三节已装配
         _write_artifact(
-            tmp_path, "plans", "t", "# 执行步骤\n\n## 能力与工具\n\n## 执行计划与检查点\n"
+            tmp_path,
+            "plans",
+            "t",
+            "# 执行步骤\n\n## 能力与工具\n\n## 执行计划与检查点\n",
         )
         action, _, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
         assert action == "advanced"
@@ -4471,7 +4484,9 @@ class TestSubStepPriorVerdicts:
         monkeypatch.setattr(eng, "run_judge", lambda *a, **k: (False, "缺 X 条款"))
         action, reason, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
         assert action == "block"
-        recs = [json.loads(line) for line in ev.read_text(encoding="utf-8").splitlines()]
+        recs = [
+            json.loads(line) for line in ev.read_text(encoding="utf-8").splitlines()
+        ]
         blocked = [
             r for r in recs if r.get("kind") == "gate" and r.get("gate") == "blocked"
         ]
@@ -5357,14 +5372,17 @@ class TestV237FirstPassRate:
                 "a": (
                     "Why1 用户原话+实测「+9963.0%」整百带 .0；Why2 layered_backtest.py:901 "
                     "decimals=2 输出「9963.00%」；Why5 web_ui/templates/_section_backtest.html:38 "
-                    "`\"%+.1f%%\" | format(_best_ann * 100)` KPI 卡 1 位小数渲染出「+9963.0%」"
+                    '`"%+.1f%%" | format(_best_ann * 100)` KPI 卡 1 位小数渲染出「+9963.0%」'
                 ),
             },
             {
                 "q": "竞争假设（每个原子 ≥1）+ 排除/保留理由",
                 "a": "H_A1=年化公式错（保留：:651/:655）；H_A2=窗口过短（两种可能留子3）",
             },
-            {"q": "近因 vs 根因 + 置信度", "a": "近因=:655 直接产生数值；根因候选 R1（置信度中高）"},
+            {
+                "q": "近因 vs 根因 + 置信度",
+                "a": "近因=:655 直接产生数值；根因候选 R1（置信度中高）",
+            },
         ]
         # v2.40：同版内容补分档键——旧内容在新校验下仍应通过（回归）
         aq = [
@@ -5472,7 +5490,10 @@ class TestV237FirstPassRate:
         # 子1 att1 真实形态：产物仅 q/a，无结论二选一
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
         qa = [
-            {"q": "who=当前提问者身份？", "a": "用户原话：「项目维护者」（本会话回答选项）"},
+            {
+                "q": "who=当前提问者身份？",
+                "a": "用户原话：「项目维护者」（本会话回答选项）",
+            },
             {"q": "pain 具体观察=？", "a": "用户原话：「分层回测页 + 默认参数」"},
         ]
         (tmp_path / "payload.json").write_text(
@@ -5689,7 +5710,9 @@ class TestFetchTier:
         assert not ok and "none/light/full" in msg and "拿不准标 light" in msg
 
     def test_tier_reason_empty_rejected(self, tmp_path):
-        ok, msg = self._append_s2(tmp_path, [{"q": "A", "tier": "full", "tier_reason": " "}])
+        ok, msg = self._append_s2(
+            tmp_path, [{"q": "A", "tier": "full", "tier_reason": " "}]
+        )
         assert not ok and "tier_reason 须非空" in msg
 
     def test_none_tier_requires_repo_path(self, tmp_path):
@@ -5704,8 +5727,16 @@ class TestFetchTier:
 
     def test_three_tier_mix_accepted(self, tmp_path):
         aq = [
-            {"q": "仓内行为", "tier": "none", "tier_reason": "layered_backtest.py:655 可证伪"},
-            {"q": "年化量级合理性", "tier": "light", "tier_reason": "数值 claim 有公开锚点"},
+            {
+                "q": "仓内行为",
+                "tier": "none",
+                "tier_reason": "layered_backtest.py:655 可证伪",
+            },
+            {
+                "q": "年化量级合理性",
+                "tier": "light",
+                "tier_reason": "数值 claim 有公开锚点",
+            },
             {"q": "系统怎么设计", "tier": "full", "tier_reason": "开放方法论问题"},
         ]
         ok, msg = self._append_s2(tmp_path, aq)
@@ -5864,7 +5895,10 @@ class TestArtifactSectionsSync:
     def test_render_no_token_residue_and_all_sections_present(self):
         # #3：模板渲染后无 token 残留 + 全部单源节名在渲染产物里
         tpl_path = (
-            Path(eng.__file__).resolve().parent / "scripts" / "workflow" / "phase-rules.md"
+            Path(eng.__file__).resolve().parent
+            / "scripts"
+            / "workflow"
+            / "phase-rules.md"
         )
         rendered = eng.render_phase_rules(tpl_path.read_text(encoding="utf-8"))
         assert "{{" not in rendered

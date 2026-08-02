@@ -312,7 +312,12 @@ class TestS15EngagePreFence:
         _write_state(wf_repo, sub_step=3)
         mod = _load_hook()
         decision, _ = _run_hook(
-            mod, wf_repo, monkeypatch, capsys, "WebFetch", {"url": "https://x", "prompt": "y"}
+            mod,
+            wf_repo,
+            monkeypatch,
+            capsys,
+            "WebFetch",
+            {"url": "https://x", "prompt": "y"},
         )
         assert decision == "deny"
 

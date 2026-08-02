@@ -170,7 +170,9 @@ class TestStopStdoutPureJson:
         _write_state(wf_repo, sub_step=5, sub_index=4, phase="plan")
         _write_trace(wf_repo, sub_step=5, sub_index=4, phase="plan")
         # §8.3 机械门（ARTIFACT_CONTAINS）：三节已装配（2026-08-02 起 plan:4 查全三节）
-        _write_artifact(wf_repo, "plans", "# 执行步骤\n\n## 能力与工具\n\n## 执行计划与检查点\n")
+        _write_artifact(
+            wf_repo, "plans", "# 执行步骤\n\n## 能力与工具\n\n## 执行计划与检查点\n"
+        )
         mod = _load_hook()
         out, _err = _run_hook(mod, wf_repo, monkeypatch, capsys)
         assert "hookSpecificOutput" not in out
@@ -287,7 +289,9 @@ class TestContinueCarriesFenceNotice:
         ctx = json.loads(out.strip())["hookSpecificOutput"]["additionalContext"]
         assert "点名" in ctx and "全篇重写" in ctx
 
-    def test_escalate_continue_offers_dispute_option(self, wf_repo, monkeypatch, capsys):
+    def test_escalate_continue_offers_dispute_option(
+        self, wf_repo, monkeypatch, capsys
+    ):
         # v2.30 #7：escalate 第 4 出口=判据申诉（dl-cmd.sh dispute 落 rubric-dispute）
         _write_state(wf_repo, sub_step=1)
         _write_trace(wf_repo, sub_step=1)
@@ -315,7 +319,9 @@ class TestP4PhaseDoneFallthrough:
         _write_state(repo, sub_step=5, sub_index=4, phase="plan")
         _write_trace(repo, sub_step=5, sub_index=4, phase="plan")
         # §8.3 机械门（ARTIFACT_CONTAINS）：三节已装配（2026-08-02 起 plan:4 查全三节）
-        _write_artifact(repo, "plans", "# 执行步骤\n\n## 能力与工具\n\n## 执行计划与检查点\n")
+        _write_artifact(
+            repo, "plans", "# 执行步骤\n\n## 能力与工具\n\n## 执行计划与检查点\n"
+        )
         st = json.loads((repo / ".claude/workflows/t/state.json").read_text())
         sha = mod.engine.latest_trace_sha1(repo, "t", 5, "ExecutionPlanCheckpoints")
         st["last_judged_trace"] = {"plan:4#5": sha}
