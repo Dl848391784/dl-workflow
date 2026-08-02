@@ -2490,6 +2490,23 @@ def _placeholder_hit(payload: dict) -> tuple[str, str] | None:
 # 「可能」扫描排除「不可能」（否定式是合法断言）。
 _MAYBE_RE = re.compile(r"(?<!不)可能")
 
+# v2.49 词形扩面（全部取自 tail_volume_acceleration_annualized u:1 子2 三轮真实
+# 被 block 载荷逐字字面，重放分隔度见 TestCausalRingNoUntested）：
+# att1 待办形态桥接「需 pyarrow…sort 看 top10」「需 Read 验证」——
+# 否定/限定式（无需/所需/必需/按需）是合法断言，排除。
+_NEED_ACTION_RE = re.compile(
+    r"(?<![无所必按])需[^，。；]{0,40}(?:验证|核实|确认|取证|看|Read|grep|sort)"
+)
+# att3 假设形态链环「若 convert 函数…未做截断/钳制则异常值…传到上层」。
+_IF_THEN_RE = re.compile(r"若[^，。；]{0,40}则")
+# att2 行号跨度充精确指针「:565-771」（206 行）；规则正例/通过载荷跨度 ≤17，
+# 阈值 50 双侧 margin 均宽（钉死进 _CAUSAL_CHAIN_EVIDENCE_RULE，非调参）。
+_WIDE_SPAN_RE = re.compile(r":(\d+)-(\d+)")
+_WIDE_SPAN_LIMIT = 50
+# att3 竞争假设「排除」句推断词形（保留句豁免——标「待子3取证」是合法出口，
+# 与 _CAUSAL_CHAIN_EVIDENCE_RULE 排除/保留拆分一一对应）。
+_EXCLUDE_INFERENCE_RE = re.compile(r"未实测|待实测|未验证|待验证|推测|(?<!不)可能")
+
 
 def _check_causal_ring_no_untested(qa: list, *_ctx) -> str | None:
     """causal_ring_no_untested：因果链环禁词扫描（u:1 子2 专属，nodes 声明）。
@@ -2501,28 +2518,59 @@ def _check_causal_ring_no_untested(qa: list, *_ctx) -> str | None:
     标记（Why/→）。旧实现只认标题——2026-08-02 实例模型用「Q4=…」式标题、
     链写进 a，标题锚定空转，「可能」漏到 judge 115s/10.8k tok 才拦
     （弱模型优先复盘：该机械判的东西漏给 judge = 扫描面锚错形状）。
-    「假设」标题项豁免：竞争假设分支携带可能/未实测合法（留子3 消化的
-    设计内形态）；「不可能」不命中（否定式是合法断言）。
+    「假设」标题项收窄豁免（v2.49）：只豁免「保留」句（标「待子3取证」合法）；
+    「排除」句=断言假设为假，排除理由含推断词形（未实测/推测/可能…）当场拒——
+    旧实现整项豁免，att3「排除（…未实测…推测：…不成立）」漏到 judge
+    第三轮才拦。「不可能」不命中（否定式是合法断言）。
     分隔度：8/2 真实被 block 载荷（Q1 未实测/Q4 可能）BLOCK、真实通过载荷
-    与 demo 载荷 PASS。
+    与 demo 载荷 PASS；v2.49 扩面信号（需…验证/若…则/行号跨度/排除句推断）
+    同口径重放（3 条被 block 载荷逐字 BLOCK、通过载荷零 FP）。
     """
     banned = ("未实测", "待实测", "未验证", "待验证")
     for item in qa:
         q, a = str(item.get("q", "")), str(item.get("a", ""))
         if "假设" in q:
+            for sent in re.split(r"[。；]", a):
+                if "排除" not in sent:
+                    continue
+                m = _EXCLUDE_INFERENCE_RE.search(sent)
+                if m:
+                    return (
+                        f"竞争假设「排除」理由含推断词形「{m.group(0)}」"
+                        f"（{sent[:30]}…）——排除=断言假设为假，须证据指针"
+                        "（file:line/读出事实）；证据不足时改标「保留」+"
+                        "「待子3取证」，不推测排除"
+                    )
             continue
         if "因果链" not in q and "Why" not in a and "→" not in a:
             continue
         hit = next((b for b in banned if b in a), None)
         if hit is None and _MAYBE_RE.search(a):
             hit = "可能"
+        if hit is None:
+            m = _NEED_ACTION_RE.search(a)
+            if m:
+                hit = m.group(0)
+        if hit is None:
+            m = _IF_THEN_RE.search(a)
+            if m:
+                hit = f"若…则（{m.group(0)[:24]}…）"
         if hit:
             return (
                 f"因果链环含「{hit}」（{q[:20]}…）——主链环只许实测事实"
-                "（file:line/数据值/日志原文/用户原话）；推断量级/未测状态不是出处："
+                "（file:line/数据值/日志原文/用户原话）；推断量级/未测状态/"
+                "待办桥接/假设形态不是出处："
                 "挖不动的深层整体降格进竞争假设分支并标「待子3取证」，"
                 "主链挖到实测层即终止，不悬空、不贴标签充数"
             )
+        for m in _WIDE_SPAN_RE.finditer(a):
+            if int(m.group(2)) - int(m.group(1)) >= _WIDE_SPAN_LIMIT:
+                return (
+                    f"因果链环行号指针 {m.group(0)} 跨 "
+                    f"{int(m.group(2)) - int(m.group(1))} 行（{q[:20]}…）——"
+                    f"跨度 ≥{_WIDE_SPAN_LIMIT} 行不算精确指针："
+                    "收窄到具体语句行（定义/赋值/调用行），并附该行原文"
+                )
     return None
 
 

@@ -5418,6 +5418,103 @@ class TestV237FirstPassRate:
         ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
         assert not ok and "未实测" in msg and "竞争假设" in msg
 
+    def test_replay_u1s2_need_action_bridge_blocked(self, tmp_path):
+        # v2.49 att1 逐字：待办形态桥接「需 pyarrow…sort 看 top10」当主链终点
+        qa = [
+            {
+                "q": "AQ2 (数据契约层) 主链 5 Whys？",
+                "a": (
+                    "Why5=数据源列含极端值需 pyarrow.read_parquet(path) + sort 看 top10"
+                    " — 该层为主链终点，子3 主会话内查（仓内路径：paths.py "
+                    "FACTOR_IC_DATA_MASTER）。"
+                ),
+            },
+        ]
+        err = eng._check_causal_ring_no_untested(qa)
+        assert err is not None and "需" in err
+
+    def test_replay_u1s2_if_then_form_blocked(self, tmp_path):
+        # v2.49 att3 逐字：「若…则」假设形态链环（file:line 背书的是代码文本，
+        # 若…则 推出的行为是推断）
+        qa = [
+            {
+                "q": "AQ2 (数据契约层) 主链 5 Whys？",
+                "a": (
+                    "Why5=极端值溯源点：data_loaders.py:166 convert_return_to_percentage"
+                    " 调 formatters.convert_return_to_percentage（summary/report/"
+                    "formatters.py convert_return_to_percentage 已 Read）——"
+                    "若 convert 函数对极端值未做截断/钳制则异常值无抑制地传到上层显示。"
+                ),
+            },
+        ]
+        err = eng._check_causal_ring_no_untested(qa)
+        assert err is not None and "若…则" in err
+
+    def test_replay_u1s2_wide_span_blocked(self, tmp_path):
+        # v2.49 att2 逐字：:565-771 跨 206 行充精确指针（合法跨度 ≤17，阈值 50）
+        qa = [
+            {
+                "q": "AQ3 (因子层) 主链 5 Whys？",
+                "a": (
+                    "Why5=因子值进 pd.rank 分层（layered_backtest.py:371）+"
+                    "逐日 layer 记录进 daily_records（:319-332）后 _aggregate_results"
+                    " 计算 per-layer annual_return 与 long_short_return_annual（:565-771）"
+                ),
+            },
+        ]
+        err = eng._check_causal_ring_no_untested(qa)
+        assert err is not None and "精确指针" in err and ":565-771" in err
+
+    def test_replay_u1s2_exclude_inference_blocked(self, tmp_path):
+        # v2.49 att3 逐字：竞争假设「排除」句含 未实测/推测——排除=断言为假
+        # 须证据指针；豁免只留给「保留」句。H2 排除干净、H1/H4 保留合法，
+        # 整项只有 H5 一句违规也应拒（逐字保留 att3 假设项全文）
+        qa = [
+            {
+                "q": "竞争假设与排除/保留？",
+                "a": (
+                    "H1: 个别股票 forward_return_1d 含极端值 (>100%/日) ⇒ 拉高 ls_mean"
+                    " (层均值差) — 保留 (AQ1/AQ2 主链终点，子3 parquet sort 取证)。"
+                    "H2: forward_return 列错配 (5d 当 1d) — 排除 (layered_backtest_runner.py:609"
+                    " 硬编码 1d + :349 元组同时存在 3 列，H2 代码证伪)。"
+                    "H4: 因子分母为 0 致 inf/NaN 致分组偏差 — 保留 (AQ3 Why4 降格分支标"
+                    "『待子3 取证』，子3 factor_generator.py + parquet sort 取证 + "
+                    "pandas pd.notna(inf) 行为文档查证)。"
+                    "H5: web_ui 数字格式 bug (乘错/漏零) — 排除 (sections.py:168 + "
+                    "formatters.py convert_return_to_percentage + data_loaders.py:166"
+                    " 链路 Read 验证：txt 显示经 format_percentage 包装 = "
+                    '`f"{val * 100:.{decimals}f}%"` (formatters.py 假设实现，未实测 '
+                    "formatters.py 内部代码；推测：链路过长且标准库 f-string 不易引入"
+                    "乘错/漏零，H5 假设不成立)。"
+                ),
+            },
+        ]
+        err = eng._check_causal_ring_no_untested(qa)
+        assert err is not None and "排除" in err
+
+    def test_hypothesis_keep_clean_exclude_accepted(self, tmp_path):
+        # v2.49 豁免收窄的 FP 守卫：保留句带「可能」合法 + 排除句干净 → 通过
+        qa = [
+            {"q": "原子 A → 因果链", "a": "Why1 实测值（:655）"},
+            {
+                "q": "竞争假设与排除/保留理由",
+                "a": "H1=窗口过短（保留：可能，待子3取证）。"
+                "H2=列错配（排除：runner.py:609 硬编码 1d 证伪）",
+            },
+        ]
+        assert eng._check_causal_ring_no_untested(qa) is None
+
+    def test_need_action_negations_not_banned(self, tmp_path):
+        # v2.49 FP 守卫：无需/所需/必需/按需是否定·限定式合法断言，不命中
+        qa = [
+            {
+                "q": "原子 A → 因果链",
+                "a": "Why2 过滤逻辑无需外部调用（:484 valid_returns.mean()）；"
+                "Why3 所需列在 :431 `read_cols` 元组；Why4 按需查看是注释原文（:112）",
+            },
+        ]
+        assert eng._check_causal_ring_no_untested(qa) is None
+
     def test_replay_u1s2_att3_real_pass_accepted(self, tmp_path):
         # att3 真实通过版：主链每环实测（含模板 :38 Jinja 片段），零禁词
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=2)
