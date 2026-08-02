@@ -2486,20 +2486,35 @@ def _placeholder_hit(payload: dict) -> tuple[str, str] | None:
     return _walk(payload, "")
 
 
+# 「可能」扫描排除「不可能」（否定式是合法断言）。
+_MAYBE_RE = re.compile(r"(?<!不)可能")
+
+
 def _check_causal_ring_no_untested(qa: list, *_ctx) -> str | None:
     """causal_ring_no_untested：因果链环禁词扫描（u:1 子2 专属，nodes 声明）。
 
     主链环只许实测事实；「未实测」类状态标签与「可能」类推断词不是出处——
     词形来自真实违规字面（att1 Why4「可能剩 1-5 天」/ att2 Why5「未实测/推断」，
-    att3 通过版零命中）。扫描范围限 q 含「因果链」的项——竞争假设分支携带
-    可能/未实测合法（留子3 消化的设计内形态）。
+    att3 通过版零命中）。
+    链识别（v2.46 放宽，不锚定 q 标题）：q 含「因果链」**或** a 含链式结构
+    标记（Why/→）。旧实现只认标题——2026-08-02 实例模型用「Q4=…」式标题、
+    链写进 a，标题锚定空转，「可能」漏到 judge 115s/10.8k tok 才拦
+    （弱模型优先复盘：该机械判的东西漏给 judge = 扫描面锚错形状）。
+    「假设」标题项豁免：竞争假设分支携带可能/未实测合法（留子3 消化的
+    设计内形态）；「不可能」不命中（否定式是合法断言）。
+    分隔度：8/2 真实被 block 载荷（Q1 未实测/Q4 可能）BLOCK、真实通过载荷
+    与 demo 载荷 PASS。
     """
-    banned = ("未实测", "待实测", "未验证", "待验证", "可能")
+    banned = ("未实测", "待实测", "未验证", "待验证")
     for item in qa:
         q, a = str(item.get("q", "")), str(item.get("a", ""))
-        if "因果链" not in q:
+        if "假设" in q:
+            continue
+        if "因果链" not in q and "Why" not in a and "→" not in a:
             continue
         hit = next((b for b in banned if b in a), None)
+        if hit is None and _MAYBE_RE.search(a):
+            hit = "可能"
         if hit:
             return (
                 f"因果链环含「{hit}」（{q[:20]}…）——主链环只许实测事实"

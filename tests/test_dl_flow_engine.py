@@ -5351,6 +5351,54 @@ class TestV237FirstPassRate:
         ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
         assert not ok and "可能" in msg and "竞争假设" in msg
 
+    def test_chain_detected_by_content_not_title_blocked(self, tmp_path):
+        # v2.46：2026-08-02 真实形态——模型用「Q4=…」式标题、链写进 a（Why/→），
+        # 旧标题锚定空转禁词漏到 judge。链识别 = 标题或 a 结构标记。
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=2)
+        qa = [
+            {
+                "q": "Q0=单一/复合判定？",
+                "a": "单一（数字 +9529.8% 反常），MECE 拆 5 轴",
+            },
+            {
+                "q": "Q4=因子计算是否有 silent fallback？（因子算子层）",
+                "a": (
+                    "Why1 因子值 0 占位（ic_tail.py:111）；Why2 无过滤逻辑 → "
+                    "percentile 分层可能将 0 值股票集中到某一层 → 极端年化"
+                ),
+            },
+        ]
+        (tmp_path / "payload.json").write_text(
+            json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert not ok and "可能" in msg
+
+    def test_bu_keneng_negation_not_banned(self, tmp_path):
+        # 「不可能」是否定式合法断言，不命中禁词（真实载荷 Q1 含「不可能」）
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=2)
+        qa = [
+            {
+                "q": "Q1=字段溯源 → 因果链",
+                "a": "Why3 A 股单日涨跌幅 ±10%（PROJECT.md），+37.8%/日单股不可能——"
+                "必有口径错位（:655）",
+            },
+        ]
+        (tmp_path / "payload.json").write_text(
+            json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
+        )
+        # 仅测禁词扫描本函数（atomic_questions 等其它校验是正交前置）
+        err = eng._check_causal_ring_no_untested(qa)
+        assert err is None
+
+    def test_hypothesis_item_exempt(self, tmp_path):
+        # 「假设」标题项豁免：竞争假设分支携带可能/未实测合法（待子3取证）
+        qa = [
+            {"q": "原子 A → 因果链", "a": "Why1 实测值（:655）"},
+            {"q": "竞争假设与排除理由", "a": "H1=窗口过短（可能，待子3取证）"},
+        ]
+        assert eng._check_causal_ring_no_untested(qa) is None
+
     def test_replay_u1s2_att2_untested_label_blocked(self, tmp_path):
         # att2 真实形态：Why5 贴「未实测/推断」标签当出处
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=2)
