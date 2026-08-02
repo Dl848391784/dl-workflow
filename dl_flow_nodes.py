@@ -114,7 +114,8 @@ class Node:
     # hold 前已落地，放行后只需 PHASE_DONE）。advance="sub" 节点此字段不被读取。
     artifact_on_release: bool = True
     # §8.3 ARTIFACT_CONTAINS 的必含子串（节标题级，子串匹配宁宽勿窄）；
-    # 仅 gate_mech=ARTIFACT_CONTAINS 时读取（plan:4 = 「执行计划与检查点」节）。
+    # 仅 gate_mech=ARTIFACT_CONTAINS 时读取。取值必须引用 ARTIFACT_SECTIONS
+    # 或其节常量（禁散写字面量，2026-08-02 节标题单源化）。
     artifact_contains: tuple[str, ...] = ()
 
 
@@ -126,6 +127,28 @@ class Node:
 # （understand:4 末步过门控自动进 plan:1，无 understand->plan 大闸门）；
 # 唯一用户裁决点 = plan:4 门栏 + plan->execute 大闸门。
 GATED_AFTER: tuple[str, ...] = ("plan",)
+
+
+# ---------- 产物节结构单源（2026-08-02，artifact-handoff-hardening-design）----------
+# 各阶段产物「该带什么节」的唯一真源。三通道全部从此出：
+#   ①engine CONTAINS 机械门（下方节点 artifact_contains 引用）；
+#   ②phase-rules.md 装配行 {{artifact_sections:<basename>}} token（render 时替换）；
+#   ③注入 hooks/workflow_phase.py _PHASE_META artifact 描述（动态构建）。
+# 改节标题只改这里——静态同步测试（tests TestArtifactSectionsSync）钉三通道不漂移。
+# plan.md 三节由 plan:2/3/4 分工装配，命名节常量供分工节点各引自己那节。
+_S_EXEC_STEPS = "执行步骤"
+_S_CAP_TOOLS = "能力与工具"
+_S_CHECKPOINTS = "执行计划与检查点"
+ARTIFACT_SECTIONS: dict[str, tuple[str, ...]] = {
+    # understand:4 子5 装配（= 4 子阶段归一化陈述，phase-rules 装配行现行口径）。
+    "understand.md": ("真实问题重述", "目标价值", "范围约束", "成功标准验收包"),
+    # plan:2 装「执行步骤」/ plan:3 装「能力与工具」/ plan:4 装「执行计划与检查点」。
+    "plan.md": (_S_EXEC_STEPS, _S_CAP_TOOLS, _S_CHECKPOINTS),
+    # review.md 最小两节（2026-08-02 用户决议）：判决书无结论节即废品。
+    "review.md": ("结论", "证据"),
+    # evolution.md 最小两节（新增结构要求）：沉淀了什么 + 落到哪个 memory/skill/design。
+    "evolution.md": ("经验", "落地"),
+}
 
 
 # understand:1 子1 的形式要件（单源：purpose 模型侧与 gate judge 侧都引用）。
@@ -1225,7 +1248,11 @@ _NODES: dict[str, Node] = {
         sub=4,
         skill=None,
         artifact="understand.md",  # 末子阶段写产物
-        gate_mech=GateMech.ARTIFACT_EXISTS,
+        # ARTIFACT_CONTAINS（2026-08-02 升，artifact-handoff-hardening-design）：
+        # 四节全查——review:0 rubric「对照 understand.md」是消费契约锚点，
+        # 缺节静默溜进 plan 的灾难在离起点最远的地方爆。
+        gate_mech=GateMech.ARTIFACT_CONTAINS,
+        artifact_contains=ARTIFACT_SECTIONS["understand.md"],
         gate_rubric=None,  # 子阶段级 rubric 删除（被 sub_steps 逐步门控取代）
         advance="phase",  # 末子阶段 -> 末步过门控自动推进 plan:1（understand 无闸门）
         # designs/success-criteria-substeps-design.md（2026-07-27 用户确认 5 步 + hold）。
@@ -1702,9 +1729,11 @@ _NODES: dict[str, Node] = {
         sub=2,
         skill=None,  # 编排节点 skill 走 Step ref（同 plan:1；writing-plans 在子2/子4 ref）
         artifact="plan.md",
-        # 静态路径——无 plan:1 动态文件名含 "/" 的机械门限制，
-        # ARTIFACT_EXISTS 零成本兜底子5 无 judge 的产物落地风险（design §3）。
-        gate_mech=GateMech.ARTIFACT_EXISTS,
+        # ARTIFACT_CONTAINS（2026-08-02 升，artifact-handoff-hardening-design）：
+        # 本节点装配「执行步骤」节（phase-rules 装配行给逐字节名）——
+        # 存在性+新鲜度之上补节存在检查，execute 首步读 plan.md 的消费契约锚点。
+        gate_mech=GateMech.ARTIFACT_CONTAINS,
+        artifact_contains=(_S_EXEC_STEPS,),
         # 节点级 rubric 置 None（understand:4 先例）：原 ①②③④语义全部下沉
         # 逐步 gate（①②③→子2/3/4 判据；④一致性→子1 基线+子4 传导+子5 禁二次
         # 创作）；plan->execute 大闸门只跑 ARTIFACT_EXISTS 机械门（design §3）。
@@ -1916,12 +1945,12 @@ _NODES: dict[str, Node] = {
         sub=3,
         skill=None,  # 编排节点 skill 走 Step ref（同 plan:1/2；define-problem 在子5 ref）
         artifact="plan.md",
-        # 机械门（同 plan:2）：ARTIFACT_EXISTS + entered_at 新鲜度
-        # （§8.3 已实现，2026-07-31 v2.31）——能力节落地 guard = 机械门存在性 +
-        # 子5 judge 验五字段 + 子6 禁二次创作 + 用户读回 + S13/S15 围栏
-        # （design §5 #9：CONTAINS 对本节点已否决，用户决议 2026-07-28——
-        # plan:4 是唯一 CONTAINS 节点）。
-        gate_mech=GateMech.ARTIFACT_EXISTS,
+        # ARTIFACT_CONTAINS（2026-08-02 升，artifact-handoff-hardening-design）：
+        # 本节点装配「能力与工具」节。（2026-07-28「plan:4 是唯一 CONTAINS 节点」
+        # 决议已被 2026-08-02 节标题单源化取代——当时否决理由是节名未单源
+        # 会误 block，该前提已由 ARTIFACT_SECTIONS + 装配行逐字节名消除。）
+        gate_mech=GateMech.ARTIFACT_CONTAINS,
+        artifact_contains=(_S_CAP_TOOLS,),
         # 节点级 rubric 置 None（understand:4/plan:2 先例第三次）：
         # 语义全部下沉逐步 gate，plan->execute 大闸门只跑机械门。
         gate_rubric=None,  # 子阶段级 rubric 删除（被 sub_steps 逐步门控取代）
@@ -2175,8 +2204,10 @@ _NODES: dict[str, Node] = {
         # ARTIFACT_EXISTS 对本节点语义恒真（文件自 plan:2 起存在）——正解 =
         # 节存在检查（execution-plan-checkpoints-substeps-design §5 #7 的预先裁决）。
         # 守「子5 trace 合格但节未装配」的落空（子5 gate=None 交互步）。
+        # 2026-08-02 扩为全三节（artifact-handoff-hardening-design）：本节点是
+        # 装配终点+唯一门栏，查 plan:2/3 节被跨节点删改的最便宜位置。
         gate_mech=GateMech.ARTIFACT_CONTAINS,
-        artifact_contains=("执行计划与检查点",),
+        artifact_contains=ARTIFACT_SECTIONS["plan.md"],
         # 节点级 rubric 置 None（understand:4/plan:2/plan:3 先例第四次）：
         # 语义全部下沉逐步 gate，plan->execute 大闸门只跑机械门（本节点亦无）。
         gate_rubric=None,
@@ -2402,7 +2433,10 @@ _NODES: dict[str, Node] = {
         sub=0,
         skill=None,
         artifact="review.md",
-        gate_mech=GateMech.ARTIFACT_EXISTS,
+        # ARTIFACT_CONTAINS（2026-08-02 升，artifact-handoff-hardening-design）：
+        # 最小两节（用户决议）——判决书无「结论」节即废品。
+        gate_mech=GateMech.ARTIFACT_CONTAINS,
+        artifact_contains=ARTIFACT_SECTIONS["review.md"],
         gate_rubric="对照 understand.md 真实问题 + 成功标准,判定 solved/partial/not,附 file:line 证据。",
         advance="phase",
     ),
@@ -2413,7 +2447,10 @@ _NODES: dict[str, Node] = {
         sub=0,
         skill=None,
         artifact="evolution.md",
-        gate_mech=GateMech.ARTIFACT_EXISTS,
+        # ARTIFACT_CONTAINS（2026-08-02 升，artifact-handoff-hardening-design）：
+        # 最小两节（新增结构要求：沉淀了什么 + 落到哪个 memory/skill/design）。
+        gate_mech=GateMech.ARTIFACT_CONTAINS,
+        artifact_contains=ARTIFACT_SECTIONS["evolution.md"],
         gate_rubric="是否沉淀非显然可复用经验（memory/skill/design）。",
         advance="done",
     ),

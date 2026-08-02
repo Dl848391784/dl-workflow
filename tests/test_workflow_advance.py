@@ -169,8 +169,8 @@ class TestStopStdoutPureJson:
         # （门栏唯一处 = plan:4 ExecutionPlanCheckpoints 末步=子5，2026-07-28 用户决议）
         _write_state(wf_repo, sub_step=5, sub_index=4, phase="plan")
         _write_trace(wf_repo, sub_step=5, sub_index=4, phase="plan")
-        # §8.3 机械门（ARTIFACT_CONTAINS）：「执行计划与检查点」节已装配
-        _write_artifact(wf_repo, "plans", "# 执行步骤\n\n## 执行计划与检查点\n")
+        # §8.3 机械门（ARTIFACT_CONTAINS）：三节已装配（2026-08-02 起 plan:4 查全三节）
+        _write_artifact(wf_repo, "plans", "# 执行步骤\n\n## 能力与工具\n\n## 执行计划与检查点\n")
         mod = _load_hook()
         out, _err = _run_hook(mod, wf_repo, monkeypatch, capsys)
         assert "hookSpecificOutput" not in out
@@ -314,8 +314,8 @@ class TestP4PhaseDoneFallthrough:
     def _judged_p4(self, mod, repo: Path, held: bool = False, gate: str = "pending"):
         _write_state(repo, sub_step=5, sub_index=4, phase="plan")
         _write_trace(repo, sub_step=5, sub_index=4, phase="plan")
-        # §8.3 机械门（ARTIFACT_CONTAINS）：「执行计划与检查点」节已装配
-        _write_artifact(repo, "plans", "# 执行步骤\n\n## 执行计划与检查点\n")
+        # §8.3 机械门（ARTIFACT_CONTAINS）：三节已装配（2026-08-02 起 plan:4 查全三节）
+        _write_artifact(repo, "plans", "# 执行步骤\n\n## 能力与工具\n\n## 执行计划与检查点\n")
         st = json.loads((repo / ".claude/workflows/t/state.json").read_text())
         sha = mod.engine.latest_trace_sha1(repo, "t", 5, "ExecutionPlanCheckpoints")
         st["last_judged_trace"] = {"plan:4#5": sha}

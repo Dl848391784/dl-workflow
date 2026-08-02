@@ -41,6 +41,7 @@ from typing import Any
 # 节点树是声明式数据（每个编排节点 300-600 行 Step 定义，增长高频），机制逻辑
 # （state/推进/gate/judge，低频）分离——编排 diff 不再淹没机制代码。
 from dl_flow_nodes import (
+    ARTIFACT_SECTIONS,  # noqa: F401  # re-export：tests/hooks 经 eng.ARTIFACT_SECTIONS 访问
     GATED_AFTER,
     PHASES,
     PHASE_LABELS,

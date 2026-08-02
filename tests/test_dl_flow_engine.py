@@ -719,7 +719,7 @@ class TestAdvanceState:
 class TestWriteGateVerdict:
     def test_writes_gate_record(self, tmp_path):
         # gate pass -> 写一笔 kind=gate 记录到 evidence/<name>.jsonl
-        node = eng.get_node("understand", 4)  # 末子阶段（artifact_exists 机械门）
+        node = eng.get_node("understand", 4)  # 末子阶段（artifact_contains 机械门）
         ok = eng.write_gate_verdict(tmp_path, "t", node, attempts=1, cwd=str(tmp_path))
         assert ok is True
         ev = eng._evidence_path(tmp_path, "t")
@@ -731,7 +731,7 @@ class TestWriteGateVerdict:
         assert rec["gate"] == "passed"
         assert rec["rubric"] == node.gate_rubric
         assert rec["attempts"] == 1
-        assert rec["gate_mech"] == "artifact_exists"
+        assert rec["gate_mech"] == "artifact_contains"
         assert "ts" in rec
 
     def test_record_carries_stage_fields(self, tmp_path):
@@ -1459,9 +1459,16 @@ def _write_evidence(tmp_path: Path, name: str, records: list[str]) -> Path:
 
 
 def _write_artifact(
-    tmp_path: Path, phase_dir: str, name: str, content: str = "# 产物\n"
+    tmp_path: Path, phase_dir: str, name: str, content: str | None = None
 ) -> Path:
-    """写阶段产物到规范位置（主仓 .claude/<dir>/<name>.md，§8.3 机械门）。"""
+    """写阶段产物到规范位置（主仓 .claude/<dir>/<name>.md，§8.3 机械门）。
+
+    默认内容含全部单源节名（ARTIFACT_SECTIONS 并集）——机制类测试（推进/
+    block/新鲜度）不关心节内容，CONTAINS 一律过；节行为测试显式传 content。
+    """
+    if content is None:
+        secs = (s for v in eng.ARTIFACT_SECTIONS.values() for s in v)
+        content = "# 产物\n\n" + "\n\n".join(f"## {s}" for s in secs) + "\n"
     p = tmp_path / ".claude" / phase_dir / f"{name}.md"
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content, encoding="utf-8")
@@ -1730,9 +1737,14 @@ class TestUnderstand4Orchestration:
     def test_gate_rubric_none_mech_kept(self):
         node = eng.get_node("understand", 4)
         assert node.gate_rubric is None  # 子阶段级 rubric 被子步骤门控取代
-        assert (
-            node.gate_mech == eng.GateMech.ARTIFACT_EXISTS
-        )  # understand.md 机械门保留
+        # 2026-08-02 升 CONTAINS（artifact-handoff-hardening-design）：四节全查
+        assert node.gate_mech == eng.GateMech.ARTIFACT_CONTAINS
+        assert node.artifact_contains == (
+            "真实问题重述",
+            "目标价值",
+            "范围约束",
+            "成功标准验收包",
+        )
         assert node.artifact == "understand.md"
         assert node.advance == "phase"
         assert node.minor_key == "SuccessCriteria"
@@ -1994,9 +2006,9 @@ class TestPlan2Orchestration:
         assert (
             node.gate_rubric is None
         )  # 子阶段级 rubric 被子步骤门控取代（understand:4 先例）
-        assert (
-            node.gate_mech == eng.GateMech.ARTIFACT_EXISTS
-        )  # plan.md 静态路径，机械门保留
+        # 2026-08-02 升 CONTAINS（artifact-handoff-hardening-design）：本节点装「执行步骤」节
+        assert node.gate_mech == eng.GateMech.ARTIFACT_CONTAINS
+        assert node.artifact_contains == ("执行步骤",)
         assert node.artifact == "plan.md"
         assert node.advance == "sub"  # v2.20 plan:3 加入后不再是末子阶段
         assert node.minor_key == "TaskBreakdown"
@@ -2129,7 +2141,8 @@ class TestPlan2Orchestration:
 class TestPlan3Orchestration:
     """plan:3 CapabilityToolSelection 6 子步骤编排
     （designs/capability-tool-selection-substeps-design.md，2026-07-28 用户确认
-    6 步 + hold + gate_mech 保持 ARTIFACT_EXISTS）。
+    6 步 + hold；2026-08-02 gate_mech 升 ARTIFACT_CONTAINS——
+    artifact-handoff-hardening-design）。
 
     关键不对称（第七种）：有限枚举 × 配置接地——能力空间=可枚举注册表非生成
     空间（无发散步）；主敌=幽灵能力/能力错配/tool overload/漏配强制项。
@@ -2149,9 +2162,9 @@ class TestPlan3Orchestration:
         assert (
             node.gate_rubric is None
         )  # 子阶段级 rubric 被子步骤门控取代（understand:4/plan:2 先例）
-        assert (
-            node.gate_mech == eng.GateMech.ARTIFACT_EXISTS
-        )  # 声明式（机械门未实现，design §5 #9）
+        # 2026-08-02 升 CONTAINS（artifact-handoff-hardening-design）：本节点装「能力与工具」节
+        assert node.gate_mech == eng.GateMech.ARTIFACT_CONTAINS
+        assert node.artifact_contains == ("能力与工具",)
         assert node.artifact == "plan.md"
         assert node.advance == "sub"  # v2.21 plan:4 加入后不再是末子阶段
         assert node.minor_key == "CapabilityToolSelection"
@@ -2307,8 +2320,10 @@ class TestPlan4Orchestration:
             node.gate_rubric is None
         )  # 子阶段级 rubric 被子步骤门控取代（understand:4/plan:2/3 先例第四次）
         # §8.3（2026-07-31）：ARTIFACT_EXISTS 对 plan.md 语义恒真 -> 节存在检查
+        # 2026-08-02 扩为全三节（artifact-handoff-hardening-design）：装配终点
+        # + 唯一门栏，查 plan:2/3 节被跨节点删改
         assert node.gate_mech == eng.GateMech.ARTIFACT_CONTAINS
-        assert node.artifact_contains == ("执行计划与检查点",)
+        assert node.artifact_contains == ("执行步骤", "能力与工具", "执行计划与检查点")
         assert node.artifact == "plan.md"
         assert node.advance == "phase"  # plan 末子阶段 -> 推进 execute
         assert node.minor_key == "ExecutionPlanCheckpoints"
@@ -2436,8 +2451,10 @@ class TestPlan4Orchestration:
         # pinning（症状 M #7）：plan:4 末步（子5）pass -> 扣留不推进
         _write_state_full(tmp_path, "t", "plan", 4, sub_step=5)
         _write_evidence(tmp_path, "t", [_epc_trace_line(5)])
-        # §8.3 机械门（ARTIFACT_CONTAINS）：「执行计划与检查点」节已装配
-        _write_artifact(tmp_path, "plans", "t", "# 执行步骤\n\n## 执行计划与检查点\n")
+        # §8.3 机械门（ARTIFACT_CONTAINS）：三节已装配
+        _write_artifact(
+            tmp_path, "plans", "t", "# 执行步骤\n\n## 能力与工具\n\n## 执行计划与检查点\n"
+        )
         action, _, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
         assert action == "advanced"
         st = eng.load_state(tmp_path, "t")
@@ -3818,7 +3835,7 @@ class TestGateVerdictMech:
 
     def test_no_project_root_degrades(self):
         # 无 project_root -> 机械项降级放行（宁纵勿枉,同 codegraph_gate 非 git）
-        node = eng.get_node("understand", 4)  # ARTIFACT_EXISTS
+        node = eng.get_node("understand", 4)  # ARTIFACT_CONTAINS
         assert eng.gate_verdict_mech(node, project_root=None, name="t") is None
 
     def test_no_name_degrades(self, tmp_path):
@@ -3832,7 +3849,7 @@ class TestGateVerdictMech:
         assert eng.gate_verdict_mech(node, project_root=tmp_path, name="t") is None
 
     def test_artifact_missing_blocks(self, tmp_path):
-        node = eng.get_node("understand", 4)  # ARTIFACT_EXISTS -> understands/t.md
+        node = eng.get_node("understand", 4)  # ARTIFACT_CONTAINS -> understands/t.md
         reason = eng.gate_verdict_mech(node, project_root=tmp_path, name="t")
         assert reason is not None
         assert "产物未落地" in reason
@@ -3877,13 +3894,57 @@ class TestGateVerdictMech:
         reason = eng.gate_verdict_mech(node, project_root=tmp_path, name="t")
         assert reason is not None
         assert "缺节" in reason
+        # 2026-08-02 起 plan:4 查全三节：两节同缺，文案都点名
+        assert "能力与工具" in reason
         assert "执行计划与检查点" in reason
 
     def test_contains_passes(self, tmp_path):
         _write_artifact(
-            tmp_path, "plans", "t", "# 执行步骤\nfoo\n## 执行计划与检查点\nbar\n"
+            tmp_path,
+            "plans",
+            "t",
+            "# 执行步骤\nfoo\n## 能力与工具\nx\n## 执行计划与检查点\nbar\n",
         )
         node = eng.get_node("plan", 4)
+        assert eng.gate_verdict_mech(node, project_root=tmp_path, name="t") is None
+
+    # ---- 2026-08-02 CONTAINS 扩面（artifact-handoff-hardening-design）----
+
+    def test_u4_contains_missing_section_blocks(self, tmp_path):
+        # understand.md 缺「成功标准验收包」节 -> block 且点名缺节
+        _write_artifact(
+            tmp_path,
+            "understands",
+            "t",
+            "# 真实问题重述\na\n## 目标价值\nb\n## 范围约束\nc\n",
+        )
+        node = eng.get_node("understand", 4)
+        reason = eng.gate_verdict_mech(node, project_root=tmp_path, name="t")
+        assert reason is not None
+        assert "缺节" in reason
+        assert "成功标准验收包" in reason
+
+    def test_u4_contains_passes(self, tmp_path):
+        _write_artifact(
+            tmp_path,
+            "understands",
+            "t",
+            "# 真实问题重述\na\n## 目标价值\nb\n## 范围约束\nc\n## 成功标准验收包\nd\n",
+        )
+        node = eng.get_node("understand", 4)
+        assert eng.gate_verdict_mech(node, project_root=tmp_path, name="t") is None
+
+    def test_review_contains_missing_section_blocks(self, tmp_path):
+        _write_artifact(tmp_path, "reviews", "t", "# 结论\nsolved\n")
+        node = eng.get_node("review", 0)
+        reason = eng.gate_verdict_mech(node, project_root=tmp_path, name="t")
+        assert reason is not None
+        assert "缺节" in reason
+        assert "证据" in reason
+
+    def test_evolution_contains_passes(self, tmp_path):
+        _write_artifact(tmp_path, "evolutions", "t", "# 经验\na\n## 落地\nb\n")
+        node = eng.get_node("evolution", 0)
         assert eng.gate_verdict_mech(node, project_root=tmp_path, name="t") is None
 
 
@@ -4097,7 +4158,7 @@ class TestRunGate:
         assert called["n"] == 0  # judge 没被调（短路）
 
     def test_mech_enforced_when_name_given(self, tmp_path, monkeypatch):
-        # §8.3：hook 传 name + project_root 后 review:0 的 ARTIFACT_EXISTS 真实生效——
+        # §8.3：hook 传 name + project_root 后 review:0 的机械门真实生效——
         # 缺 .claude/reviews/t.md -> 机械门短路 block（不调 judge）
         called = {"n": 0}
 
@@ -4410,7 +4471,7 @@ class TestSubStepPriorVerdicts:
         monkeypatch.setattr(eng, "run_judge", lambda *a, **k: (False, "缺 X 条款"))
         action, reason, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
         assert action == "block"
-        recs = [json.loads(l) for l in ev.read_text(encoding="utf-8").splitlines()]
+        recs = [json.loads(line) for line in ev.read_text(encoding="utf-8").splitlines()]
         blocked = [
             r for r in recs if r.get("kind") == "gate" and r.get("gate") == "blocked"
         ]
