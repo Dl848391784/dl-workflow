@@ -3367,12 +3367,45 @@ def _check_answer_no_reverse_inference(qa: list, *_ctx) -> str | None:
     return None
 
 
+# v2.71（2026-08-03 tail_volume u:1 子1 judge 误伤根治）：
+# 6 变体 ~70 次重放实证 judge 对 who 项最高频误判之一=把「AskUserQuestion 选中
+# 角色选项」当「仓库事实冒充身份」（V3c att2#3/clean#2）。who 出处合法性属形式
+# 要件（关键词可判），下沉机械层=append-trace 当场拒，judge 不再判 who 出处
+# （§3.5 #13 词形判据下沉机械层 + #17 形式要件机械化）。词形取真实判词逐字
+# （CLAUDE.md/git config/分支命名）；选中角色选项/未自述标注不拦（宁纵勿枉）。
+_WHO_REPO_FACT_RE = re.compile(r"CLAUDE\.md|git\s*config|分支命名|git\s*log|commit\s*历史")
+
+
+def _check_who_no_repo_fact(qa: list, *_ctx) -> str | None:
+    """who_no_repo_fact：who 项禁仓库事实冒充身份出处（u:1 子1 专属，v2.71）。
+
+    who 类出处只认用户自述（含选中角色选项）；仓库事实（CLAUDE.md/git config/
+    分支命名）只证明「仓库由谁维护」不能证明「当前提问者身份」。扫描 who 项 a
+    含仓库事实关键词即拒--把 judge 对 who 出处的裁量方差（V3c 实证选中项被当
+    仓库事实）下沉机械层零方差。选中角色选项/「未自述身份」标注不拦。
+    """
+    for item in qa:
+        q = str(item.get("q", ""))
+        if "who" not in q.lower() and "角色" not in q and "身份" not in q:
+            continue
+        a = str(item.get("a", ""))
+        if _WHO_REPO_FACT_RE.search(a):
+            return (
+                "who 项用了仓库事实（CLAUDE.md/git/分支命名）冒充提问者身份--"
+                "仓库事实只证明「仓库由谁维护」不能证明「当前提问者身份」；"
+                "who 类出处只认用户自述（含 AskUserQuestion 选中的角色选项），"
+                "无自述时如实标注「未自述身份」合法"
+            )
+    return None
+
+
 # qa 格式步的写侧机械校验注册表（Step.mech_checks 声明名 -> 检查函数）。
 # 未注册名 = nodes 与 engine 配置漂移，fail loud 不静默跳过。
 _MECH_QA_CHECKS = {
     "causal_ring_no_untested": _check_causal_ring_no_untested,
     "user_quote_channel": _check_user_quote_channel,
     "answer_no_reverse_inference": _check_answer_no_reverse_inference,
+    "who_no_repo_fact": _check_who_no_repo_fact,
     "value_no_unsourced_inference": _check_value_no_unsourced_inference,
     "fetch_report_recorded": _check_fetch_report_recorded,
     "fetch_skeleton_out": _check_fetch_skeleton_out,

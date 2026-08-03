@@ -434,9 +434,11 @@ class TestHarnessPromptOptimization:
     # ----- rubric 判据关键词回归（防 P2 清理误删判据；逐条钉死）-----
     def test_rubric_keywords_regression(self):
         s = self._steps()
-        # 子1：who 出处钉死 + 双结论制
-        assert "who 类出处只认用户自述" in s[0].gate
+        # 子1：v2.71 framing 收口--who 出处下沉 mech，gate 不再逐字"who 类出处只认
+        # 用户自述"；②偷懒「未提及」仍在 gate。who 接口钉死改查 purpose + mech
         assert "「未提及」" in s[0].gate
+        assert "角色类选项" in s[0].purpose
+        assert "who_no_repo_fact" in s[0].mech_checks
         # 子2：反同义反复 + 反稻草人
         assert "同义反复判 block" in s[1].gate
         assert "竞争假设非稻草人" in s[1].gate
@@ -5022,12 +5024,17 @@ class TestWhoSelectedRoleRule:
     def test_rule_cited_in_gate(self):
         gate = eng.get_node("understand", 1).sub_steps[0].gate
         assert gate, "understand:1 子1 无 gate"
-        assert "角色类选项" in gate, (
-            "gate 未钉死 who 选中角色选项接口（judge 侧裁量点未钉死，"
-            "att2 轮间放过又判回归）"
+        # v2.71：who 出处合法性下沉 mech（who_no_repo_fact），gate 不再判 who
+        # 出处类别--改查 mech_checks 注册 + purpose 仍含角色选项接口
+        step = eng.get_node("understand", 1).sub_steps[0]
+        assert "who_no_repo_fact" in step.mech_checks, (
+            "who 出处合法性未下沉机械层（v2.71 framing 收口：gate 不判 who 出处）"
         )
-        # 牙齿不丢：仓库事实冒充身份仍须 block
-        assert "仓库事实" in gate and "不能证明当前提问者身份" in gate
+        assert "角色类选项" in step.purpose, (
+            "purpose 未钉死 who 选中角色选项=自述（模型侧裁量点未钉死）"
+        )
+        # 牙齿不丢：仓库事实冒充身份仍须拦（mech 层）
+        assert "仓库事实" in step.purpose
 
     def test_rule_disclosed_to_model(self):
         step = eng.get_node("understand", 1).sub_steps[0]
@@ -5040,6 +5047,49 @@ class TestWhoSelectedRoleRule:
         import dl_flow_nodes as nodes
 
         assert "选中角色类选项同为自述" in nodes._STEP1_METHOD_GUIDANCE
+
+
+class TestWhoNoRepoFact:
+    """v2.71 who 仓库事实冒充身份下沉机械层（2026-08-03 judge 误伤根治）：
+    6 变体重放实证 judge 对 who 项最高频误判之一=把「AskUserQuestion 选中
+    角色选项」当「仓库事实冒充身份」。who 出处合法性属形式要件（关键词可判），
+    下沉 _check_who_no_repo_fact=append-trace 当场拒，judge 不再判 who 出处
+    （§3.5 #13 词形判据下沉机械层 + #17 形式要件机械化）。"""
+
+    def test_registered_and_declared(self):
+        assert "who_no_repo_fact" in eng._MECH_QA_CHECKS, (
+            "who_no_repo_fact 未注册 _MECH_QA_CHECKS（engine/nodes 漂移）"
+        )
+        step = eng.get_node("understand", 1).sub_steps[0]
+        assert "who_no_repo_fact" in step.mech_checks
+
+    def test_repo_fact_blocked(self):
+        fn = eng._MECH_QA_CHECKS["who_no_repo_fact"]
+        # CLAUDE.md 冒充身份出处 -> 拒
+        for bad in (
+            "项目维护者（CLAUDE.md §6 声明唯一维护者）",
+            "维护者（git config user.name=张三）",
+            "开发者（分支命名 feat/codegraph 暗示）",
+        ):
+            err = fn([{"q": "who: 你的角色？", "a": bad}])
+            assert err and "仓库事实" in err, f"应拦仓库事实冒充：{bad}"
+
+    def test_selected_role_not_blocked(self):
+        fn = eng._MECH_QA_CHECKS["who_no_repo_fact"]
+        # 选中角色选项 / 未自述标注 -> 不拦（宁纵勿枉）
+        for ok in (
+            "因子池/项目维护者（AskUserQuestion 选中）。",
+            "未自述身份（who=未自述）。",
+            "用户未自述身份（会话事实）。",
+        ):
+            assert fn([{"q": "who: 你的角色？", "a": ok}]) is None, (
+                f"不应拦合法 who 形态：{ok}"
+            )
+
+    def test_non_who_item_not_scanned(self):
+        fn = eng._MECH_QA_CHECKS["who_no_repo_fact"]
+        # 非 who 项含 CLAUDE.md（如痛点项引用项目事实）-> 不拦
+        assert fn([{"q": "pain: 后果？", "a": "T+1 持仓（CLAUDE.md 声明）"}]) is None
 
 
 class TestAtomicItemRule:
@@ -7913,8 +7963,8 @@ class TestOptionDesignRule:
     def test_rule_cited_in_gate(self):
         gate = eng.get_node("understand", 1).sub_steps[0].gate
         assert "选项设计违规" in gate, "gate 未引用 _OPTION_DESIGN_RULE"
-        # judge 判词指向钉死：禁只说「再追问」
-        assert "判词必须指向选项设计" in gate
+        # v2.71：framing 收口，"判词指向选项设计"并入通用"附改写范例"要求
+        assert "改写范例" in gate
 
     def test_rule_disclosed_to_model(self):
         step = eng.get_node("understand", 1).sub_steps[0]
