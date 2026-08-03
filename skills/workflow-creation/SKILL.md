@@ -55,7 +55,7 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
 ## 4. 不要做的事
 
 - ❌ **手改 hook 逻辑**：应直接改 `~/.dl-workflow/hooks/*.py`（git 跟踪），`git pull` 即生效，无副本同步。
-- ❌ **改 `~/.claude/` 下的 skill/commands/output-styles 副本**：真源在 `~/.dl-workflow/`，副本是 install.sh copy——改副本造成双向漂移（2026-08-02 实例：node-design.md 先改副本再回拷真源）。动手前先确认路径在 `~/.dl-workflow/` 下。
+- ❌ **改 `~/.claude/` 下的 skill/commands/output-styles 副本**：真源在 `~/.dl-workflow/`，副本是 install.sh copy——改副本造成双向漂移（2026-08-02 两实例：node-design.md 先改副本再回拷真源；rubric-design.md 改副本后 cp 回真源=**把真源领先的 v2.51 段回滚了**——副本可能落后真源（install.sh 未重跑），cp 副本→真源前必须 git diff 真源确认无损，正确顺序永远是改真源→同步副本）。动手前先确认路径在 `~/.dl-workflow/` 下。
 - ❌ **用 `-p` 验证推进**：-p 下 transcript 可能空，Stop hook 读不到 PHASE_DONE。
 - ❌ **在 user message 文本里找注入**：注入在 `hook_additional_context` attachment。
 - ❌ **用 `printf | claude` 验证交互行为**：Execution error 伪问题。

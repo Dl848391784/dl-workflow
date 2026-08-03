@@ -3,6 +3,9 @@
 > workflow-creation skill 按需参考（自 SKILL.md §3 整体迁出，节号原样保留以兼容「§3.5 #9」式交叉引用）。
 > 只在 SKILL.md 路由表命中时阅读。
 
+**harness 行为诊断禁 strings 挖 claude.exe 二进制**（2026-08-02 实证）：查「为什么 Glob 不可用」时 strings/grep 二进制找内部开关，被 auto-mode classifier 当 reconnaissance（逆向权限系统）拒——白烧一轮。正确路径 = 经验性验证（小成本 A/B 会话/改设置看行为）或文档化配置；已挖到的信息（如 searchToolsOptIn 由 CLI allowedTools 驱动）也要标注「二进制考古来源，未经验证」再用。
+
+
 ## 3. 排查方法论（systematic-debugging 适配）
 
 排查工作流问题按此顺序：
