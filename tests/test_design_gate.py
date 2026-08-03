@@ -202,3 +202,88 @@ def test_project_root_resolved_from_file_not_cwd(repo: Path, tmp_path: Path) -> 
         repo,
     )
     assert r2.returncode == 0
+
+
+# ─────────────────── v2.69 payload session_id 会话隔离 ───────────────────
+# 实证缺陷：hook 环境里 CLAUDE_SESSION_ID 从未被设置，四 hook 全塌缩
+# _fallback.log → 跨会话共享留痕（v2.67 上午 DESIGN 记录放行下午会话）。
+# 修复：session_id 从 stdin payload 取（hooks 规范公共字段），
+# transcript_path stem 双保险，env 向后兼容。
+# designs/gate-session-isolation-fix-design.md
+
+
+def _run_psid(
+    script: Path,
+    payload: dict,
+    cwd: Path,
+    payload_sid: str | None = None,
+    transcript_sid: str | None = None,
+    env_sid: str | None = None,
+) -> subprocess.CompletedProcess:
+    """模拟真实 hook 环境：会话标识走 payload，env 默认不设。"""
+    payload = dict(payload)
+    payload.setdefault("cwd", str(cwd))
+    if payload_sid is not None:
+        payload["session_id"] = payload_sid
+    if transcript_sid is not None:
+        payload["transcript_path"] = (
+            f"/home/admin/.claude/projects/x/{transcript_sid}.jsonl"
+        )
+    env = {"PATH": "/usr/bin:/usr/local/bin"}
+    if env_sid is not None:
+        env["CLAUDE_SESSION_ID"] = env_sid
+    return subprocess.run(
+        [sys.executable, str(script)],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=30,
+    )
+
+
+def _gate_psid(repo: Path, fp: str, **kw) -> subprocess.CompletedProcess:
+    return _run_psid(
+        GATE, {"tool_name": "Edit", "tool_input": {"file_path": fp}}, repo, **kw
+    )
+
+
+def _audit_psid(repo: Path, fp: str, **kw) -> None:
+    _run_psid(
+        AUDIT, {"tool_name": "Edit", "tool_input": {"file_path": fp}}, repo, **kw
+    )
+
+
+def test_payload_sid_second_file_blocked_same_session(repo: Path) -> None:
+    """payload session_id 记账（无 env）：同 sid 第 2 个源码文件阻断。"""
+    _audit_psid(repo, "a.py", payload_sid="ps1")
+    r = _gate_psid(repo, "b.py", payload_sid="ps1")
+    assert r.returncode == 2 and "designs/" in r.stderr
+
+
+def test_payload_sid_isolates_other_session(repo: Path) -> None:
+    """核心缺陷回归：ps1 的 SRC 留痕不得影响 ps2——跨会话共享=门禁失效。"""
+    _audit_psid(repo, "a.py", payload_sid="ps1")
+    r = _gate_psid(repo, "b.py", payload_sid="ps2")
+    assert r.returncode == 0 and r.stderr == ""
+
+
+def test_transcript_path_stem_as_session_id(repo: Path) -> None:
+    """payload 缺 session_id 字段时 transcript_path 文件名 stem 顶上。"""
+    _audit_psid(repo, "a.py", transcript_sid="ts1")
+    r = _gate_psid(repo, "b.py", transcript_sid="ts1")
+    assert r.returncode == 2
+
+
+def test_env_sid_backward_compatible(repo: Path) -> None:
+    """env 注入路径向后兼容（payload 无 session 字段时）。"""
+    _audit_psid(repo, "a.py", env_sid="es1")
+    r = _gate_psid(repo, "b.py", env_sid="es1")
+    assert r.returncode == 2
+
+
+def test_payload_sid_preferred_over_env(repo: Path) -> None:
+    """payload session_id 优先于 env（真源在 payload）。"""
+    _audit_psid(repo, "a.py", payload_sid="pp1", env_sid="wrong")
+    r = _gate_psid(repo, "b.py", payload_sid="pp1")
+    assert r.returncode == 2

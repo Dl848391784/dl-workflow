@@ -52,7 +52,20 @@ def _resolve_file_project_root(file_path: str, cwd: str) -> Path | None:
     return None
 
 
-def _session_id() -> str:
+def _session_id(payload: dict) -> str:
+    """会话标识（v2.69）：payload session_id（hooks 规范公共字段，真源）→
+    transcript_path 文件名 stem（双保险）→ env CLAUDE_SESSION_ID（向后兼容）
+    → "_fallback"。旧版只读 env，而 hook 环境从未注入该变量——所有会话塌缩
+    _fallback.log，历史 DESIGN 记录放行后续所有会话（2026-08-03 v2.67 漏网
+    实证，designs/gate-session-isolation-fix-design.md）。"""
+    sid = str(payload.get("session_id") or "").strip()
+    if sid:
+        return sid
+    tp = str(payload.get("transcript_path") or "").strip()
+    if tp:
+        stem = Path(tp).stem
+        if stem:
+            return stem
     sid = os.environ.get("CLAUDE_SESSION_ID", "").strip()
     return sid or "_fallback"
 
@@ -91,9 +104,9 @@ def _is_existing_source_py(file_path: str, project_root: Path) -> bool:
         return False
 
 
-def _session_edits(audit_dir: Path) -> tuple[set[str], bool]:
+def _session_edits(audit_dir: Path, payload: dict) -> tuple[set[str], bool]:
     """读本会话 audit log，返回 (已编辑的源码文件集合, 是否已写 design.md)。"""
-    log = audit_dir / f"{_session_id()}.log"
+    log = audit_dir / f"{_session_id(payload)}.log"
     srcs: set[str] = set()
     has_design = False
     if not log.exists():
@@ -137,7 +150,7 @@ def main() -> int:
         return 0  # 白名单跳过（非 .py / test / 新建文件 / check_*.py）
 
     audit_dir = project_root / ".claude" / ".design_audit"
-    srcs, has_design = _session_edits(audit_dir)
+    srcs, has_design = _session_edits(audit_dir, payload)
 
     if has_design:
         return 0  # 本会话已写 design.md -> 多文件改动已解锁

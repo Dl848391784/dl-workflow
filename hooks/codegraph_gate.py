@@ -58,8 +58,20 @@ def _resolve_project_root(payload: dict) -> Path | None:
     return None
 
 
-def _session_id() -> str:
-    """会话标识：优先环境变量，回退固定文件（仍能记录本进程序列）。"""
+def _session_id(payload: dict) -> str:
+    """会话标识（v2.69）：payload session_id（hooks 规范公共字段，真源）→
+    transcript_path 文件名 stem（双保险）→ env CLAUDE_SESSION_ID（向后兼容）
+    → "_fallback"。旧版只读 env，而 hook 环境从未注入该变量——所有会话塌缩
+    _fallback.log，历史任何查询解锁之后所有会话（
+    designs/gate-session-isolation-fix-design.md）。"""
+    sid = str(payload.get("session_id") or "").strip()
+    if sid:
+        return sid
+    tp = str(payload.get("transcript_path") or "").strip()
+    if tp:
+        stem = Path(tp).stem
+        if stem:
+            return stem
     sid = os.environ.get("CLAUDE_SESSION_ID", "").strip()
     return sid or "_fallback"
 
@@ -81,9 +93,9 @@ def _workflow_name(cwd: str) -> str | None:
     return None
 
 
-def _has_query_this_session(audit_dir: Path) -> bool:
+def _has_query_this_session(audit_dir: Path, payload: dict) -> bool:
     """本会话是否已留痕过任何 codegraph 结构查询。"""
-    log = audit_dir / f"{_session_id()}.log"
+    log = audit_dir / f"{_session_id(payload)}.log"
     if not log.exists():
         return False
     try:
@@ -203,7 +215,7 @@ def main() -> int:
     if fw:
         warns.append(fw)
 
-    if _has_query_this_session(audit_dir):
+    if _has_query_this_session(audit_dir, payload):
         # 放行：本会话已查过结构。注入影响面（若有）。
         ctx = _affected_context(file_path, project_root)
         out_parts = warns + ([ctx] if ctx else [])

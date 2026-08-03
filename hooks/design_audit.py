@@ -43,7 +43,20 @@ def _resolve_file_project_root(file_path: str, cwd: str) -> Path | None:
     return None
 
 
-def _session_id() -> str:
+def _session_id(payload: dict) -> str:
+    """会话标识（v2.69）：payload session_id（hooks 规范公共字段，真源）→
+    transcript_path 文件名 stem（双保险）→ env CLAUDE_SESSION_ID（向后兼容）
+    → "_fallback"。旧版只读 env，而 hook 环境从未注入该变量——所有会话塌缩
+    _fallback.log 跨会话共享留痕（2026-08-03 v2.67 漏网实证，
+    designs/gate-session-isolation-fix-design.md）。"""
+    sid = str(payload.get("session_id") or "").strip()
+    if sid:
+        return sid
+    tp = str(payload.get("transcript_path") or "").strip()
+    if tp:
+        stem = Path(tp).stem
+        if stem:
+            return stem
     sid = os.environ.get("CLAUDE_SESSION_ID", "").strip()
     return sid or "_fallback"
 
@@ -121,7 +134,7 @@ def main() -> int:
 
     audit_dir = project_root / ".claude" / ".design_audit"
     audit_dir.mkdir(parents=True, exist_ok=True)
-    log = audit_dir / f"{_session_id()}.log"
+    log = audit_dir / f"{_session_id(payload)}.log"
     ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
     try:
         with log.open("a", encoding="utf-8") as f:

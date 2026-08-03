@@ -58,7 +58,19 @@ def _resolve_project_root(payload: dict) -> Path | None:
     return None
 
 
-def _session_id() -> str:
+def _session_id(payload: dict) -> str:
+    """会话标识（v2.69）：payload session_id（真源）→ transcript_path 文件名
+    stem → env CLAUDE_SESSION_ID（向后兼容）→ "_fallback"。旧版只读 env 而
+    hook 环境从未注入——所有会话塌缩 _fallback.log（
+    designs/gate-session-isolation-fix-design.md）。"""
+    sid = str(payload.get("session_id") or "").strip()
+    if sid:
+        return sid
+    tp = str(payload.get("transcript_path") or "").strip()
+    if tp:
+        stem = Path(tp).stem
+        if stem:
+            return stem
     sid = os.environ.get("CLAUDE_SESSION_ID", "").strip()
     return sid or "_fallback"
 
@@ -94,7 +106,7 @@ def main() -> int:
         tail = after.split()[0] if after else ""
 
     audit_dir.mkdir(parents=True, exist_ok=True)
-    log = audit_dir / f"{_session_id()}.log"
+    log = audit_dir / f"{_session_id(payload)}.log"
     ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
     line = f"{ts}|{subcmd}|{tail}\n"
     try:

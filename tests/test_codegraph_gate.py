@@ -276,3 +276,54 @@ def test_gate_handles_non_git_cwd(tmp_path: Path) -> None:
         cwd=tmp_path,
     )
     assert r.returncode == 0
+
+
+# ─────────────────── v2.69 payload session_id 会话隔离 ───────────────────
+# 同 test_design_gate.py：CLAUDE_SESSION_ID 在 hook 环境从未设置，
+# 全塌缩 _fallback.log → 历史任何 codegraph 查询解锁之后所有会话。
+# designs/gate-session-isolation-fix-design.md
+
+
+def _run_psid(
+    script: Path,
+    payload: dict,
+    cwd: Path,
+    payload_sid: str | None = None,
+) -> subprocess.CompletedProcess:
+    """模拟真实 hook 环境：会话标识走 payload session_id，env 不设。"""
+    payload = dict(payload)
+    payload.setdefault("cwd", str(cwd))
+    if payload_sid is not None:
+        payload["session_id"] = payload_sid
+    env = {"PATH": "/usr/bin:/usr/local/bin:/home/admin/.npm-global/bin"}
+    return subprocess.run(
+        [sys.executable, str(script)],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=30,
+    )
+
+
+def _audit_psid(repo: Path, command: str, sid: str) -> None:
+    _run_psid(AUDIT, {"tool_name": "Bash", "tool_input": {"command": command}}, repo, payload_sid=sid)
+
+
+def _gate_psid(repo: Path, fp: str, sid: str) -> subprocess.CompletedProcess:
+    return _run_psid(GATE, {"tool_name": "Edit", "tool_input": {"file_path": fp}}, repo, payload_sid=sid)
+
+
+def test_payload_sid_query_unlocks_same_session(repo: Path) -> None:
+    """payload sid 记账：同 sid 查询留痕后改源码放行。"""
+    _audit_psid(repo, "codegraph callers foo", "cs1")
+    r = _gate_psid(repo, "paths.py", "cs1")
+    assert r.returncode == 0
+
+
+def test_payload_sid_query_does_not_unlock_other_session(repo: Path) -> None:
+    """核心缺陷回归：cs1 的查询留痕不得解锁 cs2——历史查询解锁所有会话
+    = H15 门禁失效（_fallback.log 塌缩实证）。"""
+    _audit_psid(repo, "codegraph callers foo", "cs1")
+    r = _gate_psid(repo, "paths.py", "cs2")
+    assert r.returncode == 2
