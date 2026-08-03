@@ -3670,7 +3670,8 @@ def scaffold_payload(project_root: Path, name: str) -> tuple[bool, str]:
         return False, f"写骨架失败：{e}"
     return True, (
         f"✓ 骨架已生成 {out}（子步骤 {cur} {step.ref}）{stale_cleaned}——"
-        "把所有「待填」换成实际内容（漏填会被占位符扫描当场拒；"
+        "先 Read 该文件再 Write/Edit（harness 写前必读，跳过会报 "
+        "read-first 错）；把所有「待填」换成实际内容（漏填会被占位符扫描当场拒；"
         "内容随便带引号/换行/代码，格式全归脚本），"
         f"然后 Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace --from-file {out}`"
     )
@@ -3937,6 +3938,7 @@ def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool
         # v2.25：返工轮正文禁全文重述（judge 读 evidence 不读正文）——在模型
         # 写正文前的决策点指路增量总结（tail_volume u:3 子4 五轮重述烧 ~3.7k out）。
         f"✓ 已落库 sub_step={cur} -> {path}（可输出 ### STEP_DONE: {cur} 并 end_turn；"
+        "载荷文件已删除——若被 block 返工须重新 append-trace --scaffold；"
         "返工轮正文只写增量总结=本轮变更条目+总数，禁全文重述——"
         "judge 读 evidence 不读正文，完整集由读回确认步呈现）",
     )

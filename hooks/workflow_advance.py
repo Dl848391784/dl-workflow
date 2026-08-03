@@ -477,9 +477,12 @@ def main() -> int:
             )
             return _block_continue(
                 f"子步骤 {judged_step} 未通过门控（第 {attempts} 次）：{reason}\n"
-                "返工：按判词补缺——优先只修判词点名的条目（Edit 载荷对应的 "
-                "qa 对/statements 项，surgical 修），禁默认全篇重写；"
-                "判词指出的是系统性模式问题时才全篇按模式改。"
+                "返工：按判词补缺——优先只修判词点名的条目（surgical 修），"
+                "禁默认全篇重写；判词指出的是系统性模式问题时才全篇按模式改。"
+                "载荷文件落库成功时已删除（防重复 append），勿直接 Edit/Write "
+                "旧路径（会报 file not exist / read-first）——返工回路=重新 "
+                "append-trace --scaffold 生成骨架 -> Read 骨架 -> 填内容"
+                "（上一轮内容照上下文填入，只改判词点名项）-> --from-file 落库。"
                 "上下文已有的原话直接引用（无需问用户），"
                 "真缺的维度才用 AskUserQuestion 补问；"
                 "完成后 append 新 trace 再 STEP_DONE。" + rework_hint

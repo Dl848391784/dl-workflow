@@ -4982,6 +4982,32 @@ class TestSolutionFreeRuleInGates:
         assert "按指向判" in step.selfcheck
 
 
+class TestPainObservabilityRule:
+    """v2.64 痛点可观察性裁量点钉死双侧化（2026-08-03
+    tail_volume_acceleration_annualized u:1 子1 两连 block 复盘）：
+    att2 痛点已含用户确认的可观察后果，judge 发明「每条列举后果都须可观察」
+    要件按前轮判词描述 block——混合后果处理规则从未写进判据文本（§3.5 #4
+    裁量留白=方差 + #23 判词与规则文本矛盾修文本）。_PAIN_OBSERVABILITY_RULE
+    单源，purpose/selfcheck（模型侧，含正面退路）与 gate（judge 侧）双侧
+    引用不回归。"""
+
+    def test_rule_cited_in_gate(self):
+        gate = eng.get_node("understand", 1).sub_steps[0].gate
+        assert gate, "understand:1 子1 无 gate"
+        assert "痛点可观察性按主痛点判" in gate, (
+            "gate 未引用 _PAIN_OBSERVABILITY_RULE（judge 侧裁量点未钉死）"
+        )
+        # 牙齿不丢：纯认知痛点仍须 block
+        assert "只有认知判断/信任陈述" in gate
+
+    def test_rule_disclosed_to_model(self):
+        step = eng.get_node("understand", 1).sub_steps[0]
+        assert "痛点可观察性按主痛点判" in step.purpose
+        # 正面退路披露（§3.5 #16：禁 prohibition-only）
+        assert "模型侧退路" in step.purpose
+        assert "可观察后果作本体" in step.selfcheck
+
+
 class TestAtomicItemRule:
     """v2.32「复合句」裁量点钉死双侧化（2026-07-31 tail_volume 审计）：
     plan:1 子5 / plan:2 子4 各三连 block + 用户强制放行——judge 按词形
