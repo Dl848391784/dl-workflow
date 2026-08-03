@@ -7810,3 +7810,81 @@ class TestCLIIntermixedArgs:
         assert rc == 0
         rc = eng.main(["fence", "t", "on", "--cwd", str(tmp_path)])
         assert rc == 0
+
+
+class TestAnswerNoReverseInference:
+    """v2.68 反推占答案位词形下沉机械层。
+
+    实证（2026-08-03 tail_volume_acceleration_annualized u:1 子1 att1）：
+    模型第 4 类没问用户，a[3] 填「三项标签反推…本项为反推项」（诚实披露
+    词形），judge 判对但白烧一轮——词形下沉机械层=秒拒+精确返工指路。
+    设计：designs/understand1-sub1-reverse-inference-option-design-design.md
+    """
+
+    def test_att1_verbatim_blocked(self):
+        # att1 a[3] 逐字（词形来源：反推/暗含/隐含）
+        qa = [
+            {
+                "q": "子1 pain 可观察后果类：9529.8% 异常持续存在，未修复时下游损害是什么？",
+                "a": "「报告被消费时数字被用于选因子决策 → 选错因子 → 选出的因子"
+                "并不是真实有效超收益」（用户隐含动作链；通过\"项目维护者自查\"+"
+                "\"排查并修代码\"+\"验证报告是否可信\"三项标签反推——选项\"排查并修"
+                "代码\"暗含\"修复了才有可信输出可被消费\"；选项\"验证报告是否可信\""
+                "暗含\"不可信状态持续影响下游决策\"。本项为反推项，不注入新事实）。",
+            }
+        ]
+        err = eng._check_answer_no_reverse_inference(qa)
+        assert err is not None and "反推" in err and "补问" in err
+
+    def test_att2_verbatim_passes_mech(self):
+        # att2 a[3] 逐字无反推词形——「包装成可观察后果」内容质量归 judge，
+        # 机械不拦（分工边界，design §2 分工边界）
+        qa = [
+            {
+                "q": "子1 pain 可观察后果类（返工补问，本轮新增）：若 9529.8% 异常不修，下游哪个环节会产生不同动作？",
+                "a": "\"报告整体可信度受损\"+\"其他因子也会被一起质疑\""
+                "（AskUserQuestion 选中标注——选项标签属会话事实级，2026-08-03 "
+                "本会话本轮）。可观察后果=其他因子被一并质疑→需一并复核→增加维护成本。",
+            }
+        ]
+        assert eng._check_answer_no_reverse_inference(qa) is None
+
+    def test_clean_selected_label_passes(self):
+        qa = [
+            {
+                "q": "子1 是谁类：用户以何身份看这个数字？",
+                "a": "\"项目维护者自查\"（AskUserQuestion 选中标注——选项标签属会话事实级）。",
+            }
+        ]
+        assert eng._check_answer_no_reverse_inference(qa) is None
+
+    def test_speculation_labeled_item_exempt(self):
+        # 「推断标推测另列」是合法形态（_STEP1_FORM_REQUIREMENTS），宁纵勿枉
+        qa = [
+            {
+                "q": "子1 补充观察：",
+                "a": "（推测另列）用户隐含的意思可能是报告整体失真，未确认。",
+            }
+        ]
+        assert eng._check_answer_no_reverse_inference(qa) is None
+
+
+class TestOptionDesignRule:
+    """v2.68 选项设计裁量点双侧钉死（att2 结构性必 block 根因）。
+
+    _OPTION_DESIGN_RULE 单源，purpose/selfcheck（模型侧）+ gate（judge 侧）
+    三处引用 + mech_checks 声明不回归（对齐 TestPainObservabilityRule 先例）。
+    """
+
+    def test_rule_cited_in_gate(self):
+        gate = eng.get_node("understand", 1).sub_steps[0].gate
+        assert "选项设计违规" in gate, "gate 未引用 _OPTION_DESIGN_RULE"
+        # judge 判词指向钉死：禁只说「再追问」
+        assert "判词必须指向选项设计" in gate
+
+    def test_rule_disclosed_to_model(self):
+        step = eng.get_node("understand", 1).sub_steps[0]
+        assert "选项设计违规" in step.purpose
+        assert "动作类" in step.purpose  # 正面范例披露（§3.5 #16 禁 prohibition-only）
+        assert "动作类" in step.selfcheck
+        assert "answer_no_reverse_inference" in step.mech_checks

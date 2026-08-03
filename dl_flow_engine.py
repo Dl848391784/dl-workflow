@@ -3338,11 +3338,41 @@ def _check_user_quote_channel(qa: list, *_ctx) -> str | None:
     return None
 
 
+def _check_answer_no_reverse_inference(qa: list, *_ctx) -> str | None:
+    """answer_no_reverse_inference：答案位禁反推（u:1 子1 专属，v2.68）。
+
+    实证（2026-08-03 tail_volume_acceleration_annualized u:1 子1 att1）：
+    模型第 4 类「可观察后果」没问用户，a 填「三项标签反推…本项为反推项」
+    （诚实披露词形），judge 依「痛点须用户确认」判 block——判对但白烧一轮
+    judge + 一轮全量上下文（钉死保 judge 判对不保模型写对，§3.5 #16；
+    一次通过率=最大杠杆）。词形下沉机械层=秒拒+精确返工指路。
+    词形取 att1 a[3] 逐字（反推/暗含/隐含，§3.5 #22 词形取真实被 block
+    载荷逐字先例）；含「推测」标注的项豁免（「推断标推测另列」是
+    _STEP1_FORM_REQUIREMENTS 的合法形态，宁纵勿枉）。att2 的「认知类答案
+    包装成可观察后果链」无反推词形、内容质量归 judge，本校验不拦（分工
+    边界，见 designs/understand1-sub1-reverse-inference-option-design-design.md）。
+    """
+    for item in qa:
+        a = str(item.get("a", ""))
+        if "推测" in a:
+            continue
+        for w in ("反推", "暗含", "隐含"):
+            if w in a:
+                return (
+                    f"答案含「{w}」= 反推占答案位——该维度必须实际 "
+                    "AskUserQuestion 补问（或引用上下文已有的用户原话），"
+                    "禁止问一部分、反推剩余；推断内容标「推测」另列可接受，"
+                    "但不能充当该维度的用户确认答案"
+                )
+    return None
+
+
 # qa 格式步的写侧机械校验注册表（Step.mech_checks 声明名 -> 检查函数）。
 # 未注册名 = nodes 与 engine 配置漂移，fail loud 不静默跳过。
 _MECH_QA_CHECKS = {
     "causal_ring_no_untested": _check_causal_ring_no_untested,
     "user_quote_channel": _check_user_quote_channel,
+    "answer_no_reverse_inference": _check_answer_no_reverse_inference,
     "value_no_unsourced_inference": _check_value_no_unsourced_inference,
     "fetch_report_recorded": _check_fetch_report_recorded,
     "fetch_skeleton_out": _check_fetch_skeleton_out,
