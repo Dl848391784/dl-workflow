@@ -5008,6 +5008,40 @@ class TestPainObservabilityRule:
         assert "可观察后果作本体" in step.selfcheck
 
 
+class TestWhoSelectedRoleRule:
+    """v2.70 who「选中角色选项算不算自述身份」接口钉死双侧化
+    （2026-08-03 tail_volume_acceleration_annualized u:1 子1 att2 复盘）：
+    who 写法（「因子池/项目维护者（AskUserQuestion 选中）」）与 att1 逐字
+    相同、att1 未判 who，att2 judge 却发明「选中选项只能证明行为/会话事实，
+    不能证明提问者身份」要件--轮间「放过又判」（§3.5 #14）+ 发明要件
+    （§3.5 #23），且按该判词 who 只剩打字自述一条路（用户全程只点选项=
+    无合法获取路径，§3.5 #7）。「选中角色选项算 who 自述」的接口两条规则
+    都未写死=裁量留白（§3.5 #4）。_USER_QUOTE_FORMS_RULE 单源扩面，
+    purpose/selfcheck（模型侧）与 gate（judge 侧）双侧引用不回归。"""
+
+    def test_rule_cited_in_gate(self):
+        gate = eng.get_node("understand", 1).sub_steps[0].gate
+        assert gate, "understand:1 子1 无 gate"
+        assert "角色类选项" in gate, (
+            "gate 未钉死 who 选中角色选项接口（judge 侧裁量点未钉死，"
+            "att2 轮间放过又判回归）"
+        )
+        # 牙齿不丢：仓库事实冒充身份仍须 block
+        assert "仓库事实" in gate and "不能证明当前提问者身份" in gate
+
+    def test_rule_disclosed_to_model(self):
+        step = eng.get_node("understand", 1).sub_steps[0]
+        assert "角色类选项" in step.purpose, (
+            "purpose 未披露 who 选中角色选项=自述（模型侧裁量点未钉死）"
+        )
+
+    def test_method_guidance_names_selected_role(self):
+        # _STEP1_METHOD_GUIDANCE 同步点名（防「只认自述」被读成「只认打字」）
+        import dl_flow_nodes as nodes
+
+        assert "选中角色类选项同为自述" in nodes._STEP1_METHOD_GUIDANCE
+
+
 class TestAtomicItemRule:
     """v2.32「复合句」裁量点钉死双侧化（2026-07-31 tail_volume 审计）：
     plan:1 子5 / plan:2 子4 各三连 block + 用户强制放行——judge 按词形
