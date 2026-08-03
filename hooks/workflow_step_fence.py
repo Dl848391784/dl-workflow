@@ -134,6 +134,13 @@ def _s15_bash_orchestration(cmd: str, ev_file: Path) -> bool:
         or "fetch-prompt" in cmd
         or "render-artifact" in cmd
         or "render-readback" in cmd
+        # v2.67：只读查询子命令——与 dl-cmd.sh status 语义等价（dl-cmd 本就
+        # 包装引擎 status），直调引擎被路径技术性 deny 白烧一轮（2026-08-03
+        # tail_volume_acceleration_annualized u:1 实证）。写状态子命令
+        # （step-pass/state-reset/fence/advance/dispute）仍只走 /dl。
+        or "status" in cmd
+        or "current" in cmd
+        or "progress" in cmd
     ):
         return True
     return re.search(r"\bcodegraph\b", cmd) is not None
@@ -377,7 +384,9 @@ def main() -> int:
                 f"本步目的：{step_obj.purpose[:150]}{'…' if len(step_obj.purpose) > 150 else ''}\n"
                 "窗口内仅编排工具可用：AskUserQuestion / Skill / Task* / Read / "
                 "Bash 只读发现（find/ls/grep/cat/head/git log 等，禁写命令）/ "
-                f"codegraph / dl-cmd / 写 evidence（append-trace 落库）{extra}。\n"
+                "codegraph / dl-cmd / 引擎只读查询（dl_flow_engine.py "
+                "status|current|progress）/ 写 evidence（append-trace 落库）"
+                f"{extra}。\n"
                 "直接回答用户、为用户任务做写操作或重型探查（WebFetch/WebSearch/Agent 等）= 违规。\n"
                 f"正确动作：按注入的子步骤清单执行子步骤 {step_no}（invoke 对应 skill / "
                 f"用 AskUserQuestion 问用户），完成后写 evidence 再输出 ### STEP_DONE: {step_no} 并 end_turn。\n"

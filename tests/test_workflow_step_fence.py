@@ -311,6 +311,36 @@ class TestS15EngagePreFence:
             )
             assert decision is None, cmd
 
+    def test_bash_engine_readonly_queries_allowed(self, wf_repo, monkeypatch, capsys):
+        # v2.67：引擎只读子命令 status/current/progress 与 dl-cmd.sh status
+        # 语义等价（dl-cmd 本就包装引擎 status），路径技术性 deny 白烧一轮
+        # ——2026-08-03 tail_volume_acceleration_annualized u:1 实证。
+        _write_state(wf_repo, sub_step=1)
+        mod = _load_hook()
+        for cmd in (
+            "python3 ~/.dl-workflow/dl_flow_engine.py status some_wf",
+            "python3 ~/.dl-workflow/dl_flow_engine.py current some_wf",
+            "python3 ~/.dl-workflow/dl_flow_engine.py progress some_wf 2>&1 | head -30",
+        ):
+            decision, _ = _run_hook(
+                mod, wf_repo, monkeypatch, capsys, "Bash", {"command": cmd}
+            )
+            assert decision is None, cmd
+
+    def test_bash_engine_mutating_still_denied(self, wf_repo, monkeypatch, capsys):
+        # 写状态子命令（step-pass/state-reset/fence）仍只走 /dl，直调引擎 deny
+        _write_state(wf_repo, sub_step=1)
+        mod = _load_hook()
+        for cmd in (
+            "python3 ~/.dl-workflow/dl_flow_engine.py step-pass some_wf",
+            "python3 ~/.dl-workflow/dl_flow_engine.py state-reset some_wf understand:1",
+            "python3 ~/.dl-workflow/dl_flow_engine.py fence some_wf off",
+        ):
+            decision, _ = _run_hook(
+                mod, wf_repo, monkeypatch, capsys, "Bash", {"command": cmd}
+            )
+            assert decision == "deny", cmd
+
     def test_write_source_denied(self, wf_repo, monkeypatch, capsys):
         # 写非 evidence 文件：S11（阶段白名单）或 S15 必有一拦
         _write_state(wf_repo, sub_step=1)

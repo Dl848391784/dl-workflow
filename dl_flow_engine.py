@@ -4314,7 +4314,12 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="fetch-prompt：骨架落盘 .claude/workflows/<name>/fetch-prompt-skeleton.md 并打印路径（替代 stdout）",
     )
-    args = parser.parse_args(argv)
+    # parse_intermixed_args（v2.67）：argparse 已知缺陷——nargs='?' 位置参数
+    # （name/value）前隔 optional 时 parse_args 报 unrecognized arguments
+    # （`append-trace --scaffold <name>` 必败，2026-08-03 tail_volume u:1 实证，
+    # 系统 deny 文案教的正是这个写法）。intermixed 下全部参数序可解析；
+    # 本 parser 无 subparsers/REMAINDER，兼容。
+    args = parser.parse_intermixed_args(argv)
 
     # meta 是静态常量,不需要 git repo / name。
     if args.cmd == "meta":

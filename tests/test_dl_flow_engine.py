@@ -7771,3 +7771,42 @@ class TestRenderArtifactDesignMd:
         _write_evidence(tmp_path, "t", [])
         ok, _ = eng.render_artifact(tmp_path, "t", "design.md", slug="x")
         assert not ok  # evidence 空 -> evidence 缺失分支
+
+
+class TestCLIIntermixedArgs:
+    """v2.67：optional 插在 cmd 与 name 之间的参数序必须可解析。
+
+    根因：argparse 已知缺陷——nargs='?' 位置参数（name/value）前隔 optional
+    时 parse_args 无法匹配（'A O A' 形态），报 unrecognized arguments。
+    2026-08-03 tail_volume_acceleration_annualized u:1 实证：模型按系统文案
+    `append-trace --scaffold` 补显式 name -> 必败。正治=parse_intermixed_args。
+    """
+
+    def test_scaffold_flag_before_name(self, tmp_path, capsys):
+        _init_git(tmp_path)
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        # 本次报错的逐字形态：optional 在 name 前
+        rc = eng.main(["append-trace", "--scaffold", "t", "--cwd", str(tmp_path)])
+        assert rc == 0
+        assert (tmp_path / ".claude" / "evidence" / ".trace-payload-t.md").exists()
+
+    def test_from_file_value_before_name(self, tmp_path, capsys):
+        _init_git(tmp_path)
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        bad = tmp_path / "bad.md"
+        bad.write_text("不是合法载荷", encoding="utf-8")
+        # 带值 optional 插在 name 前同样曾必败；解析应成功、业务校验失败(rc=1)
+        rc = eng.main(
+            ["append-trace", "--from-file", str(bad), "t", "--cwd", str(tmp_path)]
+        )
+        assert rc == 1
+        assert "unrecognized" not in capsys.readouterr().err
+
+    def test_value_commands_unaffected(self, tmp_path, capsys):
+        # dispute/state-reset/fence 的 value 业务在 intermixed 解析下不回归
+        _init_git(tmp_path)
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        rc = eng.main(["fence", "t", "off", "--cwd", str(tmp_path)])
+        assert rc == 0
+        rc = eng.main(["fence", "t", "on", "--cwd", str(tmp_path)])
+        assert rc == 0
