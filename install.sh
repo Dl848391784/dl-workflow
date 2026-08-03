@@ -91,17 +91,21 @@ if os.path.exists(settings_path):
 else:
     settings = {}
 
-# dl-workflow 用户级只注册 codegraph 门禁两个（跨项目通用）。
+# dl-workflow 用户级注册 codegraph 门禁（H15）+ design-first 门禁（跨项目通用）。
+# design_gate/design_audit：本会话改第 2 个不同 .py 源码文件前须先写
+# designs/*.md（H8 design-first 机械闸门；工作流会话跳过——有自己的 design 流程）。
 # workflow_phase / workflow_advance / workflow_step_fence 是工作流会话专属，
 # 只由 per-wf settings.json 注册（dl-lib.sh wf_write_settings）——
 # 用户级注册会让任何 cwd 落进 worktree 的会话被工作流门控接管
 #（2026-07-30 实测：主仓审计会话 cd 进 worktree 后 Stop hook 误判 engage_block）。
 DLWF_HOOKS = {
     "PreToolUse": [
-        {"matcher": "Edit|Write", "hooks": [{"type": "command", "command": f"python3 {hooks_src}/codegraph_gate.py"}]}
+        {"matcher": "Edit|Write", "hooks": [{"type": "command", "command": f"python3 {hooks_src}/codegraph_gate.py"}]},
+        {"matcher": "Edit|Write|MultiEdit", "hooks": [{"type": "command", "command": f"python3 {hooks_src}/design_gate.py"}]},
     ],
     "PostToolUse": [
-        {"matcher": "Bash", "hooks": [{"type": "command", "command": f"python3 {hooks_src}/codegraph_audit.py"}]}
+        {"matcher": "Bash", "hooks": [{"type": "command", "command": f"python3 {hooks_src}/codegraph_audit.py"}]},
+        {"matcher": "Edit|Write|MultiEdit", "hooks": [{"type": "command", "command": f"python3 {hooks_src}/design_audit.py"}]},
     ],
 }
 
