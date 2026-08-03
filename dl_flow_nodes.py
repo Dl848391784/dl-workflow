@@ -1853,19 +1853,22 @@ _NODES: dict[str, Node] = {
             ),
             Step(
                 kind="skill",
-                ref="define-problem / AskUserQuestion / Write(designs/*-design.md)",
+                ref="define-problem / AskUserQuestion / render-artifact(design.md)",
                 short="读回确认",
                 # 带证据读回（同构 ProblemContext 子6）：只给结论不给依据地「通知」
-                # 用户 = 无依据确认；design.md 装配 = 子5 设计包+裁决记录的直接
-                # 装配（禁二次创作，同 understand.md 装配原则）。
+                # 用户 = 无依据确认；design.md 装配 = render-artifact 脚本装配
+                # （v2.62，同 understand.md/plan.md）。
                 purpose=(
                     "带证据读回与产物装配：材料 = 运行 `python3 ~/.dl-workflow/dl_flow_engine.py render-readback` 机械装配逐字呈现（本节点归一化+假设/不确定性 traces，禁手抄；Bash 输出即呈现）。呈现内容 = 推荐方案+设计包+被否方案+假设清单"
                     "+不确定性；用户三裁决——①选型拍板（唯一规范裁决点，"
                     "含复活被否方案的合法权利，矩阵只是输入）；"
                     "②评估权重认可（Pugh 单人权重偏见防御）；"
                     "③假设接受（风险承担）；"
-                    "拍板后装配 designs/<主题>-design.md（H8 产物=子5 设计包+"
-                    "裁决记录的直接装配，禁二次创作）；"
+                    "拍板后装配 design.md = 运行 `python3 ~/.dl-workflow/dl_flow_engine.py "
+                    "render-artifact design.md --slug <主题>`（脚本从子5 归一化设计包"
+                    "statements+裁决 trace 机械装配，落主仓 designs/<主题>-design.md；"
+                    "slug 命名归你（kebab 简洁主题名），装配归脚本——禁手写产物文件；"
+                    "已存在拒覆盖，state-reset 重跑加 --force）；"
                     f"{_INTERACTIVE_CHUNKING_RULE}；"
                     f"{_USER_DECISION_RECORD_RULE}-> STEP_DONE。"
                 ),
@@ -1874,7 +1877,7 @@ _NODES: dict[str, Node] = {
                 selfcheck=(
                     "呈现了推荐方案+设计包+被否方案+假设清单+不确定性吗？"
                     "用户对选型/权重/假设三项裁决都记入 trace 了吗？"
-                    "design.md 是装配而非二次创作吗？"
+                    "design.md 已用 render-artifact --slug 装配了吗（禁手写产物）？"
                 ),
                 # v2.45 交接架构正确性前提：用户裁决必入 trace（gate=None 无 judge，
                 # 机械校验是唯一防线）。

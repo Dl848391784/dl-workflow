@@ -1968,8 +1968,10 @@ class TestPlan1Orchestration:
             "权重",
             "假设接受",
             "design.md",
-            "禁二次创作",
-        ):  # design.md 暂留模型装配（动态文件名），防二次创作钉字面保留
+            "render-artifact",
+            "--slug",
+            "禁手写产物",
+        ):  # v2.62 design.md 进机械装配，防二次创作由脚本结构性保证
             assert needle in s6.purpose, f"子6 purpose 缺 {needle}"
 
     def test_selfcheck_no_quality_criteria_leak(self):
@@ -7368,8 +7370,8 @@ class TestRenderArtifact:
         assert "## 执行步骤" in text and "## 能力与工具" in text
 
     def test_unsupported_basename_rejected(self, tmp_path):
-        ok, msg = eng.render_artifact(tmp_path, "t", "design.md")
-        assert not ok and "动态文件名" in msg
+        ok, msg = eng.render_artifact(tmp_path, "t", "review.md")
+        assert not ok and "不支持" in msg
 
     def test_old_format_qa_readback_items_collected(self, tmp_path):
         # q/a 平行数组形态（append-trace 实际落库形态）的裁决项也能收
@@ -7572,3 +7574,92 @@ class TestRenderReadback:
             last = node.sub_steps[-1]
             assert "render-readback" in last.purpose, f"{phase}:{sub} 末步"
             assert "禁手抄" in last.purpose, f"{phase}:{sub} 末步"
+
+
+class TestRenderArtifactDesignMd:
+    """v2.62：design.md 进 render-artifact（v2.59 遗留项清零）。
+
+    动态文件名 designs/<slug>-design.md（repo 根 designs/，非 .claude/）——
+    slug 命名留模型（--slug），装配归脚本；八键 fields 全键渲染；
+    已存在拒覆盖（--force 放行 state-reset 重跑）。
+    """
+
+    def _seed(self, tmp_path):
+        fields = {
+            k: f"{k} 值"
+            for k in (
+                "change_list",
+                "interface_sig",
+                "data_contract",
+                "callers",
+                "rejected",
+                "assumptions",
+                "acceptance_map",
+                "h9_units",
+            )
+        }
+        recs = [
+            json.dumps(
+                {
+                    "kind": "skill-trace",
+                    "minor_stage": "DesignSolution",
+                    "sub_step": 5,
+                    "statements": [
+                        {
+                            "text": "模板层删一次 *100",
+                            "type_label": "推荐",
+                            "boundary": "已证实边界 x.html:69",
+                            "fields": fields,
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            json.dumps(
+                {
+                    "kind": "skill-trace",
+                    "minor_stage": "DesignSolution",
+                    "sub_step": 6,
+                    "q": ["裁决：选型拍板"],
+                    "a": ["用户拍板推荐方案"],
+                },
+                ensure_ascii=False,
+            ),
+        ]
+        _write_evidence(tmp_path, "t", recs)
+
+    def test_design_md_full_render(self, tmp_path):
+        self._seed(tmp_path)
+        ok, msg = eng.render_artifact(tmp_path, "t", "design.md", slug="fix-double-pct")
+        assert ok, msg
+        out = tmp_path / "designs" / "fix-double-pct-design.md"
+        text = out.read_text(encoding="utf-8")
+        assert "## 设计决策" in text
+        assert "### 模板层删一次 *100（推荐）" in text
+        assert "- change_list：change_list 值" in text  # 八键全键渲染
+        assert "- h9_units：h9_units 值" in text
+        assert "## 裁决记录" in text and "用户拍板推荐方案" in text
+
+    def test_design_md_slug_required(self, tmp_path):
+        self._seed(tmp_path)
+        ok, msg = eng.render_artifact(tmp_path, "t", "design.md")
+        assert not ok and "--slug" in msg
+
+    def test_design_md_slug_traversal_rejected(self, tmp_path):
+        self._seed(tmp_path)
+        for bad in ("../escape", "a/b", ".."):
+            ok, _ = eng.render_artifact(tmp_path, "t", "design.md", slug=bad)
+            assert not ok, bad
+
+    def test_design_md_overwrite_refused_then_force(self, tmp_path):
+        self._seed(tmp_path)
+        assert eng.render_artifact(tmp_path, "t", "design.md", slug="x")[0]
+        ok, msg = eng.render_artifact(tmp_path, "t", "design.md", slug="x")
+        assert not ok and "已存在" in msg and "--force" in msg
+        ok, _ = eng.render_artifact(tmp_path, "t", "design.md", slug="x", force=True)
+        assert ok
+
+    def test_design_md_missing_evidence_rejected(self, tmp_path):
+        _write_evidence(tmp_path, "t", [])
+        ok, _ = eng.render_artifact(tmp_path, "t", "design.md", slug="x")
+        assert not ok  # evidence 空 -> evidence 缺失分支

@@ -907,7 +907,25 @@ _ARTIFACT_RENDER_SOURCES: dict[str, dict] = {
         "require_all": False,
         "out_dir": "plans",
     },
+    # v2.62：design.md 进机械装配（v2.59 遗留项清零）。动态文件名 =
+    # designs/<slug>-design.md（repo 根 designs/，非 .claude/）——slug 由
+    # 模型经 --slug 给定（命名是轻创作，留在模型侧；路径/装配归脚本）。
+    "design.md": {
+        "sections": {"设计决策": ("DesignSolution", 5)},
+        "decision_steps": (("DesignSolution", 6),),
+        "unselected_minors": (),
+        "require_all": True,
+        "out_dir": "designs",
+        # statements 带八键 fields（change_list/interface_sig/data_contract/
+        # callers/rejected/assumptions/acceptance_map/h9_units）——全键渲染，
+        # 不做简单 bullet。
+        "rich_statements": True,
+    },
 }
+
+# design.md slug 校验（--slug）：kebab/下划线/点/中文皆可，禁路径分隔与
+# 父目录引用（防写出 designs/ 外）。
+_SLUG_RE = re.compile(r"^(?!\.{1,2}$)[^/\\]{1,80}$")
 
 
 def _trace_qa_items(rec: dict) -> list[dict]:
@@ -918,19 +936,35 @@ def _trace_qa_items(rec: dict) -> list[dict]:
     ]
 
 
-def render_artifact(project_root: Path, name: str, basename: str) -> tuple[bool, str]:
+def render_artifact(
+    project_root: Path,
+    name: str,
+    basename: str,
+    slug: str | None = None,
+    force: bool = False,
+) -> tuple[bool, str]:
     """render-artifact：从 evidence 最新 trace 机械装配产物（v2.59）。
 
     返回 (ok, 消息)。源 trace 缺失时按 spec 处理（require_all=缺一节即拒；
     否则跳过该节并在输出点名）。幂等覆盖写，落主仓 .claude/<out_dir>/<name>.md。
+    v2.62：design.md 动态文件名——slug 必给（命名留模型，装配归脚本），
+    落 repo 根 designs/<slug>-design.md；已存在拒覆盖（state-reset 重跑
+    场景用 --force）。
     """
     spec = _ARTIFACT_RENDER_SOURCES.get(basename)
     if spec is None:
         return False, (
             f"render-artifact 不支持 {basename}（支持："
             + "/".join(sorted(_ARTIFACT_RENDER_SOURCES))
-            + "；design.md 动态文件名暂留模型装配）"
+            + "）"
         )
+    if basename == "design.md":
+        if not slug or not _SLUG_RE.match(slug.strip()):
+            return False, (
+                "design.md 须给合法 --slug（designs/<slug>-design.md 的文件名段，"
+                "禁路径分隔符）——命名归你，装配归脚本"
+            )
+        slug = slug.strip()
     text = read_evidence(project_root, name)
     if not text:
         return False, f"evidence 缺失——{name}.jsonl 不存在或为空"
@@ -945,7 +979,9 @@ def render_artifact(project_root: Path, name: str, basename: str) -> tuple[bool,
         latest[(rec.get("minor_stage"), rec.get("sub_step"))] = rec
 
     parts = [
-        f"# {name} · {basename}",
+        f"# {name} · {basename}"
+        if basename != "design.md"
+        else f"# {slug}-design（{name}）",
         "",
         "（render-artifact 机械装配，禁手改——改内容请改对应步 trace 后重渲染）",
         "",
@@ -960,6 +996,16 @@ def render_artifact(project_root: Path, name: str, basename: str) -> tuple[bool,
         parts.append(f"## {sec}")
         parts.append("")
         for it in stmts:
+            if spec.get("rich_statements"):
+                # v2.62 design.md：八键 fields 全键渲染（设计包逐项落档）
+                parts.append(f"### {it.get('text', '')}（{it.get('type_label', '')}）")
+                if str(it.get("boundary") or "").strip():
+                    parts.append(f"- 边界/指针：{it['boundary']}")
+                for k, v in (it.get("fields") or {}).items():
+                    if str(v).strip():
+                        parts.append(f"- {k}：{v}")
+                parts.append("")
+                continue
             extras = [str(it.get("type_label") or ""), str(it.get("boundary") or "")]
             extras += [
                 f"{k}={v}"
@@ -1001,7 +1047,15 @@ def render_artifact(project_root: Path, name: str, basename: str) -> tuple[bool,
                 parts.append(f"- 【{it['q']}】{it['a']}")
             parts.append("")
 
-    out = project_root / ".claude" / spec["out_dir"] / f"{name}.md"
+    if basename == "design.md":
+        out = project_root / "designs" / f"{slug}-design.md"
+        if out.exists() and not force:
+            return False, (
+                f"{out} 已存在——拒覆盖（防抹掉其它工作的设计稿）；"
+                "state-reset 重跑场景加 --force，或换 slug"
+            )
+    else:
+        out = project_root / ".claude" / spec["out_dir"] / f"{name}.md"
     try:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text("\n".join(parts) + "\n", encoding="utf-8")
@@ -4200,6 +4254,15 @@ def main(argv: list[str] | None = None) -> int:
         help="append-trace：生成当前子步骤 .md 载荷骨架到 evidence/.trace-payload-<name>.md 并打印路径（格式脚本管，模型只填「待填」）",
     )
     parser.add_argument(
+        "--slug",
+        help="render-artifact design.md 的文件名段（designs/<slug>-design.md）",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="render-artifact design.md：允许覆盖已存在的设计稿（state-reset 重跑场景）",
+    )
+    parser.add_argument(
         "--ingest-agent",
         metavar="TASK_ID",
         help="append-trace：把子代理 agent-<TASK_ID> 的报告原文收录进 .md 载荷 qa 节（脚本提取，禁手工粘贴）",
@@ -4299,11 +4362,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "render-artifact":
         if not args.value:
             print(
-                "✗ 用法: render-artifact [name] <understand.md|plan.md>",
+                "✗ 用法: render-artifact [name] <understand.md|plan.md|design.md>"
+                "（design.md 须 --slug <主题>）",
                 file=sys.stderr,
             )
             return 1
-        ok, msg = render_artifact(project_root, name, args.value)
+        ok, msg = render_artifact(
+            project_root, name, args.value, slug=args.slug, force=args.force
+        )
         print(msg, file=sys.stdout if ok else sys.stderr)
         return 0 if ok else 1
     if args.cmd == "render-readback":
