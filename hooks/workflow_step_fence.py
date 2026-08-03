@@ -155,7 +155,7 @@ def _s15_bash_orchestration(cmd: str, ev_file: Path) -> bool:
 # 弱遵从模型非对抗攻击，同 S11 的 Bash 盲区，接受。
 _S15_READONLY_CMD_RE = re.compile(
     r"^\s*(?:find|ls|grep|rg|cat|head|tail|wc|sort|uniq|file|stat|"
-    r"realpath|readlink|pwd|echo|tree|diff|du)\b"
+    r"realpath|readlink|pwd|echo|tree|diff|du|od|hexdump|xxd)\b"
 )
 _S15_GIT_READONLY_RE = re.compile(
     r"^\s*git\s+(?:log|show|status|diff|blame|grep|ls-files|rev-parse)\b"

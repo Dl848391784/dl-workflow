@@ -3351,7 +3351,13 @@ _MECH_QA_CHECKS = {
 }
 
 
-_MD_HEADER_RE = re.compile(r"^【([^】]+)】\s*$")
+# v2.65（2026-08-03 tail_volume_acceleration_annualized u:1 子1 手写载荷事故）：
+# 标头捕获组后放行 glued 内容——模型手写自然风格是「【purpose】内容」同行
+# （scaffold 骨架是标头独占一行，但模型绕过 scaffold 手写时本能粘头），
+# 旧 `\s*$` 整行匹配把粘头行当「标头前多余内容」拒，报错「从【purpose】开始」
+# 与文件实况（确实以【purpose】开头）矛盾，模型被误导去 hunt BOM/隐藏字节
+# （xxd/od/python-rb 连环 S15 deny）。group(2)=粘头内容（空=干净标头行）。
+_MD_HEADER_RE = re.compile(r"^【([^】]+)】[ \t]*(.*)$")
 _MD_ITEM_FIELDS = frozenset(
     {"q", "a", "text", "type_label", "boundary", "tier", "tier_reason"}
 )
@@ -3368,12 +3374,18 @@ def _parse_trace_md(raw: str, step) -> tuple[dict | None, str | None]:
     JSON 接触面——Edit 填内容时 ASCII 双引号/反斜杠照样崩 JSON（真实
     trace 含 f"{val*100:.2f}%" 类代码原文）。标记文本零转义：内容随便带
     引号/换行/代码，序列化全归脚本。
-    格式：标头独占一行（顶格）；【purpose】/【qa】/【q】/【a】/【statements】/
+    格式：标头顶格写；【purpose】/【qa】/【q】/【a】/【statements】/
     【text】/【type_label】/【boundary】/【fields.<k>】/【结论】等声明键。
     数组键（qa/statements/atomic_questions）内首个字段标头重复 = 新一项；
     标量键（purpose/结论）收文本到下一标头。内容行想以【开头：缩进一格即
     不算标头（逃生口）。
+    v2.65 宽容化（手写载荷事故正治）：①剥文件头 BOM；②标头后可粘内容
+    （「【purpose】内容」同行=标头+内容，模型手写自然风格——scaffold 骨架
+    是标头独占一行，但绕过 scaffold 手写时本能粘头，旧版误拒且报错指路
+    与实况矛盾）；③「标头前多余内容」报错带 repr 实际内容（BOM/散文一眼
+    可见，免 xxd/od 字节 hunt）。
     """
+    raw = raw.lstrip("\ufeff")  # ①剥文件头 BOM（Write/编辑器可能带 \ufeff）
     array_keys: set[str] = set()
     scalar_keys = {"purpose"}
     if getattr(step, "record_format", "qa") == "statements":
@@ -3400,7 +3412,11 @@ def _parse_trace_md(raw: str, step) -> tuple[dict | None, str | None]:
         buf = []
         if key is None:
             if val.strip():
-                raise _MdErr("首个标头前有多余内容——从【purpose】开始")
+                raise _MdErr(
+                    "首个标头前有多余内容--从【purpose】开始；"
+                    f"实际内容 {val[:80]!r}（引擎已自动剥文件头 BOM--"
+                    "检查是否在【purpose】前写了散文/注释）"
+                )
             return
         if key in array_keys:
             if item is None or field is None:
@@ -3454,6 +3470,11 @@ def _parse_trace_md(raw: str, step) -> tuple[dict | None, str | None]:
                     + " + 数组项字段【q】【a】/【text】【type_label】【boundary】"
                     "（内容行想以【开头：缩进一格即不算标头）"
                 )
+            # v2.65：粘头内容（【key】内容 同行）注入当前节首行--
+            # 模型手写自然风格粘头，scaffold 骨架是标头独占行；group(2)=粘头文本
+            glued = m.group(2)
+            if glued.strip():
+                buf.append(glued.strip())
         _flush()
     except _MdErr as e:
         return None, str(e)

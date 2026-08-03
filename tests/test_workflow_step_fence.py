@@ -426,3 +426,14 @@ class TestS15ReadonlyDiscovery:
         assert not ok("cat `which ls`")
         assert not ok("find . | tee out")
         assert not ok("echo hi; rm x")
+
+    def test_byte_viewers_allowed(self):
+        # v2.65：od/hexdump/xxd 纯只读字节查看器放行（诊断 BOM/编码；
+        # > 已被一票否决挡住写意图，python3 仍拒--能写）
+        mod = _load_hook()
+        ok = mod._s15_bash_readonly_discovery
+        assert ok("head -c 30 f.md | xxd")
+        assert ok("od -An -c f.md | head -3")
+        assert ok("hexdump -C f.md")
+        assert not ok("python3 -c 'print(1)'")
+        assert not ok("xxd -r f.md > out")  # -r 反向写但 > 已挡

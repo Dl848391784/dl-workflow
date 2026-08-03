@@ -7209,6 +7209,50 @@ class TestTraceMdParser:
         payload, err = eng._parse_trace_md(md, step)
         assert err is None and payload["qa"][0]["a"] == "【q】缩进后是内容"
 
+    def test_glued_header_content_same_line(self):
+        # v2.65：模型手写自然风格粘头（【key】内容 同行）须解析通过--
+        # tail_volume u:1 子1 手写全粘头载荷被旧 \s*$ 误拒，报错与实况矛盾
+        step = self._step("understand", 1, 0)
+        md = (
+            "【purpose】逼问问题定义\n\n"
+            "【qa】\n"
+            "【q】who--谁在问？\n"
+            "【a】未自述身份\n\n"
+            "【q】pain--痛点？\n"
+            "【a】影响选因子决策\n"
+            "【结论】①问题成立"
+        )
+        payload, err = eng._parse_trace_md(md, step)
+        assert err is None, err
+        assert payload["purpose"] == "逼问问题定义"
+        assert payload["qa"][0]["q"] == "who--谁在问？"
+        assert payload["qa"][1]["a"] == "影响选因子决策"
+        assert payload["结论"] == "①问题成立"
+
+    def test_bom_stripped(self):
+        # v2.65：文件头 BOM 自动剥（Write/编辑器可能带）--
+        # 旧版 BOM 使首行非顶格匹配，报「首个标头前有多余内容」误导字节 hunt
+        step = self._step("understand", 1, 0)
+        md = "﻿【purpose】\n逼问问题定义\n【结论】①问题成立"
+        payload, err = eng._parse_trace_md(md, step)
+        assert err is None, err
+        assert payload["purpose"] == "逼问问题定义"
+
+    def test_preamble_error_includes_repr(self):
+        # v2.65：junk 报错带 repr 实际内容（BOM/散文一眼可见，免 xxd/od hunt）
+        step = self._step("understand", 1, 0)
+        _, err = eng._parse_trace_md("这是散言\n【purpose】\np", step)
+        assert err and "首个标头" in err and "这是散言" in err
+
+    def test_clean_scaffold_still_parses(self):
+        # 向后兼容：标头独占行（scaffold 骨架格式）仍正常解析
+        step = self._step("understand", 1, 0)
+        md = "【purpose】\n逼问问题定义\n【qa】\n【q】\nQ1\n【a】\nA1\n【结论】\n①测试"
+        payload, err = eng._parse_trace_md(md, step)
+        assert err is None
+        assert payload["qa"] == [{"q": "Q1", "a": "A1"}]
+        assert payload["结论"] == "①测试"
+
 
 class TestScaffoldPayload:
     """append-trace --scaffold 载荷骨架（v2.57 起；v2.58 换 .md 标记文本）。
