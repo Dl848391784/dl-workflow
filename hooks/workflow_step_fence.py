@@ -287,13 +287,38 @@ def main() -> int:
             return _deny(
                 "evidence 落库走 append-trace（你定内容，脚本管格式/路径/结构字段）：\n"
                 "① Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace --scaffold`"
-                f" 生成载荷骨架（或手写 JSON 到 {payload_path}）\n"
+                " 生成载荷骨架（标头已就位，「待填」占位）\n"
                 "② 把骨架里的「待填」全部换成实际内容\n"
                 "③ Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace "
                 f"--from-file {payload_path}`\n"
                 "直写 evidence jsonl（含覆盖/编辑旧行）一律禁止——修正旧记录的方式是"
                 "用 append-trace 追加新行（judge 以最后一条为准）。"
             )
+
+        # v2.66：载荷文件 .trace-payload-*.md 禁手写 Write（四桶：格式 `【标头】`
+        # 归脚本）。模型绕过 --scaffold 手写粘头载荷（【purpose】内容 同行）致
+        # 解析失败 + 字节 hunt 死循环（tail_volume u:1 子1 8 报错）--正治不是
+        # 解析器宽容（那只是 defense-in-depth），是堵死旁路：scaffold 生成格式
+        # （标头独占行），模型只 Edit 「待填」填内容。Edit/MultiEdit 合法（填机制）。
+        payload_path = project_root / ".claude/evidence" / f".trace-payload-{name}.md"
+        if tool == "Write":
+            try:
+                is_payload = Path(fp).resolve() == payload_path.resolve()
+            except OSError:
+                is_payload = False
+            if is_payload:
+                _log_deny(project_root, name, "payload_raw_write_deny", f"tool={tool}")
+                return _deny(
+                    "载荷格式归脚本（四桶分工：你定内容，脚本定 `【标头】` 格式）--"
+                    "禁手写 Write 载荷文件（标头粘内容同行=手写格式，必被解析拒）：\n"
+                    "① Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace "
+                    "--scaffold` 生成载荷骨架（标头已就位，「待填」占位）\n"
+                    f"② Edit 骨架文件，把每个「待填」换成实际内容（{payload_path}）\n"
+                    "③ Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace "
+                    f"--from-file {payload_path}`\n"
+                    "返工重做同样走 --scaffold（自动清上轮残留）；标头格式全归脚本，"
+                    "你只填内容。"
+                )
 
     # ---- S11 phase 写权限围栏：写工具目标路径须在该 phase 白名单内 ----
     if tool in _WRITE_TOOLS:

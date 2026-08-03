@@ -94,7 +94,7 @@ class TestEvidenceBlockExamples:
 
     def test_good_bad_examples_present(self):
         ctx = wp._format_injection(_state(3), PROJECT_ROOT)
-        assert "骨架（推荐）" in ctx
+        assert "走 `--scaffold` 生成骨架" in ctx
         assert "✗ 反例（必 block）" in ctx
 
     def test_payload_schema_and_append_trace_command(self):

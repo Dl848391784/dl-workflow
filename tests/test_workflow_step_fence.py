@@ -258,6 +258,44 @@ class TestS15EngagePreFence:
         assert decision == "deny"
         assert "append-trace" in reason
 
+    def test_write_md_payload_denied_to_scaffold(self, wf_repo, monkeypatch, capsys):
+        # v2.66：手写 Write .md 载荷（标头粘内容=手写格式）deny，指回 --scaffold；
+        # 格式归脚本（四桶），模型只 Edit 「待填」填内容。tail_volume u:1 子1
+        # 绕过 scaffold 手写粘头载荷致解析失败+字节 hunt 死循环 8 报错。
+        _write_state(wf_repo, sub_step=1)
+        payload = wf_repo / ".claude" / "evidence" / ".trace-payload-t.md"
+        mod = _load_hook()
+        decision, reason = _run_hook(
+            mod,
+            wf_repo,
+            monkeypatch,
+            capsys,
+            "Write",
+            {"file_path": str(payload), "content": "【purpose】x\n"},
+        )
+        assert decision == "deny"
+        assert "scaffold" in reason
+
+    def test_edit_md_payload_allowed(self, wf_repo, monkeypatch, capsys):
+        # v2.66：Edit 载荷（填「待填」）合法放行——scaffold 生成骨架后模型只
+        # Edit 填内容，这是唯一合法的载荷修改方式。
+        _write_state(wf_repo, sub_step=1)
+        payload = wf_repo / ".claude" / "evidence" / ".trace-payload-t.md"
+        mod = _load_hook()
+        decision, _ = _run_hook(
+            mod,
+            wf_repo,
+            monkeypatch,
+            capsys,
+            "Edit",
+            {
+                "file_path": str(payload),
+                "old_string": "待填",
+                "new_string": "内容",
+            },
+        )
+        assert decision is None
+
     def test_bash_append_trace_allowed(self, wf_repo, monkeypatch, capsys):
         # v2.14：零 trace 窗口内 append-trace / redteam-prompt 属编排命令
         # v2.38：fetch-prompt 同列（子3 取证子代理 prompt 组装）

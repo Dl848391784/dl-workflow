@@ -2720,10 +2720,10 @@ def payload_format_hint(step) -> list[str]:
     """
     head = [
         "   载荷 = 分节标记文本（.md，零转义——内容随便带引号/换行/代码，"
-        "格式全归脚本；标头独占一行顶格写）：",
-        "   骨架（推荐）：`python3 ~/.dl-workflow/dl_flow_engine.py append-trace "
-        "--scaffold` 生成 .md 骨架，把所有「待填」换成内容后 "
-        "append-trace --from-file <骨架路径>",
+        "格式全归脚本）：",
+        "   走 `--scaffold` 生成骨架（禁手写 Write 载荷文件——围栏 deny；"
+        "标头格式脚本管）→ Edit 把每个「待填」换成内容 → append-trace "
+        "--from-file <骨架路径>",
     ]
     if getattr(step, "record_format", "qa") == "statements":
         req = getattr(step, "statement_fields", ()) or ()
