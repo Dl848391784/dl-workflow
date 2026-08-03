@@ -3590,7 +3590,8 @@ def scaffold_payload(project_root: Path, name: str) -> tuple[bool, str]:
     标记文本让模型全程零接触序列化格式。占位符统一用「待填」——
     _placeholder_hit 全局扫描兜底，漏填任何字段都过不了 append-trace。
     落盘路径钉死 evidence/.trace-payload-<name>.md（v2.42 同款纪律：路径
-    归脚本不归模型自选）；已存在载荷拒覆盖（防抹掉在写工作）。
+    归脚本不归模型自选）；已存在载荷拒覆盖（防抹掉在写工作）——例外：
+    mtime < state.created_at 判为上轮残留，自动清理（v2.63，见函数体注释）。
     """
     state = load_state(project_root, name)
     if state is None:
@@ -3639,18 +3640,36 @@ def scaffold_payload(project_root: Path, name: str) -> tuple[bool, str]:
             parts.append(f"【{k}】\n待填：{'/'.join(spec)} 开头+逐句出处")
 
     out = _evidence_path(project_root, name).parent / f".trace-payload-{name}.md"
+    stale_cleaned = ""
     if out.exists():
-        return False, (
-            f"载荷已存在：{out}——直接在它上面填内容（Edit），或删除后重跑 "
-            "--scaffold（拒覆盖防抹掉在写工作）"
-        )
+        # v2.63（2026-08-03 tail_volume_acceleration_annualized u:1 子1 事故）：
+        # 上轮放弃运行的 payload 点文件残留挡住新一轮首个 --scaffold（手动清
+        # evidence 用 ls 看不见点文件；launch/state-reset 均不清 payload）。
+        # 机械判 stale：payload mtime < state.created_at ⇒ 它诞生时本轮还
+        # 不存在 ⇒ 定义性残留，自动清理重新生成；否则可能是本轮在写工作 ⇒
+        # 维持拒覆盖。created_at 缺失/畸形 ⇒ 宁纵勿枉维持拒覆盖（不误删）。
+        stale = False
+        created = state.get("created_at")
+        if isinstance(created, str):
+            try:
+                created_ts = time.mktime(time.strptime(created, "%Y-%m-%dT%H:%M:%S"))
+                stale = out.stat().st_mtime < created_ts
+            except (ValueError, OSError):
+                pass
+        if not stale:
+            return False, (
+                f"载荷已存在：{out}——直接在它上面填内容（Edit），或删除后重跑 "
+                "--scaffold（拒覆盖防抹掉在写工作）"
+            )
+        out.unlink()
+        stale_cleaned = f"（已自动清理上轮残留载荷：mtime 早于本工作流启动 {created}）"
     try:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text("\n\n".join(parts) + "\n", encoding="utf-8")
     except OSError as e:
         return False, f"写骨架失败：{e}"
     return True, (
-        f"✓ 骨架已生成 {out}（子步骤 {cur} {step.ref}）——"
+        f"✓ 骨架已生成 {out}（子步骤 {cur} {step.ref}）{stale_cleaned}——"
         "把所有「待填」换成实际内容（漏填会被占位符扫描当场拒；"
         "内容随便带引号/换行/代码，格式全归脚本），"
         f"然后 Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace --from-file {out}`"

@@ -7231,6 +7231,44 @@ class TestScaffoldPayload:
         assert not ok and "已存在" in msg
         assert "在写工作" in out.read_text(encoding="utf-8")
 
+    @staticmethod
+    def _patch_created_at(tmp_path, name, created_at):
+        p = tmp_path / ".claude" / "workflows" / name / "state.json"
+        st = json.loads(p.read_text(encoding="utf-8"))
+        st["created_at"] = created_at
+        p.write_text(json.dumps(st), encoding="utf-8")
+
+    def test_scaffold_autocleans_stale_payload_from_previous_run(self, tmp_path):
+        # v2.63（2026-08-03 tail_volume_acceleration_annualized u:1 子1 事故）：
+        # 上轮放弃运行的 payload 点文件残留（手动清 evidence 漏点文件，launch
+        # 不清 payload）挡住新一轮首个 --scaffold。机械判 stale：payload
+        # mtime < state.created_at ⇒ 它诞生时本轮还不存在 ⇒ 定义性残留，
+        # 自动清理重新生成，不拒。
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        self._patch_created_at(tmp_path, "t", "2099-01-01T00:00:00")
+        out = tmp_path / ".claude" / "evidence" / ".trace-payload-t.md"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text("【purpose】\n上轮残留\n", encoding="utf-8")
+        ok, msg = eng.scaffold_payload(tmp_path, "t")
+        assert ok, msg
+        assert "残留" in msg
+        text = out.read_text(encoding="utf-8")
+        assert "上轮残留" not in text and "待填" in text
+
+    def test_scaffold_refuses_fresh_payload_within_run(self, tmp_path):
+        # mtime >= created_at ⇒ 可能是本轮在写工作 ⇒ 维持拒覆盖（防抹掉）。
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        self._patch_created_at(tmp_path, "t", "2000-01-01T00:00:00")
+        out = tmp_path / ".claude" / "evidence" / ".trace-payload-t.md"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text("【purpose】\n在写工作\n", encoding="utf-8")
+        ok, msg = eng.scaffold_payload(tmp_path, "t")
+        assert not ok and "已存在" in msg
+        assert "在写工作" in out.read_text(encoding="utf-8")
+
+    # created_at 缺失/畸形 ⇒ 宁纵勿枉维持拒覆盖（不误删）：由现有
+    # test_scaffold_refuses_overwrite 覆盖（fixture created_at="x" 不可解析）。
+
     def test_scaffold_unfilled_rejected_by_placeholder_scan(self, tmp_path):
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
         ok, _ = eng.scaffold_payload(tmp_path, "t")
