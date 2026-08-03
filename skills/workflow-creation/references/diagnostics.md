@@ -352,3 +352,17 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 - **常见根因**：复合命令（pipe/`2>&1`）破坏 per-wf allowlist 前缀匹配 → 落到权限提示/裁决端点，用户不在键盘前即挂（tail_volume 2026-07-29 step-pass `| tail -10` 挂 28min + 317k TTL 击穿实例）。
 - **已修**：dl-cmd 裸跑禁管道钉进 escalate 消息 + phase-rules（v2.32，commit e288668）。复发先看该命令形态是否复合 + per-wf settings.json mtime 是否旧版（resume 不刷新 settings）。
 
+### 症状 T：按系统文案指路操作仍报错（文案命令模板必败）
+
+- **特征**：模型严格按 deny 指路/报错提示/usage 里的命令模板操作，仍报错（如 `unrecognized arguments`）。模型操作语义合法，零产出。
+- **根因**：文案里的命令模板与实际解析器/工具漂移（2026-08-03 v2.67 实例：S14 deny 文案教 `append-trace --scaffold`，模型补显式 name → 撞 argparse `nargs='?'` 位置参数前隔 optional 的已知缺陷）。
+- **排查**：逐字重放文案里的命令模板（含模型合理的补全形态，如补显式 name）——模板必败=系统 bug，修解析器（v2.67=parse_intermixed_args）不是修模型。同类变体：**路径技术性 deny**——语义等价的合法操作只放行一条路径（S15 只放行 `dl-cmd.sh status` 不放行引擎直调 status），白名单按语义等价放宽只读操作。
+- **沉淀**：rubric §3.5 #26（可见面命令模板必须真实可跑）。
+
+### 症状 U：门禁该拦没拦 / 闸门形同虚设
+
+- **特征**：gate hook 应在某次编辑/操作阻断却没拦（如 design_gate 应拦「无 design.md 改第 2 个源码文件」却放行）。
+- **根因**（2026-08-03 v2.69 实例）：四个 gate/audit hook 的会话标识只读 env `CLAUDE_SESSION_ID`，而 hook 环境从未注入 → 所有会话塌缩 `_fallback.log` → 历史留痕跨会话生效（上午的 DESIGN 记录放行下午；历史 codegraph 查询解锁之后所有会话）。
+- **排查**：看 audit 目录（`<repo>/.claude/.design_audit/`、`.cg_audit/`）——只有 `_fallback.log` = 会话标识源失效；有多个 `<sid>.log` = 正常。再对时间线：留痕记录的时间戳是否属于本会话。
+- **已修**：`_session_id(payload)` 三源（payload session_id → transcript_path stem → env → _fallback），v2.69。复发先看 audit log 文件名分布；测试复现注意**别注入现实里不存在的 env**（rubric §3.6 #13 测试替身失真）。
+
