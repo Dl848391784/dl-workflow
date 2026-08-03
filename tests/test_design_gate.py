@@ -158,3 +158,47 @@ def test_audit_logs_src_and_design(repo: Path) -> None:
     assert "|SRC|a.py" in text
     assert "|DESIGN|designs/x.md" in text
     assert "README" not in text
+
+
+def test_project_root_resolved_from_file_not_cwd(repo: Path, tmp_path: Path) -> None:
+    """file-based 项目根（2026-08-03 用户决议：dl-workflow repo 本身要拦，
+    design.md 落 dl-workflow/designs/）：从 repo(主项目) 的 cwd 改 repo2 的文件，
+    留痕/判断都须在 repo2——用 repo 的 designs/ 是串号。"""
+    repo2 = tmp_path / "repo2"
+    repo2.mkdir()
+    _init_git_repo(repo2)
+    (repo2 / "x.py").write_text("x = 1\n")
+    (repo2 / "y.py").write_text("y = 1\n")
+    (repo2 / "designs").mkdir()
+    sid = "s_filebased"
+    # cwd=repo（主项目），但改的是 repo2 的文件（绝对路径）
+    _run(
+        AUDIT,
+        {"tool_name": "Edit", "tool_input": {"file_path": str(repo2 / "x.py")}},
+        sid,
+        repo,
+    )
+    r = _run(
+        GATE,
+        {"tool_name": "Edit", "tool_input": {"file_path": str(repo2 / "y.py")}},
+        sid,
+        repo,
+    )
+    assert r.returncode == 2  # repo2 第 2 个源码文件，repo2 无 design.md
+    # 写 repo2 的 design.md 解锁
+    _run(
+        AUDIT,
+        {
+            "tool_name": "Write",
+            "tool_input": {"file_path": str(repo2 / "designs" / "t.md")},
+        },
+        sid,
+        repo,
+    )
+    r2 = _run(
+        GATE,
+        {"tool_name": "Edit", "tool_input": {"file_path": str(repo2 / "y.py")}},
+        sid,
+        repo,
+    )
+    assert r2.returncode == 0

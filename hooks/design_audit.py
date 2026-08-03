@@ -21,19 +21,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-def _resolve_project_root(payload: dict) -> Path | None:
-    """从 hook payload 的 cwd（或进程 cwd）反查 git 项目根。"""
-    cwd = ""
-    for key in ("cwd", "working_dir", "current_dir"):
-        val = payload.get(key)
-        if isinstance(val, str) and val:
-            cwd = val
-            break
-    if not cwd:
-        cwd = str(Path.cwd())
+def _resolve_file_project_root(file_path: str, cwd: str) -> Path | None:
+    """从**被编辑文件**的目录反查 git 项目根（不是会话 cwd）——audit 与 gate 必须
+    同一 project_root，否则留痕落主项目、判断读 dl-workflow（或反之）串号。
+    相对路径先对会话 cwd 解析（真实文件在 cwd/<rel>）。"""
+    p = Path(file_path)
+    if not p.is_absolute():
+        p = Path(cwd) / p
+    d = p if p.is_dir() else p.parent
     try:
         res = subprocess.run(
-            ["git", "-C", cwd, "rev-parse", "--show-toplevel"],
+            ["git", "-C", str(d), "rev-parse", "--show-toplevel"],
             capture_output=True,
             text=True,
             timeout=5,
@@ -109,7 +107,7 @@ def main() -> int:
     if _workflow_name(_payload_cwd(payload)) is not None:
         return 0
 
-    project_root = _resolve_project_root(payload)
+    project_root = _resolve_file_project_root(file_path, _payload_cwd(payload))
     if project_root is None:
         return 0
 

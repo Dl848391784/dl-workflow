@@ -64,6 +64,23 @@ def _session_id() -> str:
     return sid or "_fallback"
 
 
+def _payload_cwd(payload: dict) -> str:
+    for key in ("cwd", "working_dir", "current_dir"):
+        val = payload.get(key)
+        if isinstance(val, str) and val:
+            return val
+    return str(Path.cwd())
+
+
+def _workflow_name(cwd: str) -> str | None:
+    """worktree 路径含 .claude/worktrees/<name> -> name；否则 None。"""
+    parts = Path(cwd).parts
+    for i, p in enumerate(parts):
+        if p == "worktrees" and i + 1 < len(parts):
+            return parts[i + 1]
+    return None
+
+
 def _has_query_this_session(audit_dir: Path) -> bool:
     """本会话是否已留痕过任何 codegraph 结构查询。"""
     log = audit_dir / f"{_session_id()}.log"
@@ -162,6 +179,13 @@ def main() -> int:
 
     file_path = (payload.get("tool_input") or {}).get("file_path", "")
     if not file_path:
+        return 0
+
+    # 工作流会话（dl <name> worktree）跳过（2026-08-03 用户决议：codegraph 和
+    # design_gate 对 worktree 都不拦）——worktree 内 .codegraph db 不存在，
+    # 无法跑查询解锁=死锁隐患；工作流的 codegraph 纪律由 plan:1 新鲜度前置
+    # 自理，门禁在此冗余。
+    if _workflow_name(_payload_cwd(payload)) is not None:
         return 0
 
     project_root = _resolve_project_root(payload)

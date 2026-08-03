@@ -119,6 +119,21 @@ def test_skip_test_file(repo: Path) -> None:
     assert r.returncode == 0
 
 
+def test_skip_workflow_worktree(repo: Path) -> None:
+    """工作流会话（cwd 在 .claude/worktrees/<name>）跳过——2026-08-03 用户决议：
+    codegraph 对 worktree 不拦（worktree 内 .codegraph db 不存在=无法解锁=死锁
+    隐患；工作流的 codegraph 纪律由 plan:1 新鲜度前置自理）。"""
+    wt = repo / ".claude" / "worktrees" / "wf1"
+    wt.mkdir(parents=True)
+    r = _run(
+        GATE,
+        {"tool_name": "Edit", "tool_input": {"file_path": "paths.py"}},
+        "t_wt",
+        cwd=wt,
+    )
+    assert r.returncode == 0 and r.stderr == ""
+
+
 # ─────────────────── 阻断（零查询） ───────────────────
 
 
