@@ -1831,7 +1831,9 @@ class TestUnderstand4Orchestration:
             "证据形式",
         ):
             assert needle in s3.purpose, f"子3 purpose 缺 {needle}"
-        for needle in ("sub_step==3", "编造", "事后验证未标注"):
+        # v2.97 framing 反转（u4-sub3-gate-framing-design.md）：「编造」黑盒词撤出，
+        # pin 改钉方框一压缩条款（钉死意图不丢，#30 ①）
+        for needle in ("sub_step==3", "手段声称存在无工具出处", "事后验证未标注"):
             assert needle in s3.gate, f"子3 gate 缺 {needle}"
 
     def test_step4_normalization(self):
@@ -1940,8 +1942,14 @@ class TestPlan1Orchestration:
         assert s1.fence_allow == ("Bash",)  # S15：codegraph/新鲜度/数据契约核实
         for needle in ("现状地图四要素", "新鲜度", "file:line", "接地"):
             assert needle in s1.purpose, f"子1 purpose 缺 {needle}"
-        for needle in ("sub_step==1", "编造", "漫游", "训练记忆"):
+        # v2.99 framing 反转（designs/p1-sub1-gate-framing-design.md）：
+        # 「编造」黑盒词撤出，pin 改钉方框压缩条款（钉死意图不丢，#30 ①）；
+        # 存在性真值归子3 的判材边界须钉死（㉚② 跨阶段变体）。
+        for needle in ("sub_step==1", "内部矛盾", "漫游", "判材边界", "归 plan:1 子3"):
             assert needle in s1.gate, f"子1 gate 缺 {needle}"
+        assert s1.mech_checks == ("terrain_tool_trace",), (
+            "子1 缺 terrain_tool_trace mech（v2.99 留痕投影下沉，design §3）"
+        )
 
     def test_step2_diverge_dual_conclusion(self):
         s2 = self._steps()[1]
@@ -3652,6 +3660,16 @@ class TestJudgeFramingDualMode:
         assert "默认 pass" in s2[3].gate, "u:2#4 gate 缺「默认 pass」framing 标记"
         s3 = nodes._NODES["understand:3"].sub_steps
         assert "默认 pass" in s3[0].gate, "u:3#1 gate 缺「默认 pass」framing 标记"
+        assert "默认 pass" in s3[1].gate, "u:3#2 gate 缺「默认 pass」framing 标记"
+        assert "默认 pass" in s3[2].gate, "u:3#3 gate 缺「默认 pass」framing 标记"
+        assert "默认 pass" in s3[3].gate, "u:3#4 gate 缺「默认 pass」framing 标记"
+        s4 = nodes._NODES["understand:4"].sub_steps
+        assert "默认 pass" in s4[0].gate, "u:4#1 gate 缺「默认 pass」framing 标记"
+        assert "默认 pass" in s4[2].gate, "u:4#3 gate 缺「默认 pass」framing 标记"
+        assert "默认 pass" in s4[3].gate, "u:4#4 gate 缺「默认 pass」framing 标记"
+        p1 = nodes._NODES["plan:1"].sub_steps
+        assert "默认 pass" in p1[0].gate, "plan:1#1 gate 缺「默认 pass」framing 标记"
+        assert "默认 pass" in p1[1].gate, "plan:1#2 gate 缺「默认 pass」framing 标记"
 
 
 class TestEmptyBlockReasonRetry:
@@ -5098,14 +5116,13 @@ class TestSolutionFreeRuleInGates:
     §3.5 #4 判据留白=方差）。本测试钉死双侧引用不回归。"""
 
     # v2.23 同构族原 5 步：understand:2 子2/子4、understand:3 子4、understand:4 子1/子4。
-    # v2.88 起 u:2 子4 撤出逐字引用族（见 test_u2_sub4_refined_rule_pin）：
-    # 逐字规则列「管线名」为禁用与方框四「口径限定词合法」直接矛盾（#23 修文本不站队，
-    # designs/u2-sub4-gate-framing-design.md §1.1 聚类 1）。
+    # v2.88 起 u:2 子4、v2.92 起 u:3 子4、v2.93 起 u:4 子1、v2.97 起 u:4 子4 撤出逐字引用族
+    # （见 test_u2_sub4_refined_rule_pin / test_u3_sub4_refined_rule_pin /
+    # test_u4_sub1_refined_rule_pin / test_u4_sub4_refined_rule_pin）：逐字规则列
+    # 「管线名/字段名」为禁用与各节点「口径限定词合法」直接矛盾（#23 修文本不站队，
+    # designs/u4-sub1-gate-framing-design.md §1.1 聚类 1）。
     _FIVE_STEPS = [
         ("understand", 2, 2),
-        ("understand", 3, 4),
-        ("understand", 4, 1),
-        ("understand", 4, 4),
     ]
 
     def test_subject_rule_cited_in_all_five_gates(self):
@@ -5126,6 +5143,54 @@ class TestSolutionFreeRuleInGates:
         )
         assert "数据口径限定词" in gate, (
             "u:2 子4 gate 方框四缺口径限定词合法形态（#23 矛盾复现：管线名误伤族）"
+        )
+
+    def test_u3_sub4_refined_rule_pin(self):
+        # v2.92：u:3 子4 judge 侧裁量点钉死改用精化版（方框四）——钉死意图不丢，
+        # 禁回潮成黑盒判词「含方案名词判 block」
+        gate = eng.get_node("understand", 3).sub_steps[3].gate
+        assert "方案动作残留" in gate and "实现机制名词" in gate, (
+            "u:3 子4 gate 方框四精化钉死缺失（judge 侧裁量点回潮黑盒）"
+        )
+        assert "数据口径限定词" in gate, (
+            "u:3 子4 gate 方框四缺口径限定词合法形态（#23 矛盾复现：管线名误伤族）"
+        )
+        assert "不得因 boundary 有任何实现细节而判 block" in gate, (
+            "u:3 子4 gate 方框四缺 boundary 硬排除（boundary 实现指针误伤族）"
+        )
+
+    def test_u4_sub1_refined_rule_pin(self):
+        # v2.93：u:4 子1 judge 侧裁量点钉死改用精化版（方框四）——钉死意图不丢，
+        # 禁回潮成黑盒判词「含方案名词判 block」。基线 clean 6/6 全轮主引
+        # 「default 管线=实现侧名词」误伤（designs/u4-sub1-gate-framing-design.md
+        # §1.1 聚类 1）：逐字规则列「管线名/字段名」为禁用，与 must 目标自带的
+        # 已确认口径限定词必然入候选主语直接矛盾。
+        gate = eng.get_node("understand", 4).sub_steps[0].gate
+        assert "solutioneering 残留" in gate and "项目源码构件标识" in gate, (
+            "u:4 子1 gate 方框四精化钉死缺失（judge 侧裁量点回潮黑盒）"
+        )
+        assert "数据口径限定词与交付载体不是实现侧名词" in gate, (
+            "u:4 子1 gate 方框四缺口径限定词合法形态（#23 矛盾复现：管线名误伤族）"
+        )
+        assert "指向项目源码里的某个构件" in gate, (
+            "u:4 子1 gate 方框四缺判别线（源码构件 vs 用户可见口径）"
+        )
+
+    def test_u4_sub4_refined_rule_pin(self):
+        # v2.97：u:4 子4 judge 侧裁量点钉死改用精化版（方框四）--钉死意图不丢，
+        # 禁回潮成黑盒判词「含方案名词判 block」。基线 clean 6/6 全轮主引
+        # 「default 管线/报告/因子明细=实现侧名词」「打开/读出=实现动词」误伤
+        # （designs/u4-sub4-gate-framing-design.md §1.1 聚类 1/4）：逐字规则列
+        # 「管线名/字段名」为禁用与 must 目标自带口径限定词必然入 text 矛盾。
+        gate = eng.get_node("understand", 4).sub_steps[3].gate
+        assert "方案动作残留" in gate and "项目源码构件标识" in gate, (
+            "u:4 子4 gate 方框四精化钉死缺失（judge 侧裁量点回潮黑盒）"
+        )
+        assert "验收事件描述性动词" in gate, (
+            "u:4 子4 gate 方框四缺验收事件动词合法形态（验收行为 vs 代码实现动作误伤族）"
+        )
+        assert "不得因 boundary 有任何实现细节而判 block" in gate, (
+            "u:4 子4 gate 方框四缺 boundary 硬排除（boundary 实现指针误伤族）"
         )
 
     def test_scope_verb_rule_in_understand3_sub4_gate(self):
@@ -6441,6 +6506,121 @@ class TestV237FirstPassRate:
         assert (
             eng._check_baseline_tool_trace(
                 [{"q": "G1当前可量化基线是什么？", "a": "当前效率不高，改进后更快。"}]
+            )
+            is None
+        )
+
+    # ---- u:3 子2 framing 反转配套 mech（v2.92，已验证项工具留痕扫描，
+    # designs/u3-sub2-gate-framing-design.md）----
+
+    def test_u3s2_constraint_no_tool_trace_blocked(self):
+        # vio1/vio3 形态：已验证项无工具动词（裸结论 / 通常-一般来说训练记忆）--
+        # 生产墙零方差当场拒
+        qa1 = [
+            {
+                "q": "C2.1/C2.2 如何处置？",
+                "a": "C2.1 已验证：报告 IC 字段口径为 ic_mean。"
+                "C2.2 已验证：报告数据日期满足口径。",
+            }
+        ]
+        err = eng._check_constraint_verification_tool_trace(qa1)
+        assert err and "工具留痕" in err and "编造" in err
+        qa3 = [
+            {
+                "q": "C1.1/C1.2 如何处置？",
+                "a": "C1.1 已验证：通常这类项目都用 paths.py 管理路径。"
+                "C1.2 已验证：一般来说 web_ui 都是只读的。",
+            }
+        ]
+        err3 = eng._check_constraint_verification_tool_trace(qa3)
+        assert err3 and "工具留痕" in err3
+
+    def test_u3s2_constraint_tool_trace_pass_forms(self):
+        # 合法形态全过：Read 原文 / Bash 实测 / AskUserQuestion 原话
+        pass_forms = [
+            "C1.1 已验证：Read CLAUDE.md §5 原文「H7：路径只能 from paths import」。",
+            "C2.1 已验证：Bash 实测 `python3 -c import pyarrow` 输出 True。",
+            "C4.1 已验证：AskUserQuestion 选中原话'没有时间压力'。",
+        ]
+        for form in pass_forms:
+            qa = [{"q": "处置？", "a": form}]
+            assert eng._check_constraint_verification_tool_trace(qa) is None, form
+
+    def test_u3s2_constraint_skip_rules(self):
+        # 宁纵勿枉：假设/证伪项不扫（假设本不要求工具留痕）；汇总「八条已验证」跳过
+        assert (
+            eng._check_constraint_verification_tool_trace(
+                [
+                    {
+                        "q": "推测项如何处置？",
+                        "a": "假设：标「假设·置信度:中·错误时影响:…」留子5。",
+                    }
+                ]
+            )
+            is None
+        )
+        assert (
+            eng._check_constraint_verification_tool_trace(
+                [
+                    {
+                        "q": "三态处置有无遗漏？",
+                        "a": "三态处置无遗漏：C1.1-C4.2 八条已验证、推测项一条假设。",
+                    }
+                ]
+            )
+            is None
+        )
+
+    # ---- plan:1 子1 framing 反转配套 mech（v2.99，现状勘察符号引用工具留痕扫描，
+    # designs/p1-sub1-gate-framing-design.md §3）----
+
+    def test_p1s1_terrain_tool_trace_block_forms(self):
+        # vio1/vio2 形态：裸符号引用（.py/函数名）无 file:line 无工具动词 = 生产墙当场拒
+        qa1 = [
+            {
+                "q": "②可复用点如何？",
+                "a": "一般这类项目都有 utils.py 放通用统计函数。",
+            }
+        ]
+        err = eng._check_terrain_tool_trace(qa1)
+        assert err and "工具留痕" in err
+        qa2 = [
+            {
+                "q": "①涉及模块如何？",
+                "a": "已有现成实现在 summary/report/ic_stats.py 的 count_positive_ic() 函数。",
+            }
+        ]
+        err2 = eng._check_terrain_tool_trace(qa2)
+        assert err2 and "工具留痕" in err2
+
+    def test_p1s1_terrain_tool_trace_pass_forms(self):
+        # 合法形态全过：file:line 定位（形式要件 or 分支）/ codegraph / Bash / Read
+        pass_forms = [
+            "报告 IC 区块生成在 summary/report/sections.py:32 _generate_ic_section。",
+            "codegraph 输出 function _generate_ic_section summary/report/sections.py:32。",
+            "Bash 实测 `python3 -c import pyarrow` 输出 True。",
+            "IC 结果路径 paths.py:75 FACTOR_IC_RESULT（Read paths.py 72-79 原文确认）。",
+        ]
+        for form in pass_forms:
+            qa = [{"q": "勘察？", "a": form}]
+            assert eng._check_terrain_tool_trace(qa) is None, form
+
+    def test_p1s1_terrain_skip_rules(self):
+        # 宁纵勿枉：未知标注不扫；无符号引用不扫
+        assert (
+            eng._check_terrain_tool_trace(
+                [
+                    {
+                        "q": "勘察不到？",
+                        "a": "**未知**：_generate_ic_section 内过滤逻辑 codegraph 无法给出。",
+                    }
+                ]
+            )
+            is None
+        )
+        assert (
+            eng._check_terrain_tool_trace(
+                [{"q": "范围？", "a": "只勘察报告展示链路，未勘察因子计算。"}]
             )
             is None
         )

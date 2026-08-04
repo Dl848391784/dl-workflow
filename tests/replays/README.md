@@ -14,6 +14,7 @@ python3 tests/replays/replay_u1_sub2.py
 python3 tests/replays/replay_u1_sub3.py
 python3 tests/replays/replay_u2_sub1.py
 python3 tests/replays/replay_u2_sub3.py
+python3 tests/replays/replay_p1_sub1.py
 ```
 
 - `N` = 每载荷重放次数，默认 6（n=4 全对是载荷巧合假象，§3.5 #28）。
@@ -42,3 +43,11 @@ python3 tests/replays/replay_u2_sub3.py
 | replay_u2_sub3.py | understand:2 子3 价值论证 | clean / vio1 空泛复述 / vio2 基线编造(mech墙) / vio3 全must / vio4 无理由 / vio5 拍板 |
 | replay_u2_sub4.py | understand:2 子4 归一化陈述 | clean / vio1 分层不传导 / vio2 边界不传导 / vio3 复合句 / vio4 方案动作残留 |
 | replay_u3_sub1.py | understand:3 子1 障碍分析引出 | clean / vio1 空泛约束 / vio2 否定提问套话 / vio3 类型不足 / vio4 ②偷懒 / vio5 结论无出处推断 |
+| replay_u3_sub2.py | understand:3 子2 约束验证标注 | clean / vio1 编造(mech墙) / vio2 未验证进约束集 / vio3 训练记忆冒充(mech墙) |
+| replay_u3_sub3.py | understand:3 子3 范围界定 | clean / vio1 out空清单 / vio2 矩阵放水 / vio3 outcome空泛 / vio4 替用户拍板 / vio5 汇总无矩阵 |
+| replay_u3_sub4.py | understand:3 子4 归一化陈述 | clean / vio1 类型标注不传导 / vio2 边界不传导 / vio3 复合句 / vio4 方案动作残留 |
+| replay_u4_sub1.py | understand:4 子1 成功标准引出 | clean / vio1 空泛复述 / vio2 追溯放水 / vio3 ②偷懒 / vio4 方案名词 / vio5 结论无出处推断 |
+| replay_u4_sub3.py | understand:4 子3 验收方式设计 | clean / vio1 手段存在无工具出处 / vio2 全选同法无真实理由 / vio3 事后验证未标注风险 |
+| replay_u4_sub4.py | understand:4 子4 归一化陈述 | clean / vio1 验收包字段不传导 / vio2 边界不传导 / vio3 复合句 / vio4 方案动作残留 |
+| replay_plan1_sub2.py | plan:1 子2 方案发散 | clean / vio1 伪候选 / vio2 凭空设计 / vio3 提前收敛 / vio4 ②无逐维度论证 |
+| replay_p1_sub1.py | plan:1 子1 现状勘察 | clean / vio1 训练记忆(mech墙) / vio2 凭空API(mech墙) / vio3 漫游 / vio4 内部矛盾 |
