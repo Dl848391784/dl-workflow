@@ -2308,13 +2308,33 @@ def run_judge(
     cwd=tempdir 修掉；而超时降级 block 会让模型误以为内容不合格、把无问题的
     trace 白重写一轮（demo fbdb6ebd 子2 实测），一次重试 ~3k tokens 远小于
     一轮模型返工。API 错/退出码非零/OSError 仍**不重试**（重试无意义的失败模式）。
+    例外三：**empty_block_reason（判 block 但 reason 为空）重试一次**（v2.76）——
+    判词消费者是返工的模型（v2.36 判词瘦身前提=「reason 是指路」），空判词 =
+    judge 输出完整性违规，脚本可零成本机械判定，与 bad_verdict_json 同族同处置。
     副作用：每次调用重置 LAST_JUDGE_META（成功=成本字段，失败=judge_error；
     重试时两次尝试成本累加 + judge_retried=1）供审计日志。
     """
     LAST_JUDGE_META.clear()
+    # v2.76 framing 双态同向（designs/judge-framing-dual-mode-design.md）：
+    # §3.5 #28 确立 framing 是独立设计变量，但 v2.71/v2.75 只改了 gate 文本
+    # 一层——本指令行恒为「严格判定」，与两个默认-PASS gate 直接矛盾；弱
+    # judge 对矛盾指令偏向 system 侧（u:1#2 v2.75 clean 残余误判的可修复
+    # 根源）。单源=gate 文本的「默认 pass」字面标记（判据作者已写的
+    # framing 声明，脚本读取而非新增 Step 字段防双写漂移）：含标记=默认
+    # 放行指令；不含（33 个从严 gate）=严格判定指令不变。
+    if "默认 pass" in rubric:
+        verdict_rule = (
+            "默认放行：仅当判据明列的 block 条件成立才 pass=false 并在 reason "
+            "写缺什么（引用条款）；判据未明列为 block 条件的情况不得作为 "
+            "block 依据，不得发明判据外要件。\n"
+        )
+    else:
+        verdict_rule = (
+            "严格判定：判据任一条不满足 -> pass=false 并在 reason 写缺什么。\n"
+        )
     prompt = (
         "你是工作流节点门控的评审 judge。判定模型本轮输出是否符合判据。\n"
-        "严格判定：判据任一条不满足 -> pass=false 并在 reason 写缺什么。\n"
+        f"{verdict_rule}"
         "只回答一个 JSON,不要多余文本、不要调任何工具：\n"
         '{"pass": true/false, "reason": "不满足时写缺什么;满足时留空"}\n'
         # v2.36 判词瘦身（tail_volume_acceleration_annualized u:1 子4 审计）：
@@ -2377,11 +2397,15 @@ def run_judge(
     prompt += "\n只回上面的 JSON。"
 
     for attempt in range(2):
-        # 重试时：bad_verdict_json 加格式提醒后缀（判决载荷逐字不动，只追加输出
-        # 格式强调）；TimeoutExpired 原样重发（输出格式没问题，是时延抖动）。
+        # 重试时：bad_verdict_json/empty_block_reason 加格式提醒后缀（判决载荷
+        # 逐字不动，只追加输出格式强调）；TimeoutExpired 原样重发（输出格式
+        # 没问题，是时延抖动）。
+        _err = LAST_JUDGE_META.get("judge_error")
         p = prompt + (
             "\n\n提醒：上次你的回答不是合法 JSON。只回一个 JSON 对象，不要任何其它文本。"
-            if attempt and LAST_JUDGE_META.get("judge_error") == "bad_verdict_json"
+            if attempt and _err == "bad_verdict_json"
+            else "\n\n提醒：判 block 必须在 reason 写明缺什么（引用判据条款），reason 不得为空。"
+            if attempt and _err == "empty_block_reason"
             else ""
         )
         ok, reason, retryable = _run_judge_once(p)
@@ -2394,10 +2418,12 @@ def run_judge(
 def _run_judge_once(prompt: str) -> tuple[bool, str, bool]:
     """run_judge 单次尝试。返回 (pass, reason, retryable)。
 
-    retryable=True 仅两种值得重试的失败模式：
+    retryable=True 仅三种值得重试的失败模式：
     - bad_verdict_json（判定 JSON 解析失败——输出格式抖动）；
     - TimeoutExpired（时延抖动——递归爆炸根因已被 cwd=tempdir 修掉，
       重试代价远小于超时误判 block 引发的模型返工，见 run_judge docstring）。
+    - empty_block_reason（pass=false 但 reason 为空——judge 输出完整性
+      违规，空判词让模型盲返工，v2.76）。
     其余失败（API 错/exit 非零/no_result_json/is_error/OSError）
     一律 False，调用方直接降级。
     """
@@ -2472,6 +2498,11 @@ def _run_judge_once(prompt: str) -> tuple[bool, str, bool]:
     if verdict is None:
         LAST_JUDGE_META["judge_error"] = "bad_verdict_json"
         return False, f"judge 返回非合法 JSON 判定：{result_text[:200]}", True
+    # v2.76：block 空判词=输出完整性违规（判词消费者是返工模型，空 reason
+    # =盲返工），与 bad_verdict_json 同族——重试一次补判词，仍空才降级。
+    if not verdict.get("pass") and not str(verdict.get("reason", "")).strip():
+        LAST_JUDGE_META["judge_error"] = "empty_block_reason"
+        return False, "judge 判 block 但未写原因", True
     # 重试后成功：清掉首次失败留下的 judge_error（避免审计日志误判本次为失败）
     LAST_JUDGE_META.pop("judge_error", None)
     return bool(verdict["pass"]), str(verdict.get("reason", "")), False

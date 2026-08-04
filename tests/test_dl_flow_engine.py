@@ -3570,6 +3570,95 @@ class TestRunJudgeRetry:
         assert "judge_retried" not in eng.LAST_JUDGE_META
 
 
+class TestJudgeFramingDualMode:
+    """v2.76 framing 双态同向（designs/judge-framing-dual-mode-design.md）：
+    gate 文本的「默认 pass」字面标记=framing 单源——含标记的 gate 配默认放行
+    指令行，不含（从严 gate）配严格判定指令行；此前指令行恒为「严格判定」，
+    与 v2.71/v2.75 两个默认-PASS gate 直接矛盾（弱 judge 偏向 system 侧）。"""
+
+    def _capture_prompt(self, monkeypatch):
+        captured = {}
+
+        def _fake_once(p):
+            captured["prompt"] = p
+            return True, "", False
+
+        monkeypatch.setattr(eng, "_run_judge_once", _fake_once)
+        return captured
+
+    def test_default_pass_gate_gets_soft_line(self, monkeypatch):
+        captured = self._capture_prompt(monkeypatch)
+        eng.run_judge("判据 X。默认 pass--仅当以下成立才判 block：一、…", "label", "out")
+        assert "默认放行" in captured["prompt"]
+        assert "严格判定" not in captured["prompt"]
+        assert "不得发明判据外要件" in captured["prompt"]
+
+    def test_strict_gate_keeps_strict_line(self, monkeypatch):
+        captured = self._capture_prompt(monkeypatch)
+        eng.run_judge("质量判据（从严裁量）：证据非编造。", "label", "out")
+        assert "严格判定：判据任一条不满足" in captured["prompt"]
+        assert "默认放行" not in captured["prompt"]
+
+    def test_default_pass_marker_pinned_in_gates(self):
+        # 「默认 pass」字面标记=framing 单源，两个已反转 gate 必须含标记
+        # （删掉标记=静默退回严格判定指令，framing 矛盾复现）
+        import dl_flow_nodes as nodes
+
+        s = nodes._NODES["understand:1"].sub_steps
+        assert "默认 pass" in s[0].gate, "u:1#1 gate 缺「默认 pass」framing 标记"
+        assert "默认 pass" in s[1].gate, "u:1#2 gate 缺「默认 pass」framing 标记"
+
+
+class TestEmptyBlockReasonRetry:
+    """v2.76 block 空判词重试一次：判词消费者是返工模型（v2.36 前提=reason
+    是指路），pass=false + reason 空=judge 输出完整性违规，与 bad_verdict_json
+    同族——重试时追加「reason 不得为空」提醒，仍空才降级 block。"""
+
+    EMPTY_BLOCK = (
+        '{"is_error":false,"usage":{"input_tokens":10,"output_tokens":2},'
+        '"result":"{\\"pass\\": false, \\"reason\\": \\"\\"}"}\n'
+    )
+    GOOD_BLOCK = (
+        '{"is_error":false,"usage":{"input_tokens":20,"output_tokens":3},'
+        '"result":"{\\"pass\\": false, \\"reason\\": \\"缺条款二\\"}"}\n'
+    )
+
+    def _mock_seq(self, monkeypatch, stdouts):
+        calls = {"n": 0, "prompts": []}
+
+        def _run(cmd, **kw):
+            i = calls["n"]
+            calls["n"] += 1
+            calls["prompts"].append(cmd[-1])
+
+            class _Res:
+                returncode = 0
+
+            _Res.stdout = stdouts[min(i, len(stdouts) - 1)]
+            return _Res()
+
+        monkeypatch.setattr(eng.subprocess, "run", _run)
+        return calls
+
+    def test_empty_reason_retried_with_reminder(self, monkeypatch):
+        calls = self._mock_seq(monkeypatch, [self.EMPTY_BLOCK, self.GOOD_BLOCK])
+        ok, reason = eng.run_judge("rubric", "label", "out")
+        assert ok is False and reason == "缺条款二"
+        assert calls["n"] == 2  # 重试了一次
+        assert "reason 不得为空" in calls["prompts"][1]  # 重试带空判词提醒
+        m = eng.LAST_JUDGE_META
+        assert m.get("judge_retried") == 1
+        assert "judge_error" not in m  # 成功路径清掉首次失败标记
+
+    def test_empty_reason_exhausted_degrades(self, monkeypatch):
+        calls = self._mock_seq(monkeypatch, [self.EMPTY_BLOCK, self.EMPTY_BLOCK])
+        ok, reason = eng.run_judge("rubric", "label", "out")
+        assert ok is False
+        assert calls["n"] == 2  # 只重试一次
+        assert "未写原因" in reason
+        assert eng.LAST_JUDGE_META["judge_error"] == "empty_block_reason"
+
+
 class TestPendingUnjudgedStep:
     """§S10：PreToolUse 围栏的关闭条件（与门控共用 last_judged_trace 游标）。"""
 
