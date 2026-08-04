@@ -3034,6 +3034,70 @@ def _check_value_no_unsourced_inference(qa: list, *_ctx) -> str | None:
     return None
 
 
+_GOAL_LABEL_RE = re.compile(r"G\d+")
+
+
+def _check_goal_candidate_traceability_alignment(qa: list, *_ctx) -> str | None:
+    """goal_candidate_traceability_alignment：候选标签↔追溯项对齐（u:2 子1 专属）。
+
+    动机（2026-08-04 u:2#1 framing 反转重放，designs/u2-sub1-gate-framing-design.md）：
+    「候选对应不上存活问题=脑补」是语义判据，默认-PASS framing 下 judge 侧
+    1-4/6 裁量方差；但其词形可判子项=候选标签（Gx）是否逐项出现在追溯项
+    答案——孤儿候选（G2 只在候选项出现、追溯项不提）零方差当场拒，
+    judge 只判声称对应的真实性（#30 ⑭ 语义判据词形子项切出下沉，
+    同 v2.50 atomic_mece_alignment 集合对齐范式）。
+    宁纵勿枉：无 G 标签（②无目标候选）或无追溯项（q 含「追溯」）跳过交 judge。
+    """
+    labels: set[str] = set()
+    trace_a: list[str] = []
+    for item in qa:
+        q, a = str(item.get("q", "")), str(item.get("a", ""))
+        labels.update(_GOAL_LABEL_RE.findall(a))
+        if "追溯" in q:
+            trace_a.append(a)
+    if not labels or not trace_a:
+        return None
+    traced = set(_GOAL_LABEL_RE.findall("".join(trace_a)))
+    missing = sorted(labels - traced)
+    if missing:
+        return (
+            f"目标候选 {'、'.join(missing)} 未在追溯项答案出现——每个目标候选须"
+            "逐项对应到 ProblemContext 存活问题（对应不上=脑补）：在追溯答案补"
+            "该候选的承接说明，或剔除该候选"
+        )
+    return None
+
+
+def _check_answer_source_marker(qa: list, *_ctx) -> str | None:
+    """answer_source_marker：who/outcome/初步价值项答案出处标注扫描（u:2 子1 专属）。
+
+    动机（2026-08-04 u:2#1 framing 反转 v1/v2 重放）：形式要件「答案引用用户
+    原话或会话事实」在默认-PASS framing 下 judge 侧 4-5/6 边界晃（同文本两轮
+    5/6->4/6 纯方差）——出处标注在场与否是词形可判子项（v2.48 同型下沉），
+    标注后内容对口性留 judge。标注词表取 purpose/selfcheck 已披露词汇
+    （§13 词表只收强信号）；写侧当场拒+指路（非 judge 黑盒返工）。
+    """
+    for item in qa:
+        q, a = str(item.get("q", "")), str(item.get("a", ""))
+        if "who" not in q and "outcome" not in q and "价值" not in q:
+            continue
+        if not any(m in a for m in ("原话", "原始请求", "会话事实", "选中", "自述")):
+            return (
+                f"「{q[:16]}…」答案无出处标注——形式要件要求答案引用用户原话或"
+                "会话事实，标注形态：用户原话：'…' / 原始请求：'…' / 会话事实：… / "
+                "（AskUserQuestion 选中）"
+            )
+        # who×原始请求不对口词形（v2.87 vio6 张冠李戴生产墙化）：请求原文
+        # 不指向受益者——who 项引「原始请求」标注恒为张冠李戴，零方差拒。
+        if "who" in q and "原始请求" in a:
+            return (
+                f"「{q[:16]}…」who 项引「原始请求」标注——请求原文不指向受益者；"
+                "who 的合法标注=用户原话：'…'（指向人的原话）/（AskUserQuestion 选中）/"
+                "用户自述/会话事实"
+            )
+    return None
+
+
 def _load_atomic_questions(project_root: Path, name: str) -> list | None:
     """读子2 最新 trace 的 atomic_questions 分档清单（v2.40）。
 
@@ -3514,6 +3578,8 @@ _MECH_QA_CHECKS = {
     "who_no_repo_fact": _check_who_no_repo_fact,
     "hypothesis_exclude_no_absence": _check_hypothesis_exclude_no_absence,
     "value_no_unsourced_inference": _check_value_no_unsourced_inference,
+    "goal_candidate_traceability_alignment": _check_goal_candidate_traceability_alignment,
+    "answer_source_marker": _check_answer_source_marker,
     "fetch_report_recorded": _check_fetch_report_recorded,
     "fetch_skeleton_out": _check_fetch_skeleton_out,
     "redteam_report_recorded": _check_redteam_report_recorded,

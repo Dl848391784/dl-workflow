@@ -37,3 +37,4 @@ python3 tests/replays/replay_u2_sub1.py
 | replay_u1_sub3.py | understand:1 子3 双向取证 | clean / vio1 编造 / vio2 脱靶 / vio3 降档 / vio4 none派发 / vio5 转述 / vio6 未升档 |
 | replay_u1_sub5.py | understand:1 子5 归一化陈述 | clean / vio1 证伪混入 / vio2 边界超出 / vio3 复合句 / vio4 实现名词 |
 | replay_u2_sub1.py | understand:2 子1 目标引出 | clean / vio1 孤儿目标 / vio2 空泛复述 / vio3 ②偷懒 / vio4 ②未问先引 |
+| replay_u2_sub2.py | understand:2 子2 对齐质检 | clean / vio1 同义反复 / vio2 矩阵放水 / vio3 汇总无矩阵 |

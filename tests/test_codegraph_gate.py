@@ -307,11 +307,21 @@ def _run_psid(
 
 
 def _audit_psid(repo: Path, command: str, sid: str) -> None:
-    _run_psid(AUDIT, {"tool_name": "Bash", "tool_input": {"command": command}}, repo, payload_sid=sid)
+    _run_psid(
+        AUDIT,
+        {"tool_name": "Bash", "tool_input": {"command": command}},
+        repo,
+        payload_sid=sid,
+    )
 
 
 def _gate_psid(repo: Path, fp: str, sid: str) -> subprocess.CompletedProcess:
-    return _run_psid(GATE, {"tool_name": "Edit", "tool_input": {"file_path": fp}}, repo, payload_sid=sid)
+    return _run_psid(
+        GATE,
+        {"tool_name": "Edit", "tool_input": {"file_path": fp}},
+        repo,
+        payload_sid=sid,
+    )
 
 
 def test_payload_sid_query_unlocks_same_session(repo: Path) -> None:

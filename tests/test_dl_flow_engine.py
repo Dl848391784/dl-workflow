@@ -3645,6 +3645,9 @@ class TestJudgeFramingDualMode:
         assert "默认 pass" in s[2].gate, "u:1#3 gate 缺「默认 pass」framing 标记"
         assert "默认 pass" in s[3].gate, "u:1#4 gate 缺「默认 pass」framing 标记"
         assert "默认 pass" in s[4].gate, "u:1#5 gate 缺「默认 pass」framing 标记"
+        s2 = nodes._NODES["understand:2"].sub_steps
+        assert "默认 pass" in s2[0].gate, "u:2#1 gate 缺「默认 pass」framing 标记"
+        assert "默认 pass" in s2[1].gate, "u:2#2 gate 缺「默认 pass」framing 标记"
 
 
 class TestEmptyBlockReasonRetry:
@@ -6284,6 +6287,103 @@ class TestV237FirstPassRate:
             {"q": "outcome（达成什么状态）", "a": "O1 = 页面显示正确"},
         ]
         assert eng._check_value_no_unsourced_inference(qa) is None
+
+    # ---- u:2 子1 framing 反转配套 mech（v2.87，候选标签↔追溯对齐 + 出处标注，
+    # designs/u2-sub1-gate-framing-design.md）----
+
+    def test_u2s1_orphan_candidate_blocked(self, tmp_path):
+        # vio1 形态：G2 只在候选项出现、追溯项只提 G1——生产墙零方差当场拒
+        _write_state_full(tmp_path, "t", "understand", 2, sub_step=1)
+        qa = [
+            {"q": "who=受益者", "a": "用户原话：'我自己'。"},
+            {
+                "q": "目标候选如何追溯到ProblemContext存活问题？",
+                "a": "G1'得到正IC因子数量'直接承接唯一存活问题'统计IC均值>0的因子数量'。",
+            },
+            {
+                "q": "除 G1 外还有其他目标候选吗？",
+                "a": "G2：做一个因子 IC 分布可视化看板。",
+            },
+        ]
+        (tmp_path / "payload.json").write_text(
+            json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert not ok and "G2" in msg and "追溯" in msg
+
+    def test_u2s1_traceability_aligned_pass(self):
+        qa = [
+            {
+                "q": "目标候选如何追溯？",
+                "a": "G1 承接存活问题 P1；G2 承接存活问题 P2。",
+            },
+            {"q": "除 G1 外？", "a": "G2：用数量决定门槛后的清单复核。"},
+        ]
+        assert eng._check_goal_candidate_traceability_alignment(qa) is None
+
+    def test_u2s1_traceability_skip_no_labels_or_no_item(self):
+        # ②无候选（无 G 标签）/ 无追溯项 -> 跳过交 judge（宁纵勿枉）
+        assert (
+            eng._check_goal_candidate_traceability_alignment(
+                [{"q": "结论", "a": "结论②目标不成立（用户原话'就这个'）"}]
+            )
+            is None
+        )
+        assert (
+            eng._check_goal_candidate_traceability_alignment(
+                [{"q": "目标候选", "a": "G1：得到正 IC 因子数量"}]
+            )
+            is None
+        )
+
+    def test_u2s1_source_marker_blocked(self):
+        # vio2 形态：who/outcome/价值项无出处标注——生产墙当场拒
+        qa = [
+            {"q": "who=受益者", "a": "想了解正IC因子数量的人。"},
+            {"q": "outcome=达成状态", "a": "统计出IC均值>0的因子数量。"},
+            {"q": "初步价值", "a": "有助于后续筛选。"},
+        ]
+        err = eng._check_answer_source_marker(qa)
+        assert err and "出处标注" in err and "who" in err
+
+    def test_u2s1_source_marker_pass_forms(self):
+        # 合法标注形态全过：用户原话/原始请求/会话事实/选中/自述
+        # （标某项=outcome——who×「原始请求」不对口词形另测，不在此例）
+        for marker in (
+            "用户原话：'我自己'",
+            "原始请求：'有多少个'",
+            "会话事实：T+1 机制",
+            "（AskUserQuestion 选中）",
+            "用户自述「我是维护者」",
+        ):
+            qa = [{"q": "outcome=达成状态", "a": marker}]
+            assert eng._check_answer_source_marker(qa) is None, marker
+        # 结论/追溯项不扫描（扫描面收窄防 FP）
+        assert (
+            eng._check_answer_source_marker(
+                [{"q": "结论=①目标成立？", "a": "①目标成立——S1→O2"}]
+            )
+            is None
+        )
+
+    def test_u2s1_who_cites_original_request_blocked(self):
+        # vio6 形态：who 项引「原始请求」标注=张冠李戴不对口词形，零方差拒；
+        # outcome/价值项引「原始请求」合法（请求原文指向状态/价值）
+        err = eng._check_answer_source_marker(
+            [{"q": "who=受益者", "a": "原始请求：'现在有多少个因子的IC为正？'"}]
+        )
+        assert err and "原始请求" in err and "受益者" in err
+        assert (
+            eng._check_answer_source_marker(
+                [
+                    {
+                        "q": "outcome=达成状态",
+                        "a": "原始请求：'现在有多少个因子的IC为正？'",
+                    }
+                ]
+            )
+            is None
+        )
 
     # ---- 占位符全局机械拒 ----
 

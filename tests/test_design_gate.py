@@ -249,9 +249,7 @@ def _gate_psid(repo: Path, fp: str, **kw) -> subprocess.CompletedProcess:
 
 
 def _audit_psid(repo: Path, fp: str, **kw) -> None:
-    _run_psid(
-        AUDIT, {"tool_name": "Edit", "tool_input": {"file_path": fp}}, repo, **kw
-    )
+    _run_psid(AUDIT, {"tool_name": "Edit", "tool_input": {"file_path": fp}}, repo, **kw)
 
 
 def test_payload_sid_second_file_blocked_same_session(repo: Path) -> None:
