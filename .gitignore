@@ -9,3 +9,6 @@ __pycache__/
 
 # codegraph 索引（机器本地，不入库）
 .codegraph/
+
+# 重放脚本 token（tests/replays/_common.py 读取，禁入库）
+tests/replays/.token
