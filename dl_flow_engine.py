@@ -3144,6 +3144,53 @@ def _check_baseline_tool_trace(qa: list, *_ctx) -> str | None:
     return None
 
 
+# 已验证项工具动词词表（u:3 子2 专属，#30 ⑭）。刻意排除裸名词「路径」
+# （vio3「管理路径」会误放行）；只收工具动作词 + 具体留痕标记。
+_CONSTRAINT_TOOL_TRACE_KEYWORDS = (
+    "Read",
+    "Bash实测",
+    "Bash 实测",
+    "实测",
+    "python3",
+    "sqlite3",
+    "codegraph",
+    "AskUserQuestion",
+    "原文",
+    "输出",
+    "§",
+    "grep",
+    "命令",
+    "运行",
+)
+
+
+def _check_constraint_verification_tool_trace(qa: list, *_ctx) -> str | None:
+    """constraint_verification_tool_trace：已验证项工具留痕扫描（u:3 子2 专属）。
+
+    动机（u:3#2 framing 反转 v1 重放）：「已验证项须附工具留痕出处，裸结论/训练
+    记忆=编造」在默认-PASS framing 下 judge 侧 vio1 1/6（rubber-stamp 不主动查工具
+    动词）、vio3 4/6--词形可判子项（#30 ⑭，同 v2.89 baseline_tool_trace 范式），
+    切出下沉零方差生产墙，judge 只判留痕在场后的语义残项。vio3（通常/一般来说）同族
+    （已验证项无本地工具留痕）一并被本 mech 拦。
+    宁纵勿枉：只扫声明「已验证：」的处置项（跳过汇总「八条已验证」）；「假设/证伪」
+    项不扫；已验证项含工具动词即放过；无工具动词=当场拒。排除裸名词「路径」防
+    vio3「管理路径」误放行。
+    """
+    for item in qa:
+        a = str(item.get("a", ""))
+        if "已验证：" not in a:
+            continue
+        if any(k in a for k in _CONSTRAINT_TOOL_TRACE_KEYWORDS):
+            continue
+        return (
+            f"「{str(item.get('q', ''))[:16]}…」已验证项无工具留痕出处"
+            "（Read 原文/Bash 实测/codegraph/AskUserQuestion 原话/文件路径 等）"
+            "--裸结论或训练记忆断言=编造：补工具留痕出处，或改标"
+            "「假设·置信度·错误时影响」/附证据证伪"
+        )
+    return None
+
+
 def _load_atomic_questions(project_root: Path, name: str) -> list | None:
     """读子2 最新 trace 的 atomic_questions 分档清单（v2.40）。
 
@@ -3627,6 +3674,7 @@ _MECH_QA_CHECKS = {
     "goal_candidate_traceability_alignment": _check_goal_candidate_traceability_alignment,
     "answer_source_marker": _check_answer_source_marker,
     "baseline_tool_trace": _check_baseline_tool_trace,
+    "constraint_verification_tool_trace": _check_constraint_verification_tool_trace,
     "fetch_report_recorded": _check_fetch_report_recorded,
     "fetch_skeleton_out": _check_fetch_skeleton_out,
     "redteam_report_recorded": _check_redteam_report_recorded,
