@@ -3648,6 +3648,7 @@ class TestJudgeFramingDualMode:
         s2 = nodes._NODES["understand:2"].sub_steps
         assert "默认 pass" in s2[0].gate, "u:2#1 gate 缺「默认 pass」framing 标记"
         assert "默认 pass" in s2[1].gate, "u:2#2 gate 缺「默认 pass」framing 标记"
+        assert "默认 pass" in s2[3].gate, "u:2#4 gate 缺「默认 pass」framing 标记"
 
 
 class TestEmptyBlockReasonRetry:
@@ -5093,10 +5094,12 @@ class TestSolutionFreeRuleInGates:
     understand:3 子4 五连 block：类名入主语→实现指针段→动词词形逐轮收紧，
     §3.5 #4 判据留白=方差）。本测试钉死双侧引用不回归。"""
 
-    # v2.23 同构族 5 步：understand:2 子2/子4、understand:3 子4、understand:4 子1/子4
+    # v2.23 同构族原 5 步：understand:2 子2/子4、understand:3 子4、understand:4 子1/子4。
+    # v2.88 起 u:2 子4 撤出逐字引用族（见 test_u2_sub4_refined_rule_pin）：
+    # 逐字规则列「管线名」为禁用与方框四「口径限定词合法」直接矛盾（#23 修文本不站队，
+    # designs/u2-sub4-gate-framing-design.md §1.1 聚类 1）。
     _FIVE_STEPS = [
         ("understand", 2, 2),
-        ("understand", 2, 4),
         ("understand", 3, 4),
         ("understand", 4, 1),
         ("understand", 4, 4),
@@ -5110,6 +5113,17 @@ class TestSolutionFreeRuleInGates:
                 f"{phase}:{sub} 子{step_no} gate 未引用 _SOLUTION_FREE_SUBJECT_RULE"
                 "（judge 侧裁量点未钉死）"
             )
+
+    def test_u2_sub4_refined_rule_pin(self):
+        # v2.88：u:2 子4 judge 侧裁量点钉死改用精化版（方框四）——钉死意图不丢，
+        # 禁回潮成黑盒判词「含方案名词判 block」
+        gate = eng.get_node("understand", 2).sub_steps[3].gate
+        assert "方案动作残留" in gate and "实现机制名词" in gate, (
+            "u:2 子4 gate 方框四精化钉死缺失（judge 侧裁量点回潮黑盒）"
+        )
+        assert "数据口径限定词" in gate, (
+            "u:2 子4 gate 方框四缺口径限定词合法形态（#23 矛盾复现：管线名误伤族）"
+        )
 
     def test_scope_verb_rule_in_understand3_sub4_gate(self):
         # 范围命题构成性谓语合法化：动词按指向判，「允许/禁止改动」不判违规
