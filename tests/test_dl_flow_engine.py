@@ -389,6 +389,18 @@ class TestStep456Redesign:
         assert "裁决不传导" in s5.gate
         assert "证伪项不得出现在" in s5.gate
 
+    def test_step5_no_grammatical_subject_requirement_all_layers(self):
+        """v2.85 #29 跨层同向：「主语+动词+约束」词形是 clean 1/6 的最高频误伤源
+        （judge 照字面索取语法主语，判中文合法动宾短语「统计 X 的数量」缺主语）。
+        修文本而非站队（#23），且 purpose/selfcheck/gate 三层齐改——只改 gate
+        则 judge 放行而模型仍被 purpose 指使去凑主语，一次通过率不升。"""
+        s5 = self._steps()[4]
+        for layer in (s5.purpose, s5.selfcheck):
+            assert "主语+动词+约束" not in layer, "旧词形回潮：judge/模型会索取语法主语"
+            assert "省略主语合法" in layer, "缺「省略主语合法」钉死"
+        assert "对象+动作+约束自包含" in s5.gate
+        assert "不得判「缺主语/非陈述式/祈使短语」" in s5.gate
+
     def test_step6_readback_with_evidence_gate_none(self):
         s6 = self._steps()[5]
         assert s6.gate is None  # 交互步不跑 judge（trace 存在即过）
@@ -3632,6 +3644,7 @@ class TestJudgeFramingDualMode:
         assert "默认 pass" in s[1].gate, "u:1#2 gate 缺「默认 pass」framing 标记"
         assert "默认 pass" in s[2].gate, "u:1#3 gate 缺「默认 pass」framing 标记"
         assert "默认 pass" in s[3].gate, "u:1#4 gate 缺「默认 pass」framing 标记"
+        assert "默认 pass" in s[4].gate, "u:1#5 gate 缺「默认 pass」framing 标记"
 
 
 class TestEmptyBlockReasonRetry:

@@ -12,6 +12,7 @@
 python3 tests/replays/replay_u1_sub1.py        # [N=6] [gate_file]
 python3 tests/replays/replay_u1_sub2.py
 python3 tests/replays/replay_u1_sub3.py
+python3 tests/replays/replay_u2_sub1.py
 ```
 
 - `N` = 每载荷重放次数，默认 6（n=4 全对是载荷巧合假象，§3.5 #28）。
@@ -34,3 +35,5 @@ python3 tests/replays/replay_u1_sub3.py
 | replay_u1_sub1.py | understand:1 子1 逼问定义 | clean / real_borderline(软依赖) / vio_fixreq / vio_fabricate |
 | replay_u1_sub2.py | understand:1 子2 拆解深挖 | clean / vio1 同义反复 / vio2 稻草人 / vio3 none 档 |
 | replay_u1_sub3.py | understand:1 子3 双向取证 | clean / vio1 编造 / vio2 脱靶 / vio3 降档 / vio4 none派发 / vio5 转述 / vio6 未升档 |
+| replay_u1_sub5.py | understand:1 子5 归一化陈述 | clean / vio1 证伪混入 / vio2 边界超出 / vio3 复合句 / vio4 实现名词 |
+| replay_u2_sub1.py | understand:2 子1 目标引出 | clean / vio1 孤儿目标 / vio2 空泛复述 / vio3 ②偷懒 / vio4 ②未问先引 |
