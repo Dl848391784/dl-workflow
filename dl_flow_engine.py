@@ -3299,6 +3299,37 @@ def _check_redteam_report_recorded(qa: list, *_ctx) -> str | None:
     )
 
 
+def _check_redteam_three_piece(qa: list, *_ctx) -> str | None:
+    """redteam_three_piece：子4 红队收录项三件套完整性机械核验（v2.83，u:1 子4 专属）。
+
+    v2.83（designs/u1-sub4-gate-framing-design.md）：#4 vio1（红队转述冒充原文
+    收录）在默认-PASS framing 下 judge 漏判 4/6--红队收录项缺推理链/置信度是
+    词形可判部分，下沉 mech 零方差（#2 缺席断言同范式，§3.5 #13）。
+    红队收录项 = 标题含「红队」且含「原文收录」的 qa 项（同 redteam_report_recorded
+    承诺装置）。三件套 = verdict+推理链+置信度（purpose 明文 + redteam-prompt
+    模板规定字段名）；收录项 a 须含「推理链」「置信度」关键词（verdict 由标题/
+    redteam_report_recorded 间接保证）。缺任一 -> 拒；未派发（无收录项）-> None
+    交 judge 判真值（宁纵勿枉，同 redteam_report_recorded）。
+    """
+    recorded_items = [
+        item
+        for item in qa
+        if "红队" in str(item.get("q", "")) and "原文收录" in str(item.get("q", ""))
+    ]
+    if not recorded_items:
+        return None
+    for item in recorded_items:
+        a = str(item.get("a", ""))
+        if "推理链" not in a or "置信度" not in a:
+            return (
+                "红队原文收录项缺四态 verdict+推理链+置信度三件套中的推理链或"
+                "置信度（正确动作：append-trace --ingest-agent <task-id> 收录红队"
+                "完整输出，含 verdict+推理链+置信度三件套；仅 verdict+概括建议"
+                "=转述冒充收录）"
+            )
+    return None
+
+
 def _check_user_decision_recorded(qa: list, *_ctx) -> str | None:
     """user_decision_recorded：读回确认步的用户裁决记录机械核验（v2.45）。
 
@@ -3416,7 +3447,9 @@ def _check_answer_no_reverse_inference(qa: list, *_ctx) -> str | None:
 # 要件（关键词可判），下沉机械层=append-trace 当场拒，judge 不再判 who 出处
 # （§3.5 #13 词形判据下沉机械层 + #17 形式要件机械化）。词形取真实判词逐字
 # （CLAUDE.md/git config/分支命名）；选中角色选项/未自述标注不拦（宁纵勿枉）。
-_WHO_REPO_FACT_RE = re.compile(r"CLAUDE\.md|git\s*config|分支命名|git\s*log|commit\s*历史")
+_WHO_REPO_FACT_RE = re.compile(
+    r"CLAUDE\.md|git\s*config|分支命名|git\s*log|commit\s*历史"
+)
 
 
 def _check_who_no_repo_fact(qa: list, *_ctx) -> str | None:
@@ -3484,6 +3517,7 @@ _MECH_QA_CHECKS = {
     "fetch_report_recorded": _check_fetch_report_recorded,
     "fetch_skeleton_out": _check_fetch_skeleton_out,
     "redteam_report_recorded": _check_redteam_report_recorded,
+    "redteam_three_piece": _check_redteam_three_piece,
     "user_decision_recorded": _check_user_decision_recorded,
 }
 

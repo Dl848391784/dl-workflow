@@ -3609,7 +3609,9 @@ class TestJudgeFramingDualMode:
 
     def test_default_pass_gate_gets_soft_line(self, monkeypatch):
         captured = self._capture_prompt(monkeypatch)
-        eng.run_judge("判据 X。默认 pass--仅当以下成立才判 block：一、…", "label", "out")
+        eng.run_judge(
+            "判据 X。默认 pass--仅当以下成立才判 block：一、…", "label", "out"
+        )
         assert "默认放行" in captured["prompt"]
         assert "严格判定" not in captured["prompt"]
         assert "不得发明判据外要件" in captured["prompt"]
@@ -3629,6 +3631,7 @@ class TestJudgeFramingDualMode:
         assert "默认 pass" in s[0].gate, "u:1#1 gate 缺「默认 pass」framing 标记"
         assert "默认 pass" in s[1].gate, "u:1#2 gate 缺「默认 pass」framing 标记"
         assert "默认 pass" in s[2].gate, "u:1#3 gate 缺「默认 pass」framing 标记"
+        assert "默认 pass" in s[3].gate, "u:1#4 gate 缺「默认 pass」framing 标记"
 
 
 class TestEmptyBlockReasonRetry:
@@ -6914,7 +6917,7 @@ class TestRedteamReportRecorded:
             },
             {
                 "q": "②.5 红队蒸馏报告原文收录（task-id a5ca6ea271e5e937e）",
-                "a": "=== 红队蒸馏报告原文开始 ===\n总判断：…\nQ1 部分成立，置信度中",
+                "a": "=== 红队蒸馏报告原文开始 ===\n总判断：…\nQ1 部分成立；推理链：E1 证实->收窄边界；置信度：中",
             },
             {"q": "③ 四态结论合成", "a": "按红队修订：Q1 部分成立"},
         ]
@@ -6930,6 +6933,57 @@ class TestRedteamReportRecorded:
                 "a": "触发条件判定：verdict 不影响大方向——触发条件不满足，未起红队。",
             },
             {"q": "③ 四态结论合成", "a": "Q1 部分成立，推理链…"},
+        ]
+        ok, msg = self._append_s4(tmp_path, qa)
+        assert ok, msg
+
+
+class TestRedteamThreePiece:
+    """v2.83 redteam_three_piece：子4 红队收录项三件套完整性（verdict/推理链/置信度）。
+
+    #4 vio1（红队转述冒充原文收录）在默认-PASS framing 下 judge 漏判（转述 vs
+    原文语义判据方差大）；三件套缺失是词形可判部分，下沉 mech 零方差（#2 缺席
+    断言同范式，§3.5 #13）。收录项 a 须含「推理链」「置信度」关键词；缺任一->拒。
+    """
+
+    def _append_s4(self, tmp_path, qa):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=4)
+        (tmp_path / "payload.json").write_text(
+            json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
+        )
+        return eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+
+    def test_three_piece_present_accepted(self, tmp_path):
+        # 三件套齐全（verdict+推理链+置信度）-> 通过
+        qa = [
+            {"q": "① 三关质检", "a": "E1 针对性 pass"},
+            {
+                "q": "②.5 红队原文收录（task-id a5ca6ea271e5e937e）",
+                "a": "verdict=部分成立；推理链：E1 证实->收窄边界；置信度：中",
+            },
+            {"q": "③ 四态结论合成", "a": "Q1 部分成立"},
+        ]
+        ok, msg = self._append_s4(tmp_path, qa)
+        assert ok, msg
+
+    def test_missing_piece_blocked(self, tmp_path):
+        # 缺推理链/置信度（vio1 形态：概括转述冒充收录）-> 拒
+        qa = [
+            {"q": "① 三关质检", "a": "E1 针对性 pass"},
+            {
+                "q": "②.5 红队原文收录（task-id a5ca6ea271e5e937e）",
+                "a": "红队复核后认同部分成立，建议收窄到方向取反口径边界，认为现有证据不足以证实行业成立做法",
+            },
+            {"q": "③ 四态结论合成", "a": "Q1 部分成立"},
+        ]
+        ok, msg = self._append_s4(tmp_path, qa)
+        assert not ok and "推理链" in msg and "置信度" in msg
+
+    def test_no_redteam_accepted(self, tmp_path):
+        # 无红队收录项（未派发无 task-id）-> 交 judge 判真值（宁纵勿枉）
+        qa = [
+            {"q": "① 三关质检", "a": "E1 针对性 pass"},
+            {"q": "② 对抗复核", "a": "触发条件不满足，未起红队"},
         ]
         ok, msg = self._append_s4(tmp_path, qa)
         assert ok, msg
@@ -8072,10 +8126,10 @@ class TestAnswerNoReverseInference:
             {
                 "q": "子1 pain 可观察后果类：9529.8% 异常持续存在，未修复时下游损害是什么？",
                 "a": "「报告被消费时数字被用于选因子决策 → 选错因子 → 选出的因子"
-                "并不是真实有效超收益」（用户隐含动作链；通过\"项目维护者自查\"+"
-                "\"排查并修代码\"+\"验证报告是否可信\"三项标签反推——选项\"排查并修"
-                "代码\"暗含\"修复了才有可信输出可被消费\"；选项\"验证报告是否可信\""
-                "暗含\"不可信状态持续影响下游决策\"。本项为反推项，不注入新事实）。",
+                '并不是真实有效超收益」（用户隐含动作链；通过"项目维护者自查"+'
+                '"排查并修代码"+"验证报告是否可信"三项标签反推——选项"排查并修'
+                '代码"暗含"修复了才有可信输出可被消费"；选项"验证报告是否可信"'
+                '暗含"不可信状态持续影响下游决策"。本项为反推项，不注入新事实）。',
             }
         ]
         err = eng._check_answer_no_reverse_inference(qa)
@@ -8087,7 +8141,7 @@ class TestAnswerNoReverseInference:
         qa = [
             {
                 "q": "子1 pain 可观察后果类（返工补问，本轮新增）：若 9529.8% 异常不修，下游哪个环节会产生不同动作？",
-                "a": "\"报告整体可信度受损\"+\"其他因子也会被一起质疑\""
+                "a": '"报告整体可信度受损"+"其他因子也会被一起质疑"'
                 "（AskUserQuestion 选中标注——选项标签属会话事实级，2026-08-03 "
                 "本会话本轮）。可观察后果=其他因子被一并质疑→需一并复核→增加维护成本。",
             }
@@ -8098,7 +8152,7 @@ class TestAnswerNoReverseInference:
         qa = [
             {
                 "q": "子1 是谁类：用户以何身份看这个数字？",
-                "a": "\"项目维护者自查\"（AskUserQuestion 选中标注——选项标签属会话事实级）。",
+                "a": '"项目维护者自查"（AskUserQuestion 选中标注——选项标签属会话事实级）。',
             }
         ]
         assert eng._check_answer_no_reverse_inference(qa) is None
