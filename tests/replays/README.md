@@ -51,4 +51,8 @@ python3 tests/replays/replay_p1_sub1.py
 | replay_u4_sub3.py | understand:4 子3 验收方式设计 | clean / vio1 手段存在无工具出处 / vio2 全选同法无真实理由 / vio3 事后验证未标注风险 |
 | replay_u4_sub4.py | understand:4 子4 归一化陈述 | clean / vio1 验收包字段不传导 / vio2 边界不传导 / vio3 复合句 / vio4 方案动作残留 |
 | replay_plan1_sub2.py | plan:1 子2 方案发散 | clean / vio1 伪候选 / vio2 凭空设计 / vio3 提前收敛 / vio4 ②无逐维度论证 |
+| replay_plan1_sub3.py | plan:1 子3 可行性验证 | clean / vio1 编造(mech墙) / vio2 影响面拍脑袋 / vio3 无差别可行 / vio4 重复漏检(mech墙) / vio5 缺项(mech墙) |
 | replay_p1_sub1.py | plan:1 子1 现状勘察 | clean / vio1 训练记忆(mech墙) / vio2 凭空API(mech墙) / vio3 漫游 / vio4 内部矛盾 |
+| replay_p1_sub4.py | plan:1 子4 评估提案 | clean / vio1 理由空泛 / vio2 替用户拍板 / vio3 推荐与净分矛盾 / vio4 追溯漏项(mech墙) / vio5 净分与计数不符(mech墙) |
+| replay_plan2_sub1.py | plan:2 子1 清点基线 | clean / vio1 无出处(mech墙) / vio2 静默新增 / vio3 改写失真 / vio4 原文未引用(mech墙) |
+| replay_plan2_sub2.py | plan:2 子2 切分排序 | clean / vio1 横向切无辩护 / vio2 排序违依赖(mech墙) / vio3 超H9不拆 / vio4 丢要素(mech墙) / vio5 ②无论证(mech墙) / vio6 替用户拍板 |

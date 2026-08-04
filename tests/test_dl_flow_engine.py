@@ -1965,6 +1965,10 @@ class TestPlan1Orchestration:
             assert needle in s3.purpose, f"子3 purpose 缺 {needle}"
         for needle in ("sub_step==3", "编造", "漏检", "拍脑袋"):
             assert needle in s3.gate, f"子3 gate 缺 {needle}"
+        assert s3.mech_checks == ("feasibility_verification_trace",), (
+            "子3 缺 feasibility_verification_trace mech（v2.103 负判定词形子项下沉，"
+            "designs/plan1-sub3-gate-framing-design.md §3）"
+        )
 
     def test_step4_pugh_redteam(self):
         s4 = self._steps()[3]
@@ -1973,6 +1977,13 @@ class TestPlan1Orchestration:
             assert needle in s4.purpose, f"子4 purpose 缺 {needle}"
         for needle in ("sub_step==4", "拍板", "凑结论", "追溯漏项"):
             assert needle in s4.gate, f"子4 gate 缺 {needle}"
+        # v2.103 framing 反转（designs/p1-sub4-gate-framing-design.md §3）：
+        # 跨项聚合类判定（算术核对/集合差）默认-pass 下 judge 系统性不做
+        # （vio3 0-1/6、vio4 1/6），两项下沉零方差生产墙，judge 只留语义侧。
+        assert s4.mech_checks == (
+            "pugh_traceability_forward_coverage",
+            "pugh_net_score_consistency",
+        ), "子4 缺跨项聚合 mech（v2.103 算术+集合差下沉，design §3.2）"
 
     def test_step5_normalization(self):
         s5 = self._steps()[4]
@@ -2116,7 +2127,14 @@ class TestPlan2Orchestration:
             "单阶段不可拆",
         ):
             assert needle in s2.purpose, f"子2 purpose 缺 {needle}"
-        for needle in ("sub_step==2", "横向", "违反依赖", "丢要素", "偷懒"):
+        for needle in (
+            "sub_step==2",
+            "默认 pass",
+            "横向",
+            "违反依赖",
+            "覆盖有漏",
+            "单阶段无论证",
+        ):
             assert needle in s2.gate, f"子2 gate 缺 {needle}"
 
     def test_step3_anchor_fence(self):
@@ -3671,6 +3689,11 @@ class TestJudgeFramingDualMode:
         p1 = nodes._NODES["plan:1"].sub_steps
         assert "默认 pass" in p1[0].gate, "plan:1#1 gate 缺「默认 pass」framing 标记"
         assert "默认 pass" in p1[1].gate, "plan:1#2 gate 缺「默认 pass」framing 标记"
+        assert "默认 pass" in p1[2].gate, "plan:1#3 gate 缺「默认 pass」framing 标记"
+        assert "默认 pass" in p1[3].gate, "plan:1#4 gate 缺「默认 pass」framing 标记"
+        p2 = nodes._NODES["plan:2"].sub_steps
+        assert "默认 pass" in p2[0].gate, "plan:2#1 gate 缺「默认 pass」framing 标记"
+        assert "默认 pass" in p2[1].gate, "plan:2#2 gate 缺「默认 pass」framing 标记"
 
 
 class TestEmptyBlockReasonRetry:
@@ -6622,6 +6645,362 @@ class TestV237FirstPassRate:
         assert (
             eng._check_terrain_tool_trace(
                 [{"q": "范围？", "a": "只勘察报告展示链路，未勘察因子计算。"}]
+            )
+            is None
+        )
+
+    # ---- plan:2 子1 framing 反转配套 mech（v2.103，要素清单原文引用留痕扫描，
+    # designs/plan2-sub1-gate-framing-design.md §3）----
+
+    def test_p2s1_element_quote_trace_block_forms(self):
+        # vio1/vio4 形态：要素条目引用代码符号形（.py）却无任何『』原文引用/原文
+        # 字样 = 生产墙当场拒（全清单裸=编造 / 有出处行号无原文=原文未引用）
+        qa1 = [
+            {
+                "q": "①原子改动要素清单如何？",
+                "a": "E1=在 summary/generate_factor_summary_report.py 的 "
+                "_aggregate_positive_ic 统计函数内增加 FACTOR_CATEGORIES 分组键（改）。",
+            }
+        ]
+        err = eng._check_element_quote_trace(qa1)
+        assert err and "原文" in err, "裸符号引用无原文引用应拒"
+        qa2 = [
+            {
+                "q": "①原子改动要素清单如何？",
+                "a": "E1=`summary/generate_factor_summary_report.py` "
+                "`_aggregate_positive_ic` 增加分组键（改，design.md:12）。",
+            }
+        ]
+        err2 = eng._check_element_quote_trace(qa2)
+        assert err2 and "原文" in err2, "有出处行号但无原文引用应拒"
+
+    def test_p2s1_element_quote_trace_pass_forms(self):
+        # 合法形态全过：任一要素带『』原文引用 / 含「原文」字样
+        pass_forms = [
+            "E1=`summary/generate_factor_summary_report.py` `_aggregate_positive_ic` "
+            "增加分组键（改）——出处 design.md:12，原文『在既有聚合统计函数内增加 "
+            "FACTOR_CATEGORIES 维度分组键，复用 factor_definitions.py 映射做 group key』。",
+            "E2=`summary/report/sections.py` `_generate_ic_section` 增加八维度汇总区块"
+            "（改）——出处 design.md:14，原文『_generate_ic_section 内新增八维度汇总区块』。",
+        ]
+        for form in pass_forms:
+            qa = [{"q": "要素清单？", "a": form}]
+            assert eng._check_element_quote_trace(qa) is None, form
+
+    def test_p2s1_element_quote_skip_rules(self):
+        # 宁纵勿枉：验收包/假设无 .py 不扫；整条答案任一要素有原文引用即放过
+        # （vio2 的 E4 裸但 E1-E3 有原文引用→交 judge 判静默新增）
+        assert (
+            eng._check_element_quote_trace(
+                [
+                    {
+                        "q": "②验收包清单如何？",
+                        "a": "SC1.1『报告展示八维度条数+占比可读出』（design.md:20）。",
+                    }
+                ]
+            )
+            is None
+        )
+        assert (
+            eng._check_element_quote_trace(
+                [
+                    {
+                        "q": "①要素清单如何？",
+                        "a": "E1=`summary/...py` 加分组键（改）——出处 design.md:12，原文"
+                        "『分组键』；E4=`scripts/category_summary.py` 新增独立脚本。",
+                    }
+                ]
+            )
+            is None
+        )
+
+    # ---- plan:2 子2 framing 反转配套 mech（v2.102，切分排序三 mech，
+    # designs/plan2-sub2-gate-framing-design.md §3）----
+
+    def test_p2s2_dependency_order_trace_block_pass_skip(self):
+        # vio2 形态：声明 U3 依赖 U2、U2 依赖 U1，拓扑序 U3->U2->U1（被依赖者排后）
+        qa_rev = [
+            {
+                "q": "依赖 DAG 拓扑排序如何？",
+                "a": (
+                    "U3（依赖 U2）-> U2（依赖 U1）-> U1（无依赖），拓扑序 U3->U2->U1。"
+                ),
+            }
+        ]
+        err = eng._check_dependency_order_trace(qa_rev)
+        assert err and "被依赖者排后" in err, "拓扑序反向应拒"
+        # 合法形态：被依赖者先行
+        qa_ok = [
+            {
+                "q": "依赖 DAG 拓扑排序如何？",
+                "a": (
+                    "U1（无依赖）-> U2（依赖 U1）-> U3（依赖 U2），拓扑序 U1->U2->U3。"
+                ),
+            }
+        ]
+        assert eng._check_dependency_order_trace(qa_ok) is None, "正向应过"
+        # 宁纵勿枉：无拓扑序 / 无依赖声明 -> 过
+        assert (
+            eng._check_dependency_order_trace(
+                [{"q": "切分如何？", "a": "U1=常量，U2=分组键，无拓扑序表述。"}]
+            )
+            is None
+        ), "无拓扑序应过"
+        assert (
+            eng._check_dependency_order_trace(
+                [{"q": "排序如何？", "a": "拓扑序 U1->U2->U3，未声明依赖关系。"}]
+            )
+            is None
+        ), "无依赖声明应过"
+
+    def test_p2s2_element_coverage_trace_block_pass_skip(self, tmp_path):
+        # S1 元素基线（子1 trace，含 E1/E2/E3）
+        import json as _json
+
+        s1 = _json.dumps(
+            {
+                "kind": "skill-trace",
+                "major_stage": "Plan",
+                "minor_stage": "TaskBreakdown",
+                "sub_step": 1,
+                "q": ["要素清单？"],
+                "a": [
+                    "E1=`summary/generate_factor_summary_report.py` 加分组键；"
+                    "E2=`summary/report/sections.py` 加区块；E3=`paths.py` 加常量。"
+                ],
+            },
+            ensure_ascii=False,
+        )
+        _write_evidence(tmp_path, "t", [s1])
+        # vio4 形态：S2 只承接 E1/E2，丢 E3
+        qa_miss = [
+            {"q": "要素 ID 覆盖核对？", "a": ("E1->U2、E2->U3，两要素全覆盖无漏。")}
+        ]
+        err = eng._check_element_coverage_trace(qa_miss, tmp_path, "t")
+        assert err and "E3" in err and "覆盖有漏" in err, "丢 E3 应拒"
+        # 合法形态：三要素全覆盖
+        qa_ok = [
+            {
+                "q": "要素 ID 覆盖核对？",
+                "a": ("E1->U2、E2->U3、E3->U1，三要素全覆盖无漏。"),
+            }
+        ]
+        assert eng._check_element_coverage_trace(qa_ok, tmp_path, "t") is None, (
+            "全覆盖应过"
+        )
+        # 宁纵勿枉：无 S1 -> 过（交 judge）
+        assert (
+            eng._check_element_coverage_trace(qa_miss, tmp_path, "no_such") is None
+        ), "无 S1 应过"
+
+    def test_p2s2_single_phase_argument_block_pass_skip(self):
+        # vio5 形态：声明单阶段却同段无 H9 量化（文件数+行数）
+        qa_bare = [
+            {
+                "q": "阶段划分如何？",
+                "a": (
+                    "阶段划分：单阶段（U1+U2+U3 同属一纵向切片，可整体验证+提交+回滚）。"
+                    "断点验证方法（提案）：阶段末跑脚本+断言区块。"
+                ),
+            }
+        ]
+        err = eng._check_single_phase_argument(qa_bare)
+        assert err and "量化论证" in err, "单阶段无量化应拒"
+        # 合法形态：单阶段附 H9 量化（文件数+行数）
+        qa_ok = [
+            {
+                "q": "阶段划分如何？",
+                "a": (
+                    "阶段划分：单阶段。②单阶段不可拆论证：三单元合计 3 文件 ~75 行，"
+                    "H9 内（≤3 文件 ≤200 行）一次可完。"
+                ),
+            }
+        ]
+        assert eng._check_single_phase_argument(qa_ok) is None, "附量化应过"
+        # 宁纵勿枉：多阶段划分（无单阶段/不可拆声明）不触发
+        qa_multi = [
+            {
+                "q": "阶段划分如何？",
+                "a": (
+                    "阶段划分：两阶段--阶段一=U1+U2，阶段二=U3。断点验证方法（提案）："
+                    "阶段一末跑 U2 断言分组结构。"
+                ),
+            }
+        ]
+        assert eng._check_single_phase_argument(qa_multi) is None, "多阶段应过"
+        # 全量扫描误放过防御：单阶段在 a[2]、单元预算「1 文件 ~30 行」在 a[0]
+        # （vio5 真实形态）--逐答案扫描须拒 a[2]，不被 a[0] 的单元预算误判放过
+        qa_split = [
+            {"q": "单元切分如何？", "a": "U2 H9 预算 1 文件 ~30 行。"},
+            {
+                "q": "阶段划分如何？",
+                "a": "阶段划分：单阶段（同属纵向切片）。断点验证方法：阶段末跑脚本。",
+            },
+        ]
+        err2 = eng._check_single_phase_argument(qa_split)
+        assert err2 and "量化论证" in err2, "逐答案扫描须拒（不被他段单元预算放过）"
+
+    # ---- plan:1 子3 framing 反转配套 mech（v2.103，可行性验证五项核验留痕扫描，
+    # designs/plan1-sub3-gate-framing-design.md §3）----
+
+    def test_p1s3_feasibility_block_forms(self):
+        # vio5 缺⑤ / vio1 ①段裸存在断言 / vio4 ②段无查询「需新建」——词形取
+        # replay_plan1_sub3 真实载荷逐字，生产墙零方差当场拒
+        qa_missing = [
+            {
+                "q": "候选B 的五项核验结果与三态标注如何？",
+                "a": "①存在性——新文件无需存在性核实；依赖 paths.py:78 SUMMARY_RESULT "
+                "经 Read 核实在场。②重复造轮子——codegraph 查询 scripts/ 下同功能脚本，"
+                "返回 7 个无一做八维度分组汇总，无重复。③影响面——codegraph impact "
+                "不适用（新文件无 callers），影响面=新增读侧。④硬规则——符合 H1/H7/H9。"
+                "三态标注：假设（置信度：中——注册机制未核实；错误时影响：需手工触发）。",
+            }
+        ]
+        err = eng._check_feasibility_verification_trace(qa_missing)
+        assert err and "缺项" in err and "可测试性" in err
+        qa_bare_exist = [
+            {
+                "q": "候选A 的五项核验结果与三态标注如何？",
+                "a": "①存在性——经核实，generate_factor_summary_report.py 的聚合统计函数"
+                "与 FACTOR_CATEGORIES 映射均存在，可直接复用，SUMMARY_RESULT 落盘路径也在场。"
+                "②重复造轮子——codegraph 查询「category 分组统计」返回 0 个同功能实现，无重复。"
+                "③影响面——codegraph impact 返回 callers 2 个（a.py:203、b.py:658）。"
+                "④硬规则——符合 H1/H7/H9。⑤可测试性——tests/test_x.py:35 有夹具。"
+                "三态标注：可行。",
+            }
+        ]
+        err2 = eng._check_feasibility_verification_trace(qa_bare_exist)
+        assert err2 and "编造" in err2
+        qa_no_query = [
+            {
+                "q": "候选B 的五项核验结果与三态标注如何？",
+                "a": "①存在性——新文件无需存在性核实。②重复造轮子——摘要统计需求特殊，"
+                "仓库里不会有现成的同功能实现，需新建脚本。③影响面——codegraph impact "
+                "不适用（新文件无 callers）。④硬规则——符合 H1/H8/H9。"
+                "⑤可测试性——可挂 tests/test_y.py 新夹具。三态标注：可行。",
+            }
+        ]
+        err3 = eng._check_feasibility_verification_trace(qa_no_query)
+        assert err3 and "漏检" in err3
+
+    def test_p1s3_feasibility_pass_forms(self):
+        # 合法形态全过（词形取 replay clean 载荷）：file:line+工具动词 /
+        # 新文件无需存在性核实 / 空结果查询留痕 / 「不适用+原因」替代
+        pass_forms = [
+            "①存在性——codegraph nodes 查得聚合统计函数于 summary/generate_factor_summary_report.py:112，"
+            "Read 核实 112-158 行。②重复造轮子——codegraph 查询「category 分组统计」同功能实现，"
+            "返回 0 个，无重复。③影响面——codegraph impact 返回受影响 callers 2 个"
+            "（generate_factor_summary_report.py:203、run_pipeline.py:658），不改签名时调用方零改动。"
+            "④硬规则——符合 H1/H7/H9，H11-H13 不触及。⑤可测试性——tests/test_x.py:35 有夹具。"
+            "三态标注：可行（出处如上）。",
+            "①存在性——新文件无需存在性核实；其依赖 factor_definitions.py:41 FACTOR_CATEGORIES "
+            "经 Read 核实在场。②重复造轮子——codegraph 查询 scripts/ 下同功能脚本，返回 7 个"
+            "无一做八维度分组汇总，无重复。③影响面——codegraph impact 不适用（新文件无 callers），"
+            "影响面=新增消费 factor_ic_data.json.gz 的读侧。④硬规则——符合 H1/H8/H9。"
+            "⑤可测试性——可挂 tests/test_y.py 新夹具。"
+            "三态标注：假设（置信度：中——注册机制未核实；错误时影响：需手工触发）。",
+            "①存在性——不适用（纯配置项调整，无既有符号引用）。②重复造轮子——Grep 搜索 "
+            "「分组统计」返回 0 个同功能实现，无重复。③影响面——codegraph callers 返回 0 个调用方。"
+            "④硬规则——符合 H9。⑤可测试性——接缝在 tests/test_z.py:12。三态标注：可行。",
+        ]
+        for form in pass_forms:
+            qa = [{"q": "候选X 的五项核验结果与三态标注如何？", "a": form}]
+            assert eng._check_feasibility_verification_trace(qa) is None, form[:40]
+
+    def test_p1s3_feasibility_skip_rules(self):
+        # 宁纵勿枉：无圈码结构的散述不扫（交 judge 方框兜底）；
+        # ①段无断言词（全部新增）不拦
+        assert (
+            eng._check_feasibility_verification_trace(
+                [{"q": "总结？", "a": "三候选均完成五项核验，影响面各异。"}]
+            )
+            is None
+        )
+        assert (
+            eng._check_feasibility_verification_trace(
+                [
+                    {
+                        "q": "候选D 的五项核验结果与三态标注如何？",
+                        "a": "①存在性——本候选不引用既有符号，全部新增。②重复造轮子——"
+                        "codegraph 查询「维度分组」返回 0 个同功能实现，无重复。"
+                        "③影响面——codegraph impact 返回 callers 0 个。④硬规则——符合 H9。"
+                        "⑤可测试性——可挂新夹具。三态标注：可行。",
+                    }
+                ]
+            )
+            is None
+        )
+
+    # ---- plan:1 子4 framing 反转配套 mech（v2.103，跨项聚合下沉，
+    # designs/p1-sub4-gate-framing-design.md §3.2）----
+
+    def test_p1s4_forward_coverage_block_form(self):
+        # vio4 形态：自述 must={G1,G2}，forward 只给 G1 承接 = 生产墙当场拒
+        qa = [
+            {
+                "q": "双向追溯两向逐项结果如何？",
+                "a": "backward——要素「条数聚合」→G1；要素「区块呈现」→G1。"
+                "forward——G1←「条数聚合」+「区块呈现」两要素承接。"
+                "自述 must 目标集={G1,G2}。",
+            }
+        ]
+        err = eng._check_pugh_traceability_forward_coverage(qa)
+        assert err and "G2" in err and "承接" in err
+
+    def test_p1s4_forward_coverage_pass_forms(self):
+        # 合法形态全过：承接词形四变体（←/<-/由/承接），且与段落顺序无关
+        pass_forms = [
+            "forward——G1←要素一承接；G2←要素三承接。自述 must={G1,G2}。",
+            "自述 must={G1,G2}。forward——G1 由要素一承接；G2 由要素三承接。",
+            "forward——G1<-要素一；G2<-要素三。",
+            "forward——G1 与 G2 各由一个要素承接：G1 承接自要素一，G2 承接自要素三。",
+        ]
+        for form in pass_forms:
+            qa = [{"q": "双向追溯结果？", "a": form}]
+            assert eng._check_pugh_traceability_forward_coverage(qa) is None, form
+
+    def test_p1s4_forward_coverage_skip_rules(self):
+        # 宁纵勿枉：无追溯题不扫；无 G 标签（②式无目标标签表述）不扫
+        assert (
+            eng._check_pugh_traceability_forward_coverage(
+                [{"q": "矩阵逐格评分如何？", "a": "候选B：改动面 −（2 文件 60 行）。"}]
+            )
+            is None
+        )
+        assert (
+            eng._check_pugh_traceability_forward_coverage(
+                [{"q": "双向追溯结果？", "a": "两向逐项均无漏，要素与目标一一对应。"}]
+            )
+            is None
+        )
+
+    def test_p1s4_net_score_block_form(self):
+        # vio5 形态：候选B 逐格 1+/3−/2S 却声明净分 +3 = 生产墙当场拒
+        qa = [
+            {
+                "q": "Pugh 矩阵逐格评分与理由？",
+                "a": "候选B：验收包承接度 S（无差异）；改动面 −（2 文件 60 行）；"
+                "影响面 S（同 3 符号）；复用度 −（不复用既有）；"
+                "可测试性 +（纯函数）；硬规则兼容 −（触发 H8）。净分 +3。",
+            }
+        ]
+        err = eng._check_pugh_net_score_consistency(qa)
+        assert err and "候选B" in err and "净分" in err
+
+    def test_p1s4_net_score_pass_and_skip(self):
+        # 合法形态：计数与净分自洽（S 计 0 不进净分）；datum 无净分数值 -> 跳过
+        qa_ok = [
+            {
+                "q": "Pugh 矩阵逐格评分与理由？",
+                "a": "候选B：验收包承接度 S（无差异）；改动面 −（2 文件 60 行）；"
+                "影响面 S（同 3 符号）；复用度 −（不复用既有）；"
+                "可测试性 +（纯函数）；硬规则兼容 −（触发 H8）。净分 −2。",
+            }
+        ]
+        assert eng._check_pugh_net_score_consistency(qa_ok) is None
+        assert (
+            eng._check_pugh_net_score_consistency(
+                [{"q": "矩阵？", "a": "候选A=datum 全 S，其余候选与其对照。"}]
             )
             is None
         )

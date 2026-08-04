@@ -3191,6 +3191,95 @@ def _check_constraint_verification_tool_trace(qa: list, *_ctx) -> str | None:
     return None
 
 
+# 双向追溯 forward 承接断言形（plan:1 子4 集合对齐用）：目标标签后紧跟承接声明
+# （「G2←要素三承接」/「G2 由…承接」）。**不用位置切分**——实测生产形态里
+# 「自述 must 目标集={G1,G2}」常写在 forward 段**之后**（clean 与 vio4 载荷皆是），
+# 按 forward 字样切分则自述集标签落进后半段自我满足、集合差恒空（mech 空转）。
+# 改按承接断言邻接判定，与段落顺序无关：backward 侧「要素→G1」形与末尾自述集
+# 「={G1,G2}」形均不含承接断言，不误计为已覆盖。
+_FORWARD_LINK_RE = re.compile(r"(G\d+)([^。；\n]{0,24})")
+
+
+def _check_pugh_traceability_forward_coverage(qa: list, *_ctx) -> str | None:
+    """pugh_traceability_forward_coverage：双向追溯 forward 覆盖对齐（plan:1 子4 专属）。
+
+    动机（2026-08-04 p:1#4 framing 反转 v1 重放，designs/p1-sub4-gate-framing-design.md）：
+    「每 must 目标 ≥1 要素承接（防漏）」在默认-PASS framing 下 judge 侧 1/6——
+    judge 不做集合差核对（自述 must={G1,G2} vs forward 只列 G1 承接），看到两向
+    段落齐备即 rubber-stamp 放过。词形可判子项（#30 ⑭，同 v2.50
+    atomic_mece_alignment / u:2#1 goal_candidate_traceability_alignment 集合对齐
+    范式）：「自述 must 集的每个目标标签是否带承接断言」零方差当场拒，judge 只判
+    承接声明的真实性与 backward 侧镀金。
+    **不复用 goal_candidate_traceability_alignment**（㊴ 三点核对第三点不对齐）：
+    该 mech 按「q 含追溯」取整条答案标签做集合差，本节点 must 集自述与承接声明
+    **同在一条答案内** -> 自述侧标签自我满足、集合差恒空。
+    宁纵勿枉：无追溯题（q 含「追溯」）/无 G 标签 -> 跳过交 judge；承接词形放宽
+    到「←/<-/由/承接」四形任一（窗口 24 字内），judge 侧仍兜真实性；backward 侧
+    镀金判定归 judge（要素名非标签，无词形可判）。
+    """
+    for item in qa:
+        q, a = str(item.get("q", "")), str(item.get("a", ""))
+        if "追溯" not in q:
+            continue
+        labels = set(_GOAL_LABEL_RE.findall(a))
+        if not labels:
+            continue
+        covered = set()
+        for label, tail in _FORWARD_LINK_RE.findall(a):
+            if tail.startswith(("←", "<-", "由")) or "承接" in tail:
+                covered.add(label)
+        missing = sorted(labels - covered)
+        if missing:
+            return (
+                f"双向追溯 forward 段缺 must 目标 {'、'.join(missing)} 的要素承接"
+                "断言——每个 must 目标须 ≥1 方案要素承接（防漏）：在 forward 段写明"
+                f"「{missing[0]}←某要素（承接）」，或说明该目标已移出 must 集"
+            )
+    return None
+
+
+# Pugh 净分自洽（plan:1 子4）：候选段内逐格 +/− 计数 vs 自述净分数值。
+# 候选段切分取「候选X：…净分 ±N。」——净分声明是段尾锚。逐格标注形=
+# 「维度名 +」/「维度名 −」/「维度名 S」（S 计 0 不进净分，Pugh 常规）。
+# 只在两者皆可解析时比对（宁纵勿枉：解析不到格标注或净分数值即跳过交 judge）。
+_PUGH_CAND_RE = re.compile(r"候选([A-Z])[：:](.*?)净分\s*([+＋\-−]?)\s*(\d+)", re.S)
+_PUGH_CELL_RE = re.compile(r"[（(]?\s*([+＋\-−S])\s*(?=[（(])")
+
+
+def _check_pugh_net_score_consistency(qa: list, *_ctx) -> str | None:
+    """pugh_net_score_consistency：Pugh 净分与逐格计数自洽（plan:1 子4 专属）。
+
+    动机（2026-08-04 p:1#4 framing 反转 v1/v2 重放，designs/p1-sub4-gate-framing-design.md）：
+    「矩阵结论与评分矛盾=凑结论」的算术子项（逐格 + 与 − 的个数 vs 自述净分数值）
+    在默认-PASS framing 下 judge 侧 0/6 -> 1/6（v2 已把「须动手数格」写进 block 面
+    仍不做）——**跨项聚合类判定 judge 系统性不执行**（§3.1 校准：mech 下沉预测器
+    是「该判定是否需要跨项聚合（算术/集合运算）」，不是正/负判定方向）。算术是
+    纯机械运算，切出下沉零方差生产墙（#30 ⑭），judge 只留「排序/推荐与净分的
+    对应」语义侧。
+    宁纵勿枉：无候选段/无净分声明/该段解析不到 +−S 格标注 -> 跳过交 judge；
+    datum 候选（自述「=datum 全 S」无净分数值）天然跳过；容许 ±1 误差不设——
+    净分定义是 +个数 − −个数（S 计 0），Pugh 标准算法无歧义。
+    """
+    for item in qa:
+        a = str(item.get("a", ""))
+        for cand, seg, sign, num in _PUGH_CAND_RE.findall(a):
+            cells = _PUGH_CELL_RE.findall(seg)
+            plus = sum(1 for c in cells if c in "+＋")
+            minus = sum(1 for c in cells if c in "-−")
+            if not cells or (plus + minus) == 0:
+                continue
+            declared = int(num) * (-1 if sign in "-−" else 1)
+            actual = plus - minus
+            if declared != actual:
+                return (
+                    f"候选{cand} 逐格计数与自述净分不符——数出 {plus} 个 + 与 "
+                    f"{minus} 个 −（S 计 0），净分应为 {actual:+d}，却声明 "
+                    f"{declared:+d}：凑结论=矩阵结论与评分矛盾。改净分数值与逐格"
+                    "标注一致，或修正逐格 +/S/− 标注"
+                )
+    return None
+
+
 # 现状勘察代码符号引用形（plan:1 子1 工具留痕扫描用）：
 # `xxx.py`（含 `:line`）/ `function X file.py:N`（codegraph 输出形）。
 # file:line 定位（`xxx.py:N`）本身即合法出处（形式要件「codegraph 原始输出或
@@ -3233,6 +3322,255 @@ def _check_terrain_tool_trace(qa: list, *_ctx) -> str | None:
             "（codegraph/Read/Bash 实测 等）--裸符号引用=凭空 API/训练记忆冒充："
             "补工具留痕（codegraph 输出引用/file:line 定位/Read 原文/Bash 实测 "
             "任一），或改标「未知」"
+        )
+    return None
+
+
+# 五项核验条目组（plan:1 子3 可行性验证写侧机械校验用）：圈码或条目名任一
+# 在场即算该项留痕在场（模型可用任一记法；「不适用+原因」替代会以条目名
+# 或在场圈码承载，天然落在「任一名在场」分支内，宁纵勿枉）。
+_FEASIBILITY_ITEM_GROUPS = (
+    ("①", "存在性"),
+    ("②", "重复造轮子", "重复实现"),
+    ("③", "影响面"),
+    ("④", "硬规则"),
+    ("⑤", "可测试性"),
+)
+# ①段存在性断言词 / ②段「无重复」断言词 / ②段查询动词——词形取
+# replay_plan1_sub3 vio1/vio4 真实载荷逐字（「经核实…均存在/可直接复用/
+# 也在场」；「不会有现成的同功能实现/需新建」）。
+_FEASIBILITY_EXIST_CLAIM_WORDS = ("存在", "已核实", "可复用", "在场")
+_FEASIBILITY_DUP_CLAIM_WORDS = (
+    "无重复",
+    "无同功能",
+    "没有同功能",
+    "需新建",
+    "不会有",
+    "无既有",
+)
+_FEASIBILITY_DUP_QUERY_VERBS = (
+    "codegraph",
+    "Grep",
+    "grep",
+    "查询",
+    "返回",
+    "搜索",
+    "检索",
+    "查得",
+)
+_FEASIBILITY_STATE_WORDS = ("可行", "假设", "证伪剔除")
+
+
+def _feasibility_segment(a: str, start_kws: tuple, end_kws: tuple) -> str | None:
+    """取 [start, end) 段（圈码/条目名定位）。start 缺 -> None（该段不扫）。"""
+    i = min((a.find(k) for k in start_kws if a.find(k) >= 0), default=-1)
+    if i < 0:
+        return None
+    ends = [a.find(k, i + 1) for k in end_kws if a.find(k, i + 1) > i]
+    return a[i : min(ends)] if ends else a[i:]
+
+
+def _check_feasibility_verification_trace(qa: list, *_ctx) -> str | None:
+    """feasibility_verification_trace：可行性验证五项核验留痕扫描（plan:1 子3 专属）。
+
+    动机（p:1#3 framing 反转 v1 重放，designs/plan1-sub3-gate-framing-design.md）：
+    三条负判定判据在默认-PASS framing 下崩牙——缺项 vio5 2/6、①段裸存在断言
+    vio1 3/6（拦对轮全引错条款=错理由拦对）、②段无查询「需新建」vio4 2/6
+    （㊳：负判定=合法留痕缺席才违规，judge 不主动查必崩需下沉）。词形可判
+    子项（#30 ⑭，同 terrain/baseline_tool_trace 范式）切出下沉零方差生产墙，
+    judge 只留语义残项（训练记忆冒充/留痕与自述矛盾/查询不对题/笼统趋同）。
+    ㊴ 复用判定：terrain_tool_trace 不可复用——它扫整条回答（v1 载荷 ④段有
+    file:line 即放行），本族违规须按 ①/② 段级切分（触发粒度不对齐=建变体）。
+    **非 db 依赖**：只查 qa 文本词形（留痕投影），不读 codegraph db（⑯-safe）；
+    「符号是否真实存在本仓」由模型侧 codegraph 动作保证，机械/judge 均不复述
+    db 内容（design §0 判材边界）。
+    宁纵勿枉：只扫含圈码①的结构化回答（散述形态交 judge 方框兜底）；①段含
+    「无需存在性核实」（新文件合法声明）或「不适用」跳过；file:line 定位
+    （`xxx.py:N`）本身即合法出处不拦——只拦「断言词在场且 file:line/工具动词
+    /查询动词全缺席」的裸断言。
+    """
+    for item in qa:
+        q, a = str(item.get("q", "")), str(item.get("a", ""))
+        if "①" not in a:
+            continue
+        missing = [g[1] for g in _FEASIBILITY_ITEM_GROUPS if not any(k in a for k in g)]
+        if missing:
+            return (
+                f"「{q[:16]}…」五项核验缺项（{'/'.join(missing)}）"
+                "——①-⑤ 逐项留痕是形式要件：补该项核验留痕，"
+                "或显式声明「不适用+原因」"
+            )
+        if not any(w in a for w in _FEASIBILITY_STATE_WORDS):
+            return (
+                f"「{q[:16]}…」缺三态标注——逐候选标注"
+                "「可行（附出处）/假设（置信度+错误时影响）/证伪剔除（附理由）」"
+            )
+        seg1 = _feasibility_segment(a, ("①",), ("②", "重复造轮子", "重复实现"))
+        if seg1:
+            # 「存在性」是段首条目名而非断言——剥掉再扫断言词（防条目名自带
+            # 「存在」把无断言段误判为裸断言）。
+            body1 = seg1.replace("存在性", "")
+            if (
+                "无需存在性核实" not in seg1
+                and "不适用" not in seg1
+                and any(w in body1 for w in _FEASIBILITY_EXIST_CLAIM_WORDS)
+                and not _TERRAIN_FILELINE_RE.search(seg1)
+                and not any(k in seg1 for k in _CONSTRAINT_TOOL_TRACE_KEYWORDS)
+            ):
+                return (
+                    f"「{q[:16]}…」①存在性核验声称存在/已核实却无出处"
+                    "（无 file:line、无 codegraph/Read 等工具留痕）"
+                    "——声称存在无出处=编造：补 file:line 定位或工具查询留痕，"
+                    "新文件则声明「无需存在性核实」"
+                )
+        seg2 = _feasibility_segment(a, ("②", "重复造轮子", "重复实现"), ("③", "影响面"))
+        if (
+            seg2
+            and any(w in seg2 for w in _FEASIBILITY_DUP_CLAIM_WORDS)
+            and not any(k in seg2 for k in _FEASIBILITY_DUP_QUERY_VERBS)
+        ):
+            return (
+                f"「{q[:16]}…」②声称无同功能实现/需新建却无 codegraph/Grep "
+                "查询留痕——重复实现漏检：补同功能查询留痕（查询方式+返回摘要，"
+                "含「返回 0 个」空结果）"
+            )
+    return None
+
+
+# plan:2 子1 要素清单代码符号形（element_quote_trace 用）：
+# 要素条目形如 `summary/generate_factor_summary_report.py` file→function。
+# 与 _TERRAIN_SYMBOL_RE 同形；要点=本 mech 判「要素原文引用」是否在场（judge
+# 读不到 design.md 文件，原文『…』引用是核对保真度的唯一材料），非工具留痕。
+_ELEMENT_SYMBOL_RE = re.compile(r"[A-Za-z0-9_./-]+\.py(?::\d+)?")
+
+
+def _check_element_quote_trace(qa: list, *_ctx) -> str | None:
+    """element_quote_trace：要素清单原文引用留痕扫描（plan:2 子1 专属）。
+
+    动机（plan:2#1 framing 反转 v1 重放，designs/plan2-sub1-gate-framing-design.md）：
+    形式要件「每条附出处且要素原文引用进 trace 正文」在默认-PASS framing 下 judge
+    侧 vio4 2/6——judge 看到要素条目有出处行号（design.md:12）就 rubber-stamp 放过
+    无『』原文引用的条目（㉖ 注意力方差，同 p1-sub1 vio2 / u:3#2 vio1 型）。词形可判
+    子项（#30 ⑭）：「要素条目引用了代码符号形（.py）却无任何『』原文引用或『原文』
+    字样」切出下沉零方差生产墙。
+    宁纵勿枉：只扫引用了代码符号形（.py）的答案（要素清单专属——验收包 SC ID/
+    假设 H1 无 .py 不触发）；答案含『』或「原文」字样即放过（原文引用在场）；
+    整条答案任一要素带原文引用即放过（viol 的 E4 裸但 E1-E3 有原文引用→mech 放过
+    ，静默新增的「个别条目裸」交 judge 判，本 mech 只做「全清单无原文」的墙）。
+    """
+    for item in qa:
+        a = str(item.get("a", ""))
+        if not _ELEMENT_SYMBOL_RE.search(a):
+            continue
+        if "『" in a or "原文" in a:
+            continue
+        return (
+            f"「{str(item.get('q', ''))[:16]}…」要素清单条目引用了代码符号"
+            "（.py）却无任何 design.md 原文引用（『…』/『原文』）——要素原文"
+            "未引用进 trace 正文，judge 无从核对保真度：补『…』原文片段引用"
+        )
+    return None
+
+
+# plan:2 子2 切分排序（dependency_order_trace / element_coverage_trace /
+# single_phase_argument 用，v2.102 framing 反转三 mech）：
+# 三 mech 各承接一个 default-PASS judge 判不稳的判据--vio2 排序违依赖（跨参照：
+# 声明依赖 vs 拓扑序方向，㊻ 系统性放行型）/ vio4 丢要素（跨步：S1 要素 vs S2
+# 承接，clean 误伤与 vio 漏判跷跷板）/ vio5 单阶段无论证（负判定缺席型，㊳）。
+# 均纯 token 扫描（⑯-safe，无 db 依赖）；element_coverage_trace 读 S1 evidence
+# 是文件读非 db（S1 缺失=放过交 judge，非双失）。
+_DEPENDENCY_PAIR_RE = re.compile(
+    r"([A-Z]\d+)\s*[（(]\s*依赖\s*([A-Z]\d+)\s*[)）]"  # U3（依赖 U2）
+    r"|([A-Z]\d+)\s*依赖\s*([A-Z]\d+)"  # U3 依赖 U2
+)
+_TOPO_ORDER_RE = re.compile(r"拓扑序\s*([A-Z\d\s\->]+)")
+
+
+def _check_dependency_order_trace(qa: list, *_ctx) -> str | None:
+    """dependency_order_trace：拓扑序方向 vs 声明依赖自洽扫描（plan:2 子2 专属）。
+
+    动机（plan:2#2 framing 反转 v1-v4 重放，designs/plan2-sub2-gate-framing-design.md）：
+    「排序违反依赖=被依赖者排后」是跨参照判据（声明依赖 vs 拓扑序方向逐对核对），
+    默认-PASS 下 judge v1 2/6->v2/v4 3-4/6 系统性放行（㊻：弱 judge 把「U3->U2->U1」
+    读成有效序列不核对方向）。词形可判子项（#30 ⑭）：「声明 X 依赖 Y 却拓扑序 X 在
+    Y 前」切出下沉零方差生产墙。
+    宁纵勿枉：无拓扑序 / 无依赖声明 / 单元不在序中=放过交 judge（只做清晰情形的墙）。
+    """
+    all_text = " ".join(str(item.get("a", "")) for item in qa)
+    m = _TOPO_ORDER_RE.search(all_text)
+    if not m:
+        return None
+    order = re.findall(r"[A-Z]\d+", m.group(1))
+    if len(order) < 2:
+        return None
+    pos = {u: i for i, u in enumerate(order)}
+    pairs = []
+    for mm in _DEPENDENCY_PAIR_RE.finditer(all_text):
+        x = mm.group(1) or mm.group(3)
+        y = mm.group(2) or mm.group(4)
+        if x and y:
+            pairs.append((x, y))
+    if not pairs:
+        return None
+    for x, y in pairs:  # X 依赖 Y -> Y 须在 X 前（pos[Y] < pos[X]）
+        if x in pos and y in pos and pos[y] > pos[x]:
+            return (
+                f"排序违反依赖：{x} 依赖 {y}，但拓扑序中 {x}（位 {pos[x]}）排在 "
+                f"{y}（位 {pos[y]}）前--被依赖者排后；拓扑序须被依赖者先行"
+                f"（{y} 在 {x} 前）"
+            )
+    return None
+
+
+def _check_element_coverage_trace(qa: list, project_root, name) -> str | None:
+    """element_coverage_trace：要素 ID 覆盖跨步核对（plan:2 子2 专属）。
+
+    动机（plan:2#2 framing 反转，同上设计）：「要素 ID 覆盖有漏=丢要素」是跨步一致性
+    （S1 子1 要素清单 vs S2 子2 单元承接），默认-PASS 下 judge v1 6/6->v3/v4 1-3/6
+    跷跷板（强措辞判 vio4 5/6 但伤 clean、弱措辞保 clean 但 vio4 漏判=⑤ 跷跷板实锤）。
+    下沉生产墙：读 S1 取要素 ID 集，核对每个在 S2 出现。
+    宁纵勿枉：S1 缺失（无前序记录）=放过交 judge（非双失：judge 仍可判）；S2 无要素
+    ID 引用=放过（可能用别名，交 judge）。
+    """
+    s1 = read_evidence_for_step(project_root, name, 1, "TaskBreakdown")
+    if not s1:
+        return None
+    s1_ids = set(re.findall(r"\bE\d+\b", s1))
+    if not s1_ids:
+        return None
+    s2_text = " ".join(str(item.get("a", "")) for item in qa)
+    s2_ids = set(re.findall(r"\bE\d+\b", s2_text))
+    missing = s1_ids - s2_ids
+    if missing:
+        return (
+            f"要素 ID 覆盖有漏：S1（子1）要素 {sorted(missing)} 在本步（子2）无单元"
+            "承接--每个 S1 要素 ID 须至少一个单元承接"
+        )
+    return None
+
+
+def _check_single_phase_argument(qa: list, *_ctx) -> str | None:
+    """single_phase_argument：单阶段声明须附 H9 量化论证（plan:2 子2 专属）。
+
+    动机（plan:2#2 framing 反转，同上设计）：「②单阶段不可拆论证（H9 内一次可完）」
+    是负判定缺席型（㊳：合法留痕缺席才违规），默认-PASS 下 judge v1 2/6->v2 1/6->
+    v3/v4 0-1/6（加强措辞反降=措辞对负判定无效，同 u:4#2 vio1 型）。词形可判子项
+    （#30 ⑭）：「声明单阶段/不可拆却同段无文件数+行数量化」切出下沉零方差生产墙。
+    逐答案扫描（非全量）：单阶段声明与②论证同属阶段段、同答案；全量扫描会误放过
+    vio5--vio5 的 a[0]（承自 clean）含单元预算「1 文件 ~30 行」但单阶段声明在 a[2]、
+    a[2] 无量化=真违规。
+    宁纵勿枉：多阶段划分（无单阶段/不可拆声明）不触发。
+    """
+    for item in qa:
+        a = str(item.get("a", ""))
+        if "单阶段" not in a and "不可拆" not in a:
+            continue
+        if re.search(r"\d+\s*文件|\d+\s*行", a):
+            continue  # 该答案含 H9 量化
+        return (
+            "声明「单阶段/不可拆」却同段无 H9 量化论证（文件数+行数 ≤ 上限）--"
+            "②单阶段不可拆论证须在同段含量化（如「3 文件 ~75 行，H9 内一次可完」）："
+            "补量化，或改走多阶段划分附断点验证方法"
         )
     return None
 
@@ -3722,6 +4060,13 @@ _MECH_QA_CHECKS = {
     "baseline_tool_trace": _check_baseline_tool_trace,
     "constraint_verification_tool_trace": _check_constraint_verification_tool_trace,
     "terrain_tool_trace": _check_terrain_tool_trace,
+    "feasibility_verification_trace": _check_feasibility_verification_trace,
+    "pugh_traceability_forward_coverage": _check_pugh_traceability_forward_coverage,
+    "pugh_net_score_consistency": _check_pugh_net_score_consistency,
+    "element_quote_trace": _check_element_quote_trace,
+    "dependency_order_trace": _check_dependency_order_trace,
+    "element_coverage_trace": _check_element_coverage_trace,
+    "single_phase_argument": _check_single_phase_argument,
     "fetch_report_recorded": _check_fetch_report_recorded,
     "fetch_skeleton_out": _check_fetch_skeleton_out,
     "redteam_report_recorded": _check_redteam_report_recorded,
