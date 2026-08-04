@@ -44,7 +44,7 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
 
 | 触发场景 | 文件 |
 |---|---|
-| 运行出症状：注入没生效 / 阶段不推进 / 模型否认注入 / 横幅清单不显示 / 子阶段·子步骤不推进 / evidence 不落地或写错位 / 围栏 deny / judge 递归爆炸 / 模型违规模式 / 跑太慢 | `references/diagnostics.md`（按症状字母 A–U 查，文件内 §2 节号保留） |
+| 运行出症状：注入没生效 / 阶段不推进 / 模型否认注入 / 横幅清单不显示 / 子阶段·子步骤不推进 / evidence 不落地或写错位 / 围栏 deny / judge 递归爆炸 / judge 全量超时 / 模型违规模式 / 跑太慢 | `references/diagnostics.md`（按症状字母 A–V 查，文件内 §2 节号保留） |
 | 通用排查方法论（日志三层分诊 / attachment 验真 / token 审计口径 / hook 冒烟法 / 卡住分诊 runbook） | `references/troubleshooting.md`（§3） |
 | 改判据 / 改 rubric / 一过率低 / judge 判得不对 / 审计一轮运行（可避免的 error/返工/token） | `references/rubric-design.md`（§3.5+§3.6） |
 | 写/改任何喂给模型的文案（注入块 / phase-rules / judge prompt / 让模型产出记录） | `references/prompt-engineering.md`（§3.7） |
@@ -89,6 +89,7 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
 - "工具调用挂起 / 会话卡死不动 / step-pass 没反应 / tool_use 无返回" → references/diagnostics.md 症状 S
 - "按系统文案指路操作仍报错 / 文案里的命令照跑也报错 / unrecognized arguments" → references/diagnostics.md 症状 T
 - "门禁该拦没拦 / design_gate 或 codegraph gate 形同虚设 / 没写 design.md 也能改多文件" → references/diagnostics.md 症状 U
+- "judge 全量超时 / 连最小冒烟都 TimeoutExpired / 端点 curl 通但 judge 全挂 / 重放全超时" → references/diagnostics.md 症状 V
 - "审计这轮运行 / 符合预期吗 / 哪些 error 返工可避免 / judge 输入膨胀 / 重建丢弃" → references/rubric-design.md §3.6
 - "设计新编排节点 / 拆几个子步骤 / 每步什么目的 / 要不要取证步 / 步数怎么定 / 代码设计拆步 / 拆解任务 / 任务切分 / 执行计划 plan.md" → references/node-design.md §3.8
 - "另一会话在改同仓库 / 文件被外部修改 / 两批改动怎么分开 commit / 测试全红是不是我的问题" → references/collab.md

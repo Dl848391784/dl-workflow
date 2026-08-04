@@ -366,3 +366,10 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 - **排查**：看 audit 目录（`<repo>/.claude/.design_audit/`、`.cg_audit/`）——只有 `_fallback.log` = 会话标识源失效；有多个 `<sid>.log` = 正常。再对时间线：留痕记录的时间戳是否属于本会话。
 - **已修**：`_session_id(payload)` 三源（payload session_id → transcript_path stem → env → _fallback），v2.69。复发先看 audit log 文件名分布；测试复现注意**别注入现实里不存在的 env**（rubric §3.6 #13 测试替身失真）。
 
+### 症状 V：judge 全量 TimeoutExpired（连最小冒烟都超时，无进程堆积）
+
+- **特征**：所有 `run_judge` 调用 120s 超时×2（重试后仍败），含「答案是 42」级最小 payload；`ps aux` 无 judge 进程堆积（区别于症状 N 的递归爆炸）；端点 curl 裸测却秒回。
+- **根因**（2026-08-04 v2.79 重放实测）：**主会话 provider env 继承污染**——主会话跑在 kimi 端点（`ANTHROPIC_BASE_URL=api.kimi.com/coding`），重放脚本 `os.environ.setdefault` 保留继承值，judge 子进程把 MiniMax-M3 模型名发给 kimi 端点=流式挂起不报错（不 401、不超时快速失败，干等到 120s）。
+- **分层诊断序列**（逐层缩小，~2min 定位）：①`curl -m 30 <端点>` 裸测连通（通≠补全可用——kimi 对未知模型是挂起不是报错）；②直跑 `cd /tmp && claude -p --output-format json --tools "" --system-prompt x '说1'`（显式 export 三件套）——正常=CLI/端点无恙，问题在调用方 env；③python 复刻 `_run_judge_once` 的 subprocess 调用、`timeout=30` 抓 `TimeoutExpired.stdout` 部分输出——debug log 里的 `url:` 行直接暴露请求打去了哪个端点。
+- **正治**：重放脚本 provider 三件套（BASE_URL/MODEL/TOKEN）**硬赋值**禁 setdefault（rubric §3.5 #30 ⑩）。
+
