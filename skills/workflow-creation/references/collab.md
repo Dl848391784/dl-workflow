@@ -30,3 +30,5 @@
 6. **编排版本号 commit 前先查占用**（2026-07-31 实例）：v2.xx 序号无中央分配——本会话按 memory 记的 v2.31 往下排，实际另一会话的产物机械门（7097c48）已先占 v2.31，被迫补一个改名 commit（ba3485b）。提交前 `grep -rn "v2\.<n>"` 全仓 + `git log --oneline -5` 查最新序号。
 7. **format/lint 漂移归因：先确认归属，独立批收口**（2026-08-02 v2.41 实例）：`ruff format --check` 报 5 文件漂移但都不在本次改动行——根因 = **committed 代码 + ruff 版本口径变化**（旧版本格式化的行被新版规则重排），不是并发污染也不是你的编辑。处理纪律：①先 `ruff format --diff <文件>` 看 hunk 归属——落在自己改动行 = 自己新代码没过 format，随本批修；全是别人/历史行 = pre-existing 漂移；②pre-existing 漂移**不混入功能 commit**（守 #3 批次纯净），独立 style commit 收口 + message 声明非语义改动；③format 跑完**必复跑 pytest 再 commit**（症状 M checklist #7 同纪律）——且 format 可能顺带带出你刚写的新行（本次 test_workflow_phase.py 一行，属①随批修）。
 
+8. **仓级 `ruff format .` 在并发期是席卷动作（与 `git add -A` 同族）**（2026-08-04 v2.85 实例）：跑一次 `ruff format .` 重排了 9 个文件，其中 7 个是另一会话刚建的重放资产（`replay_u1_sub1/2/3.py`、`_common.py`、`test_codegraph_gate.py` 等）——纯格式无实质改动、713 tests 全绿，但**它们不是你的批次**。处置纪律：①并发活跃期把 lint 范围收窄到自己的文件（`ruff format <明确清单>` 而非 `.`）；②已经席卷了就**只 `git add` 自己的文件**，别人的格式改动留在工作树（对方下轮跑 ruff 自然吸收，或由其自行决定）——混进自己 commit = #5 `git add -A` 同款归属失真；③例外：若该格式改动是你修的**通道/共享件本身**（本次 `_common.py` 的 token 优先级 bug），则连带格式一起提，因为职责在你这轮。判据 = 「这文件的**语义**改动是不是我做的」，不是「谁先建的」。
+
