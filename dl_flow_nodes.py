@@ -2574,7 +2574,7 @@ _NODES: dict[str, Node] = {
                 input="step1.element_baseline",
                 record=True,
                 fence_allow=("Bash",),  # codegraph CLI
-                # v2.102（designs/plan2-sub2-gate-framing-design.md）：三 mech 承接
+                # v2.104（designs/plan2-sub2-gate-framing-design.md）：三 mech 承接
                 # default-PASS judge 判不稳的判据--dependency_order_trace（排序跨参照
                 # ㊻ 系统性放行）/ element_coverage_trace（要素跨步跷跷板⑤）/
                 # single_phase_argument（②负判定缺席㊳）。纯 token 扫描，⑯-safe。

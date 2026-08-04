@@ -3473,7 +3473,7 @@ def _check_element_quote_trace(qa: list, *_ctx) -> str | None:
 
 
 # plan:2 子2 切分排序（dependency_order_trace / element_coverage_trace /
-# single_phase_argument 用，v2.102 framing 反转三 mech）：
+# single_phase_argument 用，v2.104 framing 反转三 mech）：
 # 三 mech 各承接一个 default-PASS judge 判不稳的判据--vio2 排序违依赖（跨参照：
 # 声明依赖 vs 拓扑序方向，㊻ 系统性放行型）/ vio4 丢要素（跨步：S1 要素 vs S2
 # 承接，clean 误伤与 vio 漏判跷跷板）/ vio5 单阶段无论证（负判定缺席型，㊳）。
