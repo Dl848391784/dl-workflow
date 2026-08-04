@@ -41,3 +41,4 @@ python3 tests/replays/replay_u2_sub3.py
 | replay_u2_sub2.py | understand:2 子2 对齐质检 | clean / vio1 同义反复 / vio2 矩阵放水 / vio3 汇总无矩阵 |
 | replay_u2_sub3.py | understand:2 子3 价值论证 | clean / vio1 空泛复述 / vio2 基线编造(mech墙) / vio3 全must / vio4 无理由 / vio5 拍板 |
 | replay_u2_sub4.py | understand:2 子4 归一化陈述 | clean / vio1 分层不传导 / vio2 边界不传导 / vio3 复合句 / vio4 方案动作残留 |
+| replay_u3_sub1.py | understand:3 子1 障碍分析引出 | clean / vio1 空泛约束 / vio2 否定提问套话 / vio3 类型不足 / vio4 ②偷懒 / vio5 结论无出处推断 |

@@ -3650,6 +3650,8 @@ class TestJudgeFramingDualMode:
         assert "默认 pass" in s2[1].gate, "u:2#2 gate 缺「默认 pass」framing 标记"
         assert "默认 pass" in s2[2].gate, "u:2#3 gate 缺「默认 pass」framing 标记"
         assert "默认 pass" in s2[3].gate, "u:2#4 gate 缺「默认 pass」framing 标记"
+        s3 = nodes._NODES["understand:3"].sub_steps
+        assert "默认 pass" in s3[0].gate, "u:3#1 gate 缺「默认 pass」framing 标记"
 
 
 class TestEmptyBlockReasonRetry:
