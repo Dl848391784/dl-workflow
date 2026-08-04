@@ -3648,6 +3648,7 @@ class TestJudgeFramingDualMode:
         s2 = nodes._NODES["understand:2"].sub_steps
         assert "默认 pass" in s2[0].gate, "u:2#1 gate 缺「默认 pass」framing 标记"
         assert "默认 pass" in s2[1].gate, "u:2#2 gate 缺「默认 pass」framing 标记"
+        assert "默认 pass" in s2[2].gate, "u:2#3 gate 缺「默认 pass」framing 标记"
         assert "默认 pass" in s2[3].gate, "u:2#4 gate 缺「默认 pass」framing 标记"
 
 
@@ -6395,6 +6396,49 @@ class TestV237FirstPassRate:
                         "a": "原始请求：'现在有多少个因子的IC为正？'",
                     }
                 ]
+            )
+            is None
+        )
+
+    # ---- u:2 子3 framing 反转配套 mech（v2.89，基线工具留痕扫描，
+    # designs/u2-sub3-gate-framing-design.md）----
+
+    def test_u2s3_baseline_no_tool_trace_blocked(self):
+        # vio2 形态：基线数字在场但无工具动词（「根据最近报告数据」=拍脑袋数字）——
+        # 生产墙零方差当场拒
+        qa = [
+            {
+                "q": "G1当前可量化基线是什么？",
+                "a": "根据最近报告数据，baseline_total=72，positive_ic_mean=14，"
+                "positive_share=19.44%，report_date=2026-07-25。",
+            }
+        ]
+        err = eng._check_baseline_tool_trace(qa)
+        assert err and "工具留痕" in err and "编造" in err
+
+    def test_u2s3_baseline_tool_trace_pass_forms(self):
+        # 合法形态全过：Bash实测声明 / Bash命令+python3+输出 / 不可量化+原因
+        pass_forms = [
+            "Bash实测最新default报告：baseline_total=72，positive_ic_mean=14。",
+            "Bash命令原文：python3 -c \"import re; p='/home/admin/...'; ...\"。输入路径="
+            "/home/admin/...。Bash原始输出：path=... rows=72 positive=14。",
+            "该状态不可量化，原因是用户后续人工裁决，仓库无完成记录；不以推测值替代。",
+        ]
+        for form in pass_forms:
+            qa = [{"q": "G1当前可量化基线是什么？", "a": form}]
+            assert eng._check_baseline_tool_trace(qa) is None, form
+
+    def test_u2s3_baseline_skip_rules(self):
+        # 宁纵勿枉：非基线题 / 无数字基线（交 judge 空泛复述兜底）跳过
+        assert (
+            eng._check_baseline_tool_trace(
+                [{"q": "G1的价值链是什么？", "a": "→承接痛点'候选太多'→决策支持"}]
+            )
+            is None
+        )
+        assert (
+            eng._check_baseline_tool_trace(
+                [{"q": "G1当前可量化基线是什么？", "a": "当前效率不高，改进后更快。"}]
             )
             is None
         )

@@ -3098,6 +3098,52 @@ def _check_answer_source_marker(qa: list, *_ctx) -> str | None:
     return None
 
 
+_BASELINE_TOOL_TRACE_KEYWORDS = (
+    "Bash实测",
+    "Bash命令",
+    "实测",
+    "python3",
+    "sqlite3",
+    "codegraph",
+    "运行",
+    "路径",
+    "输出",
+    "报告第",
+    "报告自身",
+)
+
+
+def _check_baseline_tool_trace(qa: list, *_ctx) -> str | None:
+    """baseline_tool_trace：基线项工具留痕扫描（u:2 子3 专属）。
+
+    动机（2026-08-04 u:2#3 framing 反转 v1/v3 重放）：「基线数字须有工具留痕，
+    拍脑袋数字=编造」在默认-PASS framing 下 judge 侧 4-5/6 裁量方差（同文本
+    v2 5/6 -> v3 4/6 纯方差，pass 全空判词）——「Bash实测…」vs「根据最近报告
+    数据」仅差一个工具动词，词形可判子项（#30 ⑭，同 v2.87 answer_source_marker
+    范式），切出下沉零方差生产墙，judge 只判留痕在场后的语义残项。
+    宁纵勿枉：无基线题（q 含「基线/可量化」）跳过；「不可量化」标注=合法替代跳过；
+    无数字（\\d 无命中）跳过交 judge（空泛复述兜底）；有数字但无工具动词=当场拒。
+    禁把裸「报告」当工具词（「根据最近报告数据」会被误放行）；须工具动作词
+    （Bash实测/命令/运行/输出/路径）或精确文件定位（报告第/报告自身）。
+    """
+    for item in qa:
+        q, a = str(item.get("q", "")), str(item.get("a", ""))
+        if "基线" not in q and "可量化" not in q:
+            continue
+        if "不可量化" in a:
+            continue
+        if re.search(r"\d", a) is None:
+            continue
+        if any(k in a for k in _BASELINE_TOOL_TRACE_KEYWORDS):
+            continue
+        return (
+            f"「{q[:16]}…」基线数字无工具留痕（Bash实测/命令/运行/路径/输出等）"
+            "——拍脑袋数字=编造：补 Bash 实测命令与输出留痕，或显式标注"
+            "「不可量化+原因」"
+        )
+    return None
+
+
 def _load_atomic_questions(project_root: Path, name: str) -> list | None:
     """读子2 最新 trace 的 atomic_questions 分档清单（v2.40）。
 
@@ -3580,6 +3626,7 @@ _MECH_QA_CHECKS = {
     "value_no_unsourced_inference": _check_value_no_unsourced_inference,
     "goal_candidate_traceability_alignment": _check_goal_candidate_traceability_alignment,
     "answer_source_marker": _check_answer_source_marker,
+    "baseline_tool_trace": _check_baseline_tool_trace,
     "fetch_report_recorded": _check_fetch_report_recorded,
     "fetch_skeleton_out": _check_fetch_skeleton_out,
     "redteam_report_recorded": _check_redteam_report_recorded,
