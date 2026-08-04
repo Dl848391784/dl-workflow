@@ -3714,11 +3714,20 @@ class TestEngagementFenceNotice:
         # Bash 后错误泛化为「本步禁取证」（.wf_fence.log 实锤）。判型=操作化
         # 分歧非注意力失败（trace 里该项自查真被执行过）——钉操作化定义双侧：
         # 主链每环实际证据指针 + 「未实测」只允许竞争假设分支 + Read 合法通道。
+        # v2.72（2026-08-04 framing 反转）：_CAUSAL_CHAIN_EVIDENCE_RULE 撤出
+        # gate（长度是弱 judge 独立变量，基线 clean 0/6 误伤的弹药文本），
+        # 模型侧 purpose/selfcheck verbatim 不变；judge 侧改钉压缩判据——
+        # 方框一（编造/虚构指针）+ 合法正例（原话=合法环指针）+ 方框三
+        # （稻草人）；「未实测不算出处」由 causal_ring_no_untested 机械层
+        # 当场拒（比 judge 裁量更硬）。
         step = eng.sub_step_at(eng.get_node("understand", 1), 2)
         for frag in ("实际证据指针", "不算证据出处", "竞争假设"):
             assert frag in step.purpose, f"purpose 缺「{frag}」（模型侧未钉死）"
             assert frag in step.selfcheck
-            assert frag in step.gate, f"gate 缺「{frag}」（judge 侧未钉死）"
+        assert "模型虚构" in step.gate, "gate 方框一缺编造判据"
+        assert "合法环证据指针" in step.gate, "gate 缺原话合法正例"
+        assert "竞争假设非稻草人" in step.gate
+        assert "causal_ring_no_untested" in step.mech_checks
 
     def test_step_selfcheck_hint_single_source(self):
         # §step-selfcheck：自查提示单源常量（pass 续轮/block 返工/注入三通道共用）
@@ -5090,6 +5099,43 @@ class TestWhoNoRepoFact:
         fn = eng._MECH_QA_CHECKS["who_no_repo_fact"]
         # 非 who 项含 CLAUDE.md（如痛点项引用项目事实）-> 不拦
         assert fn([{"q": "pain: 后果？", "a": "T+1 持仓（CLAUDE.md 声明）"}]) is None
+
+
+class TestHypothesisExcludeNoAbsence:
+    """v2.75 竞争假设排除理由缺席断言下沉机械层（2026-08-04 u:1 子2 vio2 根治）：
+    v2.73/v2.74 重放实证 judge 对「排除理由无证据指针」双向抖动（v2.73 把
+    「用户没有表达过这个意思」当留痕放过 vio2 牙齿掉 4/6；v2.74 钉死后反伤
+    clean 1/6）。缺席断言词形可判，下沉机械层零方差（§3.5 #13）。"""
+
+    def test_registered_and_declared(self):
+        assert "hypothesis_exclude_no_absence" in eng._MECH_QA_CHECKS, (
+            "hypothesis_exclude_no_absence 未注册 _MECH_QA_CHECKS（engine/nodes 漂移）"
+        )
+        step = eng.get_node("understand", 1).sub_steps[1]
+        assert "hypothesis_exclude_no_absence" in step.mech_checks
+
+    def test_absence_assertion_blocked(self):
+        fn = eng._MECH_QA_CHECKS["hypothesis_exclude_no_absence"]
+        # vio2 真实载荷逐字 -> 拒
+        for bad in (
+            "H1=用户其实想删除整个因子池。排除理由：用户没有表达过这个意思，故排除 H1。",
+            "排除 H2：用户没说过要保留旧流程。",
+            "该假设排除，因用户未提及其他筛选维度。",
+        ):
+            err = fn([{"q": "竞争假设？", "a": bad}])
+            assert err and "缺席断言" in err, f"应拦缺席断言排除：{bad}"
+
+    def test_specific_record_not_blocked(self):
+        fn = eng._MECH_QA_CHECKS["hypothesis_exclude_no_absence"]
+        # 具体选择记录/原话引用 -> 不拦（宁纵勿枉）
+        for ok in (
+            "用户未选择「只想了解规模」和「数量并不帮助」，而选择「没有缩减规则」与「决定筛选门槛」（AskUserQuestion 选中留痕），故当前排除 H1。",
+            "排除 H1：用户原话「继续筛选」直接否定该假设（第3轮原话）。",
+            "H1 标保留/待子3取证：证据不足不排除。",
+        ):
+            assert fn([{"q": "竞争假设？", "a": ok}]) is None, (
+                f"不应拦合法排除形态：{ok}"
+            )
 
 
 class TestAtomicItemRule:
@@ -6970,13 +7016,17 @@ class TestFetchTier:
         # 测试）：_FETCH_TIER_RULE 含操作测试文本，purpose/selfcheck/gate
         # 三面同源引用。live 重放：att1 真实载荷新 gate 仍 BLOCK（判词引
         # 「外部知识依赖」新条款）、surgical 修复版 PASS。
+        # v2.72（2026-08-04 framing 反转）：常量撤出 gate（长度是弱 judge
+        # 独立变量），judge 侧钉压缩条款（方框第四条），purpose 侧仍
+        # verbatim 引用——双侧钉死意图不变。
         import dl_flow_nodes as nodes
 
         rule = nodes._FETCH_TIER_RULE
         assert "外部知识依赖操作测试" in rule and "不得标 none" in rule
         assert "valid_mean*252*coverage" in rule  # 反例取 att1 逐字
         step = eng.get_node("understand", 1).sub_steps[1]
-        assert rule in step.purpose and rule in step.gate
+        assert rule in step.purpose
+        assert "外部知识依赖" in step.gate and "标 none" in step.gate
         assert "在仓外=含外部知识依赖" in step.selfcheck
 
     def test_tier_reason_empty_rejected(self, tmp_path):

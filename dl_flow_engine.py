@@ -3399,6 +3399,36 @@ def _check_who_no_repo_fact(qa: list, *_ctx) -> str | None:
     return None
 
 
+# v2.75（2026-08-04 u:1 子2 vio2 稻草人牙齿根治）：
+# v2.73/v2.74 重放实证 judge 对「排除理由无证据指针」判据双向抖动——
+# v2.73 把缺席断言「用户没有表达过这个意思」当留痕放过（vio2 4/6 牙齿掉），
+# v2.74 钉「缺席断言≠指针」后又对 clean 的具体选择记录过度索取（clean 1/6）。
+# 缺席断言是词形可判项——下沉机械层零方差（§3.5 #13），judge 只判「假设
+# 明显不成立且凑数」的语义侧。词形取 vio2 真实载荷逐字（没有表达过）。
+_HYP_EXCLUDE_ABSENCE_RE = re.compile(
+    r"排除[^。]{0,40}?(没有表达过|没说过|未说过|没有说过|未提及|没有提到|未提到|没有表达)"
+)
+
+
+def _check_hypothesis_exclude_no_absence(qa: list, *_ctx) -> str | None:
+    """hypothesis_exclude_no_absence：竞争假设排除理由禁缺席断言（u:1 子2，v2.75）。
+
+    「用户没有表达过/没说过」式缺席断言不算证据指针（断言「没有什么」，
+    与全局否定断言同族）；排除须引用具体原话或具体选择记录（如
+    AskUserQuestion 选中项），证据不足改标「保留/待子3取证」。
+    「未选择 X 而选择 Y」是对具体选择记录的引用，合法不拦（宁纵勿枉）。
+    """
+    for item in qa:
+        a = str(item.get("a", ""))
+        if _HYP_EXCLUDE_ABSENCE_RE.search(a):
+            return (
+                "竞争假设排除理由用了缺席断言（「用户没有表达过/没说过」类）——"
+                "缺席断言不算证据指针；排除须引用具体原话或具体选择记录"
+                "（如 AskUserQuestion 选中项），证据不足时改标「保留/待子3取证」"
+            )
+    return None
+
+
 # qa 格式步的写侧机械校验注册表（Step.mech_checks 声明名 -> 检查函数）。
 # 未注册名 = nodes 与 engine 配置漂移，fail loud 不静默跳过。
 _MECH_QA_CHECKS = {
@@ -3406,6 +3436,7 @@ _MECH_QA_CHECKS = {
     "user_quote_channel": _check_user_quote_channel,
     "answer_no_reverse_inference": _check_answer_no_reverse_inference,
     "who_no_repo_fact": _check_who_no_repo_fact,
+    "hypothesis_exclude_no_absence": _check_hypothesis_exclude_no_absence,
     "value_no_unsourced_inference": _check_value_no_unsourced_inference,
     "fetch_report_recorded": _check_fetch_report_recorded,
     "fetch_skeleton_out": _check_fetch_skeleton_out,
