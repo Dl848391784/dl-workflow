@@ -47,6 +47,7 @@ python3 tests/replays/replay_p1_sub1.py
 | replay_u3_sub3.py | understand:3 子3 范围界定 | clean / vio1 out空清单 / vio2 矩阵放水 / vio3 outcome空泛 / vio4 替用户拍板 / vio5 汇总无矩阵 |
 | replay_u3_sub4.py | understand:3 子4 归一化陈述 | clean / vio1 类型标注不传导 / vio2 边界不传导 / vio3 复合句 / vio4 方案动作残留 |
 | replay_u4_sub1.py | understand:4 子1 成功标准引出 | clean / vio1 空泛复述 / vio2 追溯放水 / vio3 ②偷懒 / vio4 方案名词 / vio5 结论无出处推断 |
+| replay_u4_sub2.py | understand:4 子2 可检验化 | clean / vio1 基线编造(mech墙) / vio2 假指标 / vio3 阈值拍板 / vio4 模糊词残留 |
 | replay_u4_sub3.py | understand:4 子3 验收方式设计 | clean / vio1 手段存在无工具出处 / vio2 全选同法无真实理由 / vio3 事后验证未标注风险 |
 | replay_u4_sub4.py | understand:4 子4 归一化陈述 | clean / vio1 验收包字段不传导 / vio2 边界不传导 / vio3 复合句 / vio4 方案动作残留 |
 | replay_plan1_sub2.py | plan:1 子2 方案发散 | clean / vio1 伪候选 / vio2 凭空设计 / vio3 提前收敛 / vio4 ②无逐维度论证 |

@@ -3665,6 +3665,7 @@ class TestJudgeFramingDualMode:
         assert "默认 pass" in s3[3].gate, "u:3#4 gate 缺「默认 pass」framing 标记"
         s4 = nodes._NODES["understand:4"].sub_steps
         assert "默认 pass" in s4[0].gate, "u:4#1 gate 缺「默认 pass」framing 标记"
+        assert "默认 pass" in s4[1].gate, "u:4#2 gate 缺「默认 pass」framing 标记"
         assert "默认 pass" in s4[2].gate, "u:4#3 gate 缺「默认 pass」framing 标记"
         assert "默认 pass" in s4[3].gate, "u:4#4 gate 缺「默认 pass」framing 标记"
         p1 = nodes._NODES["plan:1"].sub_steps
