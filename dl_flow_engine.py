@@ -3191,6 +3191,52 @@ def _check_constraint_verification_tool_trace(qa: list, *_ctx) -> str | None:
     return None
 
 
+# 现状勘察代码符号引用形（plan:1 子1 工具留痕扫描用）：
+# `xxx.py`（含 `:line`）/ `function X file.py:N`（codegraph 输出形）。
+# file:line 定位（`xxx.py:N`）本身即合法出处（形式要件「codegraph 原始输出或
+# file:line 出处」的 or 分支），故单独识别的 file:line 视为出处在场、不拦——
+# 只拦「既无 file:line 也无工具动词」的裸符号引用（凭空 API/训练记忆冒充）。
+_TERRAIN_SYMBOL_RE = re.compile(r"[A-Za-z0-9_./-]+\.py(?::\d+)?|function\s+\w+")
+_TERRAIN_FILELINE_RE = re.compile(r"[A-Za-z0-9_./-]+\.py:\d+")
+
+
+def _check_terrain_tool_trace(qa: list, *_ctx) -> str | None:
+    """terrain_tool_trace：现状勘察符号引用的工具留痕扫描（plan:1 子1 专属）。
+
+    动机（p:1#1 framing 反转 v1 重放）：「现状事实条目（①涉及模块/②可复用点/③
+    调用方/④数据契约/新鲜度判定）须附工具出处」在默认-PASS framing 下 judge 侧
+    vio2 2/6——judge 看到 trace 整体出处齐备就不逐条审计，凭空 API 的裸符号引用
+    （`ic_stats.py` 的 `count_positive_ic()` 无任何 codegraph/Read 动词）被
+    rubber-stamp 放过。词形可判子项（#30 ⑭，同 u:3#2 constraint_verification_tool_trace
+    / u:2#3 baseline_tool_trace 范式）：「该条回答引用了代码符号但既无 file:line
+    也无工具动词」切出下沉零方差生产墙。
+    **非 db 依赖**：只查 qa 文本词形，不读 codegraph db（design §3 的 db 存在性真值
+    mech 被⑯红线否决；本 mech 是纯 token 扫描，⑯-safe）。「符号是否存在本仓」的
+    存在性真值归 plan:1 子3，不在此。
+    宁纵勿枉：只扫引用了代码符号形（.py / function X file.py:N）的回答；显式标
+    「未知」的回答不扫（勘察不到的显式标注=合法，无需工具出处）；file:line 定位
+    本身即出处、含工具动词亦放过；三者皆无的裸符号引用=拒。
+    """
+    for item in qa:
+        a = str(item.get("a", ""))
+        if not _TERRAIN_SYMBOL_RE.search(a):
+            continue
+        if "未知" in a:
+            continue
+        if _TERRAIN_FILELINE_RE.search(a):
+            continue
+        if any(k in a for k in _CONSTRAINT_TOOL_TRACE_KEYWORDS):
+            continue
+        return (
+            f"「{str(item.get('q', ''))[:16]}…」现状事实引用了代码符号"
+            "（`xxx.py`/函数名）却既无 file:line 定位也无任何工具留痕出处"
+            "（codegraph/Read/Bash 实测 等）--裸符号引用=凭空 API/训练记忆冒充："
+            "补工具留痕（codegraph 输出引用/file:line 定位/Read 原文/Bash 实测 "
+            "任一），或改标「未知」"
+        )
+    return None
+
+
 def _load_atomic_questions(project_root: Path, name: str) -> list | None:
     """读子2 最新 trace 的 atomic_questions 分档清单（v2.40）。
 
@@ -3675,6 +3721,7 @@ _MECH_QA_CHECKS = {
     "answer_source_marker": _check_answer_source_marker,
     "baseline_tool_trace": _check_baseline_tool_trace,
     "constraint_verification_tool_trace": _check_constraint_verification_tool_trace,
+    "terrain_tool_trace": _check_terrain_tool_trace,
     "fetch_report_recorded": _check_fetch_report_recorded,
     "fetch_skeleton_out": _check_fetch_skeleton_out,
     "redteam_report_recorded": _check_redteam_report_recorded,
