@@ -3270,6 +3270,27 @@ class TestRunJudgeIsolation:
         assert "以最后一条为准" in prompt
         assert "返工历史" in prompt
 
+    def test_judge_prompt_pins_cross_step_anchor(self, monkeypatch):
+        # v2.78/2.79（u:1#3 重放实证）：产物=当前步+前序各步最新 trace 拼合
+        # （生产常态），judge 曾发明「跨子步串号」要件/把前序当禁看——prompt
+        # 钉死 artifact 组成：判对象只是当前步；前序=一致性对照基准（判据
+        # 要求一致时必须对照后判）；其存在与组成形式不作 block 依据。
+        captured = {}
+
+        class _Res:
+            returncode = 0
+            stdout = '{"is_error":false,"result":"{\\"pass\\": true, \\"reason\\": \\"\\"}"}\n'
+
+        def _run(cmd, **kw):
+            captured["cmd"] = cmd
+            return _Res()
+
+        monkeypatch.setattr(eng.subprocess, "run", _run)
+        eng.run_judge("rubric", "label", "out", artifact_content='{"sub_step":1}')
+        prompt = captured["cmd"][-1]
+        assert "一致性对照基准" in prompt
+        assert "必须取前序记录对照后判" in prompt
+
     def test_judge_prompt_pins_artifact_existence(self, monkeypatch):
         # v2.34 att3 幻觉防线（tail_volume plan:1 子5：engine 是先有 trace hash
         # 才调 judge，judge 却判「缺 trace 记录」——可证伪为假）：prompt 钉死
@@ -3600,13 +3621,14 @@ class TestJudgeFramingDualMode:
         assert "默认放行" not in captured["prompt"]
 
     def test_default_pass_marker_pinned_in_gates(self):
-        # 「默认 pass」字面标记=framing 单源，两个已反转 gate 必须含标记
+        # 「默认 pass」字面标记=framing 单源，已反转 gate 必须含标记
         # （删掉标记=静默退回严格判定指令，framing 矛盾复现）
         import dl_flow_nodes as nodes
 
         s = nodes._NODES["understand:1"].sub_steps
         assert "默认 pass" in s[0].gate, "u:1#1 gate 缺「默认 pass」framing 标记"
         assert "默认 pass" in s[1].gate, "u:1#2 gate 缺「默认 pass」framing 标记"
+        assert "默认 pass" in s[2].gate, "u:1#3 gate 缺「默认 pass」framing 标记"
 
 
 class TestEmptyBlockReasonRetry:

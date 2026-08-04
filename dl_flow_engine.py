@@ -2353,7 +2353,19 @@ def run_judge(
         # 返工是 append 协议（§substep-gate-at-stop S5）：同一 sub_step 会积累多条
         # skill-trace。不指认最新行，judge 可能拿返工前的旧行判 block（误报）。
         prompt += (
-            "\n（产物内容中同一 sub_step 若有多条 skill-trace 记录，"
+            # v2.78/2.79（u:1#3 重放实证，designs/u1-sub3-gate-framing-design.md）：
+            # judge 对「产物含前序 sub_step 记录」发明「跨子步串号/字段混入」
+            # 要件（clean 1/6）+反向误读「两条都是 sub_step=2」（vio 1/6）——
+            # read_evidence_for_step 拼合当前步+前序各步最新 trace 是生产常态
+            # （一致性锚点），artifact 组成事实下沉 harness 注（v2.34 存在性钉死
+            # 同层先例），免逐 gate 重复钉。措辞定稿经三变体 A/B（n=6 三向）：
+            # 「非判对象…才对照」被读成「前序别看」（跨步牙齿塌 5/6→3/6）；
+            # 「供…时对照」去祈使版 u:1#3 vio6 掉 4/6；「必须取前序记录对照后判」
+            # 祈使版 u:1#3 全牙齿 ≥5/6——义务主句前置是唯一三向达标措辞。
+            "\n（产物内容 = 当前步 + 前序各步最新 skill-trace 的拼合：判对象只是"
+            "当前 sub_step 的记录；前序记录是一致性对照基准——判据要求「与前序"
+            "一致/逐项一致」时必须取前序记录对照后判；前序记录自身的存在与组成"
+            "形式不作 block 依据。同一 sub_step 若有多条 skill-trace 记录，"
             "以最后一条为准；此前同号记录是返工历史，仅作参考。）"
         )
         # v2.34（att3 幻觉防线，tail_volume plan:1 子5 审计）：judge 曾判
