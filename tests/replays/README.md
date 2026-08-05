@@ -60,3 +60,4 @@ python3 tests/replays/replay_p1_sub1.py
 | replay_plan2_sub3.py | plan:2 子3 锚点核验 | clean / vio1 声称存在无出处 / vio2 无差别已验证 / vio3 placeholder残留 / vio4 假设缺置信度影响(mech墙) / vio5 漏单元核验 |
 | replay_plan3_sub1.py | plan:3 子1 需求清点 | clean / vio1 无出处(mech墙) / vio2 静默新增 / vio3 改写失真 / vio4 原文未引用(mech墙) |
 | replay_plan3_sub2.py | plan:3 子2 能力盘点 | clean / vio1 幽灵能力 / vio2 强制路由漏核 / vio3 凭记忆编造 / vio4 ②无逐任务说明 |
+| replay_plan3_sub3.py | plan:3 子3 匹配选型 | clean / vio1 无绑定残留(mech墙) / vio2 理由无出处 / vio3 强制项被替代无辩护 / vio4 重型手段无成本辩护 / vio5 替用户拍板 |

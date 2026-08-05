@@ -2316,7 +2316,21 @@ class TestPlan3Orchestration:
             "只提案不拍板",
         ):
             assert needle in s3.purpose, f"子3 purpose 缺 {needle}"
-        for needle in ("sub_step==3", "过载", "凭名字猜", "替代", "拍板"):
+        # v2.110 gate framing 反转（plan3-sub3-gate-framing-design）：「过载」
+        # 词形撤出 gate（方框一改 mech-托声明），pin 改钉压缩条款+framing 标记
+        # +mech 注册。钉死意图（五类映射错配出口封堵）不丢。
+        assert s3.mech_checks == ("binding_residue_trace",), (
+            "子3 无绑定残留须下沉 binding_residue_trace mech"
+        )
+        for needle in (
+            "sub_step==3",
+            "默认 pass",
+            "无绑定能力残留",
+            "绑定理由无出处",
+            "强制项被非强制项替代",
+            "重型手段",
+            "替用户拍板",
+        ):
             assert needle in s3.gate, f"子3 gate 缺 {needle}"
 
     def test_step4_availability_fence(self):
@@ -6996,9 +7010,91 @@ class TestV237FirstPassRate:
             "全覆盖应过"
         )
         # 宁纵勿枉：无子1 -> 过（交 judge）
+        assert eng._check_sc_coverage_trace(stmts_miss, tmp_path, "no_such") is None, (
+            "无子1 应过"
+        )
+
+    # ---- plan:3 子3 framing 反转配套 mech（v2.110，无绑定能力残留跨步差集，
+    # designs/plan3-sub3-gate-framing-design.md §3）----
+
+    def test_p3s3_binding_residue_block_pass_skip(self, tmp_path):
+        # S2 注册表①（子2 trace：反引号+（列表行）标注能力名 + 内置工具集/路径
+        # 反引号 token 不得被误当注册表能力）
+        import json as _json
+
+        s2 = _json.dumps(
+            {
+                "kind": "skill-trace",
+                "major_stage": "Plan",
+                "minor_stage": "CapabilityToolSelection",
+                "sub_step": 2,
+                "q": ["能力注册表三通道清单如何？"],
+                "a": [
+                    "①skill 注册表：`factor-development`（列表行）、`factor-ic-"
+                    "analyzer-workflow`（列表行）、`superpowers:test-driven-"
+                    "development`（列表行）、`superpowers:systematic-debugging`"
+                    "（列表行）、`andrej-karpathy-skills:karpathy-guidelines`"
+                    "（列表行）、`workflow-creation`（列表行）。②工具/CLI/MCP="
+                    "内置工具集（`Bash`/`Read`/`Edit`/`Write`）、codegraph CLI"
+                    "（/home/admin/.npm-global/bin/codegraph）、MCP server"
+                    "（tavily-search）。"
+                ],
+            },
+            ensure_ascii=False,
+        )
+        _write_evidence(tmp_path, "t", [s2])
+        # vio1 形态：绑定+不加载覆盖了除 factor-ic-analyzer-workflow 外全部
+        qa_residue = [
+            {
+                "q": "最小集与双向追溯矩阵如何？",
+                "a": (
+                    "`factor-development`/`superpowers:test-driven-development`/"
+                    "`andrej-karpathy-skills:karpathy-guidelines`/codegraph CLI "
+                    "绑定需求；`superpowers:systematic-debugging`/`workflow-"
+                    "creation`/MCP tavily-search 显式不加载。"
+                ),
+            }
+        ]
+        err = eng._check_binding_residue_trace(qa_residue, tmp_path, "t")
+        assert err and "factor-ic-analyzer-workflow" in err and "残留" in err, (
+            "丢 factor-ic-analyzer-workflow 应拒"
+        )
+        # 合法形态：全部覆盖（绑定或不加载）
+        qa_ok = [
+            {
+                "q": "最小集与双向追溯矩阵如何？",
+                "a": (
+                    "`factor-development`/`superpowers:test-driven-development`/"
+                    "`andrej-karpathy-skills:karpathy-guidelines`/codegraph CLI "
+                    "绑定需求；`factor-ic-analyzer-workflow`/`superpowers:"
+                    "systematic-debugging`/`workflow-creation`/MCP tavily-search "
+                    "显式不加载。"
+                ),
+            }
+        ]
+        assert eng._check_binding_residue_trace(qa_ok, tmp_path, "t") is None, (
+            "全覆盖应过"
+        )
+        # 宁纵勿枉：无 S2 -> 过（交 judge）
         assert (
-            eng._check_sc_coverage_trace(stmts_miss, tmp_path, "no_such") is None
-        ), "无子1 应过"
+            eng._check_binding_residue_trace(qa_residue, tmp_path, "no_such") is None
+        ), "无 S2 应过"
+        # 宁纵勿枉：S2 无反引号（列表行）标注能力名（提取不出集）-> 过
+        s2_noann = _json.dumps(
+            {
+                "kind": "skill-trace",
+                "major_stage": "Plan",
+                "minor_stage": "CapabilityToolSelection",
+                "sub_step": 2,
+                "q": ["能力注册表如何？"],
+                "a": ["①skill 注册表：factor-development（列表行）。"],
+            },
+            ensure_ascii=False,
+        )
+        _write_evidence(tmp_path, "t2", [s2_noann])
+        assert eng._check_binding_residue_trace(qa_residue, tmp_path, "t2") is None, (
+            "S2 无反引号（列表行）能力名应过"
+        )
 
     # ---- plan:1 子3 framing 反转配套 mech（v2.103，可行性验证五项核验留痕扫描，
     # designs/plan1-sub3-gate-framing-design.md §3）----

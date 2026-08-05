@@ -2983,6 +2983,10 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                 input="step2.capability_registry + step1.need_baseline",
                 record=True,
                 fence_allow=("Agent",),  # 条件红队，同 DesignSolution 子4
+                # v2.110（designs/plan3-sub3-gate-framing-design.md）：无绑定能力
+                # 残留=跨步差集（S2 注册表①枚举 vs S3 出现集），judge 判不了
+                # （显式遍历指令 1/6），下沉 binding_residue_trace 生产墙。
+                mech_checks=("binding_residue_trace",),
                 selfcheck=(
                     "双向追溯矩阵齐了吗（每需求有绑定或显式「内置足够」；"
                     "每能力绑定到需求，无无绑定能力残留）？"
@@ -2991,14 +2995,25 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     "是「提案-待用户裁决」语义吗？"
                 ),
                 gate=(
+                    # v2.110 gate framing 反转（§3.5 #30 泛化第二十七例，
+                    # designs/plan3-sub3-gate-framing-design.md）：默认-PASS
+                    # framing + 五方框近端双侧钉死（词形取基线 clean 2/6 的
+                    # 误判判词逐字：子2 trigger/description 须逐字/重型手段
+                    # 枚举扩面/被否替代须出处）。v1 五方框 clean 6/6+vio2-5
+                    # 全 6/6 但 vio1 残留 1/6（显式跨步遍历指令也判不了），
+                    # 差集形下沉 binding_residue_trace mech（同 plan:2#4
+                    # sc_coverage_trace 根因）；v2 落地 vio1 0/6=设计内委托。
                     "evidence/<name>.jsonl 含 kind=skill-trace、"
                     "minor_stage=CapabilityToolSelection 且 sub_step==3 的记录；"
-                    f"形式要件：{_CTS_STEP3_FORM_REQUIREMENTS}。"
-                    "质量判据（从严裁量）：无绑定能力残留=过载判 block；"
-                    "绑定理由无出处=凭名字猜判 block；"
-                    "强制项被非强制项替代且无辩护判 block；"
-                    "重型手段无成本辩护判 block；"
-                    "替用户拍板映射=无「提案-待裁决」语义判 block。"
+                    f"形式要件：{_CTS_STEP3_FORM_REQUIREMENTS}。\n"
+                    "默认 pass--仅当以下成立才判 block（每条附合法形态，合法形态在场不得判）：\n"
+                    "一、无绑定能力残留：已由 binding_residue_trace 机械校验——S2（能力盘点）注册表①枚举的能力名在本步无绑定且无不加载声明的载荷已被 append-trace 当场拒、不会到你这里；你不得以「无绑定能力残留/能力未映射/某能力未绑定」为由 block。残留判面=无（覆盖已机械核验）；能力适配性（该能力是否真适合该需求）本就不判，不得以「factor-development 是否真适合 IC 报告」类能力适配性为由 block。\n"
+                    "二、绑定理由无出处=凭名字猜：某条绑定理由未引用子2 trigger/description 出处（子2 ③出处/available-skills 列表行『X』/触发词引用任一）判 block（例：绑定 `factor-development` 理由只写「最合适，负责 IC 计算与报告功能开发」无任何子2 出处）。合法形态=理由含子2 出处引用（含触发词引用或「子2 ③出处」字样）即合规，不要求逐字复述子2 的 trigger/description 全文；同类型任务合并一条理由即合规，不得以「未逐任务逐条展开理由」为由 block；内置工具足够项非绑定、不需理由与被否替代，不得以「内置足够项缺理由/被否替代」为由 block；被否替代只需在场（「被否替代=无」是合法形态）且不需出处，不得以「被否替代未引子2 触发描述作出处」为由 block。\n"
+                    "三、强制项被非强制项替代且无辩护：强制项（S2 ③强制路由核对留痕的 H15 改 .py 前 codegraph 留痕、superpowers 写代码前 TDD 等）被非强制项替代且无任何辩护判 block（例：a3 称「H15 codegraph 留痕改为 grep 全局搜索替代，grep 用起来更顺手」且无辩护）。合法形态=强制项按强制绑定保留即合规；强制项替代附「该替代满足原强制意图」式辩护（如「grep 不提供符号级调用图、不满足 H15 门禁」）即合规；同类型任务合并说明强制项覆盖即合规，不得以「未逐项证明每个强制项为何不可替代/未对强制项逐条留痕」为由 block。\n"
+                    "四、重型手段无成本辩护：绑定中重型手段（Workflow 多 agent/子代理扇出/长 pipeline 三类固定枚举）在场却无成本相称辩护判 block（例：T4 绑定 Agent 子代理扇出，仅写「并行可提速」，无相对直接 Bash 跑的成本/收益权衡）。合法形态=重型手段附成本相称辩护（成本/收益论证或「协调成本高于收益故不启用」式权衡）即合规；未绑定重型手段时声明「无 Workflow 多 agent/子代理扇出/长 pipeline，条件未触发」即合规，不得以「3 个 skill 叠加成重型组合」「codegraph CLI 三处本地查询算重型手段」为由 block——重型手段仅限三类枚举；不得要求对每个能力逐项声明非重型。\n"
+                    "五、替用户拍板映射=无「提案-待裁决」语义：映射以定案/决定/已采用/据此执行口吻呈现、无提案语义判 block（例：末段写「映射已权衡定案：…据此执行」）。合法形态=映射以提案口吻呈现（含「提案/拟绑定/待子6 用户裁决/待拍板」任一）即合规，不得以「未逐条附『提案』字样/未逐条复述待裁决全文」为由 block——整段一句提案声明即覆盖全部绑定；双向追溯矩阵的『无漏/无残留/每需求有绑定/每能力绑定』类陈述是矩阵事实描述、非映射拍板决定，不得据此判无提案语义。\n"
+                    "【判材边界】S1/S2（需求清点/能力盘点）trace 在载荷内可见、跨步对照可判；真实注册表（available-skills 列表/磁盘目录/MCP 配置/CLAUDE.md §2 原文）结构性不可见，不得以「无法核实该能力真在注册表/该触发词真在 §2」为由 block——能力名以 S2 trace 自述注册表为准；绑定理由的语义正确性（该能力是否真适合该需求）不判；内置工具集（Bash/Read/Edit/Write 等常驻能力）不在绑定面、不要求出现在映射中。\n"
+                    "【合法正例】「T1/T2/T3 代码改动→绑定 `factor-development`（子2 ③出处『§2 触发词『开发因子/新增因子/IC脚本』命中』）…被否替代=候选『直接手写 pandas 聚合』无报告聚合规范承接，被否」合规（理由引子2 出处+被否替代在场）；「`factor-ic-analyzer-workflow`/`workflow-creation` 无绑定→显式不加载」合规（声明合并一句即满足）；「本需求集无 Workflow 多 agent/子代理扇出/长 pipeline 绑定，条件未触发，无需成本辩护」合规；「映射为提案，待子6 读回装配时用户裁决拍板，非定案」合规；「双向追溯矩阵：需求侧=每需求有绑定或内置足够，能力侧=每能力绑定或显式不加载，双向无漏」合规（矩阵事实描述）。方框以外一律不判。judge 判 block 须在 reason 引用判据条款（方框二/三/四/五）并附 1 个正确改写范例（指模式不指实例位置）。\n"
                 ),
             ),
             Step(
