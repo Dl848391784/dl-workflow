@@ -3664,11 +3664,59 @@ def _check_binding_residue_trace(qa, project_root, name) -> str | None:
     return None
 
 
+# 被否候选/被否形态标签：ADR 理由传导核对的触发面（plan:1#5 专属）。
+# 「候选X」「被否形态=」「被否路径=」三形态覆盖生产 rejected 字段的命名习惯。
+_REJECTED_LABEL_RE = re.compile(r"候选\s*[A-Za-z0-9]|被否形态|被否路径")
+
+# 「为何被否」的解释性内容词形：理由源开放（gate 方框五「列举是示例不是封闭清单」的
+# 机械侧对偶）——收工程解释常用词，任一在场即视为已附理由。
+_REJECTED_RATIONALE_RE = re.compile(
+    r"理由|因为|由于|净分|触发|不复用|复用度|影响面|镀金|迁移|成本|已在册|"
+    r"未实测|不可|无法|风险|H\d|impact|callers|design\.md"
+)
+
+
+def _check_rejected_rationale_trace(statements: list, project_root, name) -> str | None:
+    """rejected_rationale_trace：ADR 否决理由传导核对（plan:1 子5 专属）。
+
+    动机（plan:1#5 framing 反转 v2.116，designs/plan1-sub5-gate-framing-design.md）：
+    「rejected 只列被否名单、逐项 ADR 理由全丢」是**缺席型负判定**（㊳：合法留痕缺席
+    才违规）。基线从严 gate 下该载荷 6/6 但**零轮引对条款**（全靠 clean 同源的复合句
+    误伤词形接住=㉖「错理由拦对」教科书实例）；反转把误伤词形合法化后，v1 5/6 -> v2
+    4/6 -> v3 4/6 卡在 ㉗ 抖动带（判词全引对条款、放行轮为纯注意力方差=judge 不做
+    「字段内有无解释」的逐项扫描）。按 ㉗ 区分线（judge 侧 4-5/6 抖动=下沉触发位）
+    切词形可判子项（#30 ⑭）下沉生产墙。
+
+    检测：逐项读 fields.rejected，凡含被否候选名/被否形态标签（_REJECTED_LABEL_RE）
+    却同栏不含任何解释性词形（_REJECTED_RATIONALE_RE）即拒。
+    宁纵勿枉：无 fields/无 rejected 键/rejected 显式「无」（本项无被否路径）/不含被否
+    标签（自由表述的 ADR）=放过交 judge（非双失：gate 方框五仍在，judge 判残留语义面
+    「理由与子4 结论矛盾」）。
+    """
+    for i, item in enumerate(statements):
+        if not isinstance(item, dict):
+            continue
+        rej = (item.get("fields") or {}).get("rejected")
+        if not isinstance(rej, str) or not rej.strip():
+            continue
+        if not _REJECTED_LABEL_RE.search(rej):
+            continue  # 无被否标签（如显式「无」）——不触发
+        if _REJECTED_RATIONALE_RE.search(rej):
+            continue  # 同栏已附解释性内容
+        return (
+            f"statements[{i}].fields.rejected 只列被否名单无否决理由（ADR 丢失）："
+            f"「{rej[:40]}」——逐候选须附「为何被否」的说明（引子3 核验事实或子4 "
+            "Pugh 净分/硬规则触发/影响面/复用度任一项即可，理由源不限）"
+        )
+    return None
+
+
 # statements 格式步的写侧机械校验注册表（Step.mech_checks 声明名 -> 检查函数，
 # 签名 (statements, project_root, name)）。statements 首个 mech 注册表
 # （u:2#4 预留独立项，#30 ⑰ 的解）。未注册名 = nodes 与 engine 配置漂移，fail loud。
 _MECH_STATEMENTS_CHECKS = {
     "sc_coverage_trace": _check_sc_coverage_trace,
+    "rejected_rationale_trace": _check_rejected_rationale_trace,
 }
 
 

@@ -1990,7 +1990,20 @@ class TestPlan1Orchestration:
         assert s5.kind == "skill" and s5.ref == "define-problem"
         for needle in ("原子", "去上下文", "改动清单", "验收包映射", "被否方案"):
             assert needle in s5.purpose, f"子5 purpose 缺 {needle}"
-        assert "sub_step==5" in s5.gate and "不传导" in s5.gate
+        assert "sub_step==5" in s5.gate
+        # v2.116 framing 反转：原 pin 钉「不传导」（从严版「设计包字段不传导」
+        # 判词）——反转后该判据拆成方框一（字段与子3/子4 已定内容不一致）+
+        # 方框四（假设淡化）+ 方框五（ADR 理由传导，已下沉 mech）。改钉三条
+        # 精化条款，钉死意图（字段传导judge 侧有判面）不丢（#30 ① 同范式）。
+        for needle in (
+            "与子3/子4 已定内容不一致",
+            "假设淡化",
+            "rejected_rationale_trace",
+        ):
+            assert needle in s5.gate, f"子5 gate 缺字段传导判面「{needle}」"
+        assert s5.mech_checks == ("rejected_rationale_trace",), (
+            "子5 缺 ADR 理由传导 mech（v2.116 缺席型负判定下沉，design §3）"
+        )
 
     def test_step6_readback_gate_none(self):
         s6 = self._steps()[5]
@@ -3740,6 +3753,7 @@ class TestJudgeFramingDualMode:
         assert "默认 pass" in p1[1].gate, "plan:1#2 gate 缺「默认 pass」framing 标记"
         assert "默认 pass" in p1[2].gate, "plan:1#3 gate 缺「默认 pass」framing 标记"
         assert "默认 pass" in p1[3].gate, "plan:1#4 gate 缺「默认 pass」framing 标记"
+        assert "默认 pass" in p1[4].gate, "plan:1#5 gate 缺「默认 pass」framing 标记"
         p2 = nodes._NODES["plan:2"].sub_steps
         assert "默认 pass" in p2[0].gate, "plan:2#1 gate 缺「默认 pass」framing 标记"
         assert "默认 pass" in p2[1].gate, "plan:2#2 gate 缺「默认 pass」framing 标记"
@@ -7072,6 +7086,60 @@ class TestV237FirstPassRate:
         assert eng._check_sc_coverage_trace(stmts_miss, tmp_path, "no_such") is None, (
             "无子1 应过"
         )
+
+    # ---- plan:1 子5 framing 反转配套 mech（v2.116，ADR 否决理由缺席型负判定，
+    # designs/plan1-sub5-gate-framing-design.md §3）----
+
+    def test_p1s5_rejected_rationale_block_pass_skip(self):
+        def stmt(rej):
+            return {
+                "text": "t",
+                "type_label": "推荐",
+                "boundary": "b",
+                "fields": {
+                    "change_list": "c",
+                    "interface_sig": "i",
+                    "data_contract": "d",
+                    "callers": "cl",
+                    "rejected": rej,
+                    "assumptions": "无",
+                    "acceptance_map": "SC1.1",
+                    "h9_units": "U1=1 文件约 30 行",
+                },
+            }
+
+        fn = eng._check_rejected_rationale_trace
+        # vio5 形态：只列被否名单无任何解释
+        for bad in (
+            "候选B、候选C 已被否",
+            "候选B 被否；候选C 被否",
+            "被否形态=新增独立图表",
+            "被否路径=自行实现百分比格式化",
+        ):
+            err = fn([stmt(bad)], None, None)
+            assert err and "ADR 丢失" in err, f"只列名单应拒：{bad}"
+        # 合法形态：理由源不限、粒度不限（gate 方框五「列举是示例不是封闭清单」对偶）
+        for ok in (
+            "候选B 被否——理由=子3 核验其跨 2 文件触发 H8 且不复用既有实现，子4 净分 −2",
+            "候选C 被否：影响面 impact 7 符号跨两模块、需 schema 迁移",
+            "被否形态=新增独立图表——子4 backward 追溯回溯不到 must 目标=镀金项",
+            "被否路径=自行实现百分比格式化，因为子3 重复造轮子检查确认既有实现已在册",
+            "候选B 被否（复用度低、可测试性成本高）",
+        ):
+            assert fn([stmt(ok)], None, None) is None, f"附理由应过：{ok}"
+        # 宁纵勿枉：rejected 显式「无」/空/缺键/无被否标签 -> 过（交 judge）
+        assert fn([stmt("无")], None, None) is None, "显式「无」应过"
+        assert fn([stmt("   ")], None, None) is None, "空白应过"
+        assert (
+            fn([{"text": "t", "type_label": "推荐", "boundary": "b"}], None, None)
+            is None
+        ), "无 fields 应过（宁纵勿枉）"
+        assert fn(["not a dict"], None, None) is None, "非 dict 项应跳过"
+        # 逐项扫描：第 2 项违规也须拒（非只看首项）
+        err_second = fn(
+            [stmt("候选B 被否——理由=净分 −2"), stmt("候选C 已被否")], None, None
+        )
+        assert err_second and "statements[1]" in err_second, "逐项扫描须拒第 2 项"
 
     # ---- plan:3 子3 framing 反转配套 mech（v2.110，无绑定能力残留跨步差集，
     # designs/plan3-sub3-gate-framing-design.md §3）----
