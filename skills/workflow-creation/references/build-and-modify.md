@@ -30,6 +30,11 @@ dl <name> --done          # 归档（删 worktree+分支+元数据）
 
 **与 v1.x 项目内嵌版本对比**：v1.x 里 hook 在 `<项目>/.claude/hooks/` 是 git 快照，改后必须 commit + 重建 worktree；本版本 hook 在 `~/.dl-workflow/hooks/` 直接引用（不 copy），无此约束。
 
+**hook 协议能力边界**（2026-08-05 围栏兜底三修实证，设计新 hook/围栏前必读）：
+- **PreToolUse 只能 allow/deny，不能转换/重写工具调用**：协议没有「把 Write 改写成 Bash」的语义。要等价实现「模型调错工具 -> 自动用正确工具」-> **deny + 副作用**：hook 识别到目标工具调用 -> 在 hook 进程内 `subprocess` 跑正确命令（如 `fetch_prompt --out`）-> 返回 deny 文案指路正确产物（「已自动生成，Read 取用」）。模型被 deny 但正确产物已落盘。实例：骨架 Write 兜底（workflow_step_fence.py，模型 Write 骨架 -> hook 副作用调 `--out` 刷新 -> deny 指 Read）。
+- **Stop hook stdin payload 不带后台 agent / pending task 状态**：payload 只有 `cwd/transcript_path/session_id` 等。要检测「有无未归的后台 agent」须**读 transcript JSONL**（Agent tool_use 的 id 集合 − 已配对 tool_result 的 tool_use_id 集合 = pending 数）。实例：`_pending_background_agent_count`（workflow_advance.py）。**Stop hook 是同步阻塞子进程**--不要在里头 sleep 轮询等 agent（agent handback 能否在 hook 阻塞期间写 transcript 未验证，可能死锁）；让模型用 TaskOutput 原生等更安全。
+- **PreToolUse 的一票否决 vs 步骤放行**：围栏白名单按段/按工具判定，写意图信号（输出重定向/命令替换/`open(,'w')`/`os.system` 等）一票否决。新增「看似只读但能执行任意代码」的工具（如 `python3 -c`）放行时，必须扫内联代码的写信号，且接受「非对抗威胁模型下扫描非完备」的口径（同 S11 Bash 盲区）。
+
 ### 1.3 关键文件职责（改前必读）
 | 位置 | 文件 | 职责 |
 |---|---|---|
