@@ -3748,12 +3748,109 @@ def _check_rejected_rationale_trace(statements: list, project_root, name) -> str
     return None
 
 
+# plan:3 子5 不加载清单条目名提取：子3 最小集「不加载清单」段里反引号包裹的
+# 能力名（plan:3#5 专属 mech）。锚=「不加载清单」字样，取其后文段的反引号 token，
+# 排除 S3 绑定提案段（B1-B5）的同名 token--不加载清单段是子3 a2 最小集声明，
+# 与绑定提案段分离。
+_NO_LOAD_LIST_RE = re.compile(r"不加载清单[^`]*((?:`[^`]+`[^`]*)+)")
+
+
+def _check_no_load_trace(statements: list, project_root, name) -> str | None:
+    """no_load_trace：不加载清单条目跨步核对（plan:3 子5 专属）。
+
+    动机（plan:3#5 framing 反转 v2.117，designs/plan3-sub5-gate-framing-design.md）：
+    「子3 最小集有显式不加载清单，本步 statements 静默丢失该清单」是跨步一致性
+    （子3 不加载清单条目集 vs 子5 statements 全文出现集差集），缺席型负判定
+    （㊳：合法留痕缺席才违规）。default-PASS 下 judge v2/v3 仅 1-3/6（5/6 空
+    reason PASS--judge 不做「列出前序清单->逐项检索」的跨步扫描，⑭ 注意力方差，
+    同 binding_residue_trace / sc_coverage_trace 族）。词形可判子项（#30 ⑭）
+    下沉生产墙：读子3 取不加载清单条目名集，核对每个在本步 statements 全文出现。
+    宁纵勿枉：子3 缺失（无前序记录）/子3 无「不加载清单」字样（确无清单）/
+    提取失败=放过交 judge（非双失：gate 方框四仍在，judge 判残留语义面）。
+    覆盖核验用子串包含（条目名在本步任一 statement 的 text/fields 出现即视为承载，
+    合并一条或逐项拆均合规--gate 方框四「四件合并一条或逐项拆分均合规」对偶）。
+    """
+    s3 = read_evidence_for_step(project_root, name, 3, "CapabilityToolSelection")
+    if not s3:
+        return None
+    m = _NO_LOAD_LIST_RE.search(s3)
+    if not m:
+        return None  # 子3 确无不加载清单声明--放过
+    names = set(re.findall(r"`([^`]+)`", m.group(1)))
+    if not names:
+        return None
+    blob = " ".join(
+        str(it.get("text", ""))
+        + " "
+        + str(it.get("boundary", ""))
+        + " "
+        + " ".join(str(v) for v in (it.get("fields") or {}).values())
+        for it in statements
+        if isinstance(it, dict)
+    )
+    missing = sorted(n for n in names if n not in blob)
+    if missing:
+        return (
+            f"不加载清单丢失：子3（子3）最小集不加载清单 {missing} 在本步（子5）"
+            "statements 全文无任一条目名出现、且无「本包无不加载项」声明"
+            "--每个不加载清单条目须在 statements 承载（text 或 no_load 字段，"
+            "合并一条或逐项拆分均合规）"
+        )
+    return None
+
+
+# plan:3 子5 假设传导核对：子4 假设项的置信度×影响须在本步 statements 携带
+# （plan:3#5 专属 mech）。假设标签形复用 _ASSUMPTION_LABEL_RE（子4 三态标注）；
+# 假设携带的词形痕迹=「置信度」或「影响」任一在场（与 assumption_completeness_trace
+# 同款词形，子4 假设项汇总/三态标注均含「置信度×影响」结构化标注）。
+_ASSUMPTION_CARRY_RE = re.compile(r"置信度|影响")
+
+
+def _check_assumption_propagation_trace(statements: list, project_root, name) -> str | None:
+    """assumption_propagation_trace：假设项置信度×影响跨步传导核对
+    （plan:3 子5 专属）。
+
+    动机（plan:3#5 framing 反转 v2.117，designs/plan3-sub5-gate-framing-design.md）：
+    「子4 三态标注的假设项在本步被抹去或淡化（置信度×影响丢失，『已确认无风险』
+    式改写）」是跨步一致性（子4 假设项集 vs 子5 statements 携带集差集），缺席型
+    负判定（㊳）。default-PASS 下 judge v2/v3 仅 2-5/6（PASS 轮空 reason--judge
+    不做「列出子4 假设->逐项检索置信度×影响」的跨步扫描，⑭ 注意力方差，同族）。
+    下沉生产墙：读子4 检测假设标签形（_ASSUMPTION_LABEL_RE），若有则核对
+    本步 statements 全文含「置信度」或「影响」词形痕迹。
+    宁纵勿枉：子4 缺失/子4 无假设标签（确无假设）=放过交 judge（非双失：
+    gate 方框五仍在，judge 判残留语义面「假设与子4 结论矛盾」）；语义等价转述
+    仍含「置信度/影响」词形即合规（假设传导的固定结构化标注）。
+    """
+    s4 = read_evidence_for_step(project_root, name, 4, "CapabilityToolSelection")
+    if not s4 or not _ASSUMPTION_LABEL_RE.search(s4):
+        return None  # 子4 确无假设项--放过
+    blob = " ".join(
+        str(it.get("text", ""))
+        + " "
+        + str(it.get("boundary", ""))
+        + " "
+        + " ".join(str(v) for v in (it.get("fields") or {}).values())
+        for it in statements
+        if isinstance(it, dict)
+    )
+    if not _ASSUMPTION_CARRY_RE.search(blob):
+        return (
+            "假设传导丢失：子4（子4）三态标注的假设项（含置信度×影响）在本步"
+            "（子5）statements 全文无「置信度」或「影响」词形痕迹--假设项须在"
+            "boundary 或 fields 原样携带置信度×影响（「已确认无风险」式定性句"
+            "不算携带，语义等价转述仍含置信度/影响词形即合规）"
+        )
+    return None
+
+
 # statements 格式步的写侧机械校验注册表（Step.mech_checks 声明名 -> 检查函数，
 # 签名 (statements, project_root, name)）。statements 首个 mech 注册表
 # （u:2#4 预留独立项，#30 ⑰ 的解）。未注册名 = nodes 与 engine 配置漂移，fail loud。
 _MECH_STATEMENTS_CHECKS = {
     "sc_coverage_trace": _check_sc_coverage_trace,
     "rejected_rationale_trace": _check_rejected_rationale_trace,
+    "no_load_trace": _check_no_load_trace,
+    "assumption_propagation_trace": _check_assumption_propagation_trace,
 }
 
 
