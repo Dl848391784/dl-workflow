@@ -3472,6 +3472,41 @@ def _check_element_quote_trace(qa: list, *_ctx) -> str | None:
     return None
 
 
+# plan:3 子1 需求清单代码符号形（need_quote_trace 用，v2.106）：
+# 与 _ELEMENT_SYMBOL_RE 同形复用（plan:2#1 element_quote_trace 同款判面，
+# 输入锚从 design.md 换 plan.md）——本 mech 判「需求原文引用」是否在场
+# （judge 读不到 plan.md 文件，原文『…』引用是核对保真度的唯一材料）。
+_NEED_SYMBOL_RE = _ELEMENT_SYMBOL_RE
+
+
+def _check_need_quote_trace(qa: list, *_ctx) -> str | None:
+    """need_quote_trace：需求清单原文引用留痕扫描（plan:3 子1 专属）。
+
+    动机（plan:3#1 framing 反转 v1/v3 重放，designs/plan3-sub1-gate-framing-design.md）：
+    形式要件「每条附任务 ID 出处且 plan.md 原文引用进 trace 正文」在默认-PASS
+    framing 下 judge 侧 vio4 1-2/6——judge 看到需求条目有出处行号（plan.md:12）
+    就 rubber-stamp 放过无『』原文引用的条目（㉖ 注意力方差，与 plan:2#1
+    element_quote_trace 同根因同判面）。词形可判子项（#30 ⑭）：「需求条目引用了
+    代码符号形（.py）却无任何『』原文引用或『原文』字样」切出下沉零方差生产墙。
+    宁纵勿枉：只扫引用了代码符号形（.py）的答案（需求清单专属）；答案含『』或
+    「原文」字样即放过（原文引用在场）；整条答案任一需求带原文引用即放过（vio2 的
+    N3 裸但 N1/N2 有原文引用→mech 放过，静默新增的「个别条目裸」交 judge 判，
+    本 mech 只做「全清单无原文」的墙）。
+    """
+    for item in qa:
+        a = str(item.get("a", ""))
+        if not _NEED_SYMBOL_RE.search(a):
+            continue
+        if "『" in a or "原文" in a:
+            continue
+        return (
+            f"「{str(item.get('q', ''))[:16]}…」需求清单条目引用了代码符号"
+            "（.py）却无任何 plan.md 原文引用（『…』/『原文』）——需求原文"
+            "未引用进 trace 正文，judge 无从核对保真度：补『…』原文片段引用"
+        )
+    return None
+
+
 # plan:2 子2 切分排序（dependency_order_trace / element_coverage_trace /
 # single_phase_argument 用，v2.104 framing 反转三 mech）：
 # 三 mech 各承接一个 default-PASS judge 判不稳的判据--vio2 排序违依赖（跨参照：
@@ -3571,6 +3606,47 @@ def _check_single_phase_argument(qa: list, *_ctx) -> str | None:
             "声明「单阶段/不可拆」却同段无 H9 量化论证（文件数+行数 ≤ 上限）--"
             "②单阶段不可拆论证须在同段含量化（如「3 文件 ~75 行，H9 内一次可完」）："
             "补量化，或改走多阶段划分附断点验证方法"
+        )
+    return None
+
+
+# plan:2 子3 锚点核验（assumption_completeness_trace 用）：三态标注中「假设」条目
+# 须含置信度+影响两要素。假设标签形=「假设」后接 --/：/（ 等结构化标点（区分于
+# 「假设项」「无假设」等提及形）。
+_ASSUMPTION_LABEL_RE = re.compile(r"假设\s*(?:--|[-：:（(])")
+
+
+def _check_assumption_completeness_trace(qa: list, *_ctx) -> str | None:
+    """assumption_completeness_trace：假设条目须含置信度+影响扫描（plan:2 子3 专属）。
+
+    动机（plan:2#3 framing 反转 v1-v3 重放，designs/plan2-sub3-gate-framing-design.md）：
+    「假设项缺置信度或影响」是 default-PASS 下 judge 橡皮图章型（v1 1/6 -> v3 1-2/6，
+    5/6 空 reason PASS--judge 不检查假设子字段，⑭ 注意力方差，同 plan:2#1 vio4 /
+    plan:2#2 vio5 型）。词形可判子项（#30 ⑭）：「假设标签在场却同段无置信度或影响」
+    切出下沉零方差生产墙。
+    逐答案扫描：假设标签形=「假设--/：/（」；同答案须含置信度（「置信度」）与影响
+    （「影响」/「错误时」）两要素。
+    宁纵勿枉：无假设标签 / 「无假设」否定形（假设后接「无」）/ 「假设项」提及形
+    （假设后接「项」）= 假设后非结构化标点，不匹配 _ASSUMPTION_LABEL_RE，放过交
+    judge（只做清晰假设标签的墙）。
+    """
+    for item in qa:
+        a = str(item.get("a", ""))
+        if not _ASSUMPTION_LABEL_RE.search(a):
+            continue
+        has_conf = "置信度" in a
+        has_impact = bool(re.search(r"影响|错误时", a))
+        if has_conf and has_impact:
+            continue
+        missing = []
+        if not has_conf:
+            missing.append("置信度（高/中/低）")
+        if not has_impact:
+            missing.append("错误时影响描述")
+        return (
+            f"假设条目缺{'+'.join(missing)}--标注「假设」的三态条目须同段含"
+            "置信度与错误时影响（如「置信度高×影响低：错误时仅新区块缺失，可回滚」）："
+            "补缺失要素"
         )
     return None
 
@@ -4064,9 +4140,11 @@ _MECH_QA_CHECKS = {
     "pugh_traceability_forward_coverage": _check_pugh_traceability_forward_coverage,
     "pugh_net_score_consistency": _check_pugh_net_score_consistency,
     "element_quote_trace": _check_element_quote_trace,
+    "need_quote_trace": _check_need_quote_trace,
     "dependency_order_trace": _check_dependency_order_trace,
     "element_coverage_trace": _check_element_coverage_trace,
     "single_phase_argument": _check_single_phase_argument,
+    "assumption_completeness_trace": _check_assumption_completeness_trace,
     "fetch_report_recorded": _check_fetch_report_recorded,
     "fetch_skeleton_out": _check_fetch_skeleton_out,
     "redteam_report_recorded": _check_redteam_report_recorded,
