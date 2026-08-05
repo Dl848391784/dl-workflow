@@ -3719,6 +3719,9 @@ class TestJudgeFramingDualMode:
         assert "默认 pass" in p2[3].gate, "plan:2#4 gate 缺「默认 pass」framing 标记"
         p3 = nodes._NODES["plan:3"].sub_steps
         assert "默认 pass" in p3[0].gate, "plan:3#1 gate 缺「默认 pass」framing 标记"
+        p4 = nodes._NODES["plan:4"].sub_steps
+        # plan:4#1（四源清点）由并行会话负责反转，p4[0] 标记 pin 留待其落地/收口批补
+        assert "默认 pass" in p4[1].gate, "plan:4#2 gate 缺「默认 pass」framing 标记"
 
 
 class TestEmptyBlockReasonRetry:
