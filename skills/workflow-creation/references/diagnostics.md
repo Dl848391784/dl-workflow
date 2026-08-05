@@ -170,6 +170,7 @@ understand 拆 4 子阶段（1.理解问题和背景 / 2.明确目标和价值 /
 
 **先确认协议边界**：模型输 STEP_DONE -> end_turn -> Stop hook 立即判：非末步 pass 推进 + **当轮自动续轮**（additionalContext 指令开做下一子步骤），末步 pass 时——无门栏且下一子阶段有编排则**跨子阶段自动续轮**进其子1（2026-07-27 起），门栏节点末步扣留停轮（等 /dl gate），无编排边界停轮，block 则模型**当轮**收到原因返工。**无需用户再发消息**（这是与旧 3a 的核心差别；2026-07-25 起 pass 也不再等用户发「继续」）。两个相关强制：
 - **S13 参与围栏**（2026-07-25 起）：当前子步骤**从未写过 trace** 就结束回合 -> `sub_step_engage_block` 强制续轮（「简单查询不走编排」之类的拒执被机械封堵；问用户必须走 AskUserQuestion 回合内完成）。
+  - **假性 block 子场景**（2026-08-05，tail_volume u:1 子3 实证）：模型派**后台 agent**（`tool=Agent tool_dispatch_* outcome=ok durationMs≈4` = 非阻塞后台派发）后、agent 未归前 end_turn -> trace 必然未落 -> S13 判「无 trace」block。这不是模型拒执，是「在等 agent 的途中结束回合」。**诊断**：block 时刻查 transcript 有无 pending Agent tool_use（`name=="Agent"` 的 tool_use_id 减去已配对的 `tool_result` 的 `tool_use_id`，差集非空 = pending）。**且先查有无 TaskOutput 被 S15 deny**（fence_allow 漏配，模型本来在用 TaskOutput 等 agent 被拦才抢跑，见症状 O 围栏原则 #7）--这才是根因，pending 检测/延后门控只是兜底。**修法**：子3/子4 fence_allow 加 TaskOutput（模型用 harness 原生机制阻塞等 agent 归来再写 trace，零抢跑）。
 - 模型 STEP_DONE 后 end_turn 但 evidence 没写/没新行 -> Stop 判「无新 trace」静默放行 -> 不推进（此时看症状 K/L）。
 
 **日志诊断**（项目根 `.wf_advance.log`，关注 `sub_step_gate_pass` / `sub_step_gate_block`）：
@@ -216,7 +217,7 @@ for l in sys.stdin:
 
 围栏有五种（§substep-gate-at-stop S10/S11/S14，2026-07-25 起；S15，2026-07-26 起；另 plan mode 互斥拦 S12），都是**正常触发**不是 bug：
 
-**S15 前置参与围栏**（deny 提示「尚未开始...前置参与围栏窗口」，2026-07-26 起，designs/step-engage-prefence-design.md）：当前子步骤**零 trace 窗口**（一条 skill-trace 都没写）仅编排工具可用——常驻集 AskUserQuestion / Skill / Task* / Read / Grep / Glob / codegraph / dl-cmd / 写 evidence（主仓绝对路径），外加 engine `Step.fence_allow` 步骤声明（当前：子3=Bash/WebFetch、子4=Agent）。为用户任务探查（其它 Bash/WebFetch/WebSearch/Agent）首调即 deny 指回当前子步骤——把 S13 判据前置到工具调用级（demo b01d6507：MiniMax-M3 首回合 Bash 探查抢答，S13 因用户中断没机会开火）。附带拦症状 L：Bash 相对路径写 evidence 会被 deny 并给出绝对路径。与 S10 状态互斥（零 trace vs 未判决 trace）；纯 text 抢答（无工具）仍由 S13 在 Stop 兜底。新编排节点声明 sub_steps 时**必须显式给 fence_allow**（与 ref/purpose 同处，单源）。 v2.11（2026-07-26，designs/autocontinue-fence-notice-design.md）：围栏提示文本单源化到 engine `engagement_fence_notice()`，UserPromptSubmit 注入与 Stop pass/block 续轮双通道同文——此前续轮通道不带豁免文案，模型只在子1 见过无豁免版提示，到子4 臆断 Agent 被 deny 并编造留痕（demo 121320fe）。**模型声称「某工具被围栏 deny」时的验真法**：查 `.wf_fence.log` 有无对应 `engage_fence_deny|tool=<X>` 行 + transcript 有无该工具的 tool_use——都没有=未试先称，按编造处理。
+**S15 前置参与围栏**（deny 提示「尚未开始...前置参与围栏窗口」，2026-07-26 起，designs/step-engage-prefence-design.md）：当前子步骤**零 trace 窗口**（一条 skill-trace 都没写）仅编排工具可用——常驻集 AskUserQuestion / Skill / Task* / Read / Grep / Glob / codegraph / dl-cmd / 写 evidence（主仓绝对路径），外加 engine `Step.fence_allow` 步骤声明（当前：子3=Bash/Agent/TaskOutput、子4=Agent/TaskOutput）。为用户任务探查（其它 Bash/WebFetch/WebSearch/Agent）首调即 deny 指回当前子步骤——把 S13 判据前置到工具调用级（demo b01d6507：MiniMax-M3 首回合 Bash 探查抢答，S13 因用户中断没机会开火）。附带拦症状 L：Bash 相对路径写 evidence 会被 deny 并给出绝对路径。与 S10 状态互斥（零 trace vs 未判决 trace）；纯 text 抢答（无工具）仍由 S13 在 Stop 兜底。新编排节点声明 sub_steps 时**必须显式给 fence_allow**（与 ref/purpose 同处，单源）。 v2.11（2026-07-26，designs/autocontinue-fence-notice-design.md）：围栏提示文本单源化到 engine `engagement_fence_notice()`，UserPromptSubmit 注入与 Stop pass/block 续轮双通道同文——此前续轮通道不带豁免文案，模型只在子1 见过无豁免版提示，到子4 臆断 Agent 被 deny 并编造留痕（demo 121320fe）。**模型声称「某工具被围栏 deny」时的验真法**：查 `.wf_fence.log` 有无对应 `engage_fence_deny|tool=<X>` 行 + transcript 有无该工具的 tool_use——都没有=未试先称，按编造处理。
 
 **S10 步骤围栏**（deny 提示「等待门控判决」）：模型写完当前子步骤 evidence 后未 end_turn 就继续调工具（典型：连做下一子步骤探查，demo 会话 3009550c 实录）。围栏与 Stop 门控共用 `last_judged_trace` 游标——judge 判完（pass/block 都记游标）围栏自动开。**Task\* 豁免**（2026-07-27，demo 907fee09）：TaskCreate/TaskUpdate/TaskList/TaskGet 是 output-style 强制每轮维护的清单记账工具，无法用于下一子步骤探查——deny 它不防违规，只制造「模型按 TaskList 强规则同步 -> 被 deny -> 弱遵从重试 9 次」的报错刷屏；与 S15 常驻集含 Task\* 同逻辑（TaskStop 不在豁免内）。**同类排查**：用户报「一堆 Error: ...等待 Stop 门控判决」时，先看 `.wf_fence.log` 的 `fence_deny|tool=<X>` 是什么工具——Task* = 本豁免前的历史现象（已修），其它工具 = 模型写完 evidence 未 end_turn 的正常拦截。
 
@@ -244,6 +245,7 @@ tail -5 <项目>/.claude/.wf_fence.log   # fence_deny（S10）/ phase_fence_deny
 4. **威胁模型 = 弱遵从而非对抗**：子串匹配级走私面（`codegraph sync && <任意>`）可接受——弱遵从模型不会刻意构造走私命令，只会「顺手跑个 ls」。别为对抗级严密牺牲误伤面。
 5. **相邻围栏判据互斥接力**：零 trace（S15 白名单）/ 未判决 trace（S10 全 deny）/ 已判决（自由）三态互斥无空隙——重叠 = 双重 deny 文案打架，空隙 = 无围栏窗口。
 6. **deny 某工具前先问「它与其它强规则打架吗」**（2026-07-27，demo 907fee09）：S10 全 deny 撞上 output-style「每轮对齐 TaskList」强规则 -> 模型按规则同步清单被 deny、弱遵从重试 9 次报错刷屏——**两个强规则冲突时模型必然反复违规，报错刷屏且无一处有 bug**。记账类工具（Task*，不能用于探查）应豁免；评判标准：deny 它防得住哪一类违规？答不上 = 不该拦。
+7. **deny 某工具前先问「它是否承载某个 harness 原生流程」**（2026-08-05，tail_volume u:1 子3 实证）：TaskOutput 是 harness「主会话阻塞等/取后台 agent 结果」的原生机制。子3/子4 派后台 agent 后模型本会用 TaskOutput 等 agent 归来再写 trace；fence_allow 漏配 TaskOutput -> S15 误拦 -> 模型无法等 -> 抢跑 end_turn -> trace 未落 -> S13 假性 block「无 trace」（看似模型抢答，实则是围栏断了它等结果的原生通道）。与 #6 同构但不同维度：#6 = 与**其它强规则**打架，本条 = 破坏 **harness 原生流程**。评判标准：该工具是否是模型完成「派发->等结果->落 trace」闭环的必经一环？是则必须放行（fence_allow 声明），deny 它只会把闭环逼成抢跑。
 
 **旧工作流（fence 前建的）无围栏**：per-wf settings.json 是 launcher 写的模板，旧 settings 缺 workflow_step_fence.py 注册。`dl <name> --resume` 重起 launcher 会补写 settings（或手加）。
 

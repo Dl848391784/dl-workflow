@@ -26,3 +26,5 @@
 
 13. **读证据链用 evidence_show，root 显式传主仓**：`python3 ~/.dl-workflow/scripts/workflow/evidence_show.py <name> <主仓根>`——渲染 evidence.jsonl 全记录（skill-trace + gate 裁决 + dispute），比手工 grep jsonl 可读。**worktree 内缺省 root 会 `git rev-parse` 成 worktree 根**（evidence 真源在主仓 `.claude/evidence/`，worktree 检出副本可能滞后），第二参数显式传主仓路径（注入「产物路径」行里有）。v2.41 起该命令也是 phase-rules 钉给模型的**产物不足回查通道**（execute/review/evolution：产物缺细节 -> evidence_show 回查 -> 仍不足 AskUserQuestion，禁凭训练记忆补全）——排障时同一条路：先看证据链再下结论。
 
+14. **「模型没等/没做 X 行为」先查工具被 deny，别直接造新机制**（2026-08-05，tail_volume u:1 子3 实证）：排查「模型没等后台 agent 就 end_turn 抢跑」时，第一反应易成「加个 sleep/轮询等 agent」的新机制。**先 grep cc_debug.log 看模型是否调了被 PreToolUse deny 的工具**--本次实证 12:54:50 模型调了 `TaskOutput`（harness 原生等 agent 机制）被 S15 误拦（fence_allow 漏配），3 秒后抢跑 end_turn。根因 = 围栏断了原生通道，**放行 TaskOutput 即解**，无需 sleep/轮询/pending 检测任何新机制（后者只作兜底）。通用判据：模型「没做 X」时，先确认它是否**尝试过**做 X（工具调用被 deny）而非**不会**做 X。`grep -n "denied tool use for\|permissionDecision.*deny" cc_debug.log` 找被拦工具，对照子步骤 fence_allow 看是否漏配。与 §3.12「卡住分诊归因三分」的「机制盲区」分支同源--但先查 deny 能把「机制盲区」快速定位到具体被拦工具，省一轮假设。
+
