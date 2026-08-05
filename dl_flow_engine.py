@@ -3665,6 +3665,42 @@ def _check_sc_coverage_trace(statements: list, project_root, name) -> str | None
     return None
 
 
+# plan:3 子3 注册表能力名提取：S2 能力盘点① skill 注册表里「反引号名+（列表行）」
+# 标注的能力名（plan:3#3 专属 mech）。「（列表行）」是注册表条目的固定出处标注，
+# 用它排除 S2 里其它反引号 token（内置工具集/路径如 /home/.../codegraph）。
+_REGISTRY_CAPABILITY_RE = re.compile(r"`([^`]+)`（列表行）")
+
+
+def _check_binding_residue_trace(qa, project_root, name) -> str | None:
+    """binding_residue_trace：无绑定能力残留跨步核对（plan:3 子3 专属）。
+
+    动机（plan:3#3 framing 反转 v2.110，designs/plan3-sub3-gate-framing-design.md）：
+    「无绑定能力残留=过载」（S2 注册表枚举的能力名既无绑定也无不加载）是跨步一致性
+    （S2 能力盘点注册表①枚举集 vs S3 匹配选型全答案出现集差集），默认-PASS 下 judge
+    v1 1/6（显式「检测：逐条检查 S2 注册表…」遍历指令也被忽略，跨步枚举不可靠=
+    plan:2#4 sc_coverage_trace 同根因，⑤/② 差集形下沉）。下沉生产墙：读 S2 取注册表①
+    能力名集（反引号+（列表行）标注），核对每个在本步全答案出现（绑定或不加载任一生效）。
+    宁纵勿枉：S2 缺失（无前序记录）/S2 无（列表行）标注能力名/某名提取失败=放过交 judge
+    （非双失）；覆盖核验用子串包含（能力名在本步任何答案出现即视为已处理，含被否候选/讨论
+    场景——残留=完全未被提及）。
+    """
+    s2 = read_evidence_for_step(project_root, name, 2, "CapabilityToolSelection")
+    if not s2:
+        return None
+    registry = set(_REGISTRY_CAPABILITY_RE.findall(s2))
+    if not registry:
+        return None
+    s3_text = " ".join(str(item.get("a", "")) for item in qa)
+    missing = sorted(n for n in registry if n not in s3_text)
+    if missing:
+        return (
+            f"无绑定能力残留：S2（子2）注册表枚举的能力 {missing} 在本步（子3）"
+            "无绑定且无不加载声明--每个注册表能力名须绑定需求或显式不加载"
+            "（完全未被提及=残留）"
+        )
+    return None
+
+
 # statements 格式步的写侧机械校验注册表（Step.mech_checks 声明名 -> 检查函数，
 # 签名 (statements, project_root, name)）。statements 首个 mech 注册表
 # （u:2#4 预留独立项，#30 ⑰ 的解）。未注册名 = nodes 与 engine 配置漂移，fail loud。
@@ -3699,20 +3735,27 @@ def _check_single_phase_argument(qa: list, *_ctx) -> str | None:
     return None
 
 
-# plan:2 子3 锚点核验（assumption_completeness_trace 用）：三态标注中「假设」条目
-# 须含置信度+影响两要素。假设标签形=「假设」后接 --/：/（ 等结构化标点（区分于
-# 「假设项」「无假设」等提及形）。
+# plan:2 子3 锚点核验 / plan:3 子4 可用性核验（assumption_completeness_trace 用）：
+# 三态标注中「假设」条目须含置信度+影响两要素。假设标签形=「假设」后接 --/：/（ 等
+# 结构化标点（区分于「假设项」「无假设」等提及形）。
 _ASSUMPTION_LABEL_RE = re.compile(r"假设\s*(?:--|[-：:（(])")
 
 
 def _check_assumption_completeness_trace(qa: list, *_ctx) -> str | None:
-    """assumption_completeness_trace：假设条目须含置信度+影响扫描（plan:2 子3 专属）。
+    """assumption_completeness_trace：假设条目须含置信度+影响扫描
+    （plan:2 子3 锚点核验 / plan:3 子4 可用性核验共用）。
 
     动机（plan:2#3 framing 反转 v1-v3 重放，designs/plan2-sub3-gate-framing-design.md）：
     「假设项缺置信度或影响」是 default-PASS 下 judge 橡皮图章型（v1 1/6 -> v3 1-2/6，
     5/6 空 reason PASS--judge 不检查假设子字段，⑭ 注意力方差，同 plan:2#1 vio4 /
     plan:2#2 vio5 型）。词形可判子项（#30 ⑭）：「假设标签在场却同段无置信度或影响」
     切出下沉零方差生产墙。
+    跨节点复用（v2.112 plan:3#4，designs/plan3-sub4-gate-framing-design.md）：
+    plan:3 子4 的三态标注是同一形式契约（已验证/假设/证伪 + 假设附置信度×影响），
+    v1 反转重放 vio3 崩 2/6 与 plan:2#3 同款负判定缺席型--按第二十四例① 三问核过：
+    触发面词形同构（答案含「假设--/：/（」标签形）、放过面同构（同段含「置信度」+
+    「影响/错误时」）、扫描粒度同构（逐答案），差异只在被核验对象（执行单元 vs 能力
+    绑定）不落 mech 触发面-> 直接注册复用，未建变体。
     逐答案扫描：假设标签形=「假设--/：/（」；同答案须含置信度（「置信度」）与影响
     （「影响」/「错误时」）两要素。
     宁纵勿枉：无假设标签 / 「无假设」否定形（假设后接「无」）/ 「假设项」提及形
@@ -4234,6 +4277,7 @@ _MECH_QA_CHECKS = {
     "dependency_order_trace": _check_dependency_order_trace,
     "element_coverage_trace": _check_element_coverage_trace,
     "single_phase_argument": _check_single_phase_argument,
+    "binding_residue_trace": _check_binding_residue_trace,
     "assumption_completeness_trace": _check_assumption_completeness_trace,
     "fetch_report_recorded": _check_fetch_report_recorded,
     "fetch_skeleton_out": _check_fetch_skeleton_out,
