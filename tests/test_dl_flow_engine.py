@@ -2322,9 +2322,23 @@ class TestPlan3Orchestration:
     def test_step4_availability_fence(self):
         s4 = self._steps()[3]
         assert s4.fence_allow == ("Bash",)  # S15：可用性本地实测
+        # v2.111 framing 反转（plan3-sub4-gate-framing-design）：
+        # assumption_completeness_trace 跨节点复用（plan:2 子3 同款，三态形式
+        # 契约同构）承托「假设缺置信度或影响」——judge 侧 v1 崩 2/6。
+        assert s4.mech_checks == ("assumption_completeness_trace",)
         for needle in ("三态", "MCP", "环境前提", "只标注不裁决"):
             assert needle in s4.purpose, f"子4 purpose 缺 {needle}"
-        for needle in ("sub_step==4", "编造", "没真核验"):
+        # pin 改钉（#30 ①/㉔）：「从严裁量」撤出，「假设项缺置信度或影响」的
+        # block 面下沉 mech（gate 侧改 mech-托声明）——压缩条款 + framing 标记
+        # 「默认 pass」（run_judge 单源读它切 verdict_rule）钉死意图不丢。
+        for needle in (
+            "sub_step==4",
+            "默认 pass",
+            "编造",
+            "没真核验",
+            "漏绑定核验",
+            "assumption_completeness_trace",
+        ):
             assert needle in s4.gate, f"子4 gate 缺 {needle}"
 
     def test_step5_normalization(self):
@@ -6739,6 +6753,48 @@ class TestV237FirstPassRate:
             is None
         )
 
+    # ---- plan:3 子4 framing 反转配套 mech（v2.111，assumption_completeness_trace
+    # 跨节点复用，designs/plan3-sub4-gate-framing-design.md §3）----
+
+    def test_p3s4_assumption_completeness_reuse_on_binding_forms(self):
+        # 跨节点复用有效性（第二十四例① 三问）：同一 mech 对 plan:3#4 的能力
+        # 绑定三态载荷形态同样精确——触发面/放过面/扫描粒度均与 plan:2#3 同构，
+        # 差异只在被核验对象（执行单元 vs 能力绑定），不落 mech 触发面。
+        # vio3 形态：B3 假设标签在场却无置信度×错误时影响
+        qa_bad = [
+            {
+                "q": "B2/B3 四类核验留痕如何？三态标注？",
+                "a": "B3 `karpathy-guidelines` 核验：①条目存在--列表行；"
+                "②CLI 不适用--显式声明。三态：一项假设--该 plugin skill 磁盘 "
+                "SKILL.md 路径未逐一 ls 核实，仅凭列表行在册推定可加载。",
+            }
+        ]
+        err = eng._check_assumption_completeness_trace(qa_bad)
+        assert err and "置信度" in err, "绑定假设缺置信度+影响应拒"
+        # 合法形态：定性置信度（高/中/低）+ 错误时影响在场即过（不索数值化）
+        qa_ok = [
+            {
+                "q": "B2/B3 四类核验留痕如何？三态标注？",
+                "a": "B3 核验：①条目存在--列表行。三态：一项假设--磁盘 SKILL.md "
+                "路径未逐一核实（置信度高×影响低：错误时 Skill 调用当场报错、"
+                "可即时改走内联行为约束，不影响 B1/B2/B4 绑定）。",
+            }
+        ]
+        assert eng._check_assumption_completeness_trace(qa_ok) is None, (
+            "定性置信度+影响在场应过（禁索数值化）"
+        )
+        # 宁纵勿枉：「假设项」提及形（假设后接「项」非结构化标点）不扫
+        qa_skip = [
+            {
+                "q": "假设项/证伪项汇总？",
+                "a": "假设项汇总：一条（B3 plugin 路径未逐一核实，见 a2）。"
+                "证伪项：无。",
+            }
+        ]
+        assert eng._check_assumption_completeness_trace(qa_skip) is None, (
+            "「假设项」提及形应放过交 judge"
+        )
+
     # ---- plan:3 子1 framing 反转配套 mech（v2.106，需求清单原文引用留痕扫描，
     # designs/plan3-sub1-gate-framing-design.md §3）----
 
@@ -6996,9 +7052,9 @@ class TestV237FirstPassRate:
             "全覆盖应过"
         )
         # 宁纵勿枉：无子1 -> 过（交 judge）
-        assert (
-            eng._check_sc_coverage_trace(stmts_miss, tmp_path, "no_such") is None
-        ), "无子1 应过"
+        assert eng._check_sc_coverage_trace(stmts_miss, tmp_path, "no_such") is None, (
+            "无子1 应过"
+        )
 
     # ---- plan:1 子3 framing 反转配套 mech（v2.103，可行性验证五项核验留痕扫描，
     # designs/plan1-sub3-gate-framing-design.md §3）----

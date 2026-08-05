@@ -3019,6 +3019,8 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     "假设的接受留子6 用户裁决。"
                 ),
                 input="step3.binding_proposals",
+                mech_checks=("assumption_completeness_trace",),  # v2.111：假设
+                # 置信度×影响下沉（跨节点复用 plan:2 子3 同款，vio3 judge 2/6）
                 record=True,
                 fence_allow=("Bash",),
                 selfcheck=(
@@ -3027,13 +3029,16 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     "已验证附出处、假设含置信度+错误时影响、证伪附理由了吗？"
                 ),
                 gate=(
-                    "evidence/<name>.jsonl 含 kind=skill-trace、"
-                    "minor_stage=CapabilityToolSelection 且 sub_step==4 的记录；"
-                    "形式要件：每绑定四类核验留痕；三态逐绑定标注；"
-                    "出处/置信度+影响/理由齐备。"
-                    "质量判据（从严裁量）：声称可用无出处=编造判 block；"
-                    "全绑定无差别「已验证」=没真核验判 block；"
-                    "假设项缺置信度或影响判 block。"
+                    "evidence/<name>.jsonl 含 kind=skill-trace、minor_stage=CapabilityToolSelection 且 sub_step==4 的记录。\n"
+                    "形式要件：每绑定四类核验留痕（①skill 条目存在 ②CLI 可用 ③MCP 连接 ④环境前提；某类对该绑定不适用时附显式「不适用」声明即算该类留痕）；三态按绑定标注（绑定整体标已验证/假设/证伪覆盖该绑定核验项，不须逐类别拆标、不须声明无证伪）；已验证态附出处，假设态附置信度+影响，证伪态附理由（置信度+影响只对假设态要求，已验证态不须）。\n"
+                    "默认 pass——仅当以下成立才判 block（每条附合法形态，合法形态在场不得判）：\n"
+                    "一、声称可用无出处=编造：绑定声称 skill 条目存在/CLI 可用/MCP 已连/环境前提满足，却无任何出处留痕判 block。违规形态：(a) 口头声称「已装可用/版本没问题/db 也在/直接跑即可」无任何命令出处（如 codegraph CLI 绑定全段无一条 which/ls/test 命令）；(b) 四类核验整段概括复述「条目存在、CLI 可用、MCP 已连、环境前提满足」无任何绑定特定命令。合法形态=出处留痕在场即合规——Bash 命令+返回概述（`which codegraph` 返回路径、`ls X/SKILL.md` 返回该路径、`test -f X && echo EXISTS` 返回 EXISTS、`python3 -m pytest --version` 返回 pytest 8.3.2）、注册表列表行引用（会话 available-skills 列表行『X』）、配置文件 server 名引用任一形态即合规；不得索取命令输出原文/完整回显/行号，不得以「只 ls 磁盘路径未核注册表列表行」或反之为由 block（两种出处形态任一即合规）。\n"
+                    "二、全绑定无差别「已验证」=没真核验：所有绑定三态全部标「已验证」且核验留痕同形泛化（各绑定文本仅复述「条目存在/CLI 可用/MCP 已连/环境前提满足/无问题」套话，无绑定特定命令/路径/版本号/返回值）判 block。合法形态=绑定级差异化留痕（每绑定各自的命令+返回概述）即合规；多数绑定已验证+个别假设项即合规；全部绑定已验证但每绑定附各自命令出处即合规——不得以「没有假设/证伪项」本身判 block，无证伪项不须声明「无证伪」；三态按绑定标注即合规（绑定整体标「已验证」覆盖该绑定全部核验项），不须逐类别拆标三态。\n"
+                    "三、假设项缺置信度或影响：已由 assumption_completeness_trace 机械校验——标注「假设」的三态条目（假设标签形：假设后接 --/：/（ 等结构化标点）无置信度或错误时影响的答案已被 append-trace 当场拒、不会到你这里；你不得以「假设缺置信度/影响/置信度未数值化（0.9/百分比/区间）/影响未量化范围/未给回退命令或降级步骤/未给返工成本」为由 block。残留判面=假设标签形以外的假设提及（如「假设项」「无假设」）是否明显矛盾——只判明显矛盾，不主动索要素、不复核置信度与影响的具体化程度。另：置信度+影响只对假设态要求，已验证/证伪态不须附——不得以「已验证项未附置信度/影响」为由 block。\n"
+                    "四、漏绑定核验：子3 绑定集中某绑定在本步无任何四类核验留痕，被「随 X 覆盖/同 X 已验证」一句话代过判 block。合法形态=每绑定独立核验段（四类各自留痕，不适用类附显式声明）即合规。\n"
+                    "【判材边界】本步 input=step3.binding_proposals（S1/S2/S3 trace 在载荷内可见）+ 真实环境真值（PATH/磁盘文件/MCP 连接状态/venv 依赖，结构性不可见）。只判留痕在场与 trace 内自洽，不核真值——不得以「该 skill 是否真在磁盘/CLI 是否真可跑/返回值是否真实/MCP 是否真连上」为由 block；某类核验对绑定不适用时附显式声明即合规（skill 类绑定无 CLI/MCP 依赖、CLI 类绑定无 skill 条目、零 skill 绑定四类多不适用），不得以「不适用声明无出处/无留痕/未给核验命令」为由 block；④环境前提以命令+返回概述留痕即合规，不得复核核验充分性/覆盖面（不得索取 SKILL.md frontmatter 依赖项核验/脚本可执行性/venv 路径/API key 存在性/编辑工具依赖/其余依赖包等未留痕项）；只标注不裁决=假设项接受留子6 用户裁决，不得以「未裁决假设是否接受」判 block。\n"
+                    "【合法正例】「①skill 条目存在--`ls .claude/skills/factor-development/SKILL.md` 返回该路径」合规（命令+返回概述即满足）；「②CLI 本绑定不适用（skill 加载不依赖外部 CLI）--显式声明」合规（不适用声明即满足该类留痕，不索命令）；「②CLI 可用--`which codegraph` 返回 /home/admin/.npm-global/bin/codegraph；新鲜度冒烟--sqlite3 查 indexed_at 返回当日时间」合规；「①条目存在--会话 available-skills 列表行『superpowers:test-driven-development』」合规（列表行引用即满足，不要求另附磁盘 ls）；「三态：已验证（出处=上述 Bash 命令返回）」合规（概括回指同段已列命令即满足，不要求逐类别复述命令）；「三态：一项假设--磁盘 SKILL.md 未逐一核实（置信度高×影响低：错误时 Skill 调用当场报错、可即时改走内联约束）」合规（定性置信度+影响在场即满足）；「①skill 不适用（零 skill 绑定）--显式声明；④环境前提--`python3 -m pytest --version` 返回 pytest 8.3.2」合规（单条依赖命令即满足，不索其余依赖包）。方框以外一律不判。\n"
+                    "judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例（指模式不指实例位置）。"
                 ),
             ),
             Step(

@@ -3662,20 +3662,27 @@ def _check_single_phase_argument(qa: list, *_ctx) -> str | None:
     return None
 
 
-# plan:2 子3 锚点核验（assumption_completeness_trace 用）：三态标注中「假设」条目
-# 须含置信度+影响两要素。假设标签形=「假设」后接 --/：/（ 等结构化标点（区分于
-# 「假设项」「无假设」等提及形）。
+# plan:2 子3 锚点核验 / plan:3 子4 可用性核验（assumption_completeness_trace 用）：
+# 三态标注中「假设」条目须含置信度+影响两要素。假设标签形=「假设」后接 --/：/（ 等
+# 结构化标点（区分于「假设项」「无假设」等提及形）。
 _ASSUMPTION_LABEL_RE = re.compile(r"假设\s*(?:--|[-：:（(])")
 
 
 def _check_assumption_completeness_trace(qa: list, *_ctx) -> str | None:
-    """assumption_completeness_trace：假设条目须含置信度+影响扫描（plan:2 子3 专属）。
+    """assumption_completeness_trace：假设条目须含置信度+影响扫描
+    （plan:2 子3 锚点核验 / plan:3 子4 可用性核验共用）。
 
     动机（plan:2#3 framing 反转 v1-v3 重放，designs/plan2-sub3-gate-framing-design.md）：
     「假设项缺置信度或影响」是 default-PASS 下 judge 橡皮图章型（v1 1/6 -> v3 1-2/6，
     5/6 空 reason PASS--judge 不检查假设子字段，⑭ 注意力方差，同 plan:2#1 vio4 /
     plan:2#2 vio5 型）。词形可判子项（#30 ⑭）：「假设标签在场却同段无置信度或影响」
     切出下沉零方差生产墙。
+    跨节点复用（v2.111 plan:3#4，designs/plan3-sub4-gate-framing-design.md）：
+    plan:3 子4 的三态标注是同一形式契约（已验证/假设/证伪 + 假设附置信度×影响），
+    v1 反转重放 vio3 崩 2/6 与 plan:2#3 同款负判定缺席型--按第二十四例① 三问核过：
+    触发面词形同构（答案含「假设--/：/（」标签形）、放过面同构（同段含「置信度」+
+    「影响/错误时」）、扫描粒度同构（逐答案），差异只在被核验对象（执行单元 vs 能力
+    绑定）不落 mech 触发面-> 直接注册复用，未建变体。
     逐答案扫描：假设标签形=「假设--/：/（」；同答案须含置信度（「置信度」）与影响
     （「影响」/「错误时」）两要素。
     宁纵勿枉：无假设标签 / 「无假设」否定形（假设后接「无」）/ 「假设项」提及形
