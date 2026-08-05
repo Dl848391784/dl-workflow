@@ -149,6 +149,55 @@ def _last_assistant_text(transcript_path: str) -> str:
     return ""
 
 
+def _pending_background_agent_count(transcript_path: str) -> int:
+    """检测未归的后台 Agent 子代理数（Q3，tail_volume u:1 子3 实证）。
+
+    transcript JSONL：assistant message 的 tool_use(name=Agent) = 派发，
+    user message 的 tool_result（tool_use_id 匹配）= 归还。后台 agent 派发后
+    未归还 = tool_use_id 在 Agent 集合但不在 tool_result 集合。
+    防御式：缺失/解析失败 -> 0（不阻断门控，回退原行为）。
+    """
+    if not transcript_path or not Path(transcript_path).exists():
+        return 0
+    agent_ids: set[str] = set()
+    result_ids: set[str] = set()
+    try:
+        with open(transcript_path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                msg = ev.get("message") if isinstance(ev, dict) else None
+                if not isinstance(msg, dict):
+                    continue
+                content = msg.get("content")
+                if not isinstance(content, list):
+                    continue
+                role = msg.get("role")
+                for block in content:
+                    if not isinstance(block, dict):
+                        continue
+                    if (
+                        role == "assistant"
+                        and block.get("type") == "tool_use"
+                        and block.get("name") == "Agent"
+                    ):
+                        bid = block.get("id")
+                        if isinstance(bid, str):
+                            agent_ids.add(bid)
+                    elif role == "user" and block.get("type") == "tool_result":
+                        tid = block.get("tool_use_id")
+                        if isinstance(tid, str):
+                            result_ids.add(tid)
+    except OSError:
+        return 0
+    return len(agent_ids - result_ids)
+
+
 def _emit(msg: str) -> None:
     """打印到 stdout（TUI 可见）。"""
     sys.stdout.write(msg + "\n")
@@ -319,6 +368,20 @@ def main() -> int:
             )
             is None
         ):
+            # v2.xx：pending background agent 时延后门控（Q3，tail_volume u:1 子3
+            # 实证：模型派后台 agent[durationMs=4 立即返回] 后 end_turn，agent
+            # 未归、trace 未落 -> S13 假性 block「无 trace」，agent handback 后
+            # 才补 trace = 一次假性返工）。pending -> 静默放行，等 handback
+            # 重新激活主会话写 trace 再触发门控。无 pending -> 原行为（block）。
+            if _pending_background_agent_count(transcript_path) > 0:
+                _log(
+                    project_root,
+                    "sub_step_gate_deferred_pending_agent",
+                    wf=name,
+                    phase=cur_phase,
+                    step=judged_step,
+                )
+                return 0
             step0 = engine.sub_step_at(cur_node0, judged_step)
             purpose0 = step0.purpose if step0 else ""
             # 分诊：真无 trace（拒执，强制参与）vs 有内容但 JSON 损坏（指引修复格式）

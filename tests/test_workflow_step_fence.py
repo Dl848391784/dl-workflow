@@ -377,6 +377,60 @@ class TestS15EngagePreFence:
             {"prompt": "外部取证"},
         )
         assert decision is None
+        # v2.xx：TaskOutput 放行--模型派后台 agent 后用它阻塞等结果（tail_volume
+        # u:1 子3 实证：12:54:50 TaskOutput 被 S15 误拦 -> 无法等 agent -> end_turn
+        # 假性 GATE block「无 trace」）。TaskOutput=harness 原生等后台 agent 机制。
+        decision, _ = _run_hook(
+            mod,
+            wf_repo,
+            monkeypatch,
+            capsys,
+            "TaskOutput",
+            {"task_id": "call_x"},
+        )
+        assert decision is None, "子3 TaskOutput 应放行（等后台 agent 结果）"
+
+    def test_step3_taskoutput_allowed(self, wf_repo, monkeypatch, capsys):
+        # 显式：子3 零 trace 窗口内 TaskOutput 放行（与 Agent 配套）
+        _write_state(wf_repo, sub_step=3)
+        mod = _load_hook()
+        decision, _ = _run_hook(
+            mod,
+            wf_repo,
+            monkeypatch,
+            capsys,
+            "TaskOutput",
+            {"task_id": "call_1", "block": True},
+        )
+        assert decision is None
+
+    def test_step4_taskoutput_allowed(self, wf_repo, monkeypatch, capsys):
+        # 子4 红队 Agent 同样需要 TaskOutput 等结果
+        _write_state(wf_repo, sub_step=4)
+        mod = _load_hook()
+        decision, _ = _run_hook(
+            mod,
+            wf_repo,
+            monkeypatch,
+            capsys,
+            "TaskOutput",
+            {"task_id": "call_1"},
+        )
+        assert decision is None
+
+    def test_step2_taskoutput_denied(self, wf_repo, monkeypatch, capsys):
+        # 非 Agent 子步骤（子2 因果推理）不放行 TaskOutput--无后台 agent 可等
+        _write_state(wf_repo, sub_step=2)
+        mod = _load_hook()
+        decision, _ = _run_hook(
+            mod,
+            wf_repo,
+            monkeypatch,
+            capsys,
+            "TaskOutput",
+            {"task_id": "call_1"},
+        )
+        assert decision == "deny"
 
     def test_step3_webfetch_denied(self, wf_repo, monkeypatch, capsys):
         # v2.38：WebFetch 环境性弃用（域验证全挂）移出子3 fence_allow，窗口内拦
@@ -476,7 +530,42 @@ class TestS15ReadonlyDiscovery:
             "find /x -name '*.py' | xargs rm",  # xargs 走私
             "echo $(cat /etc/passwd)",  # 命令替换
             "ls /x && rm -rf /x",  # 复合写命令
-            "python3 -c 'print(1)'",  # 非白名单命令
+            "python3 -c \"open('/tmp/x','w').write('y')\"",  # python3 写意图
+        ):
+            decision, reason = _run_hook(
+                mod, wf_repo, monkeypatch, capsys, "Bash", {"command": cmd}
+            )
+            assert decision == "deny", f"{cmd} 应 deny"
+            assert "S15" in reason
+
+    def test_python_readonly_data_allowed(self, wf_repo, monkeypatch, capsys):
+        # v2.xx：S15 放行 python3 -c 只读数据（读 JSON/parquet 字段）--
+        # 子2 因果链每环要 file:line 证据指针，CLAUDE.md §3 推荐 python3 读
+        # 数据，零 trace 窗口禁 python3 = 合法取证通道被关（tail_volume u:1
+        # 子2 实证 40 次 S15 deny）。威胁模型=强模型非对抗，写信号一票否决。
+        _write_state(wf_repo, sub_step=1)
+        mod = _load_hook()
+        for cmd in (
+            'python3 -c \'import json;print(json.load(open("x"))["y"])\'',
+            "python3 -c \"import json; d=json.load(open('x')); print(d)\"",
+            "python3 -c 'print(1)'",
+            "python3 -c 'import pandas as pd; print(pd.read_parquet(\"x\"))'",
+        ):
+            decision, _ = _run_hook(
+                mod, wf_repo, monkeypatch, capsys, "Bash", {"command": cmd}
+            )
+            assert decision is None, f"{cmd} 应放行（python3 -c 只读）"
+
+    def test_python_write_intent_denied(self, wf_repo, monkeypatch, capsys):
+        _write_state(wf_repo, sub_step=1)
+        mod = _load_hook()
+        for cmd in (
+            "python3 -c \"open('y','w').write('z')\"",  # open write
+            "python3 -c 'import os; os.system(\"rm x\")'",  # os.system
+            'python3 -c \'import subprocess; subprocess.run(["rm","x"])\'',
+            'python3 -c \'__import__("os").system("x")\'',
+            "python3 script.py",  # 非 -c（外部脚本不可判定）
+            'python3 -c \'open("a","a").write("b")\'',  # append 模式
         ):
             decision, reason = _run_hook(
                 mod, wf_repo, monkeypatch, capsys, "Bash", {"command": cmd}
@@ -490,18 +579,89 @@ class TestS15ReadonlyDiscovery:
         assert ok("find . -name '*.py'")
         assert ok("git show HEAD~1 --stat")
         assert ok("grep -rn 'x' . 2>/dev/null | head -5")
+        assert ok("python3 -c 'import json;print(json.load(open(\"x\")))'")
         assert not ok("ls > out")
         assert not ok("cat `which ls`")
         assert not ok("find . | tee out")
         assert not ok("echo hi; rm x")
+        assert not ok("python3 -c \"open('x','w').write('y')\"")
+        assert not ok("python3 script.py")
 
     def test_byte_viewers_allowed(self):
         # v2.65：od/hexdump/xxd 纯只读字节查看器放行（诊断 BOM/编码；
-        # > 已被一票否决挡住写意图，python3 仍拒--能写）
+        # > 已被一票否决挡住写意图）。python3 -c 只读放行（见 test_python_*）。
         mod = _load_hook()
         ok = mod._s15_bash_readonly_discovery
         assert ok("head -c 30 f.md | xxd")
         assert ok("od -An -c f.md | head -3")
         assert ok("hexdump -C f.md")
-        assert not ok("python3 -c 'print(1)'")
+        assert ok("python3 -c 'print(1)'")  # 只读放行（v2.xx）
+        assert not ok("python3 -c \"open('x','w').write('y')\"")  # 写信号拒
         assert not ok("xxd -r f.md > out")  # -r 反向写但 > 已挡
+
+
+class TestSkeletonWriteFallback:
+    """Q1a：模型 Write/Edit fetch-prompt-skeleton.md -> deny + 副作用 --out 刷新。
+
+    tail_volume u:1 子3 实证：模型 4 次 Write 骨架文件被 S11 deny，但骨架本该
+    引擎 --out 独占写。hook 识别后副作用调 fetch_prompt 刷新骨架为引擎版本，
+    deny 指路 Read 取用（PreToolUse 不能转换工具，用 deny+副作用等价）。
+    """
+
+    def test_write_skeleton_auto_refreshed(self, wf_repo, monkeypatch, capsys):
+        _write_state(wf_repo, sub_step=3)
+        mod = _load_hook()
+        monkeypatch.setattr(mod.engine, "fetch_prompt", lambda pr, n: "SKELETON_BODY")
+        skel = wf_repo / ".claude" / "workflows" / "t" / "fetch-prompt-skeleton.md"
+        decision, reason = _run_hook(
+            mod,
+            wf_repo,
+            monkeypatch,
+            capsys,
+            "Write",
+            {"file_path": str(skel), "content": "model hand-written"},
+        )
+        assert decision == "deny"
+        assert "--out" in reason or "已自动" in reason or "Read" in reason
+        # 副作用：骨架被刷新为引擎版本，非模型手写内容
+        assert skel.read_text(encoding="utf-8").startswith("SKELETON_BODY")
+        assert "model hand-written" not in skel.read_text(encoding="utf-8")
+
+    def test_write_skeleton_no_sub2_trace(self, wf_repo, monkeypatch, capsys):
+        # fetch_prompt 返 None（无子2 trace）-> deny 指回补子2，不写文件
+        _write_state(wf_repo, sub_step=3)
+        mod = _load_hook()
+        monkeypatch.setattr(mod.engine, "fetch_prompt", lambda pr, n: None)
+        skel = wf_repo / ".claude" / "workflows" / "t" / "fetch-prompt-skeleton.md"
+        decision, reason = _run_hook(
+            mod,
+            wf_repo,
+            monkeypatch,
+            capsys,
+            "Write",
+            {"file_path": str(skel), "content": "x"},
+        )
+        assert decision == "deny"
+        assert "子2" in reason or "trace" in reason
+        assert not skel.exists()
+
+    def test_edit_skeleton_also_redirected(self, wf_repo, monkeypatch, capsys):
+        # Edit 骨架同样兜底（模型可能 Edit 改骨架 claim 区）
+        _write_state(wf_repo, sub_step=3)
+        mod = _load_hook()
+        monkeypatch.setattr(mod.engine, "fetch_prompt", lambda pr, n: "SKELETON_BODY")
+        skel = wf_repo / ".claude" / "workflows" / "t" / "fetch-prompt-skeleton.md"
+        decision, _ = _run_hook(
+            mod,
+            wf_repo,
+            monkeypatch,
+            capsys,
+            "Edit",
+            {
+                "file_path": str(skel),
+                "old_string": "a",
+                "new_string": "b",
+            },
+        )
+        assert decision == "deny"
+        assert skel.read_text(encoding="utf-8").startswith("SKELETON_BODY")

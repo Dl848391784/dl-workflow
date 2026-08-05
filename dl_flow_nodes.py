@@ -953,7 +953,11 @@ _NODES: dict[str, Node] = {
                 # S15 前置围栏：本步合法工具 = 内部仓库层（Bash）+ 取证子代理（Agent）；
                 # 子代理进程内的 curl 经同一 PreToolUse 围栏、本步声明 Bash 故放行；
                 # WebFetch 环境性弃用（2026-08-01 诊断）移出声明。
-                fence_allow=("Bash", "Agent"),
+                # v2.xx：加 TaskOutput--模型派后台 agent 后用它阻塞等结果（tail_volume
+                # u:1 子3 实证：TaskOutput 被 S15 误拦 -> 无法等 agent -> end_turn 假性
+                # GATE block「无 trace」）。TaskOutput=harness 原生等后台 agent 机制，
+                # 放行后模型主动等 agent 归来再写 trace，避免抢跑。
+                fence_allow=("Bash", "Agent", "TaskOutput"),
                 # v2.38：报告收录形式要件机械化——judge 重放实证旧形态（无报告项）
                 # 也被判 PASS（内容丰富被当实质满足），形式核验下沉机械层。
                 # v2.43：fetch_skeleton_out——骨架 --out 落盘机械核验
@@ -1072,7 +1076,9 @@ _NODES: dict[str, Node] = {
                 ),
                 # S15 前置围栏：条件触发红队子代理（Agent）；子代理进程内
                 # Read/Grep 在常驻集，无需声明。
-                fence_allow=("Agent",),
+                # v2.xx：加 TaskOutput--红队 agent 同为后台派发，模型需用它等结果
+                # （同子3，防抢跑假性 block）。
+                fence_allow=("Agent", "TaskOutput"),
                 # v2.44：红队已派发（trace 含 task-id）而无「红队…原文收录」
                 # 标题项 = 红队未归提前提交，append-trace 当场拒（词表扫描被
                 # 措辞绕开的实证收口，信号分隔度见 engine 函数 docstring）。

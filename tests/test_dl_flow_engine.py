@@ -3912,13 +3912,13 @@ class TestEngagementFenceState:
         assert got is not None
         n, step = got
         assert n == 3
-        assert step.fence_allow == ("Bash", "Agent")
+        assert step.fence_allow == ("Bash", "Agent", "TaskOutput")
 
     def test_step4_declares_agent(self, tmp_path):
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=4)
         got = eng.engagement_fence_state(tmp_path, "t")
         assert got is not None
-        assert got[1].fence_allow == ("Agent",)
+        assert got[1].fence_allow == ("Agent", "TaskOutput")
 
     def test_window_closed_with_trace(self, tmp_path):
         # 有 trace（未判决）-> 归 S10，非本围栏窗口（两态互斥）
