@@ -2530,9 +2530,19 @@ class TestPlan4Orchestration:
     def test_step3_anchor_fence(self):
         s3 = self._steps()[2]
         assert s3.fence_allow == ("Bash",)  # S15：dry-run + 交集实算 + 锚点本地核验
+        # v2.112 framing 反转 + assumption_completeness_trace mech 承托（同 plan:2#3）
+        assert s3.mech_checks == ("assumption_completeness_trace",)
         for needle in ("dry-run", "交集", "三态", "只标注不裁决"):
             assert needle in s3.purpose, f"子3 purpose 缺 {needle}"
-        for needle in ("sub_step==3", "实算", "没真核验", "编造"):
+        for needle in (
+            "sub_step==3",
+            "默认 pass",
+            "实算",
+            "没真核验",
+            "编造",
+            "漏对象核验",
+            "assumption_completeness_trace",
+        ):
             assert needle in s3.gate, f"子3 gate 缺 {needle}"
 
     def test_step4_normalization(self):
@@ -3762,8 +3772,10 @@ class TestJudgeFramingDualMode:
         p3 = nodes._NODES["plan:3"].sub_steps
         assert "默认 pass" in p3[0].gate, "plan:3#1 gate 缺「默认 pass」framing 标记"
         p4 = nodes._NODES["plan:4"].sub_steps
-        # plan:4#1（四源清点）由并行会话负责反转，p4[0] 标记 pin 留待其落地/收口批补
+        assert "默认 pass" in p4[0].gate, "plan:4#1 gate 缺「默认 pass」framing 标记"
         assert "默认 pass" in p4[1].gate, "plan:4#2 gate 缺「默认 pass」framing 标记"
+        assert "默认 pass" in p4[2].gate, "plan:4#3 gate 缺「默认 pass」framing 标记"
+        assert "默认 pass" in p4[3].gate, "plan:4#4 gate 缺「默认 pass」framing 标记"
 
 
 class TestEmptyBlockReasonRetry:
@@ -6887,6 +6899,73 @@ class TestV237FirstPassRate:
                         "q": "逐任务操作类型清单如何？",
                         "a": "N1=U2 代码改动（`summary/...py` 加分组键，plan.md:12，"
                         "原文『分组键』）；N3=跑 fresh 检查验证 PRICE_VOLUME 全量落库。",
+                    }
+                ]
+            )
+            is None
+        )
+
+    # ---- plan:4 子1 framing 反转配套 mech（v2.115，控制结构输入清单原文引用留痕
+    # 扫描，designs/plan4-sub1-gate-framing-design.md §3）----
+
+    def test_p4s1_epc_quote_trace_block_forms(self):
+        # vio1/vio4 形态：清单条目引用代码符号形（.py）却无任何『』原文引用/原文
+        # 字样 = 生产墙当场拒（全清单裸=编造 / 有出处行号无原文=原文未引用）
+        qa1 = [
+            {
+                "q": "控制结构输入五类清单如何？",
+                "a": "①任务 DAG：T1=U2 代码改动（summary/generate_factor_summary_report.py "
+                "_aggregate_positive_ic 内增加分组键，改 .py=H15 信号）。",
+            }
+        ]
+        err = eng._check_epc_quote_trace(qa1)
+        assert err and "原文" in err, "裸符号引用无原文引用应拒"
+        qa2 = [
+            {
+                "q": "控制结构输入五类清单如何？",
+                "a": "①任务 DAG：T1=U2 代码改动（`summary/generate_factor_summary_report.py` "
+                "`_aggregate_positive_ic` 内增加分组键，改 .py=H15 信号，plan.md:12）。",
+            }
+        ]
+        err2 = eng._check_epc_quote_trace(qa2)
+        assert err2 and "原文" in err2, "有出处行号但无原文引用应拒"
+
+    def test_p4s1_epc_quote_trace_pass_forms(self):
+        # 合法形态全过：任一清单条目带『』原文引用 / 含「原文」字样
+        pass_forms = [
+            "①任务 DAG：T1=U2 代码改动（`summary/generate_factor_summary_report.py` "
+            "`_aggregate_positive_ic` 内增加分组键，改 .py=H15 信号）--出处 plan.md:12，"
+            "原文『U2: 在既有聚合统计函数内增加 FACTOR_CATEGORIES 维度分组键』。",
+            "⑤不可逆操作候选：T2 后 `git push` 推送主仓（外发）--出处 plan.md:15，"
+            "原文『T2 完成后 git push 推送远端』；①任务 DAG：`paths.py` 加路径常量，"
+            "plan.md:11，原文『U1: 新增 CATEGORY_SUMMARY_RESULT 路径常量』。",
+        ]
+        for form in pass_forms:
+            qa = [{"q": "控制结构输入五类清单如何？", "a": form}]
+            assert eng._check_epc_quote_trace(qa) is None, form
+
+    def test_p4s1_epc_quote_trace_skip_rules(self):
+        # 宁纵勿枉：无 .py 的答案不扫（纯验收包 SC ID/假设 H1 条目交 judge 判残留
+        # 判面）；整条答案任一清单项有原文引用即放过（vio2 的 ⑤ 裸但 ①-④ 有原文
+        # 引用→交 judge 判静默新增）
+        assert (
+            eng._check_epc_quote_trace(
+                [
+                    {
+                        "q": "③验收包如何？",
+                        "a": "SC1.1『报告含八维度汇总区块』（understand.md:22）。",
+                    }
+                ]
+            )
+            is None
+        )
+        assert (
+            eng._check_epc_quote_trace(
+                [
+                    {
+                        "q": "控制结构输入五类清单如何？",
+                        "a": "①任务 DAG：T1=U2 代码改动（`summary/...py` 加分组键，"
+                        "plan.md:12，原文『分组键』）；⑤不可逆操作：删除旧报告目录。",
                     }
                 ]
             )
