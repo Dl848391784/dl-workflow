@@ -2517,9 +2517,19 @@ class TestPlan4Orchestration:
     def test_step3_anchor_fence(self):
         s3 = self._steps()[2]
         assert s3.fence_allow == ("Bash",)  # S15：dry-run + 交集实算 + 锚点本地核验
+        # v2.112 framing 反转 + assumption_completeness_trace mech 承托（同 plan:2#3）
+        assert s3.mech_checks == ("assumption_completeness_trace",)
         for needle in ("dry-run", "交集", "三态", "只标注不裁决"):
             assert needle in s3.purpose, f"子3 purpose 缺 {needle}"
-        for needle in ("sub_step==3", "实算", "没真核验", "编造"):
+        for needle in (
+            "sub_step==3",
+            "默认 pass",
+            "实算",
+            "没真核验",
+            "编造",
+            "漏对象核验",
+            "assumption_completeness_trace",
+        ):
             assert needle in s3.gate, f"子3 gate 缺 {needle}"
 
     def test_step4_normalization(self):
@@ -3750,7 +3760,7 @@ class TestJudgeFramingDualMode:
         p4 = nodes._NODES["plan:4"].sub_steps
         # plan:4#1（四源清点）由并行会话负责反转，p4[0] 标记 pin 留待其落地/收口批补
         assert "默认 pass" in p4[1].gate, "plan:4#2 gate 缺「默认 pass」framing 标记"
-        # plan:4#3（锚点核验）由并行会话负责反转，p4[2] 标记 pin 留待其落地/收口批补
+        assert "默认 pass" in p4[2].gate, "plan:4#3 gate 缺「默认 pass」framing 标记"
         assert "默认 pass" in p4[3].gate, "plan:4#4 gate 缺「默认 pass」framing 标记"
 
 

@@ -3698,15 +3698,15 @@ def _check_single_phase_argument(qa: list, *_ctx) -> str | None:
     return None
 
 
-# plan:2 子3 锚点核验 / plan:3 子4 可用性核验（assumption_completeness_trace 用）：
-# 三态标注中「假设」条目须含置信度+影响两要素。假设标签形=「假设」后接 --/：/（ 等
-# 结构化标点（区分于「假设项」「无假设」等提及形）。
+# plan:2 子3 锚点核验 / plan:3 子4 可用性核验 / plan:4 子3 锚点核验
+# （assumption_completeness_trace 用）：三态标注中「假设」条目须含置信度+影响两要素。
+# 假设标签形=「假设」后接 --/：/（ 等结构化标点（区分于「假设项」「无假设」等提及形）。
 _ASSUMPTION_LABEL_RE = re.compile(r"假设\s*(?:--|[-：:（(])")
 
 
 def _check_assumption_completeness_trace(qa: list, *_ctx) -> str | None:
     """assumption_completeness_trace：假设条目须含置信度+影响扫描
-    （plan:2 子3 锚点核验 / plan:3 子4 可用性核验共用）。
+    （plan:2 子3 锚点核验 / plan:3 子4 可用性核验 / plan:4 子3 锚点核验共用）。
 
     动机（plan:2#3 framing 反转 v1-v3 重放，designs/plan2-sub3-gate-framing-design.md）：
     「假设项缺置信度或影响」是 default-PASS 下 judge 橡皮图章型（v1 1/6 -> v3 1-2/6，
