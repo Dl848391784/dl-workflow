@@ -2684,7 +2684,7 @@ _NODES: dict[str, Node] = {
                 input="step2.task_units + step1.element_baseline",
                 record=True,
                 fence_allow=("Bash",),
-                # v2.105（designs/plan2-sub3-gate-framing-design.md）：假设条目置信度+影响
+                # v2.108（designs/plan2-sub3-gate-framing-design.md）：假设条目置信度+影响
                 # 生产墙（v1-v3 judge 橡皮图章 1-5/6，⑭ 注意力方差，同 plan:2#1 vio4/plan:2#2 vio5
                 # 型）。纯 token 扫描假设标签形，⑯-safe。
                 mech_checks=("assumption_completeness_trace",),
@@ -2702,7 +2702,7 @@ _NODES: dict[str, Node] = {
 三、placeholder 模式残留：单元内容或步骤描述含「加适当错误处理」「处理边界情况」「写上述的测试」「类似任务 N」占位措辞判 block。合法形态=No Placeholders 检出声明（扫描四模式+零命中）即合规——检出声明不须附扫描命令/逐模式回显，不得以「零命中无扫描留痕」为由 block。④No Placeholders 检出可逐单元或全局汇总声明（「逐单元扫描四模式零命中」式总声明）即合规，不须逐单元独立列出④条--不得以「某单元段内无独立④留痕」为由 block。
 四、假设项缺置信度或影响：已由 assumption_completeness_trace 机械校验--标注「假设」的条目（假设标签形：假设后接 --/：/（ 等结构化标点）无置信度或错误时影响已被 append-trace 当场拒、不会到你这里；你不得以「假设缺置信度/影响/影响面不具体/可回滚是恢复手段非影响面」为由 block。残留判面=假设标签形以外的假设提及（如「假设项」「无假设」）是否明显矛盾--只判明显矛盾，不主动索要素、不复核影响面具体化程度。
 五、漏单元核验：子2 单元集中某单元在本步无任何四类核验留痕，被「随 X 覆盖/同 X 已验证」一句话代过判 block。合法形态=每单元独立核验段（四类各自留痕）即合规；某类核验对该单元不适用（如新增常量无既有 symbol 可查）附声明即合规。
-【判材边界】本步 input=step2.task_units+step1.element_baseline（S1/S2 trace 在载荷内可见）+ codegraph db/文件系统真值（结构性不可见）。只判留痕在场与 trace 内自洽，不核真值——不得以「文件是否真存在/symbol 是否真在/命令是否真能跑/返回数字是否真实」为由 block；验证命令以 `--help`/collect-only/干跑留痕即合规，不得索取真跑单测/断言闭环/最小运行；新增常量/文件的命名冲突核验以 grep 命令+返回概述即合规，不得索取「先 grep 命名空间再声明存在」的特定顺序；三态=逐单元标注已验证/假设/证伪即合规，不得以「缺证伪分支/未声明无证伪」判 block；前步（子1/子2）的假设/断点验证方法在本步无重述义务，不得以「H1 未重述置信度/断点未复核」判 block。
+【判材边界】本步 input=step2.task_units+step1.element_baseline（S1/S2 trace 在载荷内可见）+ codegraph db/文件系统真值（结构性不可见）。只判留痕在场与 trace 内自洽，不核真值——不得以「文件是否真存在/symbol 是否真在/命令是否真能跑/返回数字是否真实」为由 block；验证命令以 `--help`/collect-only/干跑留痕即合规，不得索取真跑单测/断言闭环/最小运行；新增常量/文件的命名冲突核验以 grep 命令+返回概述即合规，不得索取「先 grep 命名空间再声明存在」的特定顺序；三态=逐单元标注已验证/假设/证伪即合规，不得以「缺证伪分支/未声明无证伪」判 block；前步（子1/子2）的假设/断点验证方法在本步无重述义务，不得以「H1 未重述置信度/断点未复核」判 block；假设条目（三态标注中的假设态）的内容是假想陈述、非已验证事实，不须附出处/证据--不得以「假设内容断言无出处/假设描述无证据/『不破坏』类断言无核验」判 block（假设的置信度+影响字段已由 assumption_completeness_trace 机械校验）。
 【合法正例】「①文件存在--Bash `test -f .../paths.py && echo EXISTS` 返回 EXISTS」合规（命令+返回概述即满足）；「symbol `_aggregate_positive_ic` 存在--Bash `codegraph callers _aggregate_positive_ic` 返回 3 个调用节点」合规（查询命令+概述即满足，不核 db 真值）；「②测试接缝存在--`pytest --collect-only -q` 返回 12 个用例」合规；「③验证命令可运行--`python3 scripts/x.py --help` 返回 0」合规（干跑留痕即满足，不索真跑）；「新增常量无既有 symbol 可查，命名冲突核验--`grep -n X paths.py` 返回空」合规（声明+grep 留痕即满足）；「假设--插入新区块不破坏既有布局（置信度高×影响低：错误时仅新区块缺失，可回滚）」合规（置信度+影响在场即满足）；「No Placeholders 检出：逐单元扫描四模式，零命中」合规（声明即满足，不索扫描回显）。方框以外一律不判。
 judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例（指模式不指实例位置）。"""
                 ),

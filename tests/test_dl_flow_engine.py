@@ -2140,9 +2140,19 @@ class TestPlan2Orchestration:
     def test_step3_anchor_fence(self):
         s3 = self._steps()[2]
         assert s3.fence_allow == ("Bash",)  # S15：锚点本地核验
+        # v2.105 framing 反转 + assumption_completeness_trace mech 承托
+        assert s3.mech_checks == ("assumption_completeness_trace",)
         for needle in ("测试接缝", "No Placeholders", "三态", "零上下文"):
             assert needle in s3.purpose, f"子3 purpose 缺 {needle}"
-        for needle in ("sub_step==3", "编造", "没真核验", "placeholder"):
+        for needle in (
+            "sub_step==3",
+            "默认 pass",
+            "编造",
+            "没真核验",
+            "placeholder",
+            "漏单元核验",
+            "assumption_completeness_trace",
+        ):
             assert needle in s3.gate, f"子3 gate 缺 {needle}"
 
     def test_step4_normalization(self):
