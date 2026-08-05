@@ -87,6 +87,24 @@ def _workflow_name(cwd: str) -> str | None:
     return None
 
 
+def _is_linked_worktree(cwd: str) -> bool:
+    """cwd 位于 git linked worktree（非主树）-> True。
+
+    主树 .git=目录；linked worktree 的 .git=指针文件（内容 gitdir: <path>）。
+    2026-08-05 泛化（designs/worktree-per-session-concurrency-design.md）：
+    worktree-per-session 并发开发的用户级 worktree（如 ~/.dl-workflow-wt-<name>）
+    不匹配 _workflow_name 的 .claude/worktrees/<name> 约定，但同理（worktree 内
+    审计目录/design.md 机制与主树不一致）须同跳——与 codegraph_gate 泛化对偶。
+    子模块 .git 同是指针文件，一并跳过（本项目无子模块）。
+    """
+    d = Path(cwd)
+    for parent in (d, *d.parents):
+        git = parent / ".git"
+        if git.exists():
+            return git.is_file()
+    return False
+
+
 def _is_existing_source_py(file_path: str, project_root: Path) -> bool:
     """判定是否为需要门禁的目标：已存在的 .py 源码（白名单同 H15）。"""
     p = Path(file_path)
@@ -136,10 +154,14 @@ def main() -> int:
     if not file_path:
         return 0
 
-    # 工作流会话（dl <name> worktree）跳过——工作流有自己的 design 流程
-    # （plan:1 render-artifact 产 design.md + 门控），且其 design.md 由脚本
-    # 写（非 Edit/Write 工具），本门禁的 audit 看不到，会误拦 execute 阶段。
-    if _workflow_name(_payload_cwd(payload)) is not None:
+    # worktree 会话跳过（工作流有自己的 design 流程——plan:1 render-artifact
+    # 产 design.md + 门控，其 design.md 由脚本写（非 Edit/Write 工具），本门禁
+    # 的 audit 看不到，会误拦 execute 阶段）。2026-08-05 泛化
+    # （worktree-per-session 并发）：除 dl worktree（.claude/worktrees/<name>）
+    # 外，任何 git linked worktree 一并跳过（见 _is_linked_worktree）。
+    if _workflow_name(_payload_cwd(payload)) is not None or _is_linked_worktree(
+        _payload_cwd(payload)
+    ):
         return 0
 
     project_root = _resolve_file_project_root(file_path, _payload_cwd(payload))

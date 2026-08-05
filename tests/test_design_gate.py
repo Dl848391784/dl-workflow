@@ -38,6 +38,42 @@ def _init_git_repo(tmp_path: Path) -> Path:
     return tmp_path
 
 
+def _make_linked_worktree(repo: Path, name: str) -> Path:
+    """repo 里建一个含初始 commit 的 linked worktree，返回其路径。
+
+    2026-08-05 worktree-per-session 并发：用户级 worktree 路径不匹配
+    .claude/worktrees/<name> 约定，测试走 `_is_linked_worktree`（.git 指针
+    文件）跳过分支。与 test_codegraph_gate 的 helper 同构，各自内联防耦合。
+    """
+    subprocess.run(
+        ["git", "-C", str(repo), "config", "user.email", "t@example.com"],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo), "config", "user.name", "test"],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo), "add", "a.py"],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo), "commit", "-qm", "init"],
+        check=True,
+        capture_output=True,
+    )
+    wt = repo.parent / name
+    subprocess.run(
+        ["git", "-C", str(repo), "worktree", "add", "-q", "-b", f"wt-{name}", str(wt)],
+        check=True,
+        capture_output=True,
+    )
+    return wt
+
+
 def _run(
     script: Path, payload: dict, session_id: str, cwd: Path
 ) -> subprocess.CompletedProcess:
@@ -108,6 +144,25 @@ def test_skip_workflow_worktree(repo: Path) -> None:
     _audit(repo, "a.py", sid, cwd=wt)
     r = _gate(repo, "b.py", sid, cwd=wt)  # 即便算第 2 个文件也放行
     assert r.returncode == 0 and r.stderr == ""
+
+
+def test_skip_linked_worktree(repo: Path) -> None:
+    """git linked worktree（非 .claude/worktrees 约定路径）跳过——2026-08-05
+    worktree-per-session 泛化（designs/worktree-per-session-concurrency-design.md）：
+    用户级 worktree 内审计目录/design 机制与主树不一致，须与 dl worktree 同跳。
+    对照组=主树同会话第 2 个文件无 design 仍阻断（泛化未误伤主树）。"""
+    # 注意：worktree 路径 = repo.parent/<name>；与 test_codegraph_gate 的 wt1 同名会
+    # 撞同一 basetemp 路径（两个 repo 是同一 basetemp 下兄弟目录）——用独立名字。
+    wt = _make_linked_worktree(repo, "wt_dsg")
+    sid = "s_wt_linked"
+    _audit(repo, "a.py", sid, cwd=wt)
+    r = _gate(repo, "b.py", sid, cwd=wt)  # 即便算第 2 个文件也放行
+    assert r.returncode == 0 and r.stderr == ""
+
+    sid_main = "s_main_ctrl"
+    _audit(repo, "a.py", sid_main)  # 主树第 1 个文件
+    r2 = _gate(repo, "b.py", sid_main)  # 主树第 2 个文件无 design -> 阻断
+    assert r2.returncode == 2
 
 
 # ─────────────────── 放行 ───────────────────

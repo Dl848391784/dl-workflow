@@ -93,6 +93,24 @@ def _workflow_name(cwd: str) -> str | None:
     return None
 
 
+def _is_linked_worktree(cwd: str) -> bool:
+    """cwd 位于 git linked worktree（非主树）-> True。
+
+    主树 .git=目录；linked worktree 的 .git=指针文件（内容 gitdir: <path>）。
+    2026-08-05 泛化（designs/worktree-per-session-concurrency-design.md）：
+    worktree-per-session 并发开发的用户级 worktree 路径（如 ~/.dl-workflow-wt-<name>）
+    不匹配 _workflow_name 的 .claude/worktrees/<name> 约定，但 .codegraph db 同样
+    gitignore 缺失=同样的死锁，须同跳。子模块 .git 同是指针文件——db 同样缺失、
+    死锁理由同样成立，一并跳过（本项目无子模块，无实际副作用）。
+    """
+    d = Path(cwd)
+    for parent in (d, *d.parents):
+        git = parent / ".git"
+        if git.exists():
+            return git.is_file()
+    return False
+
+
 def _has_query_this_session(audit_dir: Path, payload: dict) -> bool:
     """本会话是否已留痕过任何 codegraph 结构查询。"""
     log = audit_dir / f"{_session_id(payload)}.log"
@@ -193,11 +211,15 @@ def main() -> int:
     if not file_path:
         return 0
 
-    # 工作流会话（dl <name> worktree）跳过（2026-08-03 用户决议：codegraph 和
-    # design_gate 对 worktree 都不拦）——worktree 内 .codegraph db 不存在，
-    # 无法跑查询解锁=死锁隐患；工作流的 codegraph 纪律由 plan:1 新鲜度前置
-    # 自理，门禁在此冗余。
-    if _workflow_name(_payload_cwd(payload)) is not None:
+    # worktree 会话跳过（2026-08-03 用户决议：codegraph 和 design_gate 对
+    # worktree 都不拦）——worktree 内 .codegraph db 不存在，无法跑查询解锁=
+    # 死锁隐患；工作流的 codegraph 纪律由 plan:1 新鲜度前置自理，门禁在此
+    # 冗余。2026-08-05 泛化（worktree-per-session 并发）：除 dl worktree
+    # （.claude/worktrees/<name>）外，任何 git linked worktree 同样 db 缺失，
+    # 一并跳过（见 _is_linked_worktree）。
+    if _workflow_name(_payload_cwd(payload)) is not None or _is_linked_worktree(
+        _payload_cwd(payload)
+    ):
         return 0
 
     project_root = _resolve_project_root(payload)

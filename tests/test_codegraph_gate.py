@@ -45,6 +45,43 @@ def _init_git_repo(tmp_path: Path) -> Path:
     return tmp_path
 
 
+def _make_linked_worktree(repo: Path, name: str) -> Path:
+    """repo 里建一个含初始 commit 的 linked worktree，返回其路径。
+
+    `git worktree add` 需要至少一个 commit 才可建分支；worktree 路径必须在
+    repo 工作树之外（git 拒绝在 repo 内嵌套）。2026-08-05 worktree-per-session
+    并发：用户级 worktree 路径不匹配 .claude/worktrees/<name> 约定，测试走
+    `_is_linked_worktree`（.git 指针文件）跳过分支。
+    """
+    subprocess.run(
+        ["git", "-C", str(repo), "config", "user.email", "t@example.com"],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo), "config", "user.name", "test"],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo), "add", "paths.py"],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo), "commit", "-qm", "init"],
+        check=True,
+        capture_output=True,
+    )
+    wt = repo.parent / name
+    subprocess.run(
+        ["git", "-C", str(repo), "worktree", "add", "-q", "-b", f"wt-{name}", str(wt)],
+        check=True,
+        capture_output=True,
+    )
+    return wt
+
+
 def _run(
     script: Path,
     payload: dict,
@@ -132,6 +169,29 @@ def test_skip_workflow_worktree(repo: Path) -> None:
         cwd=wt,
     )
     assert r.returncode == 0 and r.stderr == ""
+
+
+def test_skip_linked_worktree(repo: Path) -> None:
+    """git linked worktree（非 .claude/worktrees 约定路径）跳过——2026-08-05
+    worktree-per-session 泛化（designs/worktree-per-session-concurrency-design.md）：
+    用户级 worktree 内 .codegraph db gitignore 缺失=无法解锁=死锁，须与 dl worktree
+    同跳。对照组=主树同文件零查询仍阻断（泛化未误伤主树）。"""
+    wt = _make_linked_worktree(repo, "wt1")
+    r = _run(
+        GATE,
+        {"tool_name": "Edit", "tool_input": {"file_path": "paths.py"}},
+        "t_wt_linked",
+        cwd=wt,
+    )
+    assert r.returncode == 0 and r.stderr == ""
+
+    r2 = _run(
+        GATE,
+        {"tool_name": "Edit", "tool_input": {"file_path": "paths.py"}},
+        "t_main_ctrl",
+        cwd=repo,
+    )
+    assert r2.returncode == 2
 
 
 # ─────────────────── 阻断（零查询） ───────────────────
