@@ -2385,6 +2385,25 @@ class TestPlan3Orchestration:
         for needle in ("sub_step==5", "不一致", "复合句", "幽灵回潮"):
             assert needle in s5.gate, f"子5 gate 缺 {needle}"
 
+    def test_step5_normalization_gate_framing(self):
+        # v2.117 framing 反转（plan3-sub5-gate-framing-design）：不加载清单丢失 +
+        # 假设传导丢失/淡化下沉跨步 mech（出席型负判定，⑭ 注意力方差），gate
+        # 方框四/五改 mech-托声明。
+        s5 = self._steps()[4]
+        assert s5.mech_checks == ("no_load_trace", "assumption_propagation_trace"), (
+            "子5 缺跨步 mech（不加载清单丢失 + 假设传导丢失/淡化，v2.117）"
+        )
+        for needle in (
+            "默认 pass",
+            "幽灵回潮",
+            "逐字对照每个能力名",  # 方框三 needle-in-haystack 检测指令
+            "no_load_trace",  # 方框四 mech-托声明
+            "assumption_propagation_trace",  # 方框五 mech-托声明
+        ):
+            assert needle in s5.gate, f"子5 gate 缺 {needle}"
+        # 「从严裁量」撤出 gate（pin 改钉压缩条款+framing 标记，#30 ① 同范式）
+        assert "从严裁量" not in s5.gate, "子5 gate 残留从严标记"
+
     def test_step6_readback_gate_none(self):
         s6 = self._steps()[5]
         assert s6.gate is None  # 交互步，trace 存在即过
@@ -7301,6 +7320,153 @@ class TestV237FirstPassRate:
         assert eng._check_binding_residue_trace(qa_residue, tmp_path, "t2") is None, (
             "S2 无反引号（列表行）能力名应过"
         )
+
+    # ---- plan:3 子5 framing 反转配套 mech（v2.117，不加载清单丢失 + 假设传导
+    # 丢失/淡化，出席型跨步负判定，designs/plan3-sub5-gate-framing-design.md §3）----
+
+    def test_p3s5_no_load_trace_block_pass_skip(self, tmp_path):
+        import json as _json
+
+        # 子3 trace（最小集显式不加载清单 4 条）
+        s3 = _json.dumps(
+            {
+                "kind": "skill-trace",
+                "major_stage": "Plan",
+                "minor_stage": "CapabilityToolSelection",
+                "sub_step": 3,
+                "q": ["最小集与显式不加载清单如何？"],
+                "a": [
+                    "最小集：显式不加载清单=`factor-ic-analyzer-workflow`"
+                    "（无 pipeline 落库需求）、`workflow-creation`（不建工作流）、"
+                    "`superpowers:systematic-debugging`（条件触发）、MCP "
+                    "`tavily-search`（无外部检索需求）。"
+                ],
+            },
+            ensure_ascii=False,
+        )
+        _write_evidence(tmp_path, "t", [s3])
+
+        def stmt(text, no_load="无"):
+            return {
+                "text": text,
+                "type_label": "skill",
+                "boundary": "b",
+                "fields": {
+                    "skill_first": text,
+                    "tools": "无",
+                    "enforce_align": "无",
+                    "subagent_policy": "无",
+                    "no_load": no_load,
+                },
+            }
+
+        # vio4 形态：删不加载项，全包无任一不加载清单条目名
+        stmts_miss = [stmt("必先 invoke `factor-development` skill")]
+        err = eng._check_no_load_trace(stmts_miss, tmp_path, "t")
+        assert err and "不加载清单丢失" in err and "factor-ic-analyzer-workflow" in err, (
+            "清单全丢应拒"
+        )
+        # 部分丢：只缺 workflow-creation
+        stmts_partial = [stmt("不加载 `factor-ic-analyzer-workflow`、"
+                              "`superpowers:systematic-debugging`、MCP `tavily-search`")]
+        err_p = eng._check_no_load_trace(stmts_partial, tmp_path, "t")
+        assert err_p and "workflow-creation" in err_p, "缺 workflow-creation 应拒"
+        # 合法形态：清单在 text 出现（合并一条）
+        stmts_ok = [stmt("不加载 `factor-ic-analyzer-workflow`、`workflow-creation`、"
+                         "`superpowers:systematic-debugging`、MCP `tavily-search`")]
+        assert eng._check_no_load_trace(stmts_ok, tmp_path, "t") is None, "全条目在 text 应过"
+        # 合法形态：清单在 no_load 字段
+        stmts_field = [stmt("t", no_load="`factor-ic-analyzer-workflow`、`workflow-creation`、"
+                            "`superpowers:systematic-debugging`、MCP `tavily-search`")]
+        assert eng._check_no_load_trace(stmts_field, tmp_path, "t") is None, "全条目在 no_load 字段应过"
+        # 宁纵勿枉：无子3 -> 过（交 judge）
+        assert eng._check_no_load_trace(stmts_miss, tmp_path, "no_such") is None, "无子3 应过"
+        # 宁纵勿枉：子3 无「不加载清单」字样（确无清单）-> 过
+        s3_nolist = _json.dumps(
+            {
+                "kind": "skill-trace",
+                "major_stage": "Plan",
+                "minor_stage": "CapabilityToolSelection",
+                "sub_step": 3,
+                "q": ["最小集如何？"],
+                "a": ["最小集：全部绑定，无不加载项。"],
+            },
+            ensure_ascii=False,
+        )
+        _write_evidence(tmp_path, "t2", [s3_nolist])
+        assert eng._check_no_load_trace(stmts_miss, tmp_path, "t2") is None, "子3 无清单字样应过"
+
+    def test_p3s5_assumption_propagation_block_pass_skip(self, tmp_path):
+        import json as _json
+
+        # 子4 trace（B3 假设项：置信度高×影响低）
+        s4 = _json.dumps(
+            {
+                "kind": "skill-trace",
+                "major_stage": "Plan",
+                "minor_stage": "CapabilityToolSelection",
+                "sub_step": 4,
+                "q": ["B3 核验留痕？三态标注？", "假设项汇总？"],
+                "a": [
+                    "B3 `andrej-karpathy-skills:karpathy-guidelines` 核验：①条目存在"
+                    "--列表行在册。三态：一项假设--该 plugin skill 磁盘 SKILL.md 路径"
+                    "未逐一 ls 核实（置信度高×影响低：错误时 Skill 调用当场报错）。",
+                    "假设项汇总：一条（B3 plugin skill 磁盘路径未逐一核实，置信度高"
+                    "×影响低，见 a1）。证伪项：无。",
+                ],
+            },
+            ensure_ascii=False,
+        )
+        _write_evidence(tmp_path, "t", [s4])
+
+        def stmt(boundary):
+            return {
+                "text": "遵循 karpathy-guidelines 行为约束",
+                "type_label": "skill",
+                "boundary": boundary,
+                "fields": {
+                    "skill_first": "`andrej-karpathy-skills:karpathy-guidelines`",
+                    "tools": "无",
+                    "enforce_align": "无",
+                    "subagent_policy": "无",
+                    "no_load": "无",
+                },
+            }
+
+        # vio5 形态：假设淡化成「已确认无风险」（无置信度/影响词形）
+        err = eng._check_assumption_propagation_trace(
+            [stmt("该 skill 可用性已确认无风险")], tmp_path, "t"
+        )
+        assert err and "假设传导丢失" in err, "淡化成已确认无风险应拒"
+        # 合法形态：boundary 原样携带置信度×影响
+        assert eng._check_assumption_propagation_trace(
+            [stmt("假设传导=磁盘 SKILL.md 未逐一核实（置信度高×影响低）")],
+            tmp_path, "t",
+        ) is None, "原样携带置信度×影响应过"
+        # 合法形态：语义等价转述仍含「影响」词形
+        assert eng._check_assumption_propagation_trace(
+            [stmt("假设：磁盘路径未核实，影响低")], tmp_path, "t"
+        ) is None, "含「影响」词形应过"
+        # 宁纵勿枉：无子4 -> 过
+        assert eng._check_assumption_propagation_trace(
+            [stmt("已确认无风险")], tmp_path, "no_such"
+        ) is None, "无子4 应过"
+        # 宁纵勿枉：子4 无假设标签（确无假设）-> 过
+        s4_noasm = _json.dumps(
+            {
+                "kind": "skill-trace",
+                "major_stage": "Plan",
+                "minor_stage": "CapabilityToolSelection",
+                "sub_step": 4,
+                "q": ["B3 核验？"],
+                "a": ["B3 核验：全部已验证，无假设项。"],
+            },
+            ensure_ascii=False,
+        )
+        _write_evidence(tmp_path, "t2", [s4_noasm])
+        assert eng._check_assumption_propagation_trace(
+            [stmt("已确认无风险")], tmp_path, "t2"
+        ) is None, "子4 无假设标签应过"
 
     # ---- plan:1 子3 framing 反转配套 mech（v2.103，可行性验证五项核验留痕扫描，
     # designs/plan1-sub3-gate-framing-design.md §3）----
