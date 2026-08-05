@@ -168,22 +168,108 @@ _S15_GIT_READONLY_RE = re.compile(
     r"^\s*git\s+(?:log|show|status|diff|blame|grep|ls-files|rev-parse)\b"
 )
 
+# S15 python3 -c 只读数据放行（v2.xx，2026-08-05 tail_volume u:1 子2 实证）：
+# 子2 因果链每环要 file:line 证据指针，读 JSON/parquet 字段需 python3（CLAUDE.md
+# §3 推荐），零 trace 窗口禁 python3 = 合法取证通道被关（40 次 S15 deny）。
+# 威胁模型=强模型非对抗，-c 内联代码扫写信号一票否决（同 S11 Bash 盲区口径）。
+# open 写模式精确匹配「逗号+引号+wax」--open("x")（read，无逗号）放行，
+# open('x','w')（有逗号+w）拒，不误伤文件名含 w/a/x 的只读 open。
+_S15_PYTHON_WRITE_SIGNAL_RE = re.compile(
+    r"open\s*\([^)]*,\s*['\"][wax]"  # open(file, 'w'/'a'/'x') 写/追加/独占
+    r"|mode\s*=\s*['\"][wax]"  # open(file, mode='w')
+    r"|os\.system|subprocess|popen"
+    r"|__import__|\bexec\s*\(|\beval\s*\("
+    r"|shutil\.|os\.remove|os\.unlink|os\.rmdir|os\.mkdir|os\.rename"
+    r"|\.write\s*\(|\.write_text|\.write_bytes"
+)
+
+
+def _s15_python_readonly(seg: str) -> bool:
+    """python3 -c 只读数据段判定（v2.xx）：-c 内联代码无写信号则放行。
+
+    非 -c（python3 script.py 等外部脚本）不可判定 -> 拒（返 False）。
+    """
+    if not re.match(r"^\s*python3?\s+-c\s+", seg):
+        return False
+    return _S15_PYTHON_WRITE_SIGNAL_RE.search(seg) is None
+
+
+def _outside_quotes(cmd: str) -> str:
+    """返回 cmd 引号外部分（引号内字符替换为空格），供写意图检测。
+
+    python3 -c 代码常含 >（比较）/;（语句分隔）等，引号内不应触发 shell 写
+    意图一票否决。简单引号状态机，不处理转义引号（威胁模型=非对抗，接受）。
+    """
+    out = []
+    quote = None
+    for c in cmd:
+        if quote:
+            out.append(" ")
+            if c == quote:
+                quote = None
+        elif c in ("'", '"'):
+            quote = c
+            out.append(" ")
+        else:
+            out.append(c)
+    return "".join(out)
+
+
+def _split_shell_segments(cmd: str) -> list[str]:
+    """按引号外 shell 分隔符拆段（保护引号内的 ;|& --python3 -c 代码）。
+
+    替代 re.split(r"\\|\\||&&|[|;\\n]")：引号内的 ; 不拆（python -c 代码常用）。
+    """
+    segs: list[str] = []
+    cur: list[str] = []
+    quote = None
+    i, n = 0, len(cmd)
+    while i < n:
+        c = cmd[i]
+        if quote:
+            cur.append(c)
+            if c == quote:
+                quote = None
+        elif c in ("'", '"'):
+            quote = c
+            cur.append(c)
+        elif c == "|" and i + 1 < n and cmd[i + 1] == "|":
+            segs.append("".join(cur))
+            cur = []
+            i += 1
+        elif c == "&" and i + 1 < n and cmd[i + 1] == "&":
+            segs.append("".join(cur))
+            cur = []
+            i += 1
+        elif c in ("|", ";", "\n"):
+            segs.append("".join(cur))
+            cur = []
+        else:
+            cur.append(c)
+        i += 1
+    segs.append("".join(cur))
+    return [s for s in segs if s.strip()]
+
 
 def _s15_bash_readonly_discovery(cmd: str) -> bool:
     """Bash 只读发现命令判定（v2.53）：find/ls/grep/cat/head/git log 等。
 
     全命令按段（管道/&&/;/换行）校验，段段只读才放行；写意图信号
-    （输出重定向/命令替换/xargs/tee）一票否决。
+    （输出重定向/命令替换/xargs/tee）一票否决。引号感知（v2.xx）：
+    python3 -c 代码内的 ;/> 不触发拆段/写意图（引号内替换为空格再检测）。
     """
-    if re.search(r"`|\$\(|\bxargs\b|\btee\b", cmd):
+    outside = _outside_quotes(cmd)
+    if re.search(r"`|\$\(|\bxargs\b|\btee\b", outside):
         return False
-    if re.search(r"(?<![0-9>])>", cmd):  # 输出重定向（2>/dev/null 豁免）
+    if re.search(r"(?<![0-9>])>", outside):  # 输出重定向（2>/dev/null 豁免）
         return False
-    for seg in re.split(r"\|\||&&|[|;\n]", cmd):
+    for seg in _split_shell_segments(cmd):
         seg = seg.strip()
         if not seg:
             continue
         if _S15_READONLY_CMD_RE.match(seg) or _S15_GIT_READONLY_RE.match(seg):
+            continue
+        if _s15_python_readonly(seg):
             continue
         return False
     return True
@@ -326,6 +412,35 @@ def main() -> int:
                     "返工重做同样走 --scaffold（自动清上轮残留）；标头格式全归脚本，"
                     "你只填内容。"
                 )
+
+        # v2.xx：fetch-prompt-skeleton.md 兜底（Q1a，tail_volume u:1 子3 实证：
+        # 模型 4 次 Write 骨架被 S11 deny）。骨架引擎 --out 独占写，模型只 Read
+        # 取用。PreToolUse 不能转换工具，用 deny + 副作用等价：识别到 Write/Edit
+        # 骨架 -> 调 fetch_prompt 刷新为引擎版本 -> deny 指路 Read。
+        skel_path = (
+            project_root / ".claude" / "workflows" / name / "fetch-prompt-skeleton.md"
+        )
+        try:
+            is_skel = Path(fp).resolve() == skel_path.resolve()
+        except OSError:
+            is_skel = False
+        if is_skel:
+            prompt = engine.fetch_prompt(project_root, name)
+            if prompt is not None:
+                skel_path.parent.mkdir(parents=True, exist_ok=True)
+                skel_path.write_text(prompt + "\n", encoding="utf-8")
+                _log_deny(project_root, name, "skeleton_write_fallback", f"tool={tool}")
+                return _deny(
+                    "骨架文件由引擎 `--out` 独占生成（你只 Read 取用、在末尾 claim 区"
+                    "填后 inline 给 Agent，不写回文件）。已自动用 --out 刷新骨架为引擎"
+                    f"版本，Read `{skel_path}` 取用；禁手写/禁自选落盘路径。"
+                )
+            _log_deny(project_root, name, "skeleton_write_no_sub2", f"tool={tool}")
+            return _deny(
+                "骨架需子2 拆解深挖 trace 才能组装（fetch_prompt 无子2 trace 返空）--"
+                "先回补子2 evidence，再 Bash `python3 ~/.dl-workflow/dl_flow_engine.py "
+                "fetch-prompt --out` 落盘骨架。"
+            )
 
     # ---- S11 phase 写权限围栏：写工具目标路径须在该 phase 白名单内 ----
     if tool in _WRITE_TOOLS:

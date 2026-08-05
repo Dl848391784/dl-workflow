@@ -122,9 +122,20 @@ def _write_trace(
 
 
 def _run_hook(
-    mod, repo: Path, monkeypatch, capsys, judge=(True, ""), transcript_text=None
+    mod,
+    repo: Path,
+    monkeypatch,
+    capsys,
+    judge=(True, ""),
+    transcript_text=None,
+    transcript_events=None,
 ):
-    """喂 Stop payload 跑 hook main()，返回 (stdout, stderr)。"""
+    """喂 Stop payload 跑 hook main()，返回 (stdout, stderr)。
+
+    transcript_text：单行 assistant message（content 当字符串，旧用法）。
+    transcript_events：多行 JSONL events（content 含 tool_use/tool_result blocks，
+    供 pending-agent 检测测试）。
+    """
     monkeypatch.setattr(mod.engine, "run_judge", lambda *a, **k: judge)
     transcript_path = "/dev/null"
     if transcript_text is not None:
@@ -134,6 +145,12 @@ def _run_hook(
             + "\n",
             encoding="utf-8",
         )
+        transcript_path = str(tp)
+    elif transcript_events is not None:
+        tp = repo / "transcript.jsonl"
+        with tp.open("w", encoding="utf-8") as f:
+            for ev in transcript_events:
+                f.write(json.dumps(ev) + "\n")
         transcript_path = str(tp)
     payload = {
         "cwd": str(repo / ".claude" / "worktrees" / "t"),
@@ -433,3 +450,193 @@ class TestHandoffNudge:
         out = json.loads(capsys.readouterr().out)
         body = out["hookSpecificOutput"]["additionalContext"]
         assert body.endswith("🔄 NUDGE_MARK")
+
+
+class TestPendingBackgroundAgent:
+    """Q3：Stop hook 检测 pending background agent 时延后门控。
+
+    tail_volume u:1 子3 实证：模型派后台 agent（durationMs=4 立即返回）后
+    end_turn，agent 未归、trace 未落 -> S13 假性 block「无 trace」。agent
+    handback 后才补 trace 通过 = 一次假性返工。检测 pending -> 静默放行，
+    等 handback 重新激活主会话写 trace 再门控。
+    """
+
+    def test_missing_transcript_returns_zero(self, tmp_path):
+        mod = _load_hook()
+        assert mod._pending_background_agent_count(str(tmp_path / "nope.jsonl")) == 0
+        assert mod._pending_background_agent_count("") == 0
+
+    def test_one_agent_no_result_is_pending(self, tmp_path):
+        mod = _load_hook()
+        tp = tmp_path / "t.jsonl"
+        tp.write_text(
+            json.dumps(
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "tool_use",
+                                "id": "call_1",
+                                "name": "Agent",
+                                "input": {},
+                            }
+                        ],
+                    }
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        assert mod._pending_background_agent_count(str(tp)) == 1
+
+    def test_one_agent_one_result_not_pending(self, tmp_path):
+        mod = _load_hook()
+        tp = tmp_path / "t.jsonl"
+        with tp.open("w", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": [
+                                {
+                                    "type": "tool_use",
+                                    "id": "call_1",
+                                    "name": "Agent",
+                                    "input": {},
+                                }
+                            ],
+                        }
+                    }
+                )
+                + "\n"
+            )
+            f.write(
+                json.dumps(
+                    {
+                        "message": {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "tool_result",
+                                    "tool_use_id": "call_1",
+                                    "content": "ok",
+                                }
+                            ],
+                        }
+                    }
+                )
+                + "\n"
+            )
+        assert mod._pending_background_agent_count(str(tp)) == 0
+
+    def test_two_agents_one_result_one_pending(self, tmp_path):
+        mod = _load_hook()
+        tp = tmp_path / "t.jsonl"
+        with tp.open("w", encoding="utf-8") as f:
+            for cid in ("call_1", "call_2"):
+                f.write(
+                    json.dumps(
+                        {
+                            "message": {
+                                "role": "assistant",
+                                "content": [
+                                    {
+                                        "type": "tool_use",
+                                        "id": cid,
+                                        "name": "Agent",
+                                        "input": {},
+                                    }
+                                ],
+                            }
+                        }
+                    )
+                    + "\n"
+                )
+            f.write(
+                json.dumps(
+                    {
+                        "message": {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "tool_result",
+                                    "tool_use_id": "call_1",
+                                    "content": "ok",
+                                }
+                            ],
+                        }
+                    }
+                )
+                + "\n"
+            )
+        assert mod._pending_background_agent_count(str(tp)) == 1
+
+    def test_non_agent_tool_use_not_counted(self, tmp_path):
+        mod = _load_hook()
+        tp = tmp_path / "t.jsonl"
+        tp.write_text(
+            json.dumps(
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "tool_use",
+                                "id": "call_1",
+                                "name": "Bash",
+                                "input": {},
+                            }
+                        ],
+                    }
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        assert mod._pending_background_agent_count(str(tp)) == 0
+
+    def test_pending_agent_defers_gate_silent(self, wf_repo, monkeypatch, capsys):
+        # 无 trace + pending agent -> 静默放行（return 0，stdout 无 block 文案）
+        _write_state(wf_repo, sub_step=3)  # 不写 trace
+        mod = _load_hook()
+        events = [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "call_1",
+                            "name": "Agent",
+                            "input": {},
+                        }
+                    ],
+                }
+            }
+        ]
+        out, _ = _run_hook(
+            mod,
+            wf_repo,
+            monkeypatch,
+            capsys,
+            judge=(True, ""),
+            transcript_events=events,
+        )
+        # 静默放行：无 additionalContext block（不含「尚未执行」假性 block）
+        assert "尚未执行" not in out
+        assert "skill-trace" not in out
+
+    def test_no_trace_no_pending_still_blocks(self, wf_repo, monkeypatch, capsys):
+        # 无 trace + 无 pending agent -> 原行为（block「无 trace」）
+        _write_state(wf_repo, sub_step=3)
+        mod = _load_hook()
+        out, _ = _run_hook(
+            mod,
+            wf_repo,
+            monkeypatch,
+            capsys,
+            judge=(True, ""),
+        )
+        assert "尚未执行" in out
