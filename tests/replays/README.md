@@ -61,3 +61,4 @@ python3 tests/replays/replay_p1_sub1.py
 | replay_plan3_sub1.py | plan:3 子1 需求清点 | clean / vio1 无出处(mech墙) / vio2 静默新增 / vio3 改写失真 / vio4 原文未引用(mech墙) |
 | replay_plan3_sub2.py | plan:3 子2 能力盘点 | clean / vio1 幽灵能力 / vio2 强制路由漏核 / vio3 凭记忆编造 / vio4 ②无逐任务说明 |
 | replay_plan3_sub3.py | plan:3 子3 匹配选型 | clean / vio1 无绑定残留(mech墙) / vio2 理由无出处 / vio3 强制项被替代无辩护 / vio4 重型手段无成本辩护 / vio5 替用户拍板 |
+| replay_plan4_sub2.py | plan:4 子2 调度与检查点方案 | clean / vio1 虚设判据 / vio2 即兴路由 / vio3 拍脑袋分组 / vio4 无验收门 / vio5 逃避论证 / vio6 越权拍板 |
