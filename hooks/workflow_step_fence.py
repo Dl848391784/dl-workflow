@@ -275,6 +275,80 @@ def _s15_bash_readonly_discovery(cmd: str) -> bool:
     return True
 
 
+# 取证命令模板形态的 curl（fetch-prompt 骨架逐字规定：curl -sS -m <n> "<url>"）。
+# 仅在有在跑的取证子代理时放行（见 _s15_allowed 的 fetch curl 分支）。
+_S15_FETCH_CURL_RE = re.compile(r"^\s*curl\s+(?=(?:-\S+\s+|\S+=\S+\s+)*-)")
+
+# 后台 Agent 派发/归还信号——与 hooks/workflow_advance.py 同口径（单源在那边
+# 的 docstring，此处只做 pending 判定，两处 regex 必须同步改）。
+_AGENT_LAUNCH_ACK = "Async agent launched successfully"
+_AGENT_LAUNCH_ID_RE = re.compile(r"agentId:\s*([0-9a-f]{16,17})\b")
+_AGENT_DONE_ID_RE = re.compile(r"<task-id>\s*([0-9a-f]{16,17})\s*</task-id>")
+
+
+def _payload_transcript(payload: dict) -> str:
+    """hook payload 里的 transcript 路径（字段名多变体，同 workflow_advance）。"""
+    for key in ("transcript_path", "transcriptPath", "transcript"):
+        val = payload.get(key)
+        if isinstance(val, str) and val:
+            return val
+    return ""
+
+
+def _pending_background_agent_count(transcript_path: str) -> int:
+    """未归的后台 Agent 数（v2.118；判据实证见 workflow_advance 同名函数）。
+
+    派发 = launch ack 里的 agentId；归还 = <task-notification> 的 <task-id>。
+    tool_result 不是归还信号（后台 agent 派发后即回 launch ack）。
+    缺失/解析失败 -> 0（防御式：不放宽围栏）。
+    """
+    if not transcript_path or not Path(transcript_path).exists():
+        return 0
+    launched: set[str] = set()
+    done: set[str] = set()
+    try:
+        with open(transcript_path, encoding="utf-8") as fh:
+            for line in fh:
+                if not line.strip():
+                    continue
+                if _AGENT_LAUNCH_ACK in line:
+                    launched.update(_AGENT_LAUNCH_ID_RE.findall(line))
+                if "<task-id>" in line:
+                    done.update(_AGENT_DONE_ID_RE.findall(line))
+    except OSError:
+        return 0
+    return len(launched - done)
+
+
+def _s15_fetch_curl(cmd: str) -> bool:
+    """取证 curl 判定（v2.118 修 D）：段段为 curl / jq / head 等只读摄取。
+
+    实证（tail_volume u:1 子3->子4）：子3 派的 full agent 15:24:44 才归、
+    跨到子4 存活，其进程内 curl 撞子4 围栏（fence_allow 无 Bash）-> 最后 3 次
+    curl 被拒（子4 trace「围栏阻断了我最后 3 次 curl」）。子代理进程内的取证
+    curl 与主会话写操作性质不同，且此时必有在跑的取证 agent。
+    范围收窄：只放行 curl 与只读摄取管道（jq/head/wc 等），写意图信号一票否决
+    （沿用 _s15_bash_readonly_discovery 的 outside-quotes 检测）。
+    """
+    outside = _outside_quotes(cmd)
+    if re.search(r"`|\$\(|\bxargs\b|\btee\b", outside):
+        return False
+    if re.search(r"(?<![0-9>])>", outside):  # 输出重定向（2>/dev/null 豁免）
+        return False
+    saw_curl = False
+    for seg in _split_shell_segments(cmd):
+        seg = seg.strip()
+        if not seg:
+            continue
+        if _S15_FETCH_CURL_RE.match(seg):
+            saw_curl = True
+            continue
+        if _S15_READONLY_CMD_RE.match(seg) or re.match(r"^\s*jq\b", seg):
+            continue
+        return False
+    return saw_curl
+
+
 def _s15_allowed(
     tool: str, tool_input: dict, ev_file: Path, step: "engine.Step", cwd: str
 ) -> bool:
@@ -482,6 +556,22 @@ def main() -> int:
                     "--from-file <载荷>`"
                 )
         if not _s15_allowed(tool, ti, ev_file, step_obj, cwd):
+            # v2.118 修 D：有在跑的取证子代理时放行其进程内取证 curl。
+            # 子3 派的 agent 可跨步存活到子4（实测 full agent 15:24:44 才归），
+            # 子4 fence_allow 无 Bash -> 子代理 curl 被误拒。pending 为 0 时
+            # 行为完全不变（不放宽任何非子代理场景）。
+            if (
+                tool == "Bash"
+                and _s15_fetch_curl(str(ti.get("command") or ""))
+                and _pending_background_agent_count(_payload_transcript(payload)) > 0
+            ):
+                _log_deny(
+                    project_root,
+                    name,
+                    "fence_allow_pending_agent_curl",
+                    f"step={step_no}",
+                )
+                return 0
             _log_deny(
                 project_root,
                 name,

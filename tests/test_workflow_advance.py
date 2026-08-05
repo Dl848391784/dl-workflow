@@ -459,14 +459,99 @@ class TestPendingBackgroundAgent:
     end_turn，agent 未归、trace 未落 -> S13 假性 block「无 trace」。agent
     handback 后才补 trace 通过 = 一次假性返工。检测 pending -> 静默放行，
     等 handback 重新激活主会话写 trace 再门控。
+
+    v2.118 fixture 保真度修正（designs/agent-await-mechanization-design.md §1.2）：
+    旧 fixture 用 `"content": "ok"` 同步风格 tool_result 当「归还」信号，
+    与生产不符——后台 Agent 派发后 1-8 秒即回 launch ack（"Async agent
+    launched successfully" + agentId），旧判据据此认定已归 -> 检测器生产
+    100% 失效而测试全绿。本类改用真实 launch ack / <task-notification> 形态。
     """
+
+    _AID1 = "ace9f1ac6a9d39f5e"
+    _AID2 = "a781d26c012a3cee8"
+
+    @staticmethod
+    def _launch_ack(agent_id: str) -> str:
+        """真实后台 Agent 派发回执（形态取自真实 transcript，只换 id）。"""
+        return json.dumps(
+            {
+                "message": {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": f"call_{agent_id[:6]}",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": (
+                                        "Async agent launched successfully. "
+                                        "(This tool result is internal metadata)\n"
+                                        f"agentId: {agent_id} (internal ID)\n"
+                                        "The agent is working in the background."
+                                    ),
+                                }
+                            ],
+                        }
+                    ],
+                }
+            }
+        )
+
+    @staticmethod
+    def _done_notification(agent_id: str) -> str:
+        """真实归还信号：<task-notification> 携 <task-id>。"""
+        return json.dumps(
+            {
+                "type": "attachment",
+                "content": (
+                    f"<task-notification>\n<task-id>{agent_id}</task-id>\n"
+                    "</task-notification>"
+                ),
+            }
+        )
 
     def test_missing_transcript_returns_zero(self, tmp_path):
         mod = _load_hook()
         assert mod._pending_background_agent_count(str(tmp_path / "nope.jsonl")) == 0
         assert mod._pending_background_agent_count("") == 0
 
-    def test_one_agent_no_result_is_pending(self, tmp_path):
+    def test_launch_ack_alone_is_pending(self, tmp_path):
+        """launch ack 在场而无 task-notification = 未归（旧判据在此误判 0）。"""
+        mod = _load_hook()
+        tp = tmp_path / "t.jsonl"
+        tp.write_text(self._launch_ack(self._AID1) + "\n", encoding="utf-8")
+        assert mod._pending_background_agent_count(str(tp)) == 1
+
+    def test_launch_ack_plus_notification_not_pending(self, tmp_path):
+        mod = _load_hook()
+        tp = tmp_path / "t.jsonl"
+        tp.write_text(
+            self._launch_ack(self._AID1)
+            + "\n"
+            + self._done_notification(self._AID1)
+            + "\n",
+            encoding="utf-8",
+        )
+        assert mod._pending_background_agent_count(str(tp)) == 0
+
+    def test_two_launched_one_returned_one_pending(self, tmp_path):
+        """真实 tail_volume 形态：light 已归、升档 full 未归。"""
+        mod = _load_hook()
+        tp = tmp_path / "t.jsonl"
+        tp.write_text(
+            self._launch_ack(self._AID1)
+            + "\n"
+            + self._done_notification(self._AID1)
+            + "\n"
+            + self._launch_ack(self._AID2)
+            + "\n",
+            encoding="utf-8",
+        )
+        assert mod._pending_background_agent_count(str(tp)) == 1
+
+    def test_sync_agent_without_ack_not_pending(self, tmp_path):
+        """同步 Agent（无 launch ack）不算 pending -> 回退原行为，不阻断门控。"""
         mod = _load_hook()
         tp = tmp_path / "t.jsonl"
         tp.write_text(
@@ -488,133 +573,16 @@ class TestPendingBackgroundAgent:
             + "\n",
             encoding="utf-8",
         )
-        assert mod._pending_background_agent_count(str(tp)) == 1
-
-    def test_one_agent_one_result_not_pending(self, tmp_path):
-        mod = _load_hook()
-        tp = tmp_path / "t.jsonl"
-        with tp.open("w", encoding="utf-8") as f:
-            f.write(
-                json.dumps(
-                    {
-                        "message": {
-                            "role": "assistant",
-                            "content": [
-                                {
-                                    "type": "tool_use",
-                                    "id": "call_1",
-                                    "name": "Agent",
-                                    "input": {},
-                                }
-                            ],
-                        }
-                    }
-                )
-                + "\n"
-            )
-            f.write(
-                json.dumps(
-                    {
-                        "message": {
-                            "role": "user",
-                            "content": [
-                                {
-                                    "type": "tool_result",
-                                    "tool_use_id": "call_1",
-                                    "content": "ok",
-                                }
-                            ],
-                        }
-                    }
-                )
-                + "\n"
-            )
-        assert mod._pending_background_agent_count(str(tp)) == 0
-
-    def test_two_agents_one_result_one_pending(self, tmp_path):
-        mod = _load_hook()
-        tp = tmp_path / "t.jsonl"
-        with tp.open("w", encoding="utf-8") as f:
-            for cid in ("call_1", "call_2"):
-                f.write(
-                    json.dumps(
-                        {
-                            "message": {
-                                "role": "assistant",
-                                "content": [
-                                    {
-                                        "type": "tool_use",
-                                        "id": cid,
-                                        "name": "Agent",
-                                        "input": {},
-                                    }
-                                ],
-                            }
-                        }
-                    )
-                    + "\n"
-                )
-            f.write(
-                json.dumps(
-                    {
-                        "message": {
-                            "role": "user",
-                            "content": [
-                                {
-                                    "type": "tool_result",
-                                    "tool_use_id": "call_1",
-                                    "content": "ok",
-                                }
-                            ],
-                        }
-                    }
-                )
-                + "\n"
-            )
-        assert mod._pending_background_agent_count(str(tp)) == 1
-
-    def test_non_agent_tool_use_not_counted(self, tmp_path):
-        mod = _load_hook()
-        tp = tmp_path / "t.jsonl"
-        tp.write_text(
-            json.dumps(
-                {
-                    "message": {
-                        "role": "assistant",
-                        "content": [
-                            {
-                                "type": "tool_use",
-                                "id": "call_1",
-                                "name": "Bash",
-                                "input": {},
-                            }
-                        ],
-                    }
-                }
-            )
-            + "\n",
-            encoding="utf-8",
-        )
         assert mod._pending_background_agent_count(str(tp)) == 0
 
     def test_pending_agent_defers_gate_silent(self, wf_repo, monkeypatch, capsys):
         # 无 trace + pending agent -> 静默放行（return 0，stdout 无 block 文案）
+        # v2.118：事件用真实 launch ack 形态（旧的裸 tool_use 是同步 Agent 形态，
+        # 换判据后不再算 pending——生产的后台 agent 必带 launch ack）。
         _write_state(wf_repo, sub_step=3)  # 不写 trace
         mod = _load_hook()
         events = [
-            {
-                "message": {
-                    "role": "assistant",
-                    "content": [
-                        {
-                            "type": "tool_use",
-                            "id": "call_1",
-                            "name": "Agent",
-                            "input": {},
-                        }
-                    ],
-                }
-            }
+            json.loads(TestPendingBackgroundAgent._launch_ack("ace9f1ac6a9d39f5e"))
         ]
         out, _ = _run_hook(
             mod,

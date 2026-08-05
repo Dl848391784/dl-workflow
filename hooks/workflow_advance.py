@@ -149,53 +149,53 @@ def _last_assistant_text(transcript_path: str) -> str:
     return ""
 
 
-def _pending_background_agent_count(transcript_path: str) -> int:
-    """检测未归的后台 Agent 子代理数（Q3，tail_volume u:1 子3 实证）。
+# 后台 Agent 的派发/归还信号（harness 契约，v2.118 实测自真实 transcript）。
+# 派发 = tool_result 文本含 launch ack 与 agentId；归还 = <task-notification>
+# 携 <task-id>。两者的 id 同为 16-17 位小写 hex（agentId 即 task-id）。
+_AGENT_LAUNCH_ACK = "Async agent launched successfully"
+_AGENT_LAUNCH_ID_RE = re.compile(r"agentId:\s*([0-9a-f]{16,17})\b")
+_AGENT_DONE_ID_RE = re.compile(r"<task-id>\s*([0-9a-f]{16,17})\s*</task-id>")
 
-    transcript JSONL：assistant message 的 tool_use(name=Agent) = 派发，
-    user message 的 tool_result（tool_use_id 匹配）= 归还。后台 agent 派发后
-    未归还 = tool_use_id 在 Agent 集合但不在 tool_result 集合。
-    防御式：缺失/解析失败 -> 0（不阻断门控，回退原行为）。
+
+def _pending_background_agent_count(transcript_path: str) -> int:
+    """检测未归的后台 Agent 子代理数（Q3，tail_volume u:1 子3/子4 实证）。
+
+    v2.118 换判据（designs/agent-await-mechanization-design.md §3 修 A）：
+    旧判据「Agent tool_use_id ∉ tool_result 集合」**从落地起从未生效**——
+    后台 Agent 派发后 1-8 秒即回一条 tool_result，内容是 launch ack
+    （"Async agent launched successfully" + agentId + output_file），不是
+    completion。tool_use_id 立刻进 result_ids，差集恒空。真实 transcript
+    （cfeafb35-*.jsonl，3 个 agent）重放旧判据 pending 全 0，故 15:23:02
+    假性 GATE block「无 trace」照旧发生（.wf_advance.log:682 记
+    sub_step_engage_block 而非 deferred_pending_agent = 铁证）。
+
+    新判据用两个稳定 harness 信号配对：
+      派发 = launch ack 文本里的 agentId（_AGENT_LAUNCH_ID_RE）
+      归还 = <task-notification> 里的 <task-id>（_AGENT_DONE_ID_RE）
+    未归 = launched - done。真实 transcript 在 gate 时刻 15:23:02 重放
+    得 {'a781d26c012a3cee8'}（升档 full agent），defer 分支正确生效。
+
+    同步 Agent（无 launch ack）不进 launched 集合 -> 不算 pending，
+    回退原行为；缺失/解析失败 -> 0（防御式，不阻断门控）。
+    整行扫描（不解析 message 结构）——归还信号出现在 queue-operation /
+    attachment / user message 多种事件里，按 id 去重天然幂等。
     """
     if not transcript_path or not Path(transcript_path).exists():
         return 0
-    agent_ids: set[str] = set()
-    result_ids: set[str] = set()
+    launched: set[str] = set()
+    done: set[str] = set()
     try:
         with open(transcript_path, encoding="utf-8") as fh:
             for line in fh:
-                line = line.strip()
-                if not line:
+                if not line.strip():
                     continue
-                try:
-                    ev = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                msg = ev.get("message") if isinstance(ev, dict) else None
-                if not isinstance(msg, dict):
-                    continue
-                content = msg.get("content")
-                if not isinstance(content, list):
-                    continue
-                role = msg.get("role")
-                for block in content:
-                    if not isinstance(block, dict):
-                        continue
-                    if (
-                        role == "assistant"
-                        and block.get("type") == "tool_use"
-                        and block.get("name") == "Agent"
-                    ):
-                        bid = block.get("id")
-                        if isinstance(bid, str):
-                            agent_ids.add(bid)
-                    elif role == "user" and block.get("type") == "tool_result":
-                        tid = block.get("tool_use_id")
-                        if isinstance(tid, str):
-                            result_ids.add(tid)
+                if _AGENT_LAUNCH_ACK in line:
+                    launched.update(_AGENT_LAUNCH_ID_RE.findall(line))
+                if "<task-id>" in line:
+                    done.update(_AGENT_DONE_ID_RE.findall(line))
     except OSError:
         return 0
-    return len(agent_ids - result_ids)
+    return len(launched - done)
 
 
 def _emit(msg: str) -> None:

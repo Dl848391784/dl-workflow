@@ -3806,7 +3806,9 @@ def _check_no_load_trace(statements: list, project_root, name) -> str | None:
 _ASSUMPTION_CARRY_RE = re.compile(r"置信度|影响")
 
 
-def _check_assumption_propagation_trace(statements: list, project_root, name) -> str | None:
+def _check_assumption_propagation_trace(
+    statements: list, project_root, name
+) -> str | None:
     """assumption_propagation_trace：假设项置信度×影响跨步传导核对
     （plan:3 子5 专属）。
 
@@ -4087,6 +4089,40 @@ _MECH_EXTRA_STR_CHECKS = {
 }
 
 
+# 子代理 task-id 词形（harness agentId = 16-17 位小写 hex，同
+# hooks/workflow_advance.py 的 _AGENT_LAUNCH_ID_RE 口径）。
+_TASK_ID_RE = re.compile(r"\b[0-9a-f]{16,17}\b")
+
+
+def _dispatched_vs_unrecorded_task_ids(qa: list) -> list[str]:
+    """派发但未收录的子代理 task-id（v2.118 修 B，类型无关配对）。
+
+    实证（tail_volume u:1 子3）：light 报告零命中 -> 按契约升档补派 full agent，
+    产生**第二个**必须归位的 agent；但 fetch_report_recorded 只按「子2 原子数」
+    计数（tier≠none = 1 个），light 空报告占掉唯一名额，full 报告缺席无人察觉
+    （真实载荷重放旧判据 = None 通过）。上限式计数逮不住升档路径。
+
+    改为按派发信号配对：
+      dispatched = trace 全文里出现的 task-id（派发即在 trace 留 id）
+      recorded   = 各 qa 项**标题**（q）里的 task-id
+      未收录     = dispatched - recorded
+    标题里的 task-id 由 ingest_agent_report() 脚本写入
+    （f"{title}（task-id {task_id}）"）——收录即带 id，模型无法伪造配对。
+
+    类型无关是要点：子4 同时有取证 agent 与红队 agent，按类型分别计数需两套
+    易错规则；按 id 配对只问「派了几个收了几个」。真实载荷双向重放：
+    子3 = BLOCK（full 缺席）/ 子4 = PASS（full + 红队均收录），见 design §3 修 B。
+    """
+    dispatched: set[str] = set()
+    recorded: set[str] = set()
+    for item in qa:
+        q = str(item.get("q", ""))
+        dispatched.update(_TASK_ID_RE.findall(q))
+        dispatched.update(_TASK_ID_RE.findall(str(item.get("a", ""))))
+        recorded.update(_TASK_ID_RE.findall(q))
+    return sorted(dispatched - recorded)
+
+
 def _check_fetch_report_recorded(qa: list, *_ctx) -> str | None:
     """fetch_report_recorded：子3 蒸馏报告原文收录机械核验（u:1 子3 专属）。
 
@@ -4100,7 +4136,21 @@ def _check_fetch_report_recorded(qa: list, *_ctx) -> str | None:
     的项（none 档仅内查、豁免报告项）；报告项数须 ≥ 该数（逐项对齐由 judge
     判，机械只数总数）。子2 trace 无 atomic_questions（v2.40 前实例）->
     legacy 行为（≥1 个报告项）。
+
+    v2.118 补派发配对（修 B）：原子数下限之外，另查「派发的 task-id 是否
+    都有收录项」——升档补派的 full agent 缺席由此逮住（原判据放过，实证见
+    _dispatched_vs_unrecorded_task_ids docstring）。
     """
+    missing = _dispatched_vs_unrecorded_task_ids(qa)
+    if missing:
+        return (
+            f"子代理报告未归位就提交——trace 提到 task-id {', '.join(missing)} "
+            "（= 已派发）但无对应收录项：每个派发的 agent 都须 append-trace "
+            "--ingest-agent <task-id> 收录其报告（脚本按 id 落原文，标题自动带 "
+            "task-id）。等 agent 归位后再提交；light 报告标「建议升档 full」而"
+            "补派的 full agent 同样须收录（升档留痕）；agent 失败/空结果则重派"
+            "或升级用户裁决——「已派发运行中」式状态说明不算收录"
+        )
     found = sum(1 for item in qa if "蒸馏报告" in str(item.get("q", "")))
     required = 1
     if _ctx and _ctx[0] is not None:
@@ -4173,6 +4223,11 @@ def _check_redteam_report_recorded(qa: list, *_ctx) -> str | None:
     收录项 = 标题含「红队」且含「原文收录」的 qa 项（与子3「蒸馏报告」标题
     承诺装置同范式）。被 block 载荷 = 有 task-id 无收录项；通过载荷 = 两者皆有。
     未派发（含未触发声明、触发满足但未起）-> None 交 judge 判真值（宁纵勿枉）。
+
+    v2.118 补派发配对（修 B）：标题存在性之外，另查「派发的 task-id 是否都有
+    收录项」——子4 可同时有取证 agent（子3 升档补派、跨步归位）与红队 agent，
+    仅判「有没有红队收录项」逮不住其中一个缺席（类型无关配对见
+    _dispatched_vs_unrecorded_task_ids）。
     """
     text_all = "\n".join(f"{item.get('q', '')}\n{item.get('a', '')}" for item in qa)
     if "task-id" not in text_all and "task_id" not in text_all:
@@ -4181,16 +4236,28 @@ def _check_redteam_report_recorded(qa: list, *_ctx) -> str | None:
         "红队" in str(item.get("q", "")) and "原文收录" in str(item.get("q", ""))
         for item in qa
     )
-    if recorded:
-        return None
-    return (
-        "红队已派发（trace 含 task-id）但输出未原文收录——缺标题含「红队」"
-        "「原文收录」的 qa 项（正确动作：append-trace --ingest-agent <task-id>，"
-        "脚本提取报告原文落载荷，禁手工粘贴）。"
-        "等 Agent 归位收录原文后再提交；agent 失败/空结果则重派或升级用户裁决"
-        "——「已派发等归位」式状态说明不算记录（提前提交 = 红队结论缺席的裁决，"
-        "下游子5 会拿到未经对抗复核的问题集）"
-    )
+    if not recorded:
+        return (
+            "红队已派发（trace 含 task-id）但输出未原文收录——缺标题含「红队」"
+            "「原文收录」的 qa 项（正确动作：append-trace --ingest-agent <task-id>，"
+            "脚本提取报告原文落载荷，禁手工粘贴）。"
+            "等 Agent 归位收录原文后再提交；agent 失败/空结果则重派或升级用户裁决"
+            "——「已派发等归位」式状态说明不算记录（提前提交 = 红队结论缺席的裁决，"
+            "下游子5 会拿到未经对抗复核的问题集）"
+        )
+    # 红队收录项在场后，再查是否有**其它**派发的 agent 缺席（子3 升档补派的
+    # 取证 agent 可跨步归位到子4——仅判「有没有红队收录项」逮不住它）。
+    missing = _dispatched_vs_unrecorded_task_ids(qa)
+    if missing:
+        return (
+            f"子代理已派发但输出未收录——trace 提到 task-id {', '.join(missing)} "
+            "却无对应收录项（正确动作：append-trace --ingest-agent <task-id>，"
+            "脚本提取报告原文落载荷、标题自动带 task-id，禁手工粘贴）。"
+            "等 Agent 归位收录原文后再提交；agent 失败/空结果则重派或升级用户"
+            "裁决——「已派发等归位」式状态说明不算记录（提前提交 = 对抗复核"
+            "缺席的裁决，下游子5 会拿到未经复核的问题集）"
+        )
+    return None
 
 
 def _check_redteam_three_piece(qa: list, *_ctx) -> str | None:
@@ -5172,15 +5239,23 @@ def fetch_prompt(project_root: Path, name: str) -> str | None:
         "上下文越胖每轮请求越慢、空响应重试越贵。\n"
         "9. 轮次上限按档：full ≤12 / light ≤4 次 curl（含重试）。超限未收敛 = "
         "带现有结果返回并如实标注「部分取证+轮次用尽」——禁止换同义查询词"
-        "无限重试（边际收益递减；证伪方向取到 1-2 条强反证即可收）。\n\n"
+        "无限重试（边际收益递减；证伪方向取到 1-2 条强反证即可收）。\n"
+        "10. **层配额（上限≠配额）**：指定 N 层时每层至少花 1 次 curl，"
+        "单层上限 = 总额 -(N-1)（light N=2 -> 每层 ≥1、单层 ≤3）。"
+        "**禁在未轮完所有指定层前耗尽预算**——未轮完即申报「未收敛/建议升档」"
+        "属配额违规，报告须标「配额未用尽：第 K 层未尝试」。\n"
+        "11. curl 额度只用于 claim 取证：API 健康度/配额校验、裸响应确认一律"
+        "不占额也不必做（空数组即空结果，不需要另证 API 正常）。\n\n"
         "【分档执行参数（按 claim 补充区每原子 [tier=X] 执行；禁降档——"
         "标 full 的原子必须按 full 参数跑）】\n"
         "- tier=full：五层源逐层尝试；≤12 curl；双向取证（反证查询先、支持证据后）；"
         "报告 ≤120 行/原子 + 五层状态表（每层一行：证据指针 或 未取证+原因）。\n"
-        "- tier=light：只跑 claim 区为该原子指定的 ≤2 层源；≤4 curl；单向锚点"
-        "（不双向、免五层状态表）——报告 ≤60 行：锚点值 + 来源 URL + "
-        "一句量级对比。锚点不收敛/来源冲突 → 报告末尾标「建议升档 full + 理由」"
-        "即返回，不自行加码轮次。\n\n"
+        "- tier=light：只跑 claim 区为该原子指定的 ≤2 层源；≤4 curl"
+        "（**每层至少 1 次、单层 ≤3**，见纪律 10——禁单层耗尽预算致另一层"
+        "未尝试）；单向锚点（不双向、免五层状态表）——报告 ≤60 行：锚点值 + "
+        "来源 URL + 一句量级对比 + 每层实际 curl 次数。锚点不收敛/来源冲突"
+        "**且各指定层均已尝试** → 报告末尾标「建议升档 full + 理由」即返回，"
+        "不自行加码轮次；仍有层未尝试则先轮完该层，不得提前申报升档。\n\n"
         "【命令模板（本机验证可用，逐字使用，只换查询词）】\n"
         '- 学术·OpenAlex：curl -sS -m 25 "https://api.openalex.org/works?search=<q>&per_page=3"\n'
         "- 学术·arXiv（必须 https + UA，http/无 UA 静默空返回）："
