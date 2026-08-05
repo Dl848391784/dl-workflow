@@ -6891,7 +6891,7 @@ class TestV237FirstPassRate:
             is None
         )
 
-    # ---- plan:4 子1 framing 反转配套 mech（v2.113，控制结构输入清单原文引用留痕
+    # ---- plan:4 子1 framing 反转配套 mech（v2.115，控制结构输入清单原文引用留痕
     # 扫描，designs/plan4-sub1-gate-framing-design.md §3）----
 
     def test_p4s1_epc_quote_trace_block_forms(self):

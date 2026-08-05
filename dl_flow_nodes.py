@@ -3198,7 +3198,7 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                 "evidence(plan:1/2/3 末步 trace)",
                 record=True,
                 fence_allow=("Bash",),  # grep evidence jsonl；Read 在常驻集
-                mech_checks=("epc_quote_trace",),  # v2.113：方框四原文引用下沉生产墙
+                mech_checks=("epc_quote_trace",),  # v2.115：方框四原文引用下沉生产墙
                 selfcheck=(
                     "五类清单都齐了吗（任务 DAG/能力绑定/验收包/假设汇总/"
                     "不可逆操作候选，无遗漏）？每条都附源出处且四源原文引用进 "

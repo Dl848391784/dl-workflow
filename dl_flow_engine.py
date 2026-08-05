@@ -3507,7 +3507,7 @@ def _check_need_quote_trace(qa: list, *_ctx) -> str | None:
     return None
 
 
-# plan:4 子1 控制结构输入清单代码符号形（epc_quote_trace 用，v2.113）：
+# plan:4 子1 控制结构输入清单代码符号形（epc_quote_trace 用，v2.115）：
 # 与 _ELEMENT_SYMBOL_RE 同形复用（plan:2#1 element_quote_trace / plan:3#1
 # need_quote_trace 同款判面，输入锚扩为四源聚合）--本 mech 判「四源原文引用」
 # 是否在场（judge 读不到 design.md/plan.md/understand.md/evidence 四源文件，

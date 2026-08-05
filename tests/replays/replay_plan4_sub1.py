@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""plan:4#1 四源清点 gate 回归重放（v2.113 反转的回归资产，
+"""plan:4#1 四源清点 gate 回归重放（v2.115 反转的回归资产，
 designs/plan4-sub1-gate-framing-design.md）。
 
-**plan:4（制定执行计划和检查点）首个反转节点**（泛化第三十例）。命题性质=
+**plan:4（制定执行计划和检查点）首个反转节点**（泛化第三十二例）。命题性质=
 保真转换（从 design.md + plan.md + understand.md + evidence 四源提取控制结构输入
 五类清单到 control_baseline），主敌=「四源聚合失真与虚构/静默新增/漏源」--与
 plan:2#1/plan:3#1 同构（同「从有到有时的失真与虚构」清点基线族），只是输入锚
