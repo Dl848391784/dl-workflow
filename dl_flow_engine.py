@@ -3507,6 +3507,43 @@ def _check_need_quote_trace(qa: list, *_ctx) -> str | None:
     return None
 
 
+# plan:4 子1 控制结构输入清单代码符号形（epc_quote_trace 用，v2.113）：
+# 与 _ELEMENT_SYMBOL_RE 同形复用（plan:2#1 element_quote_trace / plan:3#1
+# need_quote_trace 同款判面，输入锚扩为四源聚合）--本 mech 判「四源原文引用」
+# 是否在场（judge 读不到 design.md/plan.md/understand.md/evidence 四源文件，
+# 原文『…』引用是核对保真度的唯一材料）。
+_EPC_SYMBOL_RE = _ELEMENT_SYMBOL_RE
+
+
+def _check_epc_quote_trace(qa: list, *_ctx) -> str | None:
+    """epc_quote_trace：控制结构输入清单原文引用留痕扫描（plan:4 子1 专属）。
+
+    动机（plan:4#1 framing 反转 v1 重放，designs/plan4-sub1-gate-framing-design.md）：
+    形式要件「每条附源出处且四源原文引用进 trace 正文」在默认-PASS framing 下 judge
+    侧 vio4 2/6--judge 看到清单条目有出处行号（plan.md:12）就 rubber-stamp 放过
+    无『』原文引用的条目，且方框四 per-class 误读致 vio3 3/6 被方框四 distractor
+    吞（㉖ 注意力方差，与 plan:2#1/plan:3#1 同根因同判面）。词形可判子项（#30 ⑭）：
+    「清单条目引用了代码符号形（.py）却无任何『』原文引用或『原文』字样」切出下沉
+    零方差生产墙。
+    宁纵勿枉：只扫引用了代码符号形（.py）的答案（控制结构输入清单专属--验收包 SC ID/
+    假设 H1 无 .py 不触发）；答案含『』或「原文」字样即放过（原文引用在场）；
+    整条答案任一清单项带原文引用即放过（vio2 的 ⑤ 裸但 ①-④ 有原文引用->mech 放过
+    ，静默新增的「个别条目裸」交 judge 判，本 mech 只做「全清单无原文」的墙）。
+    """
+    for item in qa:
+        a = str(item.get("a", ""))
+        if not _EPC_SYMBOL_RE.search(a):
+            continue
+        if "『" in a or "原文" in a:
+            continue
+        return (
+            f"「{str(item.get('q', ''))[:16]}…」控制结构输入清单条目引用了代码"
+            "符号（.py）却无任何四源原文引用（『…』/『原文』）--四源原文"
+            "未引用进 trace 正文，judge 无从核对保真度：补『…』原文片段引用"
+        )
+    return None
+
+
 # plan:2 子2 切分排序（dependency_order_trace / element_coverage_trace /
 # single_phase_argument 用，v2.104 framing 反转三 mech）：
 # 三 mech 各承接一个 default-PASS judge 判不稳的判据--vio2 排序违依赖（跨参照：
@@ -4236,6 +4273,7 @@ _MECH_QA_CHECKS = {
     "pugh_net_score_consistency": _check_pugh_net_score_consistency,
     "element_quote_trace": _check_element_quote_trace,
     "need_quote_trace": _check_need_quote_trace,
+    "epc_quote_trace": _check_epc_quote_trace,
     "dependency_order_trace": _check_dependency_order_trace,
     "element_coverage_trace": _check_element_coverage_trace,
     "single_phase_argument": _check_single_phase_argument,
