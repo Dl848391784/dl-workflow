@@ -3628,6 +3628,42 @@ def _check_sc_coverage_trace(statements: list, project_root, name) -> str | None
     return None
 
 
+# plan:3 子3 注册表能力名提取：S2 能力盘点① skill 注册表里「反引号名+（列表行）」
+# 标注的能力名（plan:3#3 专属 mech）。「（列表行）」是注册表条目的固定出处标注，
+# 用它排除 S2 里其它反引号 token（内置工具集/路径如 /home/.../codegraph）。
+_REGISTRY_CAPABILITY_RE = re.compile(r"`([^`]+)`（列表行）")
+
+
+def _check_binding_residue_trace(qa, project_root, name) -> str | None:
+    """binding_residue_trace：无绑定能力残留跨步核对（plan:3 子3 专属）。
+
+    动机（plan:3#3 framing 反转 v2.110，designs/plan3-sub3-gate-framing-design.md）：
+    「无绑定能力残留=过载」（S2 注册表枚举的能力名既无绑定也无不加载）是跨步一致性
+    （S2 能力盘点注册表①枚举集 vs S3 匹配选型全答案出现集差集），默认-PASS 下 judge
+    v1 1/6（显式「检测：逐条检查 S2 注册表…」遍历指令也被忽略，跨步枚举不可靠=
+    plan:2#4 sc_coverage_trace 同根因，⑤/② 差集形下沉）。下沉生产墙：读 S2 取注册表①
+    能力名集（反引号+（列表行）标注），核对每个在本步全答案出现（绑定或不加载任一生效）。
+    宁纵勿枉：S2 缺失（无前序记录）/S2 无（列表行）标注能力名/某名提取失败=放过交 judge
+    （非双失）；覆盖核验用子串包含（能力名在本步任何答案出现即视为已处理，含被否候选/讨论
+    场景——残留=完全未被提及）。
+    """
+    s2 = read_evidence_for_step(project_root, name, 2, "CapabilityToolSelection")
+    if not s2:
+        return None
+    registry = set(_REGISTRY_CAPABILITY_RE.findall(s2))
+    if not registry:
+        return None
+    s3_text = " ".join(str(item.get("a", "")) for item in qa)
+    missing = sorted(n for n in registry if n not in s3_text)
+    if missing:
+        return (
+            f"无绑定能力残留：S2（子2）注册表枚举的能力 {missing} 在本步（子3）"
+            "无绑定且无不加载声明--每个注册表能力名须绑定需求或显式不加载"
+            "（完全未被提及=残留）"
+        )
+    return None
+
+
 # statements 格式步的写侧机械校验注册表（Step.mech_checks 声明名 -> 检查函数，
 # 签名 (statements, project_root, name)）。statements 首个 mech 注册表
 # （u:2#4 预留独立项，#30 ⑰ 的解）。未注册名 = nodes 与 engine 配置漂移，fail loud。
@@ -4196,6 +4232,7 @@ _MECH_QA_CHECKS = {
     "dependency_order_trace": _check_dependency_order_trace,
     "element_coverage_trace": _check_element_coverage_trace,
     "single_phase_argument": _check_single_phase_argument,
+    "binding_residue_trace": _check_binding_residue_trace,
     "assumption_completeness_trace": _check_assumption_completeness_trace,
     "fetch_report_recorded": _check_fetch_report_recorded,
     "fetch_skeleton_out": _check_fetch_skeleton_out,
