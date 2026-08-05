@@ -56,5 +56,6 @@ python3 tests/replays/replay_p1_sub1.py
 | replay_p1_sub4.py | plan:1 子4 评估提案 | clean / vio1 理由空泛 / vio2 替用户拍板 / vio3 推荐与净分矛盾 / vio4 追溯漏项(mech墙) / vio5 净分与计数不符(mech墙) |
 | replay_plan2_sub1.py | plan:2 子1 清点基线 | clean / vio1 无出处(mech墙) / vio2 静默新增 / vio3 改写失真 / vio4 原文未引用(mech墙) |
 | replay_plan2_sub2.py | plan:2 子2 切分排序 | clean / vio1 横向切无辩护 / vio2 排序违依赖(mech墙) / vio3 超H9不拆 / vio4 丢要素(mech墙) / vio5 ②无论证(mech墙) / vio6 替用户拍板 |
+| replay_plan2_sub3.py | plan:2 子3 锚点核验 | clean / vio1 声称存在无出处 / vio2 无差别已验证 / vio3 placeholder残留 / vio4 假设缺置信度影响(mech墙) / vio5 漏单元核验 |
 | replay_plan3_sub1.py | plan:3 子1 需求清点 | clean / vio1 无出处(mech墙) / vio2 静默新增 / vio3 改写失真 / vio4 原文未引用(mech墙) |
 | replay_plan3_sub2.py | plan:3 子2 能力盘点 | clean / vio1 幽灵能力 / vio2 强制路由漏核 / vio3 凭记忆编造 / vio4 ②无逐任务说明 |
