@@ -3584,6 +3584,58 @@ def _check_element_coverage_trace(qa: list, project_root, name) -> str | None:
     return None
 
 
+_SC_ID_RE = re.compile(r"\bSC\d+\.\d+\b")
+
+
+def _check_sc_coverage_trace(statements: list, project_root, name) -> str | None:
+    """sc_coverage_trace：验收包映射漏项跨步核对（plan:2 子4 专属，statements 首个 mech）。
+
+    动机（plan:2#4 framing 反转 v2.109，designs/plan2-sub4-gate-framing-design.md）：「验收包
+    映射漏项=SC ID 未被任何 acceptance_map 承接」是跨步一致性（子1 验收包清单 SC ID
+    集合 vs 子4 statements 全部 acceptance_map SC ID 集合差集），默认-PASS 下 judge
+    措辞判不稳且与 clean 误伤跷跷板（⑤ 实锤：强措辞伤 clean[judge 发明映射归属要件]、
+    弱措辞漏判 vio4[跨步枚举不可靠]）。下沉生产墙：读子1 取验收包 SC ID 集，与子4
+    全部 acceptance_map 的 SC ID 集做差集，差集非空即拒。
+    statements 侧 mech_checks 首个落地（u:2#4 预留「statements 侧注册表」独立项，
+    #30 ⑰ 的解）--statements 格式步此前 mech_checks 循环不执行，本注册表补上。
+    宁纵勿枉：子1 缺失（无前序记录）/子1 无 SC ID/子4 无 acceptance_map SC ID=放过
+    交 judge（非双失：judge 仍可判残留语义面）；个别单元「无直接验收包承接」合法
+    （只判全局覆盖，不判单元级）。
+    """
+    s1 = read_evidence_for_step(project_root, name, 1, "TaskBreakdown")
+    if not s1:
+        return None
+    s1_ids = set(_SC_ID_RE.findall(s1))
+    if not s1_ids:
+        return None
+    covered: set = set()
+    has_am = False
+    for it in statements:
+        am = (it.get("fields") or {}).get("acceptance_map")
+        if not isinstance(am, str):
+            continue
+        has_am = True
+        covered.update(_SC_ID_RE.findall(am))
+    if not has_am:
+        return None
+    missing = s1_ids - covered
+    if missing:
+        return (
+            f"验收包映射漏项：子1 验收包 {sorted(missing)} 在本步（子4）无任何项 "
+            "acceptance_map 承接--子1 每个 SC ID 须至少一项 acceptance_map 承接"
+            "（个别单元「无直接验收包承接」合法，只判全局覆盖）"
+        )
+    return None
+
+
+# statements 格式步的写侧机械校验注册表（Step.mech_checks 声明名 -> 检查函数，
+# 签名 (statements, project_root, name)）。statements 首个 mech 注册表
+# （u:2#4 预留独立项，#30 ⑰ 的解）。未注册名 = nodes 与 engine 配置漂移，fail loud。
+_MECH_STATEMENTS_CHECKS = {
+    "sc_coverage_trace": _check_sc_coverage_trace,
+}
+
+
 def _check_single_phase_argument(qa: list, *_ctx) -> str | None:
     """single_phase_argument：单阶段声明须附 H9 量化论证（plan:2 子2 专属）。
 
@@ -4634,6 +4686,18 @@ def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool
                         f"源步（子{src}）条目未逐项传导，缺：{'、'.join(missing)}"
                         "——逐项原子化传导是形式要件，逐条补或显式标注剔除理由"
                     )
+        # statements 侧 mech_checks（首个落地，u:2#4 预留独立项 #30 ⑰ 的解）：
+        # 与 qa 分支同款循环，查 statements 注册表，签名单 (statements, project_root, name)。
+        for chk in getattr(step, "mech_checks", ()):
+            fn = _MECH_STATEMENTS_CHECKS.get(chk)
+            if fn is None:
+                return False, (
+                    f"mech_checks 配置错误：「{chk}」未在 _MECH_STATEMENTS_CHECKS "
+                    "注册（nodes 与 engine 漂移，fail loud）"
+                )
+            err = fn(statements, project_root, name)
+            if err:
+                return False, err
         content_fields = {"statements": statements}
     else:
         qa = payload.get("qa")

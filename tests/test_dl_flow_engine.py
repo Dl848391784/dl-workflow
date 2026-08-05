@@ -3715,6 +3715,8 @@ class TestJudgeFramingDualMode:
         p2 = nodes._NODES["plan:2"].sub_steps
         assert "默认 pass" in p2[0].gate, "plan:2#1 gate 缺「默认 pass」framing 标记"
         assert "默认 pass" in p2[1].gate, "plan:2#2 gate 缺「默认 pass」framing 标记"
+        # plan:2#3（锚点核验）由并行会话负责反转，p2[2] 标记 pin 留待其落地/收口批补
+        assert "默认 pass" in p2[3].gate, "plan:2#4 gate 缺「默认 pass」framing 标记"
         p3 = nodes._NODES["plan:3"].sub_steps
         assert "默认 pass" in p3[0].gate, "plan:3#1 gate 缺「默认 pass」framing 标记"
 
@@ -6929,6 +6931,74 @@ class TestV237FirstPassRate:
         ]
         err2 = eng._check_single_phase_argument(qa_split)
         assert err2 and "量化论证" in err2, "逐答案扫描须拒（不被他段单元预算放过）"
+
+    # ---- plan:2 子4 framing 反转配套 mech（v2.109，验收包映射漏项跨步差集，
+    # designs/plan2-sub4-gate-framing-design.md §3）----
+
+    def test_p2s4_sc_coverage_trace_block_pass_skip(self, tmp_path):
+        import json as _json
+
+        # 子1 验收包清单（sub1 trace，含 SC1.1/SC2.1/SC3.1）
+        s1 = _json.dumps(
+            {
+                "kind": "skill-trace",
+                "major_stage": "Plan",
+                "minor_stage": "TaskBreakdown",
+                "sub_step": 1,
+                "q": ["②验收包清单如何？"],
+                "a": [
+                    "②验收包三条：SC1.1『报告展示八维度条数+占比可读出』（design.md:20）；"
+                    "SC2.1『分组口径与 FACTOR_CATEGORIES 映射一致可核对』（design.md:21）；"
+                    "SC3.1『交付形态=报告新增八维度汇总区块』（design.md:22）。"
+                ],
+            },
+            ensure_ascii=False,
+        )
+        _write_evidence(tmp_path, "t", [s1])
+
+        def stmt(am):
+            return {
+                "text": "t",
+                "type_label": "单阶段",
+                "boundary": "b",
+                "fields": {
+                    "change_point": "c",
+                    "interface": "i",
+                    "verify": "v",
+                    "acceptance_map": am,
+                    "trace_anchor": "E1",
+                },
+            }
+
+        # vio4 形态：三项 acceptance_map 全「无直接验收包承接」，三 SC 全漏
+        stmts_miss = [
+            stmt("（无直接验收包承接）"),
+            stmt("（无直接验收包承接）"),
+            stmt("（无直接验收包承接）"),
+        ]
+        err = eng._check_sc_coverage_trace(stmts_miss, tmp_path, "t")
+        assert err and "SC1.1" in err and "漏项" in err, "三 SC 全漏应拒"
+        # vio4 部分漏：只缺 SC3.1
+        stmts_partial = [
+            stmt("（无直接验收包承接，为 U2/U3 提供输出路径基础）"),
+            stmt("SC1.1（八维度条数+占比可读出）、SC2.1（分组口径与映射一致）"),
+            stmt("（无直接验收包承接）"),
+        ]
+        err_p = eng._check_sc_coverage_trace(stmts_partial, tmp_path, "t")
+        assert err_p and "SC3.1" in err_p and "漏项" in err_p, "缺 SC3.1 应拒"
+        # 合法形态：每 SC ≥1 项承接（U1「无」合法，只判全局覆盖）
+        stmts_ok = [
+            stmt("（无直接验收包承接，为 U2/U3 提供输出路径基础）"),
+            stmt("SC1.1（八维度条数+占比可读出）、SC2.1（分组口径与映射一致）"),
+            stmt("SC3.1（交付形态=报告新增八维度汇总区块）"),
+        ]
+        assert eng._check_sc_coverage_trace(stmts_ok, tmp_path, "t") is None, (
+            "全覆盖应过"
+        )
+        # 宁纵勿枉：无子1 -> 过（交 judge）
+        assert (
+            eng._check_sc_coverage_trace(stmts_miss, tmp_path, "no_such") is None
+        ), "无子1 应过"
 
     # ---- plan:1 子3 framing 反转配套 mech（v2.103，可行性验证五项核验留痕扫描，
     # designs/plan1-sub3-gate-framing-design.md §3）----
