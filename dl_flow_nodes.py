@@ -3019,7 +3019,7 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     "假设的接受留子6 用户裁决。"
                 ),
                 input="step3.binding_proposals",
-                mech_checks=("assumption_completeness_trace",),  # v2.111：假设
+                mech_checks=("assumption_completeness_trace",),  # v2.112：假设
                 # 置信度×影响下沉（跨节点复用 plan:2 子3 同款，vio3 judge 2/6）
                 record=True,
                 fence_allow=("Bash",),

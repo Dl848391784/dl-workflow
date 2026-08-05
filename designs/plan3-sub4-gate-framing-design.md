@@ -1,16 +1,20 @@
-# plan:3 子4（可用性核验）gate framing 反转设计（v2.111）
+# plan:3 子4（可用性核验）gate framing 反转设计（v2.112）
 
-> 2026-08-05。§3.5 #30 泛化第二十八例、#30 playbook 第二十八次执行：把「默认-PASS
+> 2026-08-05。§3.5 #30 泛化第二十九例、#30 playbook 第二十九次执行：把「默认-PASS
 > framing + 方框化真值判据 + 每条近端双侧钉死」应用到 plan:3#4（可用性核验与假设标注）。
 > **plan:3（选择能力与工具）第四个反转节点**（plan:3#1 需求清点 v2.106 / plan:3#2
 > 能力盘点 v2.107 已入库合并；plan:3#3 匹配选型由并行会话在飞，worktree
 > `~/dl-wf-worktrees/plan3-sub3-framing`）。
 > 用户坐标指令「plan:3#3 正在进行泛化处理，请继续泛化 plan:3#4」。
-> 版本号：**取号 v2.111** = max(入库 v2.109[plan:2#4 收口])+2——留 v2.110 给在飞的
-> plan:3#3（collab #25 让位；起手 git log + grep 全仓含 untracked 双查：并行 worktree
-> 的 replay_plan3_sub3.py 尚未自称版本号，故主动让位一号防撞）。
-> 例数=**泛化第二十八例**（同理留第二十七例给 plan:3#3；#30 ② 附编号惯例：例数只是
-> 唯一性标识，禁当时序依据，引用须带 commit hash 或版本号）。
+> 版本号：**取号 v2.112**（**起手取 v2.111，收尾复核撞车顺延**，collab #25 让位第二
+> 实证）——起手时 main HEAD=589b752（v2.109 收口），主动让 v2.110 给在飞的 plan:3#3；
+> 收尾 sedimentation 前按 collab #13 复核 `git log`，发现并行期两节点已连续入库：
+> plan:3#3 取了 v2.110/第二十七例（b1177aa merge）、**plan:4#2 取了 v2.111/第二十八例**
+> （d56aed5 merge）——本例起手预留的号被后者占用，故顺延 v2.112 = max(入库 v2.111)+1。
+> 例数=**泛化第二十九例**（同因顺延；#30 ② 附编号惯例：例数只是唯一性标识，禁当时序
+> 依据，引用须带 commit hash 或版本号）。
+> **教训**：让位一号不够——**并行期版本号是「提交时刻」而非「起手时刻」的函数**，
+> 落库前必须重跑三路查（git log + grep 全仓 + 各 worktree designs/replays），见 §4 #5。
 > **改动范围**（H8 留痕）：`dl_flow_nodes.py`（plan:3 子4 gate 块）+
 > `tests/replays/replay_plan3_sub4.py`（新建）+ `tests/test_dl_flow_engine.py`
 > （pin 改钉）+ `tests/replays/README.md`（清单行）+ 本设计文档。
@@ -189,6 +193,17 @@ clean 误伤源——本例中「置信度/影响」正是 clean 4/6 轮误伤�
    合法正例给一条纯不适用行。**泛化**：凡「对每个 X 做 N 类核验」型 form，先问
    「N 类里有没有对某些 X 天然不适用的」——有则不适用形态必须进 form 行，否则
    judge 必把「不适用」读成「漏做」。
+5. **并行泛化期版本号是「提交时刻」的函数，让位一号不足——落库前必须重跑三路查**
+   （collab #25 让位纪律的操作化补丁，本例撞车实证）：起手时 main HEAD=v2.109、
+   可见一个在飞会话（plan:3#3），按让位取 v2.111 预留 v2.110——收尾 sedimentation 前
+   复核发现并行期两节点已连续入库（plan:3#3 取 v2.110、**plan:4#2 取 v2.111**），
+   预留号被后者占用，全套改动（design 标题/文首/§6 + 三个源文件注释）返工改号。
+   根因=**起手时不可见的会话在开发期间加入**（本例起手只见 1 个 worktree，收尾时
+   有 3 个）。操作化：①起手取号照旧（让位可见在飞者）；②**落库前（commit 之前，
+   不是 commit 之后）必须重跑三路查=`git log --oneline -15` + `grep -rn "v2\.1XX"`
+   全仓 + 遍历所有 `~/dl-wt-*/` 与 `~/dl-wf-worktrees/*/` 的 designs/replays**；
+   ③版本号只写在**少数固定位置**（design 标题/文首/§6 + 源码注释），落笔前列清单，
+   改号时 `sed -i` 一次扫完并 grep 复验——本例因分散在 5 处、改号返工两轮。
 
 ## 5. 验证结果
 
@@ -223,13 +238,20 @@ clean 误伤源——本例中「置信度/影响」正是 clean 4/6 轮误伤�
 
 ## 6. 并发协作
 
-并行会话在飞 plan:3#3（匹配选型，worktree `~/dl-wf-worktrees/plan3-sub3-framing`，
-分支 `feat/plan3-sub3-gate-framing`，已有 untracked `tests/replays/replay_plan3_sub3.py`）。
+并行期共有三会话在飞（起手时可见 plan:3#3，收尾复核时发现另有 plan:4#1/plan:4#2）：
+plan:3#3 匹配选型已入库 v2.110/第二十七例（merge b1177aa）、plan:4#2 调度与检查点方案
+已入库 v2.111/第二十八例（merge d56aed5）、plan:4#1 在 worktree `~/dl-wt-plan4-sub1`
+（自称 v2.110，收尾时未入库）。
 本例在独立 worktree `~/dl-wt-plan3-sub4` 开发（2026-08-05 worktree-per-session 铁律：
 分支不隔离工作目录，每会话必须独立 worktree），共享文件 `dl_flow_nodes.py` /
-`tests/test_dl_flow_engine.py` / `tests/replays/README.md` 的改动在各自 worktree 内
-互不可见，收口 merge 回 main 时按 collab #9 **只 add 显式清单**（禁 `git add -A`，
-v2.79/v2.88 两次席卷事故）。版本号/例数已按 collab #25 让位取 v2.111/第二十八例。
+`dl_flow_engine.py` / `tests/test_dl_flow_engine.py` / `tests/replays/README.md` 的改动
+在各自 worktree 内互不可见，收口 merge 回 main 时按 collab #9 **只 add 显式清单**
+（禁 `git add -A`，v2.79/v2.88 两次席卷事故）。
+版本号/例数按 collab #25 让位 + **收尾复核顺延**取 v2.112/第二十九例（详见文首教训：
+让位一号不足，落库前必须重跑三路查）。
 worktree 内改动合并前不生效于运行态（gate 文本即改即生效只对 main 工作树成立）——
 本例重放脚本从 worktree 内 `_common.py` 读 `N._NODES`（worktree 内的 nodes.py），
 故候选迭代自洽。codegraph/design gate 已泛化跳过 linked worktree（`_is_linked_worktree`）。
+**merge 前须复跑全量测试**：本例落地时 main 已前进两个 merge（plan:3#3 + plan:4#2），
+两者均改 `dl_flow_nodes.py`/`tests/test_dl_flow_engine.py`——merge 后 754 tests 需重跑
+确认无交叉冲突（§5 #7 的 754 是 worktree 内基线，merge 后计数会含并行会话新增项）。

@@ -2322,7 +2322,7 @@ class TestPlan3Orchestration:
     def test_step4_availability_fence(self):
         s4 = self._steps()[3]
         assert s4.fence_allow == ("Bash",)  # S15：可用性本地实测
-        # v2.111 framing 反转（plan3-sub4-gate-framing-design）：
+        # v2.112 framing 反转（plan3-sub4-gate-framing-design）：
         # assumption_completeness_trace 跨节点复用（plan:2 子3 同款，三态形式
         # 契约同构）承托「假设缺置信度或影响」——judge 侧 v1 崩 2/6。
         assert s4.mech_checks == ("assumption_completeness_trace",)
@@ -6753,7 +6753,7 @@ class TestV237FirstPassRate:
             is None
         )
 
-    # ---- plan:3 子4 framing 反转配套 mech（v2.111，assumption_completeness_trace
+    # ---- plan:3 子4 framing 反转配套 mech（v2.112，assumption_completeness_trace
     # 跨节点复用，designs/plan3-sub4-gate-framing-design.md §3）----
 
     def test_p3s4_assumption_completeness_reuse_on_binding_forms(self):

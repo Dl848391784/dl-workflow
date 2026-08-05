@@ -3677,7 +3677,7 @@ def _check_assumption_completeness_trace(qa: list, *_ctx) -> str | None:
     5/6 空 reason PASS--judge 不检查假设子字段，⑭ 注意力方差，同 plan:2#1 vio4 /
     plan:2#2 vio5 型）。词形可判子项（#30 ⑭）：「假设标签在场却同段无置信度或影响」
     切出下沉零方差生产墙。
-    跨节点复用（v2.111 plan:3#4，designs/plan3-sub4-gate-framing-design.md）：
+    跨节点复用（v2.112 plan:3#4，designs/plan3-sub4-gate-framing-design.md）：
     plan:3 子4 的三态标注是同一形式契约（已验证/假设/证伪 + 假设附置信度×影响），
     v1 反转重放 vio3 崩 2/6 与 plan:2#3 同款负判定缺席型--按第二十四例① 三问核过：
     触发面词形同构（答案含「假设--/：/（」标签形）、放过面同构（同段含「置信度」+
