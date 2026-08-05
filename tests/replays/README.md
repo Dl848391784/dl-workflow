@@ -63,4 +63,5 @@ python3 tests/replays/replay_p1_sub1.py
 | replay_plan3_sub3.py | plan:3 子3 匹配选型 | clean / vio1 无绑定残留(mech墙) / vio2 理由无出处 / vio3 强制项被替代无辩护 / vio4 重型手段无成本辩护 / vio5 替用户拍板 |
 | replay_plan3_sub4.py | plan:3 子4 可用性核验 | clean / vio1 声称可用无出处 / vio2 无差别已验证 / vio3 假设缺置信度影响(mech墙) / vio4 漏绑定核验 |
 | replay_plan4_sub2.py | plan:4 子2 调度与检查点方案 | clean / vio1 虚设判据 / vio2 即兴路由 / vio3 拍脑袋分组 / vio4 无验收门 / vio5 逃避论证 / vio6 越权拍板 |
+| replay_plan4_sub3.py | plan:4 子3 锚点核验 | clean / vio1 声称可执行无dryrun / vio2 交集无实算 / vio3 无差别已验证 / vio4 假设缺置信度影响(mech墙) / vio5 漏对象核验 |
 | replay_plan4_sub4.py | plan:4 子4 归一化计划包 | clean / vio1 字段篡改 / vio2 复合句 / vio3 判断词回潮 / vio4 漏配 |
