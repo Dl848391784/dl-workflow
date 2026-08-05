@@ -2684,19 +2684,27 @@ _NODES: dict[str, Node] = {
                 input="step2.task_units + step1.element_baseline",
                 record=True,
                 fence_allow=("Bash",),
+                # v2.105（designs/plan2-sub3-gate-framing-design.md）：假设条目置信度+影响
+                # 生产墙（v1-v3 judge 橡皮图章 1-5/6，⑭ 注意力方差，同 plan:2#1 vio4/plan:2#2 vio5
+                # 型）。纯 token 扫描假设标签形，⑯-safe。
+                mech_checks=("assumption_completeness_trace",),
                 selfcheck=(
                     "每单元四类核验都做了吗（文件/symbol/测试接缝/命令/placeholder，"
                     "无遗漏）？三态逐单元标注了吗？"
                     "已验证附出处、假设含置信度+错误时影响、证伪附理由了吗？"
                 ),
                 gate=(
-                    "evidence/<name>.jsonl 含 kind=skill-trace、"
-                    "minor_stage=TaskBreakdown 且 sub_step==3 的记录；"
-                    "形式要件：每单元四类核验留痕；三态逐单元标注；"
-                    "出处/置信度+影响/理由齐备。"
-                    "质量判据（从严裁量）：声称存在无出处=编造判 block；"
-                    "全单元无差别「已验证」=没真核验判 block；"
-                    "placeholder 模式残留判 block；假设项缺置信度或影响判 block。"
+                    """evidence/<name>.jsonl 含 kind=skill-trace、minor_stage=TaskBreakdown 且 sub_step==3 的记录。
+形式要件：每单元四类核验留痕（④No Placeholders 检出可逐单元或全局汇总声明，不须逐单元独立列出）；三态按单元标注（单元整体标已验证/假设/证伪覆盖该单元核验项，不须逐类别拆标、不须声明无假设/证伪）；出处/置信度+影响/理由齐备。
+默认 pass——仅当以下成立才判 block（每条附合法形态，合法形态在场不得判）：
+一、声称存在无出处=编造：单元声称目标文件/symbol 存在或验证命令可运行，却无任何出处留痕判 block。违规形态：(a) 口头声称「存在/可以直接改/可以加断言/可以跑」无任何命令出处（如「`_aggregate_positive_ic` 函数就在里面，可以直接改」全段无一条命令）；(b) 四类核验整段概括复述「文件/symbol 存在、测试接缝存在、命令可运行」无任何单元特定命令。合法形态=出处留痕在场即合规——Bash 命令+返回概述（`test -f X && echo EXISTS` 返回 EXISTS / `pytest --collect-only -q` 返回 N 个用例）、codegraph 查询命令+返回概述（`codegraph callers Y` 返回 N 个调用节点）、grep 命令+返回概述任一形态即合规；不得索取命令输出原文/完整回显/行号/节点 ID。
+二、全单元无差别「已验证」=没真核验：所有单元三态全部标「已验证」且核验留痕同形泛化（各单元文本仅复述「存在/可运行/无问题」套话，无单元特定命令/路径/返回数字）判 block。合法形态=单元级差异化留痕（每单元各自的命令+返回概述）即合规；多数单元已验证+个别假设项即合规；全部单元已验证但每单元附各自命令出处即合规——不得以「没有假设/证伪项」本身判 block，无证伪项不须声明「无证伪」。三态按单元标注即合规（单元整体标「已验证」覆盖该单元全部核验项），不须逐类别/逐项拆标三态，不须声明「无假设/无证伪」即完整三态--已验证单元不因「未逐项拆标/未声明无假设证伪」判 block。
+三、placeholder 模式残留：单元内容或步骤描述含「加适当错误处理」「处理边界情况」「写上述的测试」「类似任务 N」占位措辞判 block。合法形态=No Placeholders 检出声明（扫描四模式+零命中）即合规——检出声明不须附扫描命令/逐模式回显，不得以「零命中无扫描留痕」为由 block。④No Placeholders 检出可逐单元或全局汇总声明（「逐单元扫描四模式零命中」式总声明）即合规，不须逐单元独立列出④条--不得以「某单元段内无独立④留痕」为由 block。
+四、假设项缺置信度或影响：已由 assumption_completeness_trace 机械校验--标注「假设」的条目（假设标签形：假设后接 --/：/（ 等结构化标点）无置信度或错误时影响已被 append-trace 当场拒、不会到你这里；你不得以「假设缺置信度/影响/影响面不具体/可回滚是恢复手段非影响面」为由 block。残留判面=假设标签形以外的假设提及（如「假设项」「无假设」）是否明显矛盾--只判明显矛盾，不主动索要素、不复核影响面具体化程度。
+五、漏单元核验：子2 单元集中某单元在本步无任何四类核验留痕，被「随 X 覆盖/同 X 已验证」一句话代过判 block。合法形态=每单元独立核验段（四类各自留痕）即合规；某类核验对该单元不适用（如新增常量无既有 symbol 可查）附声明即合规。
+【判材边界】本步 input=step2.task_units+step1.element_baseline（S1/S2 trace 在载荷内可见）+ codegraph db/文件系统真值（结构性不可见）。只判留痕在场与 trace 内自洽，不核真值——不得以「文件是否真存在/symbol 是否真在/命令是否真能跑/返回数字是否真实」为由 block；验证命令以 `--help`/collect-only/干跑留痕即合规，不得索取真跑单测/断言闭环/最小运行；新增常量/文件的命名冲突核验以 grep 命令+返回概述即合规，不得索取「先 grep 命名空间再声明存在」的特定顺序；三态=逐单元标注已验证/假设/证伪即合规，不得以「缺证伪分支/未声明无证伪」判 block；前步（子1/子2）的假设/断点验证方法在本步无重述义务，不得以「H1 未重述置信度/断点未复核」判 block。
+【合法正例】「①文件存在--Bash `test -f .../paths.py && echo EXISTS` 返回 EXISTS」合规（命令+返回概述即满足）；「symbol `_aggregate_positive_ic` 存在--Bash `codegraph callers _aggregate_positive_ic` 返回 3 个调用节点」合规（查询命令+概述即满足，不核 db 真值）；「②测试接缝存在--`pytest --collect-only -q` 返回 12 个用例」合规；「③验证命令可运行--`python3 scripts/x.py --help` 返回 0」合规（干跑留痕即满足，不索真跑）；「新增常量无既有 symbol 可查，命名冲突核验--`grep -n X paths.py` 返回空」合规（声明+grep 留痕即满足）；「假设--插入新区块不破坏既有布局（置信度高×影响低：错误时仅新区块缺失，可回滚）」合规（置信度+影响在场即满足）；「No Placeholders 检出：逐单元扫描四模式，零命中」合规（声明即满足，不索扫描回显）。方框以外一律不判。
+judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例（指模式不指实例位置）。"""
                 ),
             ),
             Step(
@@ -2838,6 +2846,7 @@ _NODES: dict[str, Node] = {
                 input="plan.md + evidence(TaskBreakdown 子4/子5 trace)",
                 record=True,
                 fence_allow=("Bash",),  # grep evidence jsonl；Read 在常驻集
+                mech_checks=("need_quote_trace",),  # v2.106：方框三原文引用下沉生产墙
                 selfcheck=(
                     "逐任务操作类型清单齐了吗（代码改动/测试/长 pipeline/检索/"
                     "数据读取/子代理/装配，无遗漏）？每条都附任务 ID 出处且 "
@@ -2846,13 +2855,13 @@ _NODES: dict[str, Node] = {
                     "有静默新增 plan 没有的需求吗（那是二次创作）？"
                 ),
                 gate=(
-                    "evidence/<name>.jsonl 含 kind=skill-trace、"
-                    "minor_stage=CapabilityToolSelection 且 sub_step==1 的记录；"
-                    f"形式要件：{_CTS_STEP1_FORM_REQUIREMENTS}。"
-                    "质量判据（从严裁量）：需求无出处=编造判 block；"
-                    "静默新增 plan 没有的需求=二次创作判 block；"
-                    "大段改写需求措辞致语义偏移=失真判 block；"
-                    "需求原文未引用进 trace 正文（judge 无从核对）判 block。"
+                    "evidence/<name>.jsonl 含 kind=skill-trace、minor_stage=CapabilityToolSelection 且 sub_step==1 的记录。形式要件：逐任务操作类型需求清单齐备：每任务/阶段标注操作类型（代码改动[改 .py=H15 触发信号]/测试执行/长 pipeline[后台禁 pipe 信号]/外部检索/数据读取[parquet 等]/子代理扇出/文档装配）；每条附任务 ID 出处且 plan.md 原文引用进 trace 正文；新增候选（plan.md 没有的需求）显式标注或显式「无」，q/a 按序对齐；只提取不创作（本步是全节点保真判定基线）。\n"
+                    "默认 pass——仅当以下成立才判 block（每条附合法形态，合法形态在场不得判）：\n"
+                    "一、需求来源自证不足（编造/静默新增）：需求清单条目（任务 ID+操作类型形）声称提取自 plan.md，却既无出处（任务 ID+plan.md 行号 / 原文『』引用）又未显式归入「新增候选」区判 block。两种违规形态：(a) 全清单裸=编造（「按 plan.md 常规结构可知，应该都在执行步骤节里，按常规路径可查」类凭印象，无任何出处/原文引用）判 block；(b) 个别条目裸且未标新增候选=静默新增二次创作（「新增候选：无」声明下清单含无出处无原文引用的新增需求条目，如「跑 fresh 检查验证 PRICE_VOLUME 全量落库」类 plan.md 执行步骤节没有的需求）判 block。合法形态=任务 ID+plan.md 行号 / 『原文』引用 任一在场即合规；「新增候选」区显式列出条目（含待子6 用户裁决语义）即合规；「新增候选：无」声明+清单无新增需求条目即合规——不得以「无新增候选=可能漏检」为由 block。\n"
+                    "二、改写失真（语义偏移）：需求自述措辞与 trace 内引用的 plan.md 原文『…』明显语义冲突判 block（N1 自述「重写 _aggregate_positive_ic 为独立分组引擎」vs 其引用的原文『在既有聚合统计函数内增加 FACTOR_CATEGORIES 维度分组键』= 操作对象从「既有函数内改动」变「独立重写」、操作性质从「增加分组键」变「重写引擎」、产出物从「修改既有函数」变「全新独立引擎」，三者任一明显变化=改写失真判 block）。判 block 须逐条对照——每条款引用了原文『…』的需求，把原文与自述措辞对比：操作对象（既有函数内改动/独立重写）、操作性质（增加分组键/重写引擎）、产出物（新增分组输出/全新模块）三者任一明显变化=改写失真判 block。合法形态=措辞是对原文的忠实提取/适度压缩/适度具体化即合规，不要求逐字一致（「增加分组键」转述为「加维度分组」类语义等价转述合法）——细节省略/语序调整/同义替换/适度具体化（原文「在既有聚合统计函数内…」自述点明函数名「`_aggregate_positive_ic` 内…」= 具体化非语义冲突）不判，操作对象/性质/产出物未变化不判。\n"
+                    "三、需求原文未引用：已由 need_quote_trace 机械校验——需求清单条目引用了代码符号形（.py）却无任何『』原文引用/『原文』字样的答案已被 append-trace 当场拒、不会到你这里；你不得以「需求原文未引用/无原文/无法核对原文」为由 block。残留判面=无代码符号形的需求条目（如纯数据读取需求）是否附出处行号（plan.md:N 或「原样转录 plan.md:N」标注）或『』原文引用——缺则 block；『…』摘要包裹是合法引用形态（原文片段+省略号=引用非原文整体），不得以「『…』不是逐字完整引用」为由 block。\n"
+                    "【判材边界】本步 input=plan.md（主仓 .md 文件）+ plan:2 TaskBreakdown 前步 trace——evidence 只含 CapabilityToolSelection 段，两者 judge 结构性读不到。不得以「未见 plan.md 原文/无法核对出处行号真实性/无法确认某需求是否真在 plan.md/无法核对操作类型分类正确」为由 block；本步只判 trace 内自洽 + 留痕形式。操作类型分类的语义正确性（如「报告数据读取」是否该归「测试执行」/「文档装配」）属子2 能力盘点判面——本步只判「操作类型标注在场」（每条需求有类型标注即合规），不得复核分类正确性/归属口径/标注粒度（「.md 数据读取」vs「数据读取[parquet 等]」类粒度差异不判）。操作类型清单=「每任务标注其实际涉及的操作类型」，不是「六类全谱系逐项有/无标注」——清单含 plan.md 任务实际涉及的类型即合规，plan.md 没有的类型（测试执行/长 pipeline/外部检索/子代理扇出/文档装配等）不要求显式「无」标注，不得以「缺测试执行类型标注/六类未全覆盖/其余类型未显式无」为由 block。\n"
+                    "【合法正例】「N1=U2 代码改动（…增加 FACTOR_CATEGORIES 分组键，改 .py=H15 触发信号）--出处 plan.md:12，原文『在既有聚合统计函数内增加 FACTOR_CATEGORIES 维度分组键』」合规（任务 ID+行号+原文片段引用即满足，不要求整段）；「N3=报告数据读取（读取 IC_REPORT_DIR 下 default 管线报告做八维度核对，.md 数据读取）--出处 plan.md:14，原文『断点验证：断言报告含八维度汇总区块』」合规（数据读取需求引用断点验证段原文是合法出处——需求出处=plan.md 中承载该需求的段落，不限于同名字段；「.md 数据读取」粒度标注合规，不要求写成「数据读取[parquet 等]」标准形）；「新增候选：显式『无』」+ 清单无新增需求条目合规；清单只含代码改动/数据读取两类（plan.md 实际涉及的类型）合规，不要求六类全谱系逐项标注。方框以外一律不判。judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例（指模式不指实例位置）。"
                 ),
             ),
             Step(
@@ -2878,13 +2887,25 @@ _NODES: dict[str, Node] = {
                     "②逐任务说明了吗（或给出了显式 skill 候选）？"
                 ),
                 gate=(
+                    # v2.105 gate framing 反转（§3.5 #30 泛化第二十二例，
+                    # designs/plan3-sub2-gate-framing-design.md）：默认-PASS
+                    # framing + 四方框近端双侧钉死（词形取基线 clean 1/6 的误判
+                    # 判词逐字：逐任务四列表格/§2 触发词逐字原文/注册表逐项列
+                    # 全表/codegraph 命令形/磁盘目录未点明条目）。v3 三向达标
+                    # （clean 6/6、vio1/2 6/6、vio3/4 5/6），无 mech 下沉——方框三
+                    # 负判定靠「检测：逐条检查」遍历指令救回（v1 仅给 block 面
+                    # 描述崩 2/6）；v3 补「（列表行）是纯出处标注非功能描述」
+                    # 与磁盘目录合法面（v2 生产复跑 clean 4/6 的两处误伤）。
                     "evidence/<name>.jsonl 含 kind=skill-trace、"
-                    "minor_stage=CapabilityToolSelection 且 sub_step==2 的记录；"
-                    f"形式要件：{_CTS_STEP2_FORM_REQUIREMENTS}。"
-                    "质量判据（从严裁量）：能力名与注册表出处不符=幽灵能力判 block；"
-                    "强制路由漏核=漏配判 block；"
-                    "功能描述无 SKILL.md/listing 出处=凭记忆编造判 block；"
-                    "②无逐任务说明=偷懒判 block。"
+                    "minor_stage=CapabilityToolSelection 且 sub_step==2 的记录。"
+                    f"形式要件：{_CTS_STEP2_FORM_REQUIREMENTS}。\n"
+                    "默认 pass--仅当以下成立才判 block（每条附合法形态，合法形态在场不得判）：\n"
+                    "一、幽灵能力：强制路由/绑定中引用的能力名（skill/工具/MCP）在 trace 自述注册表清单（①）或出处（②）中无对应条目判 block（例：路由加载 `factor-pool-optimizer` 但①清单与②出处均无此名）。合法形态=每个能力名附注册表出处（列表行/文件路径）即合规；注册表枚举可列主要条目+「等」表示即合规--不得以「未逐项列出会话 available-skills 全表/磁盘用户级·项目级目录逐文件清单/未逐字列出全部目录项/磁盘目录未点明具体有哪些条目」为由 block；磁盘目录只写目录路径（如 `~/.claude/skills/` 目录、`.claude/skills/` 目录）即合规，不要求列举目录内条目名。\n"
+                    "二、强制路由漏核：代码改动任务（改 .py）的强制路由未列 H15 codegraph 留痕或 superpowers 触发（写代码前 TDD/任何编码 karpathy-guidelines 任一）判 block。任务集取前序子1（载荷内可见）逐任务核对路由覆盖，任务无路由行=漏配。合法形态=同类型任务合并说明（如「T1/T2/T3 代码改动→§2 命中加载 factor-development + H15 codegraph 留痕 + superpowers TDD/karpathy」+「T4 测试→无触发内置工具足够」）即合规--不得要求「任务→命中条款→留痕动作→加载skill」逐任务四列表格、不得要求逐任务逐条展开、不得要求 §2 触发词列表逐字引用原文。\n"
+                    "三、凭记忆编造：能力功能描述出现却无 SKILL.md/listing 出处引用（只写功能不写出处）判 block。检测：逐条检查①清单中每个能力条目，凡条目含功能描述性短语（「功能：…」「自动执行…」「…编排」「…计算」等描述该能力做什么的语句），该描述须在条目内或紧邻段附 SKILL.md/listing 出处（路径/文件名/列表行）；描述在场而出处不在=判 block。合法形态=只列能力名+注册表出处（列表行/路径）不写功能描述即合规；每个功能描述附 SKILL.md/listing 出处即合规--功能描述简洁转述即合规，不得索取 SKILL.md 全文逐字引用/目录逐文件列举。关键区分：「`X`（列表行）」「`X`=available-skills 列表行『X』」是纯出处标注不是功能描述，不触发本方框--本方框只在条目出现「说该能力做什么」的描述句（如「功能：自动执行 IC 计算与分层回测」「pipeline 数据流编排」）时才适用；括号内仅写出处来源（列表行/路径/frontmatter）一律合规，不得以「列表行后未跟 SKILL.md 路径」为由 block。\n"
+                    "四、②无逐任务说明：②结论声称「内置工具足够/零 skill」却无逐任务归属说明（哪些任务绑定 skill、哪些内置足够），或②结论与强制路由实际绑定矛盾判 block。合法形态=②逐任务归属说明在场且与路由一致（绑定项+内置足够项，同类型任务合并）即合规--条件触发（如测试失败才触发 systematic-debugging）不属常驻绑定，②归属说明覆盖常驻绑定即可；「零 skill」是合法结论只要逐任务说明在场；不得以「未展开每个任务为何不用 skill 的理由深度」为由 block。\n"
+                    "【判材边界】真实注册表（available-skills 列表/磁盘目录/MCP 配置/CLAUDE.md §2 原文）结构性不可见--只判 trace 内留痕在场与内部自洽，不得以「无法核实该能力真在注册表/该触发词真在 §2/会话 available-skills 列表未逐字呈现」为由 block；codegraph 留痕=声明查询动作（命令名或「先 codegraph 留痕」）即合规，不得索取具体命令形/原始输出回显；任务类型=以 trace 自述为准，不得以「测试执行实质涵盖写代码前 TDD 环节应命中 TDD 触发」为由 block。\n"
+                    "【合法正例】「T1/T2/T3 均改 .py→§2 命中『开发因子/新增因子/IC脚本』→加载 factor-development；H15 改 .py 前 codegraph 留痕；superpowers 写代码前 TDD」合规（同类型合并即满足，不要求逐任务四列表格/触发词逐字原文）；「`factor-development`=available-skills 列表行」合规（列表行/路径即满足，不要求逐项列全表/磁盘逐文件，亦不要求列表行后再跟 SKILL.md 路径）；「磁盘用户级 `~/.claude/skills/` 目录、项目级 `.claude/skills/` 目录（factor-development 等四个项目 skill）」合规（目录路径+「等」即满足，不要求逐条列举目录内条目）；「改 .py 前 codegraph impact 查询留痕」合规（声明查询动作即满足，不索取命令原文回显）；「T1/T2/T3 代码改动→绑定 factor-development/test-driven-development/karpathy-guidelines；T4 测试→内置工具足够零 skill」合规（归属说明在场即满足）；「只列能力名+注册表出处，不写功能描述」合规（无功能描述即不触发方框三）。方框以外一律不判。judge 判 block 须在 reason 引用判据条款（方框一/二/三/四）并附 1 个正确改写范例（指模式不指实例位置）。\n"
                 ),
             ),
             Step(

@@ -2280,7 +2280,18 @@ class TestPlan3Orchestration:
         assert s2.fence_allow == ("Bash",)  # S15：注册表枚举 + CLI/MCP 核对
         for needle in ("逐字引用", "注册表", "强制路由", "H15", "内置工具足够"):
             assert needle in s2.purpose, f"子2 purpose 缺 {needle}"
-        for needle in ("sub_step==2", "幽灵能力", "漏配", "凭记忆编造", "偷懒"):
+        # v2.105 gate framing 反转（plan3-sub2-gate-framing-design）：「偷懒」
+        # 词形撤出 gate（方框四改用「②无逐任务说明」措辞），pin 改钉压缩条款
+        # ——钉死意图（②偷懒出口封堵）不丢。selfcheck 侧「偷懒」禁词守卫见
+        # test_selfcheck_no_quality_criteria_leak（未动）。
+        for needle in (
+            "sub_step==2",
+            "幽灵能力",
+            "漏配",
+            "凭记忆编造",
+            "②无逐任务说明",
+            "默认 pass",
+        ):
             assert needle in s2.gate, f"子2 gate 缺 {needle}"
 
     def test_step3_matching_redteam_fence(self):
@@ -3694,6 +3705,8 @@ class TestJudgeFramingDualMode:
         p2 = nodes._NODES["plan:2"].sub_steps
         assert "默认 pass" in p2[0].gate, "plan:2#1 gate 缺「默认 pass」framing 标记"
         assert "默认 pass" in p2[1].gate, "plan:2#2 gate 缺「默认 pass」framing 标记"
+        p3 = nodes._NODES["plan:3"].sub_steps
+        assert "默认 pass" in p3[0].gate, "plan:3#1 gate 缺「默认 pass」framing 标记"
 
 
 class TestEmptyBlockReasonRetry:
@@ -6708,6 +6721,73 @@ class TestV237FirstPassRate:
                         "q": "①要素清单如何？",
                         "a": "E1=`summary/...py` 加分组键（改）——出处 design.md:12，原文"
                         "『分组键』；E4=`scripts/category_summary.py` 新增独立脚本。",
+                    }
+                ]
+            )
+            is None
+        )
+
+    # ---- plan:3 子1 framing 反转配套 mech（v2.106，需求清单原文引用留痕扫描，
+    # designs/plan3-sub1-gate-framing-design.md §3）----
+
+    def test_p3s1_need_quote_trace_block_forms(self):
+        # vio1/vio4 形态：需求条目引用代码符号形（.py）却无任何『』原文引用/原文
+        # 字样 = 生产墙当场拒（全清单裸=编造 / 有出处行号无原文=原文未引用）
+        qa1 = [
+            {
+                "q": "逐任务操作类型清单如何？",
+                "a": "N1=U2 代码改动（summary/generate_factor_summary_report.py "
+                "聚合统计函数加分组键，改 .py=H15 信号）。",
+            }
+        ]
+        err = eng._check_need_quote_trace(qa1)
+        assert err and "原文" in err, "裸符号引用无原文引用应拒"
+        qa2 = [
+            {
+                "q": "逐任务操作类型清单如何？",
+                "a": "N1=U2 代码改动（`summary/generate_factor_summary_report.py` "
+                "`_aggregate_positive_ic` 加分组键，改 .py=H15 信号，plan.md:12）。",
+            }
+        ]
+        err2 = eng._check_need_quote_trace(qa2)
+        assert err2 and "原文" in err2, "有出处行号但无原文引用应拒"
+
+    def test_p3s1_need_quote_trace_pass_forms(self):
+        # 合法形态全过：任一需求带『』原文引用 / 含「原文」字样
+        pass_forms = [
+            "N1=U2 代码改动（`summary/generate_factor_summary_report.py` "
+            "`_aggregate_positive_ic` 加分组键，改 .py=H15 信号）--出处 plan.md:12，"
+            "原文『在既有聚合统计函数内增加 FACTOR_CATEGORIES 维度分组键』。",
+            "N2=U1 代码改动（`paths.py` 增加 CATEGORY_SUMMARY_RESULT 路径常量，"
+            "改 .py=H15 信号）--出处 plan.md:10，原文『新增 CATEGORY_SUMMARY_RESULT "
+            "路径常量』。",
+        ]
+        for form in pass_forms:
+            qa = [{"q": "逐任务操作类型清单如何？", "a": form}]
+            assert eng._check_need_quote_trace(qa) is None, form
+
+    def test_p3s1_need_quote_trace_skip_rules(self):
+        # 宁纵勿枉：无 .py 的答案不扫（纯数据读取需求条目交 judge 判残留判面）；
+        # 整条答案任一需求有原文引用即放过（vio2 的 N3 裸但 N1/N2 有原文引用
+        # →交 judge 判静默新增）
+        assert (
+            eng._check_need_quote_trace(
+                [
+                    {
+                        "q": "新增候选标注了吗？",
+                        "a": "新增候选（plan.md 没有的需求）：显式『无』。",
+                    }
+                ]
+            )
+            is None
+        )
+        assert (
+            eng._check_need_quote_trace(
+                [
+                    {
+                        "q": "逐任务操作类型清单如何？",
+                        "a": "N1=U2 代码改动（`summary/...py` 加分组键，plan.md:12，"
+                        "原文『分组键』）；N3=跑 fresh 检查验证 PRICE_VOLUME 全量落库。",
                     }
                 ]
             )
