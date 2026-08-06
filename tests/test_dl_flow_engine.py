@@ -2568,6 +2568,22 @@ class TestPlan4Orchestration:
         s4 = self._steps()[3]
         assert s4.kind == "skill"
         assert "define-problem" in s4.ref
+        # v2.119：补 v2.33 迁移漏网第九处——qa 残留致 render-artifact
+        # 结构性跳节（只读 statements）、门栏 ARTIFACT_CONTAINS 不可通过
+        # （2026-08-06 tail_volume live 全轮首达 plan:4#5 实爆）。
+        assert s4.record_format == "statements"
+        assert s4.statement_fields == (
+            "parallel_group",
+            "mutex_surface",
+            "worker_map",
+            "return_contract",
+            "cp_position",
+            "cp_criterion",
+            "cp_failure_route",
+            "cp_type",
+            "cp_acceptance_map",
+            "cp_goal_anchor",
+        )
         for needle in (
             "原子",
             "去上下文",
@@ -2578,9 +2594,21 @@ class TestPlan4Orchestration:
             "验收包映射",
             "goal anchoring",
             "假设传导",
+            "statements",
+            "fields 十键",
+            "cp_criterion",
         ):
             assert needle in s4.purpose, f"子4 purpose 缺 {needle}"
-        for needle in ("sub_step==4", "不一致", "复合句", "判断词回潮", "漏配"):
+        for needle in (
+            "sub_step==4",
+            "不一致",
+            "复合句",
+            "判断词回潮",
+            "漏配",
+            "record_format=statements",
+            "机械校验",
+            "提取 statements 每项 text",
+        ):
             assert needle in s4.gate, f"子4 gate 缺 {needle}"
 
     def test_step5_readback_gate_none(self):
@@ -5715,6 +5743,101 @@ class TestStatementFieldsMigration:
         )
         ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
         assert not ok and "#1b" in msg
+
+
+class TestPlan4Sub4StatementsMigration:
+    """v2.119 plan:4#4 归一化计划包迁 statements+statement_fields 十键
+    （designs/plan4-sub4-statements-migration-design.md）——v2.33 迁移漏网
+    第九处补齐：qa 残留致 render-artifact 结构性跳节（只读 statements）、
+    门栏 ARTIFACT_CONTAINS 不可通过（2026-08-06 tail_volume live 全轮首达
+    plan:4#5 实爆）。"""
+
+    _KEYS = (
+        "parallel_group",
+        "mutex_surface",
+        "worker_map",
+        "return_contract",
+        "cp_position",
+        "cp_criterion",
+        "cp_failure_route",
+        "cp_type",
+        "cp_acceptance_map",
+        "cp_goal_anchor",
+    )
+
+    def _payload(self, items):
+        return {"purpose": "归一化", "statements": items}
+
+    def _schedule_item(self, fields):
+        return {
+            "text": "W1 与 W2 并行承接 T1/T2，组内互斥面交集为空",
+            "type_label": "调度",
+            "boundary": "假设传导：子3 无假设项需传导",
+            "fields": fields,
+        }
+
+    def _full_fields(self):
+        return {
+            "parallel_group": "DAG 层1：T1/T2 并行",
+            "mutex_surface": "交集=∅（子3 已实算）",
+            "worker_map": "W1->T1，W2->T2",
+            "return_contract": "pytest 输出+commit hash",
+            "cp_position": "T1 提交后",
+            "cp_criterion": "pytest tests/test_x.py -x 退出码 0",
+            "cp_failure_route": "回滚重试",
+            "cp_type": "自动",
+            "cp_acceptance_map": "SC1（追溯锚 T1）",
+            "cp_goal_anchor": "原目标：X；当前位置：T1 完成待验证",
+        }
+
+    def test_missing_single_key_rejected_and_named(self, tmp_path):
+        _write_state_full(tmp_path, "t", "plan", 4, sub_step=4)
+        fields = self._full_fields()
+        del fields["cp_goal_anchor"]
+        (tmp_path / "payload.json").write_text(
+            json.dumps(self._payload([self._schedule_item(fields)])),
+            encoding="utf-8",
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert not ok and "cp_goal_anchor" in msg
+
+    def test_schedule_item_with_none_cp_keys_accepted(self, tmp_path):
+        # 调度项 cp_* 六键填显式「无」= 合法形态（plan:3#5「无内容键填
+        # 显式『无』」同规）——十键逐键非空机械校验不为难类型化条目
+        _write_state_full(tmp_path, "t", "plan", 4, sub_step=4)
+        fields = self._full_fields()
+        for k in self._KEYS[4:]:
+            fields[k] = "无"
+        (tmp_path / "payload.json").write_text(
+            json.dumps(self._payload([self._schedule_item(fields)])),
+            encoding="utf-8",
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert ok, msg
+        rec = json.loads(
+            (tmp_path / ".claude" / "evidence" / "t.jsonl")
+            .read_text(encoding="utf-8")
+            .strip()
+        )
+        assert rec["minor_stage"] == "ExecutionPlanCheckpoints"
+        assert rec["statements"][0]["fields"]["worker_map"] == "W1->T1，W2->T2"
+
+    def test_checkpoint_item_with_none_schedule_keys_accepted(self, tmp_path):
+        _write_state_full(tmp_path, "t", "plan", 4, sub_step=4)
+        fields = self._full_fields()
+        for k in self._KEYS[:4]:
+            fields[k] = "无"
+        item = {
+            "text": "CP1 在 T1 提交后自动核验分类维度汇总断言",
+            "type_label": "检查点",
+            "boundary": "出处：子2 调度提案",
+            "fields": fields,
+        }
+        (tmp_path / "payload.json").write_text(
+            json.dumps(self._payload([item])), encoding="utf-8"
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert ok, msg
 
 
 class TestAppendTrace:
@@ -9136,6 +9259,47 @@ class TestRenderArtifact:
         assert ok
         text = (tmp_path / ".claude" / "plans" / "t.md").read_text(encoding="utf-8")
         assert "## 执行步骤" in text and "## 能力与工具" in text
+
+    def test_plan_md_checkpoints_section_from_statements(self, tmp_path):
+        # v2.119 事故回归钉：plan:4#4 迁 statements 后，「执行计划与检查点」节
+        # 从 ExecutionPlanCheckpoints 子4 trace 装出（2026-08-06 tail_volume
+        # live 全轮 qa 残留致结构性跳节、门栏 CONTAINS 不可通过）
+        _write_evidence(
+            tmp_path,
+            "t",
+            [
+                self._stmt_trace("TaskBreakdown", 4, ["步骤1 修模板"]),
+                self._stmt_trace("CapabilityToolSelection", 5, ["能力包 X"]),
+                self._stmt_trace(
+                    "ExecutionPlanCheckpoints", 4, ["CP1 在 T1 提交后自动核验"]
+                ),
+            ],
+        )
+        ok, msg = eng.render_artifact(tmp_path, "t", "plan.md")
+        assert ok, msg
+        assert "跳过缺源节" not in msg
+        text = (tmp_path / ".claude" / "plans" / "t.md").read_text(encoding="utf-8")
+        assert "## 执行计划与检查点" in text
+        assert "CP1 在 T1 提交后自动核验" in text
+        for sec in eng.ARTIFACT_SECTIONS["plan.md"]:
+            assert sec in text
+
+    def test_plan_md_checkpoints_section_skipped_for_qa_trace(self, tmp_path):
+        # 旧 bug 形态反钉：子4 是 qa trace（无 statements）时该节结构性跳节
+        _write_evidence(
+            tmp_path,
+            "t",
+            [
+                self._qa_trace(
+                    "ExecutionPlanCheckpoints", 4, [("计划包", "CP1 自动核验")]
+                ),
+            ],
+        )
+        ok, msg = eng.render_artifact(tmp_path, "t", "plan.md")
+        assert ok, msg
+        assert "跳过缺源节" in msg and "执行计划与检查点" in msg
+        text = (tmp_path / ".claude" / "plans" / "t.md").read_text(encoding="utf-8")
+        assert "## 执行计划与检查点" not in text
 
     def test_unsupported_basename_rejected(self, tmp_path):
         ok, msg = eng.render_artifact(tmp_path, "t", "review.md")

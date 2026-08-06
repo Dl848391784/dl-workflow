@@ -3518,6 +3518,12 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                 # 执行计划包十字段（调度四+检查点六）倒推自消费契约（design
                 # §0 表）：execute:0 orchestrator 愿景/rubric 逐条核/
                 # understand:4 时机字段/review:0 证据需求/用户密度裁决五方。
+                # v2.119 迁 statements+statement_fields（同 DesignSolution 子5）：
+                # v2.33 迁移漏网第九处——qa 残留致 render-artifact 结构性跳节
+                # （只读 statements）、门栏 ARTIFACT_CONTAINS 不可通过
+                # （designs/plan4-sub4-statements-migration-design.md，
+                # 2026-08-06 tail_volume live 全轮首达 plan:4#5 实爆）。
+                # 十字段进 fields 逐键机械校验。
                 purpose=(
                     "归一化执行计划包：①原子（单句 ≤1 个独立控制断言）；"
                     "②去上下文（零上下文 orchestrator 照做：任务 ID/文件清单/"
@@ -3529,27 +3535,52 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     "（含任务 ID 追溯锚）/goal anchoring 重述句；"
                     "④假设传导（子3 假设项原样携带，不丢不淡化）。"
                     "放不进一句=未定义完。"
+                    '载荷格式：statements 逐项 {"text":计划包断言单句，'
+                    '"type_label":调度/检查点，"boundary":假设传导+出处指针，'
+                    '"fields":{parallel_group/mutex_surface/worker_map/'
+                    "return_contract/cp_position/cp_criterion/cp_failure_route/"
+                    "cp_type/cp_acceptance_map/cp_goal_anchor}}——fields 十键"
+                    "逐键非空（append-trace 机械校验，缺键即拒；调度项 cp_* "
+                    "六键、检查点项调度四键填显式「无」）。text 只留单句——"
+                    "改动文件/判据命令/签名进 fields（方案名词扫描同源纪律，"
+                    "text 含实现侧名词当场拒）。"
                 ),
                 input="step3.verified_controls",
                 record=True,
+                record_format="statements",
+                statement_fields=(
+                    "parallel_group",
+                    "mutex_surface",
+                    "worker_map",
+                    "return_contract",
+                    "cp_position",
+                    "cp_criterion",
+                    "cp_failure_route",
+                    "cp_type",
+                    "cp_acceptance_map",
+                    "cp_goal_anchor",
+                ),
                 selfcheck=(
                     "每断言 ≤1 句且自包含（零上下文 orchestrator 照做）吗？"
-                    "十字段都携带了吗（调度四+检查点六）？"
+                    "fields 十键都填了吗（parallel_group/mutex_surface/worker_map/"
+                    "return_contract/cp_position/cp_criterion/cp_failure_route/"
+                    "cp_type/cp_acceptance_map/cp_goal_anchor——append-trace "
+                    "机械校验，缺键即拒；无内容键填显式「无」）？"
                     "字段与子2/子3 已定内容一致吗（无丢失无篡改无新增）？"
                     "每 triggered 验收项有检查点落点（或显式「continuous 覆盖」"
                     "声明）吗？判据零判断词保持了吗？假设传导了吗？"
                 ),
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace、minor_stage=ExecutionPlanCheckpoints 且 sub_step==4 的记录。\n"
-                    "形式要件：调度四字段（并行分组/文件互斥面/worker 任务包映射/返回契约）+ 检查点六字段（位置锚/通过判据/失败路由/类型/验收包映射/goal anchoring）齐备；triggered 验收项有检查点落点或显式「continuous 覆盖」声明；假设传导。\n"
+                    "形式要件：本步 record_format=statements——trace 正文是 statements 列表、无 q/a 字段是生产形态，不得以「缺 q/a 字段/缺 kind·minor_stage 顶层键」为由 block；fields 十键（调度四+检查点六）逐键非空已由 append-trace 机械校验，勿再数字段、不得以「缺键/字段为空/调度项 cp_* 填『无』」为由 block。triggered 验收项有检查点落点或显式「continuous 覆盖」声明；假设传导。\n"
                     "默认 pass--仅当以下成立才判 block（每条附合法形态，合法形态在场不得判）：\n"
                     "一、字段与子2/子3 已定内容不一致（丢失/篡改/新增）：某调度字段或检查点字段与子2 调度提案/子3 锚点核验结果语义冲突判 block。两种违规形态：(a) 篡改--措辞与子2/子3 已定内容语义冲突（子2「增加 FACTOR_CATEGORIES 分组键」vs 子4「重写为独立八维度聚合器，输出全新数据结构」类）判 block；(b) 丢失/新增--子2/子3 已定的改动点/判据命令/失败路由/类型在子4 缺失，或混入子2/子3 未定的内容判 block。合法形态=对子2/子3 内容的忠实提取/适度压缩/同义转述即合规，不要求逐字一致（「增加分组键」转述为「加维度分组」类语义等价转述合法）--语序调整/同义替换/细节省略不判，改动范围/性质/产出物未变化不判；子2/子3 用泛指（「判据命令」「改动 paths.py」）而子4 细化为具体命令/具体文件=细化即合规，不算新增/篡改；子3 假设项原样携带（不丢不淡化，量化范围与置信度×影响原样保留）即合规。本条只约束十字段（调度四+检查点六）字段内容+假设传导与子2/子3 一致；子2 的红队条件未触发声明/密度论证叙述/提案语义声明是子2 的过程留痕、非 sub4 归一化字段，不要求 sub4 携带，不得以「红队声明/密度论证未传导」为由 block。\n"
-                    "二、复合句（未原子化）：一句合并 ≥2 个可独立成立/可分别提交的交付物判 block。检测：凡以「以及/同时/并且」等并列连接词连接两个可独立成立、可分别提交的交付物（各自含独立动作与独立交付物，如「W1 派发 T1 完成…，以及 W2 派发 T2 完成…」）判 block。合法形态=命令+退出码（可附输出断言标识，如「pytest … 退出码 0 且输出含八维度断言通过」）=单条可执行判据非复合句--「退出码 0 且输出含 X 断言」是断言锚定形非复合句；worker 任务包映射以逗号/分号分隔 W1/W2/W3 各自独立任务包（如「W1->T1（...），W2->T2（...），W3->T3（...）」）、返回契约列多种证据形式、验收包映射列多个 SC ID=字段枚举非复合句（逗号/分号分隔即枚举，「以及/并且/同时」将两个任务包并入一句即复合句）；goal anchoring「原目标…；当前位置…」两成分=字段结构非复合句。\n"
+                    "二、复合句（未原子化）：一句合并 ≥2 个可独立成立/可分别提交的交付物判 block。检测：提取 statements 每项 text，凡 text 以「以及/同时/并且」等并列连接词连接两个可独立成立、可分别提交的交付物（各自含独立动作与独立交付物，如「W1 派发 T1 完成…，以及 W2 派发 T2 完成…」）判 block。合法形态=命令+退出码（可附输出断言标识，如「pytest … 退出码 0 且输出含八维度断言通过」）=单条可执行判据非复合句--「退出码 0 且输出含 X 断言」是断言锚定形非复合句；worker 任务包映射以逗号/分号分隔 W1/W2/W3 各自独立任务包（如「W1->T1（...），W2->T2（...），W3->T3（...）」）、返回契约列多种证据形式、验收包映射列多个 SC ID=字段枚举非复合句（逗号/分号分隔即枚举，「以及/并且/同时」将两个任务包并入一句即复合句）；goal anchoring「原目标…；当前位置…」两成分=字段结构非复合句。\n"
                     "三、判据判断词回潮：任一检查点通过判据以「确认/检查/合理/无问题/正常」类判断词为判定手段、无命令+退出码可执行形判 block（「人工确认 paths.py 常量定义合理、检查导入无问题」类=判据不可机械执行=判断词回潮）。合法形态=命令+退出码（可附输出断言标识）即合规--「输出含 X 断言/断言通过」是断言锚定形非判断词，不得以此判回潮；判断词禁令只约束通过判据行本身，goal anchoring 句/位置锚描述句中的「待验/完成待验证/确认」类状态词不判。\n"
                     "四、triggered 验收项漏配：任一 triggered 验收项（子1 验收包清单中时机=triggered 的 SC ID）在子4 检查点验收包映射中无任何落点、且无显式「continuous 覆盖」声明判 block。合法形态=每个 triggered SC 至少一个检查点验收包映射承接（如 SC1->CP1、SC2->CP2）即合规--不要求逐项标注 triggered 时机、不要求 continuous 覆盖声明（除非该 SC 真无落点）；验收包映射列多个 SC ID=枚举非复合句。\n"
                     "【命题性质】本步产归一化包（从子2 调度提案+子3 核验结果忠实提取，非提案非假想）--判据命令未实际 dry-run、互斥面交集未实算、任务 ID/验收包 ID 真实存在性均归子3 锚点核验，本步不判（归子3）；本步只判归一化文本形态齐备+字段忠实+形式合规，不判命令真实可跑/交集实算结果/锚点真值。\n"
                     '【判材边界】artifact=子1+子2+子3+子4 最新 skill-trace 拼合（生产 read_evidence_for_step(4,"ExecutionPlanCheckpoints") 同形）--sub_step==4 记录=末条，存在即满足形式要件，不得以「拼合/非独立条目/末条以子3 收尾」为由 block；前序 trace 是字段一致性对照面+验收包落点对照面（判材非纯组成事实）。plan.md/design.md/understand.md 主仓 .md 文件结构性读不到，但子1 已提取验收包 SC1/SC2 为载荷内清单--锚点存在性/出处行号/原文引用真实性不作 block 依据，只判 trace 内自洽+形式合规。子3 已留痕即合规，不得索 dry-run 通过结果或交集实算原始输出。\n'
-                    "【合法正例】「W2->T2（任务 ID T2+改动 generate_factor_summary_report.py _aggregate_positive_ic 增加 FACTOR_CATEGORIES 分组键+判据命令 pytest）」合规（忠实提取子2，字段枚举非复合句）；「CP2 通过判据=`pytest tests/test_summary_categories.py -x` 退出码 0 且输出含八维度断言通过（承接 SC2）」合规（命令+退出码+输出断言=断言锚定形非复合句非判断词）；「验收包映射=SC2（任务 ID 追溯锚 T2/T3）」合规（triggered SC2 有 CP2 落点，无需 continuous 声明）；「goal anchoring=「原目标：分类维度汇总落地；当前位置：T2/T3 完成待验证后进入提交」」合规（两成分字段结构，「待验证」是状态词非判据判断词）；「假设传导：子3 无假设项需传导」合规。\n"
+                    "【合法正例】「worker_map: W2->T2（任务 ID T2+改动 generate_factor_summary_report.py _aggregate_positive_ic 增加 FACTOR_CATEGORIES 分组键+判据命令 pytest）」合规（忠实提取子2，fields 键值内容含实现侧名词合规——方案名词扫描只管 text；字段枚举非复合句）；「CP2 通过判据=`pytest tests/test_summary_categories.py -x` 退出码 0 且输出含八维度断言通过（承接 SC2）」合规（命令+退出码+输出断言=断言锚定形非复合句非判断词）；「验收包映射=SC2（任务 ID 追溯锚 T2/T3）」合规（triggered SC2 有 CP2 落点，无需 continuous 声明）；「goal anchoring=「原目标：分类维度汇总落地；当前位置：T2/T3 完成待验证后进入提交」」合规（两成分字段结构，「待验证」是状态词非判据判断词）；「假设传导：子3 无假设项需传导」合规。\n"
                     "方框以外一律不判。judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例（指模式不指实例位置）。"
                 ),
             ),
