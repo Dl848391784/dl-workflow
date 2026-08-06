@@ -34,28 +34,71 @@ TRACKED_SUBCOMMANDS = ("callers", "callees", "impact", "affected", "context", "q
 STALE_HOURS = 72
 
 
-def _resolve_project_root(payload: dict) -> Path | None:
-    """从 hook payload 的 cwd（或进程 cwd）反查 git 项目根。"""
-    cwd = ""
-    for key in ("cwd", "working_dir", "current_dir"):
-        val = payload.get(key)
-        if isinstance(val, str) and val:
-            cwd = val
-            break
-    if not cwd:
-        cwd = str(Path.cwd())
+# dl-workflow 主树根（v2.120）：hooks 由 settings.json 直引用
+# ~/.dl-workflow/hooks/*.py（不 copy），__file__ 即主树真源；DL_WF_HOME
+# env 优先（bashrc 导出；测试用其指向伪仓）。本仓（主树+开发 worktree）
+# 的源码编辑一律拦截，project_root 解析到主树（db/audit 在主树）。
+_DLWF_ROOT = Path(
+    os.environ.get("DL_WF_HOME", "").strip()
+    or str(Path(__file__).resolve().parent.parent)
+).resolve()
+
+
+def _resolve_main_root(d: Path) -> tuple[Path | None, bool]:
+    """d 所属 git 仓的**主树**根 + d 是否位于 linked worktree（v2.120）。
+
+    --show-toplevel 得工作树顶 T；--git-common-dir 解析后 == T/.git ->
+    d 在主树（False，主树根=T）；否则 common 的 parent 即主树根（True）。
+    非 git/命令失败 -> (None, False)（宁纵勿枉）。
+    """
     try:
-        res = subprocess.run(
-            ["git", "-C", cwd, "rev-parse", "--show-toplevel"],
+        top = subprocess.run(
+            ["git", "-C", str(d), "rev-parse", "--show-toplevel"],
             capture_output=True,
             text=True,
             timeout=5,
         )
-        if res.returncode == 0 and res.stdout.strip():
-            return Path(res.stdout.strip())
+        if top.returncode != 0 or not top.stdout.strip():
+            return None, False
+        toplevel = Path(top.stdout.strip())
+        # --path-format=absolute：relative 输出是相对 -C 目录的（如 ../.git），
+        # 错相对基准会串号到仓外（2026-08-06 测试实测 /tmp/.git 事故）
+        common = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(d),
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-common-dir",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if common.returncode != 0 or not common.stdout.strip():
+            return toplevel, False
+        common_p = Path(common.stdout.strip())
+        if not common_p.is_absolute():
+            common_p = (d / common_p).resolve()
+        if common_p == (toplevel / ".git").resolve():
+            return toplevel, False
+        return common_p.parent, True
     except (subprocess.TimeoutExpired, OSError):
-        pass
-    return None
+        return None, False
+
+
+def _is_workflow_file(path: Path) -> bool:
+    """路径含 .claude/worktrees/<name> 段 -> dl 工作流 worktree 内文件。
+
+    工作流自带 codegraph 纪律（plan:1 新鲜度前置），门禁冗余（2026-08-03
+    用户决议）；v2.120 起按被编辑文件判定（原按会话 cwd，跨仓编辑漏判）。
+    """
+    parts = path.parts
+    for i, p in enumerate(parts):
+        if p == ".claude" and i + 1 < len(parts) and parts[i + 1] == "worktrees":
+            return True
+    return False
 
 
 def _session_id(payload: dict) -> str:
@@ -82,33 +125,6 @@ def _payload_cwd(payload: dict) -> str:
         if isinstance(val, str) and val:
             return val
     return str(Path.cwd())
-
-
-def _workflow_name(cwd: str) -> str | None:
-    """worktree 路径含 .claude/worktrees/<name> -> name；否则 None。"""
-    parts = Path(cwd).parts
-    for i, p in enumerate(parts):
-        if p == "worktrees" and i + 1 < len(parts):
-            return parts[i + 1]
-    return None
-
-
-def _is_linked_worktree(cwd: str) -> bool:
-    """cwd 位于 git linked worktree（非主树）-> True。
-
-    主树 .git=目录；linked worktree 的 .git=指针文件（内容 gitdir: <path>）。
-    2026-08-05 泛化（designs/worktree-per-session-concurrency-design.md）：
-    worktree-per-session 并发开发的用户级 worktree 路径（如 ~/.dl-workflow-wt-<name>）
-    不匹配 _workflow_name 的 .claude/worktrees/<name> 约定，但 .codegraph db 同样
-    gitignore 缺失=同样的死锁，须同跳。子模块 .git 同是指针文件——db 同样缺失、
-    死锁理由同样成立，一并跳过（本项目无子模块，无实际副作用）。
-    """
-    d = Path(cwd)
-    for parent in (d, *d.parents):
-        git = parent / ".git"
-        if git.exists():
-            return git.is_file()
-    return False
 
 
 def _has_query_this_session(audit_dir: Path, payload: dict) -> bool:
@@ -211,20 +227,31 @@ def main() -> int:
     if not file_path:
         return 0
 
-    # worktree 会话跳过（2026-08-03 用户决议：codegraph 和 design_gate 对
-    # worktree 都不拦）——worktree 内 .codegraph db 不存在，无法跑查询解锁=
-    # 死锁隐患；工作流的 codegraph 纪律由 plan:1 新鲜度前置自理，门禁在此
-    # 冗余。2026-08-05 泛化（worktree-per-session 并发）：除 dl worktree
-    # （.claude/worktrees/<name>）外，任何 git linked worktree 同样 db 缺失，
-    # 一并跳过（见 _is_linked_worktree）。
-    if _workflow_name(_payload_cwd(payload)) is not None or _is_linked_worktree(
-        _payload_cwd(payload)
-    ):
+    # v2.120 三分类按**被编辑文件**的仓身份判定
+    # （designs/gate-file-main-root-design.md，2026-08-06 用户拍板）：
+    # ① dl 工作流 worktree（*/.claude/worktrees/<name>）-> 跳过（工作流自带
+    #    codegraph 纪律，2026-08-03 用户决议）；
+    # ② dl-workflow 仓（主树+开发 worktree）-> **拦截**（恢复 2026-08-03
+    #    「dl-workflow repo 本身要拦」决议，2026-08-05 _is_linked_worktree
+    #    泛化曾误跳过），project_root 解析到**主树**——db/audit 全在主树，
+    #    开发 worktree 内「无 db 无法解锁」的死锁根除；
+    # ③ 其他仓 linked worktree -> 维持跳过（2026-08-06 拍板：纪律另有归属）。
+    # 旧实现按会话 cwd 判定——跨仓编辑（会话开在 A 仓、改 dl-workflow
+    # worktree 文件）拦不拦全凭会话碰巧开在哪（v2.113/2026-08-06 两实锤）。
+    fp = Path(file_path)
+    if not fp.is_absolute():
+        fp = Path(_payload_cwd(payload)) / fp
+    if _is_workflow_file(fp):
         return 0
-
-    project_root = _resolve_project_root(payload)
-    if project_root is None:
+    main_root, is_linked = _resolve_main_root(fp if fp.is_dir() else fp.parent)
+    if main_root is None:
         return 0  # 非 git 项目 -> 放行（无项目 = 无 codegraph db = 无门禁意义）
+    if main_root == _DLWF_ROOT:
+        project_root = main_root  # ② dl-workflow：拦截，根落主树
+    elif is_linked:
+        return 0  # ③ 他仓 linked worktree：维持跳过
+    else:
+        project_root = main_root  # 他仓主树：维持拦截（旧行为）
 
     if not _is_existing_source_py(file_path, project_root):
         return 0  # 白名单跳过
@@ -246,10 +273,17 @@ def main() -> int:
         return 0
 
     # 阻断：零查询就改源码
+    dlwf_hint = (
+        f"  本仓开发 worktree 内无 db——在 {project_root} 下跑上述命令（"
+        "audit 落主树，gate 读主树）。\n"
+        if project_root == _DLWF_ROOT
+        else ""
+    )
     hint = (
         f"[codegraph gate] 阻断：改已有源码 {file_path} 前需先查 codegraph（H15）。\n"
         f"  跑一次：`codegraph impact <symbol>` 或 `codegraph callers <symbol>` "
         f"或 `codegraph affected {file_path}`，审计留痕后即可放行。\n"
+        f"{dlwf_hint}"
         f"  纯注释/格式改动：跑一次上述命令即可（不查结构不许改是设计目的）。\n"
         f"  {fw or '索引新鲜度正常。'}"
     )

@@ -21,26 +21,58 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-def _resolve_file_project_root(file_path: str, cwd: str) -> Path | None:
-    """从**被编辑文件**的目录反查 git 项目根（不是会话 cwd）——audit 与 gate 必须
-    同一 project_root，否则留痕落主项目、判断读 dl-workflow（或反之）串号。
-    相对路径先对会话 cwd 解析（真实文件在 cwd/<rel>）。"""
-    p = Path(file_path)
-    if not p.is_absolute():
-        p = Path(cwd) / p
-    d = p if p.is_dir() else p.parent
+def _resolve_roots(d: Path) -> tuple[Path | None, Path | None, bool]:
+    """d 所属 git 仓的 (工作树顶, **主树**根, 是否 linked worktree)（v2.120，
+    与 design_gate.py 同构）。kind 判定（designs/ 位置）用工作树顶——
+    design.md 写在当前工作树随分支合并；audit 落账用主树根——gate 读
+    主树，audit/gate 必须同一根否则串号/变相死锁。相对路径先对会话
+    cwd 解析由调用方完成。"""
     try:
-        res = subprocess.run(
+        top = subprocess.run(
             ["git", "-C", str(d), "rev-parse", "--show-toplevel"],
             capture_output=True,
             text=True,
             timeout=5,
         )
-        if res.returncode == 0 and res.stdout.strip():
-            return Path(res.stdout.strip())
+        if top.returncode != 0 or not top.stdout.strip():
+            return None, None, False
+        toplevel = Path(top.stdout.strip())
+        # --path-format=absolute：relative 输出是相对 -C 目录的（如 ../.git），
+        # 错相对基准会串号到仓外（2026-08-06 测试实测 /tmp/.git 事故）
+        common = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(d),
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-common-dir",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if common.returncode != 0 or not common.stdout.strip():
+            return toplevel, toplevel, False
+        common_p = Path(common.stdout.strip())
+        if not common_p.is_absolute():
+            common_p = (d / common_p).resolve()
+        if common_p == (toplevel / ".git").resolve():
+            return toplevel, toplevel, False
+        return toplevel, common_p.parent, True
     except (subprocess.TimeoutExpired, OSError):
-        pass
-    return None
+        return None, None, False
+
+
+def _is_workflow_file(path: Path) -> bool:
+    """路径含 .claude/worktrees/<name> 段 -> dl 工作流 worktree 内文件
+    （v2.120 按被编辑文件判定，原按会话 cwd）——gate 侧同样跳过
+    （工作流有自己的 design 流程），audit 不留痕避免污染主会话判断。"""
+    parts = path.parts
+    for i, p in enumerate(parts):
+        if p == ".claude" and i + 1 < len(parts) and parts[i + 1] == "worktrees":
+            return True
+    return False
 
 
 def _session_id(payload: dict) -> str:
@@ -67,15 +99,6 @@ def _payload_cwd(payload: dict) -> str:
         if isinstance(val, str) and val:
             return val
     return str(Path.cwd())
-
-
-def _workflow_name(cwd: str) -> str | None:
-    """worktree 路径含 .claude/worktrees/<name> -> name；否则 None。"""
-    parts = Path(cwd).parts
-    for i, p in enumerate(parts):
-        if p == "worktrees" and i + 1 < len(parts):
-            return parts[i + 1]
-    return None
 
 
 def _is_source_py(file_path: str, project_root: Path) -> bool:
@@ -115,24 +138,28 @@ def main() -> int:
     if not file_path:
         return 0
 
-    # 工作流会话（dl <name> worktree）跳过——gate 侧同样跳过（工作流有自己的
-    # design 流程），audit 不留痕避免污染主会话判断。
-    if _workflow_name(_payload_cwd(payload)) is not None:
+    # v2.120：跳过按被编辑文件（原按会话 cwd）；kind 判定用工作树顶
+    # （design.md 写当前工作树 designs/ 随分支合并），audit 落主树根
+    # （gate 读主树——audit/gate 同一根）。
+    cwd = _payload_cwd(payload)
+    fp = Path(file_path)
+    if not fp.is_absolute():
+        fp = Path(cwd) / fp
+    if _is_workflow_file(fp):
         return 0
-
-    project_root = _resolve_file_project_root(file_path, _payload_cwd(payload))
-    if project_root is None:
+    toplevel, main_root, _ = _resolve_roots(fp if fp.is_dir() else fp.parent)
+    if main_root is None:
         return 0
 
     kind = None
-    if _is_design_md(file_path, project_root):
+    if _is_design_md(file_path, toplevel):
         kind = "DESIGN"
-    elif _is_source_py(file_path, project_root):
+    elif _is_source_py(file_path, toplevel):
         kind = "SRC"
     if kind is None:
         return 0  # 非源码/非设计文档，不留痕
 
-    audit_dir = project_root / ".claude" / ".design_audit"
+    audit_dir = main_root / ".claude" / ".design_audit"
     audit_dir.mkdir(parents=True, exist_ok=True)
     log = audit_dir / f"{_session_id(payload)}.log"
     ts = datetime.now(timezone.utc).isoformat(timespec="seconds")

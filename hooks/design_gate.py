@@ -28,28 +28,75 @@ import sys
 from pathlib import Path
 
 
-def _resolve_file_project_root(file_path: str, cwd: str) -> Path | None:
-    """从**被编辑文件**的目录反查 git 项目根（不是会话 cwd）——design.md 应落在
-    文件所属仓的 designs/。从主会话改 dl-workflow 文件时 cwd 是主项目，
-    用 cwd 会错查主项目 designs/（2026-08-03 用户决议：dl-workflow repo
-    本身要拦，design.md 放 ~/.dl-workflow/designs/）。
-    相对路径先对会话 cwd 解析（真实文件在 cwd/<rel>）。"""
-    p = Path(file_path)
-    if not p.is_absolute():
-        p = Path(cwd) / p
-    d = p if p.is_dir() else p.parent
+# dl-workflow 主树根（v2.120，与 codegraph_gate.py 同构）：hooks 由
+# settings.json 直引用 ~/.dl-workflow/hooks/*.py（不 copy），__file__
+# 即主树真源；DL_WF_HOME env 优先（bashrc 导出；测试用其指向伪仓）。
+_DLWF_ROOT = Path(
+    os.environ.get("DL_WF_HOME", "").strip()
+    or str(Path(__file__).resolve().parent.parent)
+).resolve()
+
+
+def _resolve_roots(d: Path) -> tuple[Path | None, Path | None, bool]:
+    """d 所属 git 仓的 (工作树顶, **主树**根, 是否 linked worktree)（v2.120）。
+
+    --show-toplevel 得 T；--git-common-dir 解析后 == T/.git -> 主树
+    （main=T，False）；否则 common 的 parent 即主树根（True）。audit
+    落账/门禁读取用主树根（gate/audit 同一根才不变相死锁）；design.md
+    物理位置/白名单存在性判定用工作树顶（worktree 的 designs/ 与源码
+    在工作树里）。非 git/命令失败 -> (None, None, False)（宁纵勿枉）。
+    相对路径先对会话 cwd 解析由调用方完成。
+    """
     try:
-        res = subprocess.run(
+        top = subprocess.run(
             ["git", "-C", str(d), "rev-parse", "--show-toplevel"],
             capture_output=True,
             text=True,
             timeout=5,
         )
-        if res.returncode == 0 and res.stdout.strip():
-            return Path(res.stdout.strip())
+        if top.returncode != 0 or not top.stdout.strip():
+            return None, None, False
+        toplevel = Path(top.stdout.strip())
+        # --path-format=absolute：relative 输出是相对 -C 目录的（如 ../.git），
+        # 错相对基准会串号到仓外（2026-08-06 测试实测 /tmp/.git 事故）
+        common = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(d),
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-common-dir",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if common.returncode != 0 or not common.stdout.strip():
+            return toplevel, toplevel, False
+        common_p = Path(common.stdout.strip())
+        if not common_p.is_absolute():
+            common_p = (d / common_p).resolve()
+        if common_p == (toplevel / ".git").resolve():
+            return toplevel, toplevel, False
+        return toplevel, common_p.parent, True
     except (subprocess.TimeoutExpired, OSError):
-        pass
-    return None
+        return None, None, False
+
+
+def _is_workflow_file(path: Path) -> bool:
+    """路径含 .claude/worktrees/<name> 段 -> dl 工作流 worktree 内文件。
+
+    工作流有自己的 design 流程（plan:1 render-artifact 产 design.md +
+    门控，其 design.md 由脚本写（非 Edit/Write 工具），本门禁的 audit
+    看不到，会误拦 execute 阶段）。v2.120 起按被编辑文件判定（原按会话
+    cwd，跨仓编辑漏判）。
+    """
+    parts = path.parts
+    for i, p in enumerate(parts):
+        if p == ".claude" and i + 1 < len(parts) and parts[i + 1] == "worktrees":
+            return True
+    return False
 
 
 def _session_id(payload: dict) -> str:
@@ -76,33 +123,6 @@ def _payload_cwd(payload: dict) -> str:
         if isinstance(val, str) and val:
             return val
     return str(Path.cwd())
-
-
-def _workflow_name(cwd: str) -> str | None:
-    """worktree 路径含 .claude/worktrees/<name> -> name；否则 None。"""
-    parts = Path(cwd).parts
-    for i, p in enumerate(parts):
-        if p == "worktrees" and i + 1 < len(parts):
-            return parts[i + 1]
-    return None
-
-
-def _is_linked_worktree(cwd: str) -> bool:
-    """cwd 位于 git linked worktree（非主树）-> True。
-
-    主树 .git=目录；linked worktree 的 .git=指针文件（内容 gitdir: <path>）。
-    2026-08-05 泛化（designs/worktree-per-session-concurrency-design.md）：
-    worktree-per-session 并发开发的用户级 worktree（如 ~/.dl-workflow-wt-<name>）
-    不匹配 _workflow_name 的 .claude/worktrees/<name> 约定，但同理（worktree 内
-    审计目录/design.md 机制与主树不一致）须同跳——与 codegraph_gate 泛化对偶。
-    子模块 .git 同是指针文件，一并跳过（本项目无子模块）。
-    """
-    d = Path(cwd)
-    for parent in (d, *d.parents):
-        git = parent / ".git"
-        if git.exists():
-            return git.is_file()
-    return False
 
 
 def _is_existing_source_py(file_path: str, project_root: Path) -> bool:
@@ -154,24 +174,34 @@ def main() -> int:
     if not file_path:
         return 0
 
-    # worktree 会话跳过（工作流有自己的 design 流程——plan:1 render-artifact
-    # 产 design.md + 门控，其 design.md 由脚本写（非 Edit/Write 工具），本门禁
-    # 的 audit 看不到，会误拦 execute 阶段）。2026-08-05 泛化
-    # （worktree-per-session 并发）：除 dl worktree（.claude/worktrees/<name>）
-    # 外，任何 git linked worktree 一并跳过（见 _is_linked_worktree）。
-    if _workflow_name(_payload_cwd(payload)) is not None or _is_linked_worktree(
-        _payload_cwd(payload)
-    ):
+    # v2.120 三分类按**被编辑文件**的仓身份判定
+    # （designs/gate-file-main-root-design.md，2026-08-06 用户拍板）：
+    # ① dl 工作流 worktree（*/.claude/worktrees/<name>）-> 跳过（工作流
+    #    自带 design 流程：plan:1 render-artifact 产 design.md + 门控，
+    #    其 design.md 由脚本写（非 Edit/Write 工具），本门禁 audit 看不到，
+    #    会误拦 execute 阶段）；
+    # ② dl-workflow 仓（主树+开发 worktree）-> **拦截**（恢复 2026-08-03
+    #    「dl-workflow repo 本身要拦」决议——见文件头引用，2026-08-05
+    #    _is_linked_worktree 泛化曾误跳过）；audit 落**主树**（gate/audit
+    #    同一根），design.md 写在当前工作树 designs/（随分支合并）；
+    # ③ 其他仓 linked worktree -> 维持跳过（2026-08-06 拍板）。
+    # 旧实现按会话 cwd 判定——跨仓编辑拦不拦全凭会话碰巧开在哪。
+    cwd = _payload_cwd(payload)
+    fp = Path(file_path)
+    if not fp.is_absolute():
+        fp = Path(cwd) / fp
+    if _is_workflow_file(fp):
         return 0
-
-    project_root = _resolve_file_project_root(file_path, _payload_cwd(payload))
-    if project_root is None:
+    toplevel, main_root, is_linked = _resolve_roots(fp if fp.is_dir() else fp.parent)
+    if main_root is None:
         return 0  # 非 git 项目 -> 放行
+    if main_root != _DLWF_ROOT and is_linked:
+        return 0  # ③ 他仓 linked worktree：维持跳过
 
-    if not _is_existing_source_py(file_path, project_root):
+    if not _is_existing_source_py(file_path, toplevel):
         return 0  # 白名单跳过（非 .py / test / 新建文件 / check_*.py）
 
-    audit_dir = project_root / ".claude" / ".design_audit"
+    audit_dir = main_root / ".claude" / ".design_audit"
     srcs, has_design = _session_edits(audit_dir, payload)
 
     if has_design:
@@ -186,7 +216,8 @@ def main() -> int:
         f"[design-first gate] 阻断：本会话已改过源码 {sorted(srcs)}，现又改 "
         f"{file_path}——多文件改动须先写设计文档（H8 / [[troubleshoot-fix-flow]]）。\n"
         f"  流程：确认根因方案（AskUserQuestion/用户拍板）-> 写 "
-        f"{project_root}/designs/<topic>.md -> 再动手改代码。\n"
+        f"{toplevel}/designs/<topic>.md（当前工作树 designs/，随分支合并）"
+        " -> 再动手改代码。\n"
         f"  若本轮工作已有 design.md：在其中补一行当前改动范围即可留痕解锁。\n"
         f"  单文件修改不受此门禁影响（改回同一文件即放行）。"
     )

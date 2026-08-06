@@ -75,7 +75,11 @@ def _make_linked_worktree(repo: Path, name: str) -> Path:
 
 
 def _run(
-    script: Path, payload: dict, session_id: str, cwd: Path
+    script: Path,
+    payload: dict,
+    session_id: str,
+    cwd: Path,
+    env_extra: dict | None = None,
 ) -> subprocess.CompletedProcess:
     payload = dict(payload)
     payload.setdefault("cwd", str(cwd))
@@ -83,6 +87,7 @@ def _run(
         "PATH": "/usr/bin:/usr/local/bin",
         "CLAUDE_SESSION_ID": session_id,
     }
+    env.update(env_extra or {})
     return subprocess.run(
         [sys.executable, str(script)],
         input=json.dumps(payload),
@@ -339,4 +344,83 @@ def test_payload_sid_preferred_over_env(repo: Path) -> None:
     """payload session_id 优先于 env（真源在 payload）。"""
     _audit_psid(repo, "a.py", payload_sid="pp1", env_sid="wrong")
     r = _gate_psid(repo, "b.py", payload_sid="pp1")
+    assert r.returncode == 2
+
+
+# ─────────────────── v2.120 按文件主树判定（gate-file-main-root-design.md） ───────────────────
+# 用户策略（2026-08-06 拍板，恢复 2026-08-03「dl-workflow repo 本身要拦」决议）：
+# dl-workflow 仓（主树+开发 worktree）**拦截**——audit 落主树（gate/audit 同一根），
+# design.md 写当前工作树 designs/（kind 判定按工作树顶）。
+
+
+def test_dlwf_dev_worktree_enforced(repo: Path) -> None:
+    """dl-workflow 开发 worktree：第 2 个源码文件无 design.md -> 拦；audit
+    落主树（不落 worktree）；worktree designs/ 写 design.md -> 解锁。"""
+    env = {"DL_WF_HOME": str(repo)}
+    wt = _make_linked_worktree(repo, "dlwf_dsg")
+    (wt / "b.py").write_text("y = 1\n")
+    (wt / "designs").mkdir(exist_ok=True)
+    sid = "ddw1"
+    # 第 1 个源码文件：audit 记账（落主树）
+    _run(
+        AUDIT,
+        {"tool_name": "Edit", "tool_input": {"file_path": str(wt / "a.py")}},
+        sid,
+        cwd=wt,
+        env_extra=env,
+    )
+    assert (repo / ".claude" / ".design_audit" / f"{sid}.log").exists()
+    assert not (wt / ".claude" / ".design_audit").exists()
+    # 第 2 个源码文件：拦
+    r = _run(
+        GATE,
+        {"tool_name": "Edit", "tool_input": {"file_path": str(wt / "b.py")}},
+        sid,
+        cwd=wt,
+        env_extra=env,
+    )
+    assert r.returncode == 2 and "designs/" in r.stderr
+    # worktree 当前工作树 designs/ 写 design.md -> 解锁
+    _run(
+        AUDIT,
+        {
+            "tool_name": "Write",
+            "tool_input": {"file_path": str(wt / "designs" / "topic.md")},
+        },
+        sid,
+        cwd=wt,
+        env_extra=env,
+    )
+    r2 = _run(
+        GATE,
+        {"tool_name": "Edit", "tool_input": {"file_path": str(wt / "b.py")}},
+        sid,
+        cwd=wt,
+        env_extra=env,
+    )
+    assert r2.returncode == 0
+
+
+def test_dlwf_cross_repo_session_enforced_by_file(repo: Path, tmp_path: Path) -> None:
+    """跨仓会话（cwd 在他仓、改 dl-workflow 文件）：按**被编辑文件**判定=拦
+    （旧实现按会话 cwd 跳过=漏判，v2.113/2026-08-06 两实锤）。"""
+    env = {"DL_WF_HOME": str(repo)}
+    other = tmp_path / "other_dsg"
+    other.mkdir()
+    _init_git_repo(other)
+    sid = "ddw2"
+    _run(
+        AUDIT,
+        {"tool_name": "Edit", "tool_input": {"file_path": str(repo / "a.py")}},
+        sid,
+        cwd=other,
+        env_extra=env,
+    )
+    r = _run(
+        GATE,
+        {"tool_name": "Edit", "tool_input": {"file_path": str(repo / "b.py")}},
+        sid,
+        cwd=other,
+        env_extra=env,
+    )
     assert r.returncode == 2

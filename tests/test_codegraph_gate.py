@@ -87,6 +87,7 @@ def _run(
     payload: dict,
     session_id: str,
     cwd: Path,
+    env_extra: dict | None = None,
 ) -> subprocess.CompletedProcess:
     """喂 stdin JSON 调 hook 脚本，返回 CompletedProcess。
 
@@ -98,6 +99,7 @@ def _run(
         "PATH": "/usr/bin:/usr/local/bin:/home/admin/.npm-global/bin",
         "CLAUDE_SESSION_ID": session_id,
     }
+    env.update(env_extra or {})
     return subprocess.run(
         [sys.executable, str(script)],
         input=json.dumps(payload),
@@ -397,3 +399,155 @@ def test_payload_sid_query_does_not_unlock_other_session(repo: Path) -> None:
     _audit_psid(repo, "codegraph callers foo", "cs1")
     r = _gate_psid(repo, "paths.py", "cs2")
     assert r.returncode == 2
+
+
+# ─────────────────── v2.120 按文件主树判定（gate-file-main-root-design.md） ───────────────────
+# 用户策略（2026-08-06 拍板，恢复 2026-08-03「dl-workflow repo 本身要拦」决议）：
+# ① dl 工作流 worktree（*/.claude/worktrees/）跳过；② dl-workflow 仓
+# （主树+开发 worktree）**拦截**，db/audit 走主树（开发 worktree 解锁无死锁）；
+# ③ 他仓 linked worktree 维持跳过（存量 test_skip_linked_worktree 覆盖）。
+
+
+def _dlwf_env(repo: Path) -> dict:
+    """把临时 repo 伪装成 dl-workflow 仓（hook 的 _DLWF_ROOT 取 DL_WF_HOME 优先）。"""
+    return {"DL_WF_HOME": str(repo)}
+
+
+def test_dlwf_main_tree_blocked_until_audit(repo: Path) -> None:
+    """② dl-workflow 主树：零查询阻断 -> 主树查询解锁。"""
+    env = _dlwf_env(repo)
+    r = _run(
+        GATE,
+        {"tool_name": "Edit", "tool_input": {"file_path": "paths.py"}},
+        "dw1",
+        cwd=repo,
+        env_extra=env,
+    )
+    assert r.returncode == 2
+    _run(
+        AUDIT,
+        {"tool_name": "Bash", "tool_input": {"command": "codegraph impact foo"}},
+        "dw1",
+        cwd=repo,
+        env_extra=env,
+    )
+    r2 = _run(
+        GATE,
+        {"tool_name": "Edit", "tool_input": {"file_path": "paths.py"}},
+        "dw1",
+        cwd=repo,
+        env_extra=env,
+    )
+    assert r2.returncode == 0
+
+
+def test_dlwf_dev_worktree_enforced_unlock_via_main_root(repo: Path) -> None:
+    """② 核心场景：dl-workflow 开发 worktree 里改本仓源码**要拦**（2026-08-05
+    泛化曾误跳过）；worktree 内无 db 不再死锁——audit 归主树（worktree 会话
+    裸跑 codegraph 归主树），gate 读主树解锁。"""
+    env = _dlwf_env(repo)
+    wt = _make_linked_worktree(repo, "dlwf_wt")
+    sid = "dw2"
+    r = _run(
+        GATE,
+        {"tool_name": "Edit", "tool_input": {"file_path": str(wt / "paths.py")}},
+        sid,
+        cwd=wt,
+        env_extra=env,
+    )
+    assert r.returncode == 2, r.stderr
+    assert str(repo) in r.stderr  # 阻断文案指路主树
+    # worktree 会话里跑查询（写法=gate 指路「在主树下跑」），audit 须落主树
+    _run(
+        AUDIT,
+        {
+            "tool_name": "Bash",
+            "tool_input": {"command": f"cd {repo} && codegraph impact foo"},
+        },
+        sid,
+        cwd=wt,
+        env_extra=env,
+    )
+    log = repo / ".claude" / ".cg_audit" / f"{sid}.log"
+    assert log.exists() and "|impact|" in log.read_text()
+    assert not (wt / ".claude" / ".cg_audit").exists()  # 不落 worktree
+    r2 = _run(
+        GATE,
+        {"tool_name": "Edit", "tool_input": {"file_path": str(wt / "paths.py")}},
+        sid,
+        cwd=wt,
+        env_extra=env,
+    )
+    assert r2.returncode == 0
+
+
+def test_dlwf_cross_repo_session_unlock_via_cd_prefix(
+    repo: Path, tmp_path: Path
+) -> None:
+    """② 跨仓会话（会话开在 A 仓、改 dl-workflow worktree 文件——2026-08-06
+    实锤场景）：按**被编辑文件**判定=拦；`cd 主树 && codegraph` 的 audit 经
+    cd 前缀归主树解锁。"""
+    env = _dlwf_env(repo)
+    wt = _make_linked_worktree(repo, "dlwf_wt2")
+    other = tmp_path / "other"
+    other.mkdir()
+    _init_git_repo(other)
+    sid = "dw3"
+    r = _run(
+        GATE,
+        {"tool_name": "Edit", "tool_input": {"file_path": str(wt / "paths.py")}},
+        sid,
+        cwd=other,
+        env_extra=env,
+    )
+    assert r.returncode == 2
+    # 无 cd 前缀：查询归会话仓（other），dl-workflow 侧仍锁
+    _run(
+        AUDIT,
+        {"tool_name": "Bash", "tool_input": {"command": "codegraph impact foo"}},
+        sid,
+        cwd=other,
+        env_extra=env,
+    )
+    r1 = _run(
+        GATE,
+        {"tool_name": "Edit", "tool_input": {"file_path": str(wt / "paths.py")}},
+        sid,
+        cwd=other,
+        env_extra=env,
+    )
+    assert r1.returncode == 2
+    # cd 前缀归主树 -> 解锁
+    _run(
+        AUDIT,
+        {
+            "tool_name": "Bash",
+            "tool_input": {"command": f"cd {repo} && codegraph callers foo"},
+        },
+        sid,
+        cwd=other,
+        env_extra=env,
+    )
+    r2 = _run(
+        GATE,
+        {"tool_name": "Edit", "tool_input": {"file_path": str(wt / "paths.py")}},
+        sid,
+        cwd=other,
+        env_extra=env,
+    )
+    assert r2.returncode == 0
+
+
+def test_audit_cd_target_unresolvable_falls_back(repo: Path) -> None:
+    """audit 归属兜底：cd 目标不存在/非绝对 -> 落会话 cwd 仓（宁纵勿枉）。"""
+    _run(
+        AUDIT,
+        {
+            "tool_name": "Bash",
+            "tool_input": {"command": "cd /nonexistent_xyz && codegraph impact foo"},
+        },
+        "dw4",
+        cwd=repo,
+    )
+    log = repo / ".claude" / ".cg_audit" / "dw4.log"
+    assert log.exists() and "|impact|" in log.read_text()

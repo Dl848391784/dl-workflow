@@ -23,9 +23,13 @@ plan:3#1 + plan:3#2 两个 gate）。
 例外（可留共享主树）：只读/审计/诊断；本会话已独占的收口批（显式 `git add <清单>`，
 **禁 `git add -A`**）。
 
-**gate 已配套**：codegraph_gate / design_gate 对任何 linked worktree 跳过
-（`_is_linked_worktree`：最近的 `.git` 是指针文件即非主树）——worktree 内 `.codegraph`
-db gitignore 缺失也不会死锁，改 .py 无需跑 codegraph 查询。
+**gate 已配套（v2.120 三分类，按被编辑文件的仓身份判定）**：dl 工作流 worktree
+（`*/.claude/worktrees/`）与他仓 linked worktree 跳过；**本仓（主树+开发 worktree）
+拦截**（恢复 2026-08-03「dl-workflow repo 本身要拦」决议，2026-08-05「任何 linked
+worktree 跳过」泛化已收回）——codegraph db / audit 都走主树，开发 worktree 内改 .py
+须先在 `~/.dl-workflow` 下跑一次 codegraph 查询解锁（audit 按 cd 前缀/会话 cwd 归
+主树，无死锁）；design.md 写在当前工作树 `designs/`（随分支合并）。详见
+`designs/gate-file-main-root-design.md`。
 
 ## 真源指针（命中触发才读）
 
