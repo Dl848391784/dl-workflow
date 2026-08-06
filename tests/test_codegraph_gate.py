@@ -551,3 +551,25 @@ def test_audit_cd_target_unresolvable_falls_back(repo: Path) -> None:
     )
     log = repo / ".claude" / ".cg_audit" / "dw4.log"
     assert log.exists() and "|impact|" in log.read_text()
+
+
+def test_audit_cd_tilde_expanded(repo: Path, tmp_path: Path) -> None:
+    """v2.121：`cd ~/<repo> && codegraph` 的 ~ 须 expanduser——shell 会展开
+    但 hook 读原始文本，v2.120 dogfooding 实测留痕串号到会话仓。"""
+    fake_home = tmp_path / "home"
+    home_repo = fake_home / "repo"
+    home_repo.mkdir(parents=True)
+    _init_git_repo(home_repo)
+    _run(
+        AUDIT,
+        {
+            "tool_name": "Bash",
+            "tool_input": {"command": "cd ~/repo && codegraph impact foo"},
+        },
+        "dt1",
+        cwd=repo,
+        env_extra={"HOME": str(fake_home)},
+    )
+    log = home_repo / ".claude" / ".cg_audit" / "dt1.log"
+    assert log.exists() and "|impact|" in log.read_text()
+    assert not (repo / ".claude" / ".cg_audit" / "dt1.log").exists()

@@ -86,13 +86,18 @@ def _cd_target(command: str, codegraph_pos: int, cwd: str) -> Path:
     hook 看不到命令内 cd 的效果，但 `cd X && codegraph ...` 是解锁指路
     的固定写法（gate 阻断文案即此形）——查询实际打在 X 的 db 上，留痕
     须归 X 所在仓（跨仓会话：会话开在 A 仓、`cd ~/.dl-workflow && codegraph`
-    解锁 dl-workflow 编辑）。解析失败/非绝对路径 -> 回落会话 cwd
+    解锁 dl-workflow 编辑）。`~` 先 expanduser（v2.121——shell 会展开但
+    hook 读的是原始文本，dogfooding 实测 `cd ~/.dl-workflow` 被当非绝对
+    路径回落会话仓、留痕串号）。解析失败/非绝对路径 -> 回落会话 cwd
     （宁纵勿枉，不发明路径）。
     """
     target = None
     for m in _CD_RE.finditer(command[:codegraph_pos]):
         target = m.group(1).strip().strip("'\"")
-    if not target or not target.startswith("/"):
+    if not target:
+        return Path(cwd)
+    target = os.path.expanduser(target)
+    if not target.startswith("/"):
         return Path(cwd)
     p = Path(target)
     return p if p.is_dir() else Path(cwd)
