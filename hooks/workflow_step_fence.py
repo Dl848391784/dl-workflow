@@ -350,9 +350,14 @@ def _s15_fetch_curl(cmd: str) -> bool:
 
 
 def _s15_allowed(
-    tool: str, tool_input: dict, ev_file: Path, step: "engine.Step", cwd: str
+    tool: str,
+    tool_input: dict,
+    ev_file: Path,
+    step: "engine.Step",
+    cwd: str,
+    payload_file: Path | None = None,
 ) -> bool:
-    """S15 白名单判定：常驻集 / Write 系仅 evidence / Bash 编排模式 / 步骤声明。"""
+    """S15 白名单判定：常驻集 / Write 系仅 evidence+载荷 / Bash 编排模式 / 步骤声明。"""
     if tool in _S15_BASE_TOOLS:
         return True
     if tool in step.fence_allow:
@@ -365,8 +370,11 @@ def _s15_allowed(
             rp = Path(fp).resolve()
         except OSError:
             return False
-        # evidence 目录下可写（append-trace 载荷文件 .trace-payload-*.json 等）；
-        # 直写 <name>.jsonl 本体由 S14 在前置段单独 deny（收编到 append-trace）。
+        # evidence 目录下可写；直写 <name>.jsonl 本体由 S14 在前置段单独 deny
+        # （收编到 append-trace）。v2.125：载荷挪 worktree 根（出 .claude 保护
+        # 目录），S15 放行新落点（== 载荷路径，单源 engine.trace_payload_path）。
+        if payload_file is not None and rp == payload_file.resolve():
+            return True
         return bool(fp) and rp.parent == ev_file.parent
     if tool == "Bash":
         cmd = str(tool_input.get("command") or "")
@@ -450,7 +458,7 @@ def main() -> int:
             same = False
         if same:
             _log_deny(project_root, name, "evidence_direct_write_deny", f"tool={tool}")
-            payload_path = f"{project_root}/.claude/evidence/.trace-payload-{name}.md"
+            payload_path = str(engine.trace_payload_path(project_root, name))
             return _deny(
                 "evidence 落库走 append-trace（你定内容，脚本管格式/路径/结构字段）：\n"
                 "① Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace --scaffold`"
@@ -467,7 +475,9 @@ def main() -> int:
         # 解析失败 + 字节 hunt 死循环（tail_volume u:1 子1 8 报错）--正治不是
         # 解析器宽容（那只是 defense-in-depth），是堵死旁路：scaffold 生成格式
         # （标头独占行），模型只 Edit 「待填」填内容。Edit/MultiEdit 合法（填机制）。
-        payload_path = project_root / ".claude/evidence" / f".trace-payload-{name}.md"
+        # v2.125：路径单源 engine.trace_payload_path（=worktree 根，出 .claude
+        # 写入保护目录——acceptEdits 下 Edit 旧落点必弹窗）。
+        payload_path = engine.trace_payload_path(project_root, name)
         if tool == "Write":
             try:
                 is_payload = Path(fp).resolve() == payload_path.resolve()
@@ -555,7 +565,14 @@ def main() -> int:
                     "② Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace "
                     "--from-file <载荷>`"
                 )
-        if not _s15_allowed(tool, ti, ev_file, step_obj, cwd):
+        if not _s15_allowed(
+            tool,
+            ti,
+            ev_file,
+            step_obj,
+            cwd,
+            engine.trace_payload_path(project_root, name),
+        ):
             # v2.118 修 D：有在跑的取证子代理时放行其进程内取证 curl。
             # 子3 派的 agent 可跨步存活到子4（实测 full agent 15:24:44 才归），
             # 子4 fence_allow 无 Bash -> 子代理 curl 被误拒。pending 为 0 时

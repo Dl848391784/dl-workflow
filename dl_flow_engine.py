@@ -77,7 +77,9 @@ SUB_STEP_BLOCK_ESCALATE = 3
 # v2：allow 补 AskUserQuestion + Write/Edit(//<主仓>/.claude/**) 路径规则
 # （2026-08-01 understand:1 审计：24 次裁决 316.6s 全 allow 纯税，其中
 # AskUserQuestion 3 次均值 46.2s 被误归因为用户思考时间）。
-SETTINGS_TEMPLATE_VERSION = 5  # v5：补 Read(//主仓/.claude/**) + Read(//~/.dl-workflow/**)
+SETTINGS_TEMPLATE_VERSION = (
+    5  # v5：补 Read(//主仓/.claude/**) + Read(//~/.dl-workflow/**)
+)
 # ——acceptEdits 不覆盖 Read，模型按编排协议读主仓 .claude/（cwd 外）每次弹窗
 # （2026-08-07 实测 permissionDecisionMs=28.5s）。
 # v4：删死规则 Write(//path)（文件权限只认 Edit(path)，
@@ -322,6 +324,29 @@ def advance_state(project_root: Path, name: str, via: str = "auto") -> dict[str,
 
 def _evidence_path(project_root: Path, name: str) -> Path:
     return project_root / ".claude" / "evidence" / (name + ".jsonl")
+
+
+def trace_payload_path(
+    project_root: Path, name: str, state: dict | None = None
+) -> Path:
+    """trace 载荷路径单源（v2.125）。全链路（注入/scaffold/围栏/落库）只调这里。
+
+    v2.125 动机（tail_volume 2026-08-07 acceptEdits 重跑实测）：旧落点主仓
+    .claude/evidence/ 撞 harness 写入保护目录（.claude 仅豁免 commands/agents/
+    skills/worktrees）——acceptEdits 下 Edit 载荷必弹窗且 allow 规则无效
+    （叠加 #16170：Edit/Write 的 ** 通配不匹配）。载荷是临时文件
+    （append-trace 消费即弃），不需要主仓持久性 -> 挪 worktree 根：
+    .claude/worktrees/ 在保护豁免名单内 + cwd 内编辑 acceptEdits 本地放行，
+    两个坑同时绕开。evidence.jsonl 本体与阶段产物仍走 Bash 落库主仓
+    （Bash 不过文件权限检查），持久性决议（2026-07-28）不受影响。
+    兜底：state 无 worktree_path（测试/旧 state）-> 旧 evidence 路径。
+    """
+    if state is None:
+        state = load_state(project_root, name) or {}
+    wt = state.get("worktree_path")
+    if isinstance(wt, str) and wt:
+        return Path(wt) / f".trace-payload-{name}.md"
+    return _evidence_path(project_root, name).parent / f".trace-payload-{name}.md"
 
 
 # v2.40 台账提取常量：agent prompt 的档标记（fetch-prompt 骨架预填）与
@@ -2068,10 +2093,10 @@ def _corrupt_trace_reason(sub_step_index: int) -> str:
     return (
         f"evidence 写入损坏：文件里存在 sub_step=={sub_step_index} 的记录片段，"
         "但不是可解析的单行合法 JSON（手写 JSON 跨行/转义出错的典型后果）。"
-        "门控读不到等同没写。返工：改用 append-trace 落库——Write 载荷 "
-        '{"purpose":...,"qa":[{"q":...,"a":...}]} 到 .claude/evidence/.trace-payload-*.json，'
-        "再 Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace --from-file <载荷>`"
-        "（格式/路径/结构字段全归脚本，不会再写碎）。"
+        "门控读不到等同没写。返工：改用 append-trace 落库——Bash `python3 "
+        "~/.dl-workflow/dl_flow_engine.py append-trace --scaffold` 生成载荷骨架，"
+        "Edit 填掉「待填」，再 Bash `python3 ~/.dl-workflow/dl_flow_engine.py "
+        "append-trace --from-file <载荷>`（格式/路径/结构字段全归脚本，不会再写碎）。"
     )
 
 
@@ -2214,6 +2239,8 @@ def _phase_write_path_ok(phase: str, file_path: str) -> bool:
     p = Path(file_path)
     if p.name in names:
         return True
+    if p.name.startswith(".trace-payload-") and p.suffix == ".md":
+        return True  # v2.125：载荷落 worktree 根（出 .claude 保护目录），各阶段可写
     parts = p.parts
     if "designs" in parts and p.suffix == ".md":
         return True  # H8 design 文档各阶段可起草/补
@@ -4821,9 +4848,7 @@ def ingest_agent_report(
         if cur == 4
         else "子代理报告原文收录"
     )
-    payload_path = (
-        _evidence_path(project_root, name).parent / f".trace-payload-{name}.md"
-    )
+    payload_path = trace_payload_path(project_root, name, state)
     if not payload_path.exists():
         return False, (
             f"载荷不存在：{payload_path}——先写本步其它内容（或 append-trace "
@@ -4914,9 +4939,10 @@ def scaffold_payload(project_root: Path, name: str) -> tuple[bool, str]:
     JSON 仍会被内容里的 ASCII 引号弄崩（四桶分工没贯彻到底的半吊子），
     标记文本让模型全程零接触序列化格式。占位符统一用「待填」——
     _placeholder_hit 全局扫描兜底，漏填任何字段都过不了 append-trace。
-    落盘路径钉死 evidence/.trace-payload-<name>.md（v2.42 同款纪律：路径
-    归脚本不归模型自选）；已存在载荷拒覆盖（防抹掉在写工作）——例外：
-    mtime < state.created_at 判为上轮残留，自动清理（v2.63，见函数体注释）。
+    落盘路径单源 trace_payload_path（v2.125 起 = worktree 根，动机见其
+    docstring；v2.42 纪律不变：路径归脚本不归模型自选）；已存在载荷拒覆盖
+    （防抹掉在写工作）——例外：mtime < state.created_at 判为上轮残留，
+    自动清理（v2.63，见函数体注释）。
     """
     state = load_state(project_root, name)
     if state is None:
@@ -4964,7 +4990,7 @@ def scaffold_payload(project_root: Path, name: str) -> tuple[bool, str]:
         else:
             parts.append(f"【{k}】\n待填：{'/'.join(spec)} 开头+逐句出处")
 
-    out = _evidence_path(project_root, name).parent / f".trace-payload-{name}.md"
+    out = trace_payload_path(project_root, name, state)
     stale_cleaned = ""
     if out.exists():
         # v2.63（2026-08-03 tail_volume_acceleration_annualized u:1 子1 事故）：
@@ -5617,7 +5643,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--scaffold",
         action="store_true",
-        help="append-trace：生成当前子步骤 .md 载荷骨架到 evidence/.trace-payload-<name>.md 并打印路径（格式脚本管，模型只填「待填」）",
+        help="append-trace：生成当前子步骤 .md 载荷骨架到 worktree 根 .trace-payload-<name>.md 并打印路径（格式脚本管，模型只填「待填」）",
     )
     parser.add_argument(
         "--slug",

@@ -329,3 +329,15 @@ class TestAssemblyStepReminder:
             PROJECT_ROOT,
         )
         assert "装配义务" not in ctx
+
+
+class TestPayloadPathInjection:
+    """v2.125：注入的载荷路径 = worktree 根（state 有 worktree_path 时）。"""
+
+    def test_injection_shows_worktree_payload_path(self):
+        ctx = wp._format_injection(_state(1, worktree_path="/wt/demo"), PROJECT_ROOT)
+        assert "/wt/demo/.trace-payload-demo.md" in ctx
+
+    def test_injection_fallback_without_worktree_path(self):
+        ctx = wp._format_injection(_state(1), PROJECT_ROOT)
+        assert f"{PROJECT_ROOT}/.claude/evidence/.trace-payload-demo.md" in ctx

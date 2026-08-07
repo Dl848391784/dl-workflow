@@ -405,8 +405,9 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
         # evidence 写法（v2.14 append-trace：AI 定内容，脚本管格式/路径/结构字段；
         # v2.58 标记文本载荷——模型零接触 JSON）
         if project_root is not None:
-            ev_dir = f"{project_root}/.claude/evidence"
-            payload_path = f"{ev_dir}/.trace-payload-{name}.md"
+            # v2.125：载荷路径单源 engine.trace_payload_path（=worktree 根，
+            # 绕 .claude 写入保护目录——acceptEdits 下 Edit 旧落点必弹窗）
+            payload_path = str(engine.trace_payload_path(project_root, name, state))
             fields_word = (
                 getattr(cur, "record_format", "qa") if cur is not None else "qa"
             )

@@ -9154,7 +9154,7 @@ class TestScaffoldPayload:
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
         ok, msg = eng.scaffold_payload(tmp_path, "t")
         assert ok, msg
-        out = tmp_path / ".claude" / "evidence" / ".trace-payload-t.md"
+        out = tmp_path / ".trace-payload-t.md"
         text = out.read_text(encoding="utf-8")
         assert "【purpose】" in text and "【qa】" in text and "【结论】" in text
         # 骨架自身可被解析器读回（格式自洽）
@@ -9166,7 +9166,7 @@ class TestScaffoldPayload:
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=2)
         ok, msg = eng.scaffold_payload(tmp_path, "t")
         assert ok, msg
-        out = tmp_path / ".claude" / "evidence" / ".trace-payload-t.md"
+        out = tmp_path / ".trace-payload-t.md"
         step = eng.get_node("understand", 1).sub_steps[1]
         payload, err = eng._parse_trace_md(out.read_text(encoding="utf-8"), step)
         assert err is None
@@ -9176,7 +9176,7 @@ class TestScaffoldPayload:
         _write_state_full(tmp_path, "t", "understand", 3, sub_step=4)
         ok, msg = eng.scaffold_payload(tmp_path, "t")
         assert ok, msg
-        out = tmp_path / ".claude" / "evidence" / ".trace-payload-t.md"
+        out = tmp_path / ".trace-payload-t.md"
         step = eng.get_node("understand", 3).sub_steps[3]
         payload, err = eng._parse_trace_md(out.read_text(encoding="utf-8"), step)
         assert err is None
@@ -9184,7 +9184,7 @@ class TestScaffoldPayload:
 
     def test_scaffold_refuses_overwrite(self, tmp_path):
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
-        out = tmp_path / ".claude" / "evidence" / ".trace-payload-t.md"
+        out = tmp_path / ".trace-payload-t.md"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text("【purpose】\n在写工作\n", encoding="utf-8")
         ok, msg = eng.scaffold_payload(tmp_path, "t")
@@ -9206,7 +9206,7 @@ class TestScaffoldPayload:
         # 自动清理重新生成，不拒。
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
         self._patch_created_at(tmp_path, "t", "2099-01-01T00:00:00")
-        out = tmp_path / ".claude" / "evidence" / ".trace-payload-t.md"
+        out = tmp_path / ".trace-payload-t.md"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text("【purpose】\n上轮残留\n", encoding="utf-8")
         ok, msg = eng.scaffold_payload(tmp_path, "t")
@@ -9219,7 +9219,7 @@ class TestScaffoldPayload:
         # mtime >= created_at ⇒ 可能是本轮在写工作 ⇒ 维持拒覆盖（防抹掉）。
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
         self._patch_created_at(tmp_path, "t", "2000-01-01T00:00:00")
-        out = tmp_path / ".claude" / "evidence" / ".trace-payload-t.md"
+        out = tmp_path / ".trace-payload-t.md"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text("【purpose】\n在写工作\n", encoding="utf-8")
         ok, msg = eng.scaffold_payload(tmp_path, "t")
@@ -9233,7 +9233,7 @@ class TestScaffoldPayload:
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
         ok, _ = eng.scaffold_payload(tmp_path, "t")
         assert ok
-        out = tmp_path / ".claude" / "evidence" / ".trace-payload-t.md"
+        out = tmp_path / ".trace-payload-t.md"
         ok, msg = eng.append_trace(tmp_path, "t", str(out))
         assert not ok and "待填" in msg and "占位" in msg
 
@@ -9243,7 +9243,7 @@ class TestScaffoldPayload:
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
         ok, _ = eng.scaffold_payload(tmp_path, "t")
         assert ok
-        out = tmp_path / ".claude" / "evidence" / ".trace-payload-t.md"
+        out = tmp_path / ".trace-payload-t.md"
         text = out.read_text(encoding="utf-8")
         text = text.replace("待填：本步目的/本轮做了什么（一句话）", "逼问问题定义")
         text = text.replace("待填：问题1", "who=当前提问者身份？")
@@ -9461,16 +9461,14 @@ class TestIngestAgentReport:
     def _scaffold(self, tmp_path):
         ok, msg = eng.scaffold_payload(tmp_path, "t")
         assert ok, msg
-        return tmp_path / ".claude" / "evidence" / ".trace-payload-t.md"
+        return tmp_path / ".trace-payload-t.md"
 
     def test_ingest_redteam_happy(self, tmp_path, monkeypatch):
         self._mk(tmp_path, monkeypatch, sub_step=4)
         self._scaffold(tmp_path)
         ok, msg = eng.ingest_agent_report(tmp_path, "t", "abc123")
         assert ok, msg
-        text = (tmp_path / ".claude" / "evidence" / ".trace-payload-t.md").read_text(
-            encoding="utf-8"
-        )
+        text = (tmp_path / ".trace-payload-t.md").read_text(encoding="utf-8")
         assert "红队输出原文收录（task-id abc123）" in text
         assert "verdict: 部分成立" in text
         # 收录项插在 qa 节内（解析回读自洽：进 qa 不进别的节）
@@ -9485,9 +9483,7 @@ class TestIngestAgentReport:
         self._scaffold(tmp_path)
         ok, _ = eng.ingest_agent_report(tmp_path, "t", "abc123")
         assert ok
-        text = (tmp_path / ".claude" / "evidence" / ".trace-payload-t.md").read_text(
-            encoding="utf-8"
-        )
+        text = (tmp_path / ".trace-payload-t.md").read_text(encoding="utf-8")
         assert "蒸馏报告原文收录（task-id abc123）" in text
 
     def test_ingest_inserts_before_extra_keys_section(self, tmp_path, monkeypatch):
@@ -9496,9 +9492,7 @@ class TestIngestAgentReport:
         self._scaffold(tmp_path)
         ok, _ = eng.ingest_agent_report(tmp_path, "t", "abc123")
         assert ok
-        text = (tmp_path / ".claude" / "evidence" / ".trace-payload-t.md").read_text(
-            encoding="utf-8"
-        )
+        text = (tmp_path / ".trace-payload-t.md").read_text(encoding="utf-8")
         step = eng.get_node("understand", 1).sub_steps[1]
         payload, err = eng._parse_trace_md(text, step)
         assert err is None
@@ -9719,7 +9713,7 @@ class TestCLIIntermixedArgs:
         # 本次报错的逐字形态：optional 在 name 前
         rc = eng.main(["append-trace", "--scaffold", "t", "--cwd", str(tmp_path)])
         assert rc == 0
-        assert (tmp_path / ".claude" / "evidence" / ".trace-payload-t.md").exists()
+        assert (tmp_path / ".trace-payload-t.md").exists()
 
     def test_from_file_value_before_name(self, tmp_path, capsys):
         _init_git(tmp_path)
@@ -9819,3 +9813,34 @@ class TestOptionDesignRule:
         assert "动作类" in step.purpose  # 正面范例披露（§3.5 #16 禁 prohibition-only）
         assert "动作类" in step.selfcheck
         assert "answer_no_reverse_inference" in step.mech_checks
+
+
+class TestTracePayloadPath:
+    """v2.125：载荷路径单源——state 有 worktree_path 落 worktree 根（出 .claude
+    写入保护目录；acceptEdits 下 Edit 旧落点必弹窗），缺失则兜底旧 evidence 路径。"""
+
+    def test_worktree_path_present_lands_in_worktree_root(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        p = eng.trace_payload_path(tmp_path, "t")
+        assert p == tmp_path / ".trace-payload-t.md"
+
+    def test_missing_worktree_path_falls_back_to_evidence_dir(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        st = json.loads(
+            (tmp_path / ".claude" / "workflows" / "t" / "state.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        del st["worktree_path"]
+        (tmp_path / ".claude" / "workflows" / "t" / "state.json").write_text(
+            json.dumps(st), encoding="utf-8"
+        )
+        p = eng.trace_payload_path(tmp_path, "t")
+        assert p == tmp_path / ".claude" / "evidence" / ".trace-payload-t.md"
+
+    def test_s11_allows_payload_at_worktree_root(self, tmp_path):
+        # S11 phase 写围栏：understand 阶段写 worktree 根的载荷文件须放行
+        # （旧白名单只认 .claude+evidence 路径段，新落点靠文件名豁免）。
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        fp = str(tmp_path / ".trace-payload-t.md")
+        assert eng.phase_write_denial(tmp_path, "t", fp) is None

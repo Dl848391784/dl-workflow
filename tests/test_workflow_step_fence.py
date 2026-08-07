@@ -263,7 +263,7 @@ class TestS15EngagePreFence:
         # 格式归脚本（四桶），模型只 Edit 「待填」填内容。tail_volume u:1 子1
         # 绕过 scaffold 手写粘头载荷致解析失败+字节 hunt 死循环 8 报错。
         _write_state(wf_repo, sub_step=1)
-        payload = wf_repo / ".claude" / "evidence" / ".trace-payload-t.md"
+        payload = wf_repo / ".claude" / "worktrees" / "t" / ".trace-payload-t.md"
         mod = _load_hook()
         decision, reason = _run_hook(
             mod,
@@ -280,7 +280,7 @@ class TestS15EngagePreFence:
         # v2.66：Edit 载荷（填「待填」）合法放行——scaffold 生成骨架后模型只
         # Edit 填内容，这是唯一合法的载荷修改方式。
         _write_state(wf_repo, sub_step=1)
-        payload = wf_repo / ".claude" / "evidence" / ".trace-payload-t.md"
+        payload = wf_repo / ".claude" / "worktrees" / "t" / ".trace-payload-t.md"
         mod = _load_hook()
         decision, _ = _run_hook(
             mod,
