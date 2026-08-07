@@ -37,3 +37,11 @@ wf_write_settings 模板（dl-lib.sh）allow 补两条路径规则，与既有
 - 全量 pytest 绿。
 - 下轮/当前会话 `--resume` 后：Read 主仓 .claude/ 不再弹窗（cc_debug.log 无
   `Permission suggestions for Read`）。
+
+## v6 增量（2026-08-07 同日二次实证）
+
+Bash 只读命令（find/grep）触及 cwd 外主仓路径时过**路径级检查**，命令头
+白名单管不住——harness 对 `find /主仓 ...` 自建议 `Read(//主仓/**)`。
+Read 规则从 `.claude/**` 放宽到主仓全树（只读，威胁模型不变）；
+Edit 刻意不放宽——主仓源码编辑保持弹窗 = 守卫（编辑目标是 worktree）。
+模板版本 5→6。

@@ -237,6 +237,10 @@ wf_state_mark_artifact() {
 #   协议读主仓 .claude/（evidence/产物，cwd 外绝对路径）每次弹窗（实测
 #   permissionDecisionMs=28.5s）。补 Read(//主仓/.claude/**) + Read(//~/.dl-workflow/**)
 #   两条只读路径规则（与 Edit 路径规则同构；Read 只读，风险低于既有 Edit 规则）。
+#   v6（2026-08-07 同日二次实证）：Bash 只读命令（find/grep 等）触及 cwd 外
+#   主仓路径时过路径级检查，命令头白名单管不住（harness 自建议
+#   Read(//主仓/**)）——Read 规则放宽到主仓全树（只读，威胁模型不变）。
+#   Edit 规则刻意不放宽：主仓源码编辑保持弹窗=守卫（编辑目标是 worktree）。
 # 威胁模型 = 弱遵从而非对抗（SKILL 症状 O 原则 4），宽白名单可接受。
 # 覆盖三类（2026-07-30 tail_volume 会话 116 次 Bash + 66 次 Write 实测归集）：
 #   ① 编排命令：dl-cmd.sh 全子命令 / dl_flow_engine.py / sqlite3 / codegraph；
@@ -264,7 +268,7 @@ wf_write_settings() {
       "Edit",
       "MultiEdit",
       "Edit(//${WF_REPO_ROOT#/}/.claude/**)",
-      "Read(//${WF_REPO_ROOT#/}/.claude/**)",
+      "Read(//${WF_REPO_ROOT#/}/**)",
       "Read(//${HOME#/}/.dl-workflow/**)",
       "AskUserQuestion",
       "WebFetch",

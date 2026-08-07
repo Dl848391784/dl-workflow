@@ -78,8 +78,11 @@ SUB_STEP_BLOCK_ESCALATE = 3
 # （2026-08-01 understand:1 审计：24 次裁决 316.6s 全 allow 纯税，其中
 # AskUserQuestion 3 次均值 46.2s 被误归因为用户思考时间）。
 SETTINGS_TEMPLATE_VERSION = (
-    5  # v5：补 Read(//主仓/.claude/**) + Read(//~/.dl-workflow/**)
+    6  # v6：Read 放宽到主仓全树 Read(//主仓/**)——Bash 只读命令触及 cwd 外
 )
+# 主仓路径时过路径级检查，命令头白名单管不住（2026-08-07 实测 harness 自建议
+# 该规则）。Edit 刻意不放宽：主仓源码编辑保持弹窗=守卫（编辑目标是 worktree）。
+# v5：补 Read(//主仓/.claude/**) + Read(//~/.dl-workflow/**)
 # ——acceptEdits 不覆盖 Read，模型按编排协议读主仓 .claude/（cwd 外）每次弹窗
 # （2026-08-07 实测 permissionDecisionMs=28.5s）。
 # v4：删死规则 Write(//path)（文件权限只认 Edit(path)，
