@@ -84,3 +84,53 @@ class TestBuildInjection:
 
     def test_missing_state_silent(self, tmp_path):
         assert ws.build_injection(tmp_path, "t", "clear") is None
+
+
+class TestHandoffResolution:
+    """v2.122：source=clear 且存在未决 handoff_prompt -> 记 cleared（§2.2）。
+
+    startup 不计（新进程启动未必是响应提示的主动清理，宁纵勿枉留到下一边界
+    记 declined）；无未决 prompt 的 clear 不产生记录。
+    """
+
+    def _pending_prompt(self, tmp_path: Path) -> None:
+        rec = {
+            "kind": "handoff_prompt",
+            "node": "understand:1",
+            "major_stage": "Understand",
+            "minor_stage": "ProblemContext",
+            "est": 220_000,
+            "tier": "suggest",
+            "ts": "2026-08-07T10:00:00",
+        }
+        with open(
+            tmp_path / ".claude" / "evidence" / "t.jsonl", "a", encoding="utf-8"
+        ) as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+    def _events(self, tmp_path: Path) -> list[dict]:
+        p = tmp_path / ".claude" / "evidence" / "t.jsonl"
+        return [
+            json.loads(line)
+            for line in p.read_text().splitlines()
+            if "handoff_" in line
+        ]
+
+    def test_clear_resolves_pending_prompt(self, tmp_path):
+        _setup_wf(tmp_path)
+        self._pending_prompt(tmp_path)
+        assert ws.build_injection(tmp_path, "t", "clear") is not None
+        recs = self._events(tmp_path)
+        assert [r["kind"] for r in recs] == ["handoff_prompt", "handoff_resolution"]
+        assert recs[1]["choice"] == "cleared" and recs[1]["node"] == "understand:1"
+
+    def test_startup_does_not_resolve(self, tmp_path):
+        _setup_wf(tmp_path)
+        self._pending_prompt(tmp_path)
+        assert ws.build_injection(tmp_path, "t", "startup") is not None
+        assert [r["kind"] for r in self._events(tmp_path)] == ["handoff_prompt"]
+
+    def test_clear_without_pending_no_record(self, tmp_path):
+        _setup_wf(tmp_path)
+        assert ws.build_injection(tmp_path, "t", "clear") is not None
+        assert self._events(tmp_path) == []

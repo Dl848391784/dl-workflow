@@ -4,8 +4,10 @@ SessionStart hook：/clear（或启动）时注入工作流交接包（v2.45）�
 
 对应设计 designs/context-handoff-design.md §2。
 主会话成本 = 轮次 × 上下文长度，会话不重置则平方膨胀（u:1 实测 54k->283k）。
-交接架构：用户按 nudge /clear 后，本 hook 在新会话注入机械装配的交接包
+交接架构：用户按边界提示 /clear 后，本 hook 在新会话注入机械装配的交接包
 （engine.handoff_pack：前序证据 + 用户裁决 + 产物指针），接续零损失。
+v2.122：source=clear 且存在未决 handoff_prompt 时机械记 choice=cleared
+（minor-boundary-handoff-prompt-design §2.2——用户选择留痕供事后审计）。
 
 触发面：
 - source=clear：工作流运行中 -> 注入交接包。
@@ -34,7 +36,7 @@ from workflow_phase import (  # noqa: E402
     _resolve_workflow_name,
 )
 
-# 交接注入只在这两个 source 触发：clear=用户按 nudge 换上下文；
+# 交接注入只在这两个 source 触发：clear=用户按边界提示换上下文；
 # startup=新进程启动（首启无 trace 自然静默，重建后启动则须补交接包）。
 # resume=上下文完整恢复，compact=已压缩保留——注入=重复税。
 _HANDOFF_SOURCES = ("clear", "startup")
@@ -47,6 +49,12 @@ def build_injection(project_root: Path, name: str, source: str) -> str | None:
     state = _load_state(project_root, name)
     if not state:
         return None
+    if source == "clear":
+        # v2.122：边界提示后用户 /clear -> 未决 handoff_prompt 记 cleared
+        # （无未决则无操作非失败；写失败不阻断注入，宁纵勿枉）。
+        # startup 不计：新进程启动可能是重建/换机场景，未必是响应提示的主动
+        # 清理；该 prompt 留到下一边界记 declined 更接近事实（宁纵勿枉）。
+        engine.write_handoff_resolution(project_root, name, choice="cleared")
     pack = engine.handoff_pack(project_root, name)
     if pack is None:
         return None

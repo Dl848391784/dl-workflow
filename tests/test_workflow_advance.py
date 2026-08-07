@@ -409,8 +409,12 @@ class TestP4PhaseDoneFallthrough:
         assert st["phase"] == "plan"
 
 
-class TestHandoffNudge:
-    """v2.45 /clear nudge：超阈值才附、读不到 usage 不附（宁纵勿枉）、纯建议。"""
+class TestHandoffBoundaryPrompt:
+    """v2.122 子阶段边界固定交接提示（minor-boundary-handoff-prompt-design §2.1）。
+
+    与 v2.45 nudge 的行为差：边界固定出现（阈值只定文案档位，不再决定出现与否）、
+    发出即机械留痕 handoff_prompt（上次未决先补记 declined）、全软无硬拦。
+    """
 
     def _transcript(self, tmp_path, cache_read):
         tp = tmp_path / "s.jsonl"
@@ -427,29 +431,82 @@ class TestHandoffNudge:
         tp.write_text(json.dumps(rec) + "\n", encoding="utf-8")
         return str(tp)
 
-    def test_over_threshold_nudges(self, tmp_path):
-        mod = _load_hook()
-        tp = self._transcript(tmp_path, mod.engine.HANDOFF_NUDGE_THRESHOLD + 10_000)
-        nudge = mod._handoff_nudge(tp)
-        assert "交接" in nudge and "/clear" in nudge
+    def _prompt(self, mod, tmp_path, cache_read, project_root=None, variant="continue"):
+        node = mod.engine.get_node("understand", 1)
+        return mod._handoff_boundary_prompt(
+            project_root,
+            "t",
+            node,
+            self._transcript(tmp_path, cache_read),
+            variant=variant,
+        )
 
-    def test_under_threshold_silent(self, tmp_path):
+    def test_tier_ok_copy(self, tmp_path):
         mod = _load_hook()
-        tp = self._transcript(tmp_path, mod.engine.HANDOFF_NUDGE_THRESHOLD - 60_000)
-        assert mod._handoff_nudge(tp) == ""
+        text = self._prompt(mod, tmp_path, mod.engine.HANDOFF_PROMPT_T1 - 60_000)
+        assert "健康" in text and "/clear" in text and "强烈" not in text
 
-    def test_missing_transcript_silent(self, tmp_path):
+    def test_tier_suggest_copy(self, tmp_path):
         mod = _load_hook()
-        assert mod._handoff_nudge(str(tmp_path / "nope.jsonl")) == ""
-        assert mod._handoff_nudge("") == ""
+        text = self._prompt(mod, tmp_path, mod.engine.HANDOFF_PROMPT_T1 + 10_000)
+        assert "建议" in text and "强烈" not in text and "选择不清" in text
 
-    def test_nudge_appended_to_pass_continue(self, tmp_path, capsys):
+    def test_tier_strong_copy(self, tmp_path):
+        mod = _load_hook()
+        text = self._prompt(mod, tmp_path, mod.engine.HANDOFF_PROMPT_T2 + 100_000)
+        assert "强烈建议" in text and "倍" in text
+
+    def test_missing_transcript_degraded_copy(self, tmp_path):
         mod = _load_hook()
         node = mod.engine.get_node("understand", 1)
-        mod._sub_step_continue("子步骤 1", node, 2, extra="\n🔄 NUDGE_MARK")
+        text = mod._handoff_boundary_prompt(None, "t", node, str(tmp_path / "x.jsonl"))
+        assert "读不到上下文估算" in text and "/clear" in text
+
+    def test_gate_variant_copy(self, tmp_path):
+        mod = _load_hook()
+        text = self._prompt(
+            mod, tmp_path, mod.engine.HANDOFF_PROMPT_T1 + 10_000, variant="gate"
+        )
+        assert "先 /clear 再 /dl gate" in text and "直接 /dl gate" in text
+
+    def test_prompt_written_to_evidence(self, tmp_path):
+        mod = _load_hook()
+        self._prompt(mod, tmp_path, 200_000, project_root=tmp_path)
+        recs = [
+            json.loads(line)
+            for line in (tmp_path / ".claude/evidence/t.jsonl").read_text().splitlines()
+        ]
+        assert len(recs) == 1
+        assert recs[0]["kind"] == "handoff_prompt"
+        assert recs[0]["tier"] == "suggest"
+        assert recs[0]["est"] == 200_200  # input 200 + cache_read 200_000
+        assert recs[0]["major_stage"] == "Understand"
+        assert recs[0]["minor_stage"] == "ProblemContext"
+
+    def test_second_prompt_backfills_declined(self, tmp_path):
+        mod = _load_hook()
+        self._prompt(mod, tmp_path, 200_000, project_root=tmp_path)
+        self._prompt(mod, tmp_path, 400_000, project_root=tmp_path)
+        kinds = [
+            json.loads(line)["kind"]
+            for line in (tmp_path / ".claude/evidence/t.jsonl").read_text().splitlines()
+        ]
+        assert kinds == ["handoff_prompt", "handoff_resolution", "handoff_prompt"]
+
+    def test_no_record_without_project_root(self, tmp_path):
+        mod = _load_hook()
+        self._prompt(mod, tmp_path, 200_000, project_root=None)
+        assert not (tmp_path / ".claude/evidence/t.jsonl").exists()
+
+    def test_prompt_text_appended_to_pass_continue(self, tmp_path, capsys):
+        mod = _load_hook()
+        node = mod.engine.get_node("understand", 1)
+        mod._sub_step_continue(
+            "子阶段「X」的全部子步骤", node, 1, extra="\n🔄 PROMPT_MARK"
+        )
         out = json.loads(capsys.readouterr().out)
         body = out["hookSpecificOutput"]["additionalContext"]
-        assert body.endswith("🔄 NUDGE_MARK")
+        assert body.endswith("🔄 PROMPT_MARK")
 
 
 class TestPendingBackgroundAgent:

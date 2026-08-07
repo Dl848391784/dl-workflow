@@ -1,6 +1,6 @@
 # 子阶段边界固定交接提示设计（minor-boundary handoff prompt，2026-08-07）
 
-> 状态：设计中。本文件为 H8 Design-First 产物。目标版本 v2.122。
+> 状态：**已落地（v2.122，2026-08-07）**。本文件为 H8 Design-First 产物。
 > 父文档：`context-handoff-design.md`（其 §2「成本自适应 nudge」策略由本设计**取代**；交接包/SessionStart 注入/裁决入 trace 等机制部分不变）、`artifact-handoff-hardening-design.md` §0（「主动有损替代被动有损」用户设想真源）。
 > 用户决议（2026-08-07 会话）：①**固定边界提示替代阈值触发**——阈值在任意步中命中「很割裂」，固定边界有节奏感；②粒度 = **minor_state（子阶段）边界**；③**不保留阈值硬拦**——全软提示，用户全程自主（「一直点继续跑出 490k」是被接受的自主代价，留痕供事后审计）；④不用 AskUserQuestion 做提示（见 §3 #1）。
 
@@ -115,9 +115,9 @@ HANDOFF_PROMPT_T2 = 300_000  # T1~T2：建议清理；> T2：强烈建议
 ## 6. 实施 checklist（按 H9 分小 commit）
 
 1. ✅ 本设计文档（1 文件）。
-2. `dl_flow_engine.py`：HANDOFF_PROMPT_T1/T2 常量（退役 HANDOFF_NUDGE_THRESHOLD）+ `write_handoff_event()` helper + tests。
-3. `hooks/workflow_advance.py`：`_handoff_nudge` → `_handoff_boundary_prompt`（分档文案 + 留痕调用），挂载点 A/B/C 接入、:493 步内挂载移除；逐出口核实整阶段节点路径（挂载点 D）并接入。
-4. `hooks/workflow_session.py`：source=clear 时未决 prompt → cleared resolution。
-5. tests：分档三向 + est None 降级 + 挂载点出现/不出现双向 + 留痕三态（cleared/declined/无 pending）+ evidence_show 兼容确认。
-6. 历史 transcript 复跑分档脚本（§0 同款），确认 T1/T2 在别的会话不塌缩到单一档。
+2. ✅ `dl_flow_engine.py`：HANDOFF_PROMPT_T1/T2 常量（退役 HANDOFF_NUDGE_THRESHOLD）+ `handoff_tier`/`write_handoff_prompt`/`write_handoff_resolution`/`_last_handoff_event` + tests（TestHandoffEvents 6 例）。
+3. ✅ `hooks/workflow_advance.py`：`_handoff_nudge` → `_handoff_boundary_prompt`（分档文案 + 留痕调用），挂载点 A（跨子阶段续轮）/B（门栏扣留，gate 变体）/C（无编排节点停轮）/D1（SUB_DONE 推进）/D2（大闸门待放行，gate 变体）/D3（阶段切换，evolution 终结除外）接入；步内挂载（原 :493）移除。
+4. ✅ `hooks/workflow_session.py`：source=clear 时未决 prompt → cleared resolution（放 build_injection——测试面契约所在；startup 明确不计，宁纵勿枉）。
+5. ✅ tests：分档三向 + est None 降级 + gate 变体 + 留痕三态（cleared/declined/无 pending 无操作）+ evidence 他类记录干扰免疫，828 全绿（814+14）。
+6. ✅ 历史 transcript 复跑（23 个 tail_volume 会话）：三档全员出现——轻会话（峰值 <150k）全 ok 零打扰，重会话 suggest/strong 为主，阈值不塌缩。
 7. merge 回 main 后真机 dogfood：tail_volume plan:4 → execute 边界观察提示出现 + 留痕落库。

@@ -270,22 +270,56 @@ def _sub_step_continue(
     )
 
 
-def _handoff_nudge(transcript_path: str) -> str:
-    """上下文交接建议（v2.45，context-handoff-design §2）：超阈值才附，纯建议非围栏。
+def _handoff_boundary_prompt(
+    project_root: Path | None,
+    name: str,
+    node: "engine.Node",
+    transcript_path: str,
+    variant: str = "continue",
+) -> str:
+    """子阶段边界固定交接提示（v2.122，minor-boundary-handoff-prompt-design §2.1）。
 
-    成本公式 = 轮次 × 上下文长度——会话不重置则平方膨胀。/clear 换全新
-    上下文后 SessionStart hook 自动注入交接包（前序证据+用户裁决+产物
-    指针），接续零损失。读不到 usage -> 空串（宁纵勿枉，不 nudge）。
+    节点末步过门控的边界固定出现——阈值不再决定出现与否（v2.45 nudge 阈值
+    触发在 tail_volume 实测 8/8 边界触发、0 次执行 = 按阈值出现的纯建议等于
+    不存在），只定文案档位：<T1 健康 / T1~T2 建议 / >T2 强烈建议。全软提示
+    无硬拦（2026-08-07 用户决议：用户全程自主，阈值硬拦明确否决）；用户选择
+    由 engine.write_handoff_prompt 机械留痕（上次未决先补记 declined），
+    事后审计「提示几次/清几次」可量化。est 读不到 -> 无数字降级版（宁纵勿枉）。
+    variant=gate：边界停在 /dl gate 待放行（下一动作是放行而非回「继续」）。
+    /clear 无程序化入口（harness 只从键盘解释），正确时刻的提示是系统能做的全部。
     """
     est = engine.estimate_context_tokens(transcript_path)
-    if est is None or est < engine.HANDOFF_NUDGE_THRESHOLD:
-        return ""
+    tier = engine.handoff_tier(est)
+    if project_root is not None:
+        engine.write_handoff_prompt(project_root, name, node, est=est, tier=tier)
+    if variant == "gate":
+        clear_act = "先 /clear 再 /dl gate（state 在磁盘，clear 不影响放行）"
+        plain_act = "直接 /dl gate"
+    else:
+        clear_act = "/clear 后回「继续」"
+        plain_act = "回「继续」"
+    if est is None:
+        return (
+            "\n🔄 子阶段边界：读不到上下文估算。如本会话已跑很久，建议"
+            f"{clear_act}——交接包（前序证据+用户裁决+产物指针）自动注入，"
+            f"接续零损失；{plain_act} = 选择不清。"
+        )
+    k = est // 1000
+    if tier == "ok":
+        return (
+            f"\n🔄 子阶段边界：上下文约 {k}k，健康。{plain_act}即可；"
+            f"也可{clear_act}，交接包自动注入，接续零损失。"
+        )
+    if tier == "suggest":
+        return (
+            f"\n🔄 子阶段边界：上下文约 {k}k。建议{clear_act}——后续每轮都"
+            "全量重读当前上下文；清理后从 ~45k 重新起步，交接包（前序证据+"
+            f"用户裁决+产物指针）自动注入，接续零损失。{plain_act} = 选择不清。"
+        )
     return (
-        f"\n🔄 上下文交接建议（纯建议，非围栏）：当前会话上下文已约 "
-        f"{est // 1000}k tokens（阈值 {engine.HANDOFF_NUDGE_THRESHOLD // 1000}k），"
-        "后续每轮都全量重读它。建议 /clear 后回复「继续」——交接包"
-        "（前序证据+用户裁决+产物指针）会在新会话自动注入，接续零损失；"
-        "不清也完全可行，只是后续更贵。"
+        f"\n🔄 子阶段边界：上下文已约 {k}k，每轮成本约为清理后的 "
+        f"{max(est // 45_000, 2)} 倍。强烈建议{clear_act}（交接包自动注入，"
+        f"接续零损失）；{plain_act} = 选择不清。"
     )
 
 
@@ -333,7 +367,7 @@ def main() -> int:
         return 0
     state = engine.normalize_state(state)
 
-    # v2.45：早提取 transcript_path 供 pass 续轮的 /clear nudge 估算上下文
+    # v2.45/v2.122：早提取 transcript_path 供边界交接提示估算上下文
     # （后方 PHASE_DONE 分支另有同款提取，幂等不冲突）。
     transcript_path = ""
     for key in ("transcript_path", "transcriptPath", "transcript"):
@@ -450,6 +484,9 @@ def main() -> int:
                     f"✓ 子步骤 {judged_step} 通过门控 —— {cur_node0.label} 全部子步骤完成\n"
                     "⛔ 子阶段门栏：进下一子阶段需用户裁决。\n"
                     "  输入 /dl gate 放行；或 /dl back 回退、/dl state-reset <n> 重测。"
+                    + _handoff_boundary_prompt(
+                        project_root, name, cur_node0, transcript_path, variant="gate"
+                    )
                 )
                 return 0
             new_sub = (st or {}).get("sub_index", cur_sub)
@@ -476,9 +513,16 @@ def main() -> int:
                         f"子阶段「{cur_node0.label}」的全部子步骤",
                         nxt_node,
                         1,
-                        extra=_handoff_nudge(transcript_path),
+                        extra=_handoff_boundary_prompt(
+                            project_root, name, cur_node0, transcript_path
+                        ),
                     )
-                _emit(f"✓ 子步骤 {judged_step} 通过门控 -> 子阶段推进")
+                _emit(
+                    f"✓ 子步骤 {judged_step} 通过门控 -> 子阶段推进"
+                    + _handoff_boundary_prompt(
+                        project_root, name, cur_node0, transcript_path
+                    )
+                )
                 return 0
             # ⚠ stdout 必须是纯 JSON（harness 整体解析）——✓ 行走 stderr，
             # 混一行非 JSON 文本会让 additionalContext 被整段丢弃（demo 2026-07-25 实测：
@@ -490,7 +534,6 @@ def main() -> int:
                 f"子步骤 {judged_step}",
                 cur_node0,
                 nxt,
-                extra=_handoff_nudge(transcript_path),
             )
         else:
             # block / escalate：同轮返工（S4/S7）
@@ -640,6 +683,7 @@ def main() -> int:
             f"\n┌─ WORKFLOW · {name} · {engine.PHASE_LABELS.get(cur_phase, cur_phase)} 子阶段推进\n"
             f"│ {n}. {node.label}  ──►  {n + 1}. {engine.get_node(cur_phase, n + 1).label}"
             f"  [{n + 1}/{sub_total}]"
+            + _handoff_boundary_prompt(project_root, name, node, transcript_path)
         )
         _log(project_root, "sub_advanced", wf=name, phase=cur_phase, frm=n, to=n + 1)
         return 0
@@ -727,6 +771,9 @@ def main() -> int:
                 f"\n┌─ WORKFLOW · {name} · {engine.PHASE_LABELS.get(cur_phase, cur_phase)} 完成，闸门待放行\n"
                 f"│ 已完成（gate 通过），但进 {engine.PHASE_LABELS.get(nxt, nxt)} 需闸门放行。\n"
                 f"│ 输入 /dl gate 放行，或 /dl next 强制推进。"
+                + _handoff_boundary_prompt(
+                    project_root, name, node, transcript_path, variant="gate"
+                )
             )
             _log(project_root, "gated_block", wf=name, phase=cur_phase, gate=gate)
             return 0
@@ -741,6 +788,12 @@ def main() -> int:
         f"\n╔═ WORKFLOW · {name} · 阶段切换\n"
         f"║ {engine.PHASE_LABELS.get(cur_phase, cur_phase)}  ──►  "
         f"{engine.PHASE_LABELS.get(new_state['phase'], new_state['phase'])}"
+        # evolution 终结 = 无下一边界，不附交接提示
+        + (
+            ""
+            if cur_phase == "evolution"
+            else _handoff_boundary_prompt(project_root, name, node, transcript_path)
+        )
     )
     _log(project_root, "advanced", wf=name, frm=cur_phase, to=new_state["phase"])
     return 0
