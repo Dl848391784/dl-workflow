@@ -241,6 +241,11 @@ wf_state_mark_artifact() {
 #   主仓路径时过路径级检查，命令头白名单管不住（harness 自建议
 #   Read(//主仓/**)）——Read 规则放宽到主仓全树（只读，威胁模型不变）。
 #   Edit 规则刻意不放宽：主仓源码编辑保持弹窗=守卫（编辑目标是 worktree）。
+#   v7（同日三次实证）：两轮真实运行 transcript 全量命令头挖掘补尾——
+#   路径形态调用盖不住前缀规则（codegraph/venv python/.local pytest 的绝对
+#   或相对路径形态）+ 名单外常用头（xargs/tr/comm/od/xxd/env/sleep）。
+#   刻意不加 rm/dd/sudo：破坏性命令保留弹窗=弱模型幻觉刹车（正向名单
+#   可收敛，deny 反向名单是打地鼠）。env 前缀形态规则语法不支持=已知残余。
 # 威胁模型 = 弱遵从而非对抗（SKILL 症状 O 原则 4），宽白名单可接受。
 # 覆盖三类（2026-07-30 tail_volume 会话 116 次 Bash + 66 次 Write 实测归集）：
 #   ① 编排命令：dl-cmd.sh 全子命令 / dl_flow_engine.py / sqlite3 / codegraph；
@@ -303,7 +308,20 @@ wf_write_settings() {
       "Bash(pytest:*)",
       "Bash(ruff:*)",
       "Bash(mypy:*)",
-      "Bash(git:*)"
+      "Bash(git:*)",
+      "Bash(xargs:*)",
+      "Bash(tr:*)",
+      "Bash(comm:*)",
+      "Bash(od:*)",
+      "Bash(xxd:*)",
+      "Bash(env:*)",
+      "Bash(sleep:*)",
+      "Bash(venv/bin/python:*)",
+      "Bash(.venv/bin/python:*)",
+      "Bash(${WF_REPO_ROOT}/venv/bin/python:*)",
+      "Bash(${WF_REPO_ROOT}/.venv/bin/python:*)",
+      "Bash(${HOME}/.local/bin/pytest:*)",
+      "Bash(${HOME}/.npm-global/bin/codegraph:*)"
     ]
   },
   "hooks": {
