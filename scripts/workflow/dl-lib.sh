@@ -233,6 +233,10 @@ wf_state_mark_artifact() {
 #   defaultMode 压不住持久化的 auto）；本白名单退居 Bash 短路与非 acceptEdits 兜底。
 #   另：`Write(//path/**)` 路径规则是死规则（启动警告：文件权限只认 Edit(path)
 #   规则）——v4 模板已删，cwd 外写主仓 .claude/ 由 Edit(//...) 覆盖。
+#   v5（2026-08-07 acceptEdits 重跑实测）：acceptEdits 不覆盖 Read——模型按编排
+#   协议读主仓 .claude/（evidence/产物，cwd 外绝对路径）每次弹窗（实测
+#   permissionDecisionMs=28.5s）。补 Read(//主仓/.claude/**) + Read(//~/.dl-workflow/**)
+#   两条只读路径规则（与 Edit 路径规则同构；Read 只读，风险低于既有 Edit 规则）。
 # 威胁模型 = 弱遵从而非对抗（SKILL 症状 O 原则 4），宽白名单可接受。
 # 覆盖三类（2026-07-30 tail_volume 会话 116 次 Bash + 66 次 Write 实测归集）：
 #   ① 编排命令：dl-cmd.sh 全子命令 / dl_flow_engine.py / sqlite3 / codegraph；
@@ -260,6 +264,8 @@ wf_write_settings() {
       "Edit",
       "MultiEdit",
       "Edit(//${WF_REPO_ROOT#/}/.claude/**)",
+      "Read(//${WF_REPO_ROOT#/}/.claude/**)",
+      "Read(//${HOME#/}/.dl-workflow/**)",
       "AskUserQuestion",
       "WebFetch",
       "Agent",
