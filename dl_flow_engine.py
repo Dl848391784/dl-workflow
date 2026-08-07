@@ -719,6 +719,31 @@ def gate_verdict_mech(
     return None
 
 
+def assembly_obligation_hint(
+    node: Node, project_root: Path | None, name: str | None
+) -> str | None:
+    """装配步硬提醒（workflow_phase 注入用，v2.123）。None=无义务/降级不出。
+
+    背景（tail_volume 2026-08-06 审计）：装配义务埋在末步长 purpose 中段，
+    一轮内 4/4 装配步首忘（u:4#5/plan:2#5/plan:3#6/plan:4#5 全吃「产物未落地/
+    缺节」机械 block，各白返工一轮全上下文）。在 ▶ 当前步块后单列一行钉死。
+    与 gate_verdict_mech 同降级口径（宁纵勿枉）：无 ARTIFACT 机械门、
+    name/project_root 缺失、产物标识非单文件 -> None。
+    """
+    if node.gate_mech not in (GateMech.ARTIFACT_EXISTS, GateMech.ARTIFACT_CONTAINS):
+        return None
+    if project_root is None or name is None:
+        return None
+    f = _artifact_file(node, project_root, name)
+    if f is None:
+        return None
+    return (
+        "- ⚠ 本步有装配义务：STEP_DONE 前必须先跑 `python3 "
+        f"~/.dl-workflow/dl_flow_engine.py render-artifact {node.artifact}`"
+        f"（机械装配落 `{f}`，禁手写产物）——忘跑 = gate 机械校验必 block，白返工一轮"
+    )
+
+
 def rubric_needs_evidence(node: Node) -> bool:
     """节点的 gate_rubric 是否依赖 evidence.jsonl（决定 hook 要否读文件喂 judge）。
 

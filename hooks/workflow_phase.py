@@ -370,6 +370,15 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
                 f"  目的：{cur.purpose}\n"
                 f"  {inp} ｜{rec}{gate_tag}"
             )
+            # v2.123：装配步硬提醒——装配义务埋在末步长 purpose 中段被 4/4 首忘
+            # （tail_volume 2026-08-06：u:4#5/plan:2#5/plan:3#6/plan:4#5 全吃机械
+            # block 各白返工一轮）。末步且挂 ARTIFACT 机械门时单列一行钉在 ▶ 块后。
+            if cur_step == total_steps:
+                hint = engine.assembly_obligation_hint(
+                    node, project_root, state.get("name")
+                )
+                if hint:
+                    lines.append(hint)
         chain_parts = []
         for i, stp in enumerate(node.sub_steps, 1):
             if i < cur_step:

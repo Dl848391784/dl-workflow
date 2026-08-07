@@ -275,3 +275,57 @@ class TestArtifactSectionsSync:
         for secs in wp.engine.ARTIFACT_SECTIONS.values():
             for s in secs:
                 assert s in text
+
+
+class TestAssemblyStepReminder:
+    """v2.123：装配步硬提醒——当前步=节点末步且节点挂 ARTIFACT 机械门时，
+    注入单列一行 render-artifact 命令（钉在 ▶ 当前步块后）。
+
+    背景（tail_volume 2026-08-06 审计）：装配义务埋在末步长 purpose 中段，
+    一轮内 4/4 装配步首忘（u:4#5/plan:2#5/plan:3#6/plan:4#5 全吃
+    「产物未落地/缺节」机械 block，各白返工一轮）。提醒与 gate 同降级口径：
+    产物标识非单文件/路径缺失 -> 不出提醒（宁纵勿枉）。
+    """
+
+    def test_last_step_of_gated_node_shows_reminder(self):
+        ctx = wp._format_injection(
+            _state(5, sub_index=4, node="understand:4"), PROJECT_ROOT
+        )
+        assert "装配义务" in ctx
+        assert "render-artifact understand.md" in ctx
+        assert f"{PROJECT_ROOT}/.claude/understands/demo.md" in ctx
+
+    def test_plan2_last_step_reminder_names_plan_md(self):
+        ctx = wp._format_injection(
+            _state(5, phase="plan", index=2, sub_index=2, node="plan:2", sub_total=4),
+            PROJECT_ROOT,
+        )
+        assert "装配义务" in ctx
+        assert "render-artifact plan.md" in ctx
+
+    def test_non_last_step_of_gated_node_no_reminder(self):
+        ctx = wp._format_injection(
+            _state(4, sub_index=4, node="understand:4"), PROJECT_ROOT
+        )
+        assert "装配义务" not in ctx
+
+    def test_ungated_node_last_step_no_reminder(self):
+        # understand:1 无 ARTIFACT 机械门——末步也不出提醒
+        ctx = wp._format_injection(_state(6), PROJECT_ROOT)
+        assert "装配义务" not in ctx
+
+    def test_held_for_gate_no_reminder(self):
+        # 门栏扣留态不出子步骤块 -> 提醒也不出现（防残留误导）
+        ctx = wp._format_injection(
+            _state(
+                5,
+                phase="plan",
+                index=2,
+                sub_index=4,
+                node="plan:4",
+                sub_total=4,
+                held_for_gate=True,
+            ),
+            PROJECT_ROOT,
+        )
+        assert "装配义务" not in ctx
