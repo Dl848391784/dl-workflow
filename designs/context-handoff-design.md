@@ -1,5 +1,10 @@
 # 上下文交接架构设计（context handoff，2026-08-02）
 
+> ⚠️ §2「成本自适应 nudge」策略已被 `minor-boundary-handoff-prompt-design.md`（2026-08-07）
+> 取代——阈值触发纯建议在 tail_volume 实测中 8/8 边界触发、0 次执行（490k 零锯齿）；
+> 新策略 = minor_state 边界固定提示 + 分档文案 + 选择留痕。§3 交接包、§4 裁决入 trace
+> 等机制部分仍然有效。
+
 > 动机数据：tail_volume_acceleration_annualized u:1 实测审计 + .wf_advance.log 全历史。
 > 范围限定（用户 2026-08-02 决议）：只解**干净单轮跑完全程的 token 膨胀**；
 > 测试/重建消耗是另一本账，不进本设计。
