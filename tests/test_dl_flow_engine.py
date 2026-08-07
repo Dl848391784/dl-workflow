@@ -7486,24 +7486,43 @@ class TestV237FirstPassRate:
         # vio4 形态：删不加载项，全包无任一不加载清单条目名
         stmts_miss = [stmt("必先 invoke `factor-development` skill")]
         err = eng._check_no_load_trace(stmts_miss, tmp_path, "t")
-        assert err and "不加载清单丢失" in err and "factor-ic-analyzer-workflow" in err, (
-            "清单全丢应拒"
-        )
+        assert (
+            err and "不加载清单丢失" in err and "factor-ic-analyzer-workflow" in err
+        ), "清单全丢应拒"
         # 部分丢：只缺 workflow-creation
-        stmts_partial = [stmt("不加载 `factor-ic-analyzer-workflow`、"
-                              "`superpowers:systematic-debugging`、MCP `tavily-search`")]
+        stmts_partial = [
+            stmt(
+                "不加载 `factor-ic-analyzer-workflow`、"
+                "`superpowers:systematic-debugging`、MCP `tavily-search`"
+            )
+        ]
         err_p = eng._check_no_load_trace(stmts_partial, tmp_path, "t")
         assert err_p and "workflow-creation" in err_p, "缺 workflow-creation 应拒"
         # 合法形态：清单在 text 出现（合并一条）
-        stmts_ok = [stmt("不加载 `factor-ic-analyzer-workflow`、`workflow-creation`、"
-                         "`superpowers:systematic-debugging`、MCP `tavily-search`")]
-        assert eng._check_no_load_trace(stmts_ok, tmp_path, "t") is None, "全条目在 text 应过"
+        stmts_ok = [
+            stmt(
+                "不加载 `factor-ic-analyzer-workflow`、`workflow-creation`、"
+                "`superpowers:systematic-debugging`、MCP `tavily-search`"
+            )
+        ]
+        assert eng._check_no_load_trace(stmts_ok, tmp_path, "t") is None, (
+            "全条目在 text 应过"
+        )
         # 合法形态：清单在 no_load 字段
-        stmts_field = [stmt("t", no_load="`factor-ic-analyzer-workflow`、`workflow-creation`、"
-                            "`superpowers:systematic-debugging`、MCP `tavily-search`")]
-        assert eng._check_no_load_trace(stmts_field, tmp_path, "t") is None, "全条目在 no_load 字段应过"
+        stmts_field = [
+            stmt(
+                "t",
+                no_load="`factor-ic-analyzer-workflow`、`workflow-creation`、"
+                "`superpowers:systematic-debugging`、MCP `tavily-search`",
+            )
+        ]
+        assert eng._check_no_load_trace(stmts_field, tmp_path, "t") is None, (
+            "全条目在 no_load 字段应过"
+        )
         # 宁纵勿枉：无子3 -> 过（交 judge）
-        assert eng._check_no_load_trace(stmts_miss, tmp_path, "no_such") is None, "无子3 应过"
+        assert eng._check_no_load_trace(stmts_miss, tmp_path, "no_such") is None, (
+            "无子3 应过"
+        )
         # 宁纵勿枉：子3 无「不加载清单」字样（确无清单）-> 过
         s3_nolist = _json.dumps(
             {
@@ -7517,7 +7536,9 @@ class TestV237FirstPassRate:
             ensure_ascii=False,
         )
         _write_evidence(tmp_path, "t2", [s3_nolist])
-        assert eng._check_no_load_trace(stmts_miss, tmp_path, "t2") is None, "子3 无清单字样应过"
+        assert eng._check_no_load_trace(stmts_miss, tmp_path, "t2") is None, (
+            "子3 无清单字样应过"
+        )
 
     def test_p3s5_assumption_propagation_block_pass_skip(self, tmp_path):
         import json as _json
@@ -7562,18 +7583,28 @@ class TestV237FirstPassRate:
         )
         assert err and "假设传导丢失" in err, "淡化成已确认无风险应拒"
         # 合法形态：boundary 原样携带置信度×影响
-        assert eng._check_assumption_propagation_trace(
-            [stmt("假设传导=磁盘 SKILL.md 未逐一核实（置信度高×影响低）")],
-            tmp_path, "t",
-        ) is None, "原样携带置信度×影响应过"
+        assert (
+            eng._check_assumption_propagation_trace(
+                [stmt("假设传导=磁盘 SKILL.md 未逐一核实（置信度高×影响低）")],
+                tmp_path,
+                "t",
+            )
+            is None
+        ), "原样携带置信度×影响应过"
         # 合法形态：语义等价转述仍含「影响」词形
-        assert eng._check_assumption_propagation_trace(
-            [stmt("假设：磁盘路径未核实，影响低")], tmp_path, "t"
-        ) is None, "含「影响」词形应过"
+        assert (
+            eng._check_assumption_propagation_trace(
+                [stmt("假设：磁盘路径未核实，影响低")], tmp_path, "t"
+            )
+            is None
+        ), "含「影响」词形应过"
         # 宁纵勿枉：无子4 -> 过
-        assert eng._check_assumption_propagation_trace(
-            [stmt("已确认无风险")], tmp_path, "no_such"
-        ) is None, "无子4 应过"
+        assert (
+            eng._check_assumption_propagation_trace(
+                [stmt("已确认无风险")], tmp_path, "no_such"
+            )
+            is None
+        ), "无子4 应过"
         # 宁纵勿枉：子4 无假设标签（确无假设）-> 过
         s4_noasm = _json.dumps(
             {
@@ -7587,9 +7618,12 @@ class TestV237FirstPassRate:
             ensure_ascii=False,
         )
         _write_evidence(tmp_path, "t2", [s4_noasm])
-        assert eng._check_assumption_propagation_trace(
-            [stmt("已确认无风险")], tmp_path, "t2"
-        ) is None, "子4 无假设标签应过"
+        assert (
+            eng._check_assumption_propagation_trace(
+                [stmt("已确认无风险")], tmp_path, "t2"
+            )
+            is None
+        ), "子4 无假设标签应过"
 
     # ---- plan:1 子3 framing 反转配套 mech（v2.103，可行性验证五项核验留痕扫描，
     # designs/plan1-sub3-gate-framing-design.md §3）----
@@ -8592,6 +8626,79 @@ class TestHandoffPack:
             assert f"_u1s{step}_new" not in pack
         # 当前步最新 block 判词
         assert "缺 X 条款" in pack
+
+
+class TestHandoffEvents:
+    """v2.122 handoff 留痕（minor-boundary-handoff-prompt-design §2.2）。
+
+    write_handoff_prompt：发提示即记，上次未决先补记 declined；
+    write_handoff_resolution：仅当存在未决 prompt 才记（无未决=无操作非失败）。
+    """
+
+    def _node(self):
+        return eng.get_node("understand", 1)
+
+    def _kinds(self, tmp_path):
+        p = tmp_path / ".claude" / "evidence" / "t.jsonl"
+        if not p.exists():
+            return []
+        return [json.loads(line) for line in p.read_text().splitlines()]
+
+    def test_tier_bands(self):
+        assert eng.handoff_tier(None) == "unknown"
+        assert eng.handoff_tier(eng.HANDOFF_PROMPT_T1 - 1) == "ok"
+        assert eng.handoff_tier(eng.HANDOFF_PROMPT_T1) == "suggest"
+        assert eng.handoff_tier(eng.HANDOFF_PROMPT_T2 - 1) == "suggest"
+        assert eng.handoff_tier(eng.HANDOFF_PROMPT_T2) == "strong"
+
+    def test_prompt_record_fields(self, tmp_path):
+        ok = eng.write_handoff_prompt(
+            tmp_path, "t", self._node(), est=220_000, tier="suggest"
+        )
+        assert ok
+        (rec,) = self._kinds(tmp_path)
+        assert rec["kind"] == "handoff_prompt"
+        assert rec["node"] == "understand:1"
+        assert rec["major_stage"] == "Understand"
+        assert rec["minor_stage"] == "ProblemContext"
+        assert rec["est"] == 220_000 and rec["tier"] == "suggest" and rec["ts"]
+
+    def test_unresolved_prompt_backfilled_declined(self, tmp_path):
+        eng.write_handoff_prompt(tmp_path, "t", self._node(), est=1, tier="ok")
+        eng.write_handoff_prompt(tmp_path, "t", self._node(), est=2, tier="ok")
+        recs = self._kinds(tmp_path)
+        assert [r["kind"] for r in recs] == [
+            "handoff_prompt",
+            "handoff_resolution",
+            "handoff_prompt",
+        ]
+        assert recs[1]["choice"] == "declined" and recs[1]["node"] == "understand:1"
+
+    def test_resolution_after_prompt_records_cleared(self, tmp_path):
+        eng.write_handoff_prompt(tmp_path, "t", self._node(), est=1, tier="ok")
+        assert eng.write_handoff_resolution(tmp_path, "t", choice="cleared")
+        recs = self._kinds(tmp_path)
+        assert [r["kind"] for r in recs] == ["handoff_prompt", "handoff_resolution"]
+        assert recs[1]["choice"] == "cleared"
+
+    def test_resolution_without_pending_is_noop(self, tmp_path):
+        # 无 evidence 文件 / 无未决 prompt -> 无记录、返回 True（无操作非失败）
+        assert eng.write_handoff_resolution(tmp_path, "t", choice="cleared")
+        assert self._kinds(tmp_path) == []
+        eng.write_handoff_prompt(tmp_path, "t", self._node(), est=1, tier="ok")
+        eng.write_handoff_resolution(tmp_path, "t", choice="cleared")
+        # 已有 resolution（无未决）-> 再次 clear 不再记
+        assert eng.write_handoff_resolution(tmp_path, "t", choice="cleared")
+        assert len(self._kinds(tmp_path)) == 2
+
+    def test_last_handoff_event_ignores_other_kinds(self, tmp_path):
+        eng.write_handoff_prompt(tmp_path, "t", self._node(), est=1, tier="ok")
+        with open(
+            tmp_path / ".claude" / "evidence" / "t.jsonl", "a", encoding="utf-8"
+        ) as f:
+            f.write(json.dumps({"kind": "skill-trace", "q": [], "a": []}) + "\n")
+        last = eng._last_handoff_event(tmp_path, "t")
+        assert last is not None and last["kind"] == "handoff_prompt"
 
 
 class TestEstimateContextTokens:

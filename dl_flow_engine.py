@@ -848,9 +848,15 @@ def read_evidence_for_step(
 # 只带机械装配的交接包——成本掰成线性。门控读磁盘状态（state+evidence），
 # 天然会话无关，这是架构成立的地基。
 
-# /clear nudge 阈值（tokens）：Stop hook 估算当前上下文超过则在 pass 续轮附
-# /clear 建议。纯建议非围栏；读不到 usage 不 nudge（宁纵勿枉）。
-HANDOFF_NUDGE_THRESHOLD = 150_000
+# 子阶段边界交接提示分档阈值（tokens，v2.122，
+# minor-boundary-handoff-prompt-design §2.1）：节点末步过门控的边界固定附
+# /clear 提示（阈值不再决定是否出现，只定文案档位）：<T1 健康 / T1~T2 建议 /
+# >T2 强烈建议。全软提示无硬拦（2026-08-07 用户决议：用户全程自主——
+# 阈值硬拦已明确否决，选择由 write_handoff_prompt/resolution 机械留痕）。
+# 前身 HANDOFF_NUDGE_THRESHOLD（v2.45 阈值触发才出现）已退役：tail_volume
+# 实测 8/8 边界触发、0 次执行（490k 零锯齿）——阈值决定是否出现 = 不存在。
+HANDOFF_PROMPT_T1 = 150_000
+HANDOFF_PROMPT_T2 = 300_000
 
 
 # ---------- 产物机械装配（render-artifact，v2.59）----------
@@ -1184,6 +1190,128 @@ def estimate_context_tokens(transcript_path: str | Path) -> int | None:
         except (TypeError, ValueError):
             continue
     return None
+
+
+def handoff_tier(est: int | None) -> str:
+    """边界提示文案档位（v2.122，minor-boundary-handoff-prompt-design §2.1）。
+
+    unknown=读不到估算（降级无数字版）/ ok=健康 / suggest=建议清理 / strong=强烈建议。
+    """
+    if est is None:
+        return "unknown"
+    if est < HANDOFF_PROMPT_T1:
+        return "ok"
+    if est < HANDOFF_PROMPT_T2:
+        return "suggest"
+    return "strong"
+
+
+_HANDOFF_KINDS = ("handoff_prompt", "handoff_resolution")
+
+
+def _last_handoff_event(project_root: Path, name: str) -> dict | None:
+    """evidence 尾部扫描最后一条 handoff_* 记录；无记录/读失败 -> None（宁纵勿枉）。
+
+    只读尾部 256KB：handoff 事件时间上贴近边界（提示与 resolved 间隔短），
+    且证据行最大数 KB，窗口足够覆盖；尾部可能切在半行上 -> JSONDecodeError 跳过。
+    """
+    path = _evidence_path(project_root, name)
+    try:
+        size = path.stat().st_size
+        with open(path, "rb") as f:
+            f.seek(max(0, size - 256 * 1024))
+            tail = f.read().decode("utf-8", errors="replace")
+    except OSError:
+        return None
+    for line in reversed(tail.splitlines()):
+        if "handoff_" not in line:
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(rec, dict) and rec.get("kind") in _HANDOFF_KINDS:
+            return rec
+    return None
+
+
+def _write_handoff_record(project_root: Path, name: str, record: dict) -> bool:
+    """append 一条 handoff_* 记录到 evidence（write_gate_verdict 同通道）。
+    返回 False=写失败（宁纵勿枉：提示是主功能，留痕失败不阻断，调用方不感知）。
+    """
+    path = _evidence_path(project_root, name)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except OSError:
+        return False
+    return True
+
+
+def write_handoff_prompt(
+    project_root: Path, name: str, node: Node, *, est: int | None, tier: str
+) -> bool:
+    """边界提示发出时留痕（v2.122 §2.2）。
+
+    上次 prompt 未决（其后无 resolution）先补记 choice=declined——用户没清
+    就走到了下一边界 = 选择上次的「不清」。记录携带 major_stage/minor_stage
+    （结构字段单源 = node.phase/node.minor_key，evidence 全记录同口径）。
+    """
+    ok = True
+    last = _last_handoff_event(project_root, name)
+    if last is not None and last.get("kind") == "handoff_prompt":
+        ok = _write_handoff_record(
+            project_root,
+            name,
+            {
+                "kind": "handoff_resolution",
+                "choice": "declined",
+                "node": last.get("node"),
+                "major_stage": last.get("major_stage"),
+                "minor_stage": last.get("minor_stage"),
+                "ts": _now(),
+            },
+        )
+    return (
+        _write_handoff_record(
+            project_root,
+            name,
+            {
+                "kind": "handoff_prompt",
+                "node": node_id(node.phase, node.sub),
+                "major_stage": node.phase.capitalize(),
+                "minor_stage": node.minor_key,
+                "est": est,
+                "tier": tier,
+                "ts": _now(),
+            },
+        )
+        and ok
+    )
+
+
+def write_handoff_resolution(project_root: Path, name: str, *, choice: str) -> bool:
+    """SessionStart source=clear 时调用（v2.122 §2.2）：存在未决 prompt 才记。
+
+    语义 = 「该 prompt 之后发生了 clear」；无未决 prompt 的 clear 不记录（无操作
+    非失败，返回 True）。写失败 -> False（宁纵勿枉，不阻断注入）。
+    """
+    last = _last_handoff_event(project_root, name)
+    if last is None or last.get("kind") != "handoff_prompt":
+        return True
+    return _write_handoff_record(
+        project_root,
+        name,
+        {
+            "kind": "handoff_resolution",
+            "choice": choice,
+            "node": last.get("node"),
+            "major_stage": last.get("major_stage"),
+            "minor_stage": last.get("minor_stage"),
+            "ts": _now(),
+        },
+    )
 
 
 def handoff_pack(project_root: Path, name: str) -> str | None:
