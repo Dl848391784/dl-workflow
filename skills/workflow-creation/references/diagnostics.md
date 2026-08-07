@@ -89,6 +89,7 @@ claude --settings <per-wf settings> --append-system-prompt-file phase-rules.md \
 - "模型抢答 / 跳过编排 / 覆盖写 evidence / 编造痛点 / 反复确认 / 合并行 / who 出处" -> §2 症状 P（违规模式目录）
 - "改判据 / 改 rubric / 一过率低 / judge 判得不对 / 判据太严太松" -> §3.5（rubric 设计方法论）
 - "改编排 / SUB_DONE STEP_DONE 打架 / phase-rules 与注入矛盾 / 改门控 checklist" -> §2 症状 M
+- "交接提示没生效 / nudge 被无视 / 上下文单调膨胀零锯齿 / 提示触发了但没执行" -> 症状 W
 
 **测试方法伪问题**，非工作流 bug。管道 EOF 触发 claude 异常。真实 TTY 交互不受影响。
 - **别用管道模拟交互会话验证**。用真实 TTY 或 `-p`（注意 -p 下 transcript 不可靠，见症状 B）。
@@ -374,4 +375,12 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 - **根因**（2026-08-04 v2.79 重放实测）：**主会话 provider env 继承污染**——主会话跑在 kimi 端点（`ANTHROPIC_BASE_URL=api.kimi.com/coding`），重放脚本 `os.environ.setdefault` 保留继承值，judge 子进程把 MiniMax-M3 模型名发给 kimi 端点=流式挂起不报错（不 401、不超时快速失败，干等到 120s）。
 - **分层诊断序列**（逐层缩小，~2min 定位）：①`curl -m 30 <端点>` 裸测连通（通≠补全可用——kimi 对未知模型是挂起不是报错）；②直跑 `cd /tmp && claude -p --output-format json --tools "" --system-prompt x '说1'`（显式 export 三件套）——正常=CLI/端点无恙，问题在调用方 env；③python 复刻 `_run_judge_once` 的 subprocess 调用、`timeout=30` 抓 `TimeoutExpired.stdout` 部分输出——debug log 里的 `url:` 行直接暴露请求打去了哪个端点。
 - **正治**：重放脚本 provider 三件套（BASE_URL/MODEL/TOKEN）**硬赋值**禁 setdefault（rubric §3.5 #30 ⑩）。
+
+### 症状 W：提示/nudge 机制在线触发，但目标行为曲线零变化
+
+- **特征**：提示类机制（nudge/建议/软提示）日志显示正常触发，但它要促成的行为从没发生——如 /clear 交接建议 8/8 边界触发，上下文曲线仍 65k→490k 单调爬坡零锯齿（tail_volume 2026-08-06 实测）。
+- **根因**（2026-08-07 v2.122）：**纯建议可零成本忽略 = 建议不存在**。触发率 ≠ 执行率——hook 日志/文案注入只证触发，执行缺口无留痕时对审计隐形。
+- **排查**：①先证触发（hook 日志/注入 attachment）；②再找执行留痕——没有配对记录（prompt/resolution 类）本身就是设计缺口，先建留痕再谈修复；③有留痕后看执行率，0/N = 机制空转实锤。
+- **已修**：v2.122 固定 minor_state 边界提示（时机可预期）+ 文案分档 + prompt/resolution 配对留痕（未决补记 declined，零交互轮次）。修复出口两档：升结构保证（围栏/gate），或固定时机 + 显式接受用户自主并留痕——「阈值决定是否出现的纯建议」中间形态已淘汰。
+- **沉淀**：rubric §3.6 #33（双指标审计）/ #34（程序化可达性 + 反向事实模拟）。
 
