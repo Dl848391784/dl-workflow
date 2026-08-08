@@ -1,0 +1,311 @@
+"""
+scripts/workflow/dl_drive.py + drive 模式 hook 降级分支的单元测试（v3 headless driver）。
+
+覆盖（designs/headless-driver-arch-design.md §3）：
+- ensure_drive_settings：settings.json 派生——去 outputStyle/SessionStart，留其余；
+- ensure_node_rules：节点级瘦版 system prompt（非 92KB 全量）；
+- build_step_prompt：purpose/铁律/禁标记/返工段；
+- engine.set_drive_mode + drive-mode CLI；
+- workflow_advance drive_mode 早退（不门控不推进，防双 orchestrator）；
+- workflow_step_fence drive_mode：S15/S10 跳过、S11 阶段写围栏保留。
+
+fixture 约定同 test_workflow_advance.py（真 git repo + 真 worktree——
+git rev-parse --git-common-dir 反查主仓的路径解析依赖真 worktree）。
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import io
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+DLWF_ROOT = Path(__file__).resolve().parents[1]
+DRIVER = DLWF_ROOT / "scripts" / "workflow" / "dl_drive.py"
+ADVANCE_HOOK = DLWF_ROOT / "hooks" / "workflow_advance.py"
+FENCE_HOOK = DLWF_ROOT / "hooks" / "workflow_step_fence.py"
+
+sys.path.insert(0, str(DLWF_ROOT))
+import dl_flow_engine as engine  # noqa: E402
+
+
+def _load(path: Path, alias: str):
+    spec = importlib.util.spec_from_file_location(alias, path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[alias] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+@pytest.fixture()
+def wf_repo(tmp_path: Path):
+    """真 git repo + 真 worktree(.claude/worktrees/t) + state + evidence 骨架。"""
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=tmp_path, check=True)
+    (tmp_path / "f").write_text("x", encoding="utf-8")
+    subprocess.run(["git", "add", "f"], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"],
+        cwd=tmp_path,
+        check=True,
+    )
+    (tmp_path / ".claude" / "workflows" / "t").mkdir(parents=True)
+    (tmp_path / ".claude" / "evidence").mkdir(parents=True)
+    subprocess.run(
+        ["git", "worktree", "add", "-q", ".claude/worktrees/t", "-b", "wf/t"],
+        cwd=tmp_path,
+        check=True,
+    )
+    return tmp_path
+
+
+def _write_state(repo: Path, **over) -> dict:
+    state = {
+        "name": "t",
+        "phase": "understand",
+        "index": 1,
+        "sub_index": 1,
+        "sub_total": 4,
+        "node": "understand:1",
+        "sub_step_index": 1,
+        "gate": "pending",
+        "node_attempts": 0,
+        "session_id": "s",
+        "branch": "wf/t",
+        "worktree_path": str(repo / ".claude" / "worktrees" / "t"),
+        "created_at": "x",
+        "updated_at": "x",
+        "history": [],
+    }
+    state.update(over)
+    (repo / ".claude" / "workflows" / "t" / "state.json").write_text(
+        json.dumps(state), encoding="utf-8"
+    )
+    return state
+
+
+def _read_state(repo: Path) -> dict:
+    return json.loads((repo / ".claude" / "workflows" / "t" / "state.json").read_text())
+
+
+# ---------- ensure_drive_settings ----------
+
+
+def test_drive_settings_strips_output_style_and_session_start(wf_repo):
+    drv = _load(DRIVER, "drv_under_test")
+    meta = wf_repo / ".claude" / "workflows" / "t"
+    (meta / "settings.json").write_text(
+        json.dumps(
+            {
+                "outputStyle": "workflow",
+                "permissions": {"defaultMode": "acceptEdits", "allow": ["Write"]},
+                "hooks": {
+                    "SessionStart": [{"hooks": [{"type": "command", "command": "s"}]}],
+                    "Stop": [{"hooks": [{"type": "command", "command": "a"}]}],
+                    "PreToolUse": [{"hooks": [{"type": "command", "command": "f"}]}],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    out = drv.ensure_drive_settings(wf_repo, "t")
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert "outputStyle" not in data
+    assert "SessionStart" not in data["hooks"]
+    assert data["hooks"]["Stop"] and data["hooks"]["PreToolUse"]
+    assert data["permissions"]["allow"] == ["Write"]
+    # 幂等：内容不变不改 mtime
+    mtime = out.stat().st_mtime
+    drv.ensure_drive_settings(wf_repo, "t")
+    assert out.stat().st_mtime == mtime
+
+
+# ---------- ensure_node_rules ----------
+
+
+def test_node_rules_is_node_scoped_not_full_template(wf_repo):
+    drv = _load(DRIVER, "drv_under_test")
+    node = engine.get_node("understand", 1)
+    out = drv.ensure_node_rules(wf_repo, "t", node)
+    text = out.read_text(encoding="utf-8")
+    assert "子步骤" in text
+    assert "禁输出 ### STEP_DONE" in text
+    # 瘦版：只含本节点段落——本节点 GENERATED 段在、其它节点的段不在
+    assert "sub_steps understand:1" in text
+    assert "sub_steps plan:" not in text
+    assert "sub_steps understand:2" not in text
+
+
+# ---------- build_step_prompt ----------
+
+
+def test_step_prompt_core_elements(wf_repo):
+    drv = _load(DRIVER, "drv_under_test")
+    state = _write_state(wf_repo)
+    node = engine.get_node("understand", 1)
+    step = engine.sub_step_at(node, 2)
+    prompt = drv.build_step_prompt(wf_repo, "t", state, node, 2, step, rework=None)
+    assert f"目的：{step.purpose}" in prompt
+    assert "子步骤 2/" in prompt
+    assert "append-trace --scaffold" in prompt
+    assert "禁输出 ### STEP_DONE" in prompt
+    assert "### NEED_USER" in prompt
+    assert "返工" not in prompt  # 无 rework 不出返工段
+    prompt2 = drv.build_step_prompt(
+        wf_repo, "t", state, node, 2, step, rework="判词XYZ"
+    )
+    assert "返工上下文" in prompt2 and "判词XYZ" in prompt2
+
+
+# ---------- Step.interactive 标注（v3） ----------
+
+
+def test_interactive_annotation_set():
+    """interactive 标记集合 = 声明枚举（防漏标/漂移，design §3.4）。
+
+    两源核对：8 个读回步 == _ARTIFACT_RENDER_SOURCES decision_steps 枚举；
+    其余 5 个（u:1#1 逼问 / u:2#1 u:3#1 u:4#1 引出 / plan:1#2 发散）为
+    ref 含 AskUserQuestion 的交互步，硬编码钉死——漏标会让 headless 段
+    撞 AskUserQuestion 不可用，多标会白起 TUI 段。
+    """
+    readback = {
+        (minor, step)
+        for spec in engine._ARTIFACT_RENDER_SOURCES.values()
+        for minor, step in spec["decision_steps"]
+    }
+    expect = readback | {
+        ("ProblemContext", 1),
+        ("GoalsAndValue", 1),
+        ("ScopeAndConstraints", 1),
+        ("SuccessCriteria", 1),
+        ("DesignSolution", 2),
+    }
+    got = set()
+    for ph in ("understand", "plan"):
+        for sub in range(1, 5):
+            node = engine.get_node(ph, sub)
+            for i, s in enumerate(node.sub_steps, 1):
+                if s.interactive:
+                    got.add((node.minor_key, i))
+    assert got == expect, f"差集: {got ^ expect}"
+
+
+def test_interactive_step_prompt_variant(wf_repo):
+    drv = _load(DRIVER, "drv_under_test")
+    state = _write_state(wf_repo)
+    node = engine.get_node("understand", 2)
+    step = engine.sub_step_at(node, 5)  # 读回确认（interactive）
+    prompt = drv.build_step_prompt(
+        wf_repo, "t", state, node, 5, step, rework=None, interactive=True
+    )
+    assert "AskUserQuestion（回合内完成）" in prompt
+    assert "/exit 返回 driver" in prompt
+    assert "NEED_USER" not in prompt  # TUI 段无 NEED_USER 出口
+    assert "交接包" not in prompt  # 交接包归 SessionStart hook，prompt 不带
+
+
+# ---------- PHASE_DONE 检测 ----------
+
+
+def test_phase_done_re():
+    drv = _load(DRIVER, "drv_under_test")
+    assert (
+        drv.PHASE_DONE_RE.search("bla\n### PHASE_DONE: execute\n").group(1) == "execute"
+    )
+    assert drv.PHASE_DONE_RE.search("### PHASE_DONE：execute") is None  # 中文冒号不算
+    assert drv.PHASE_DONE_RE.search("## PHASE_DONE: plan") is None
+
+
+# ---------- engine.set_drive_mode + CLI ----------
+
+
+def test_set_drive_mode_function_and_cli(wf_repo):
+    _write_state(wf_repo)
+    ok, msg = engine.set_drive_mode(wf_repo, "t", True)
+    assert ok and _read_state(wf_repo)["drive_mode"] is True
+    r = subprocess.run(
+        [
+            sys.executable,
+            str(DLWF_ROOT / "dl_flow_engine.py"),
+            "drive-mode",
+            "t",
+            "off",
+        ],
+        cwd=wf_repo / ".claude" / "worktrees" / "t",
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0, r.stderr
+    assert _read_state(wf_repo)["drive_mode"] is False
+
+
+# ---------- workflow_advance drive_mode 早退 ----------
+
+
+def _call_hook_main(mod, payload: dict) -> tuple[int, str]:
+    old_stdin, old_stdout = sys.stdin, sys.stdout
+    sys.stdin = io.StringIO(json.dumps(payload))
+    sys.stdout = io.StringIO()
+    try:
+        rc = mod.main()
+        return rc, sys.stdout.getvalue()
+    finally:
+        sys.stdin, sys.stdout = old_stdin, old_stdout
+
+
+def test_advance_hook_drive_mode_skips_orchestration(wf_repo):
+    _write_state(wf_repo, sub_step_index=2, drive_mode=True)
+    mod = _load(ADVANCE_HOOK, "wa_drive_test")
+    payload = {
+        "cwd": str(wf_repo / ".claude" / "worktrees" / "t"),
+        "session_id": "s",
+        "transcript_path": "/nonexistent/x.jsonl",
+    }
+    rc, out = _call_hook_main(mod, payload)
+    assert rc == 0
+    assert out == ""  # 不注入续轮/门控指令
+    # state 未被推进（防双 orchestrator 的核心断言）
+    assert _read_state(wf_repo)["sub_step_index"] == 2
+
+
+# ---------- workflow_step_fence drive_mode：S15/S10 跳过、S11 保留 ----------
+
+
+def _fence_payload(wf_repo: Path, tool: str, tool_input: dict) -> dict:
+    return {
+        "cwd": str(wf_repo / ".claude" / "worktrees" / "t"),
+        "tool_name": tool,
+        "tool_input": tool_input,
+    }
+
+
+def test_fence_drive_mode_skips_s15(wf_repo):
+    # 零 trace 窗口（S15 触发态）：drive_mode 下 WebFetch 放行，非 drive 下 deny
+    _write_state(wf_repo, drive_mode=True)
+    mod = _load(FENCE_HOOK, "fence_drive_on")
+    rc, out = _call_hook_main(
+        mod, _fence_payload(wf_repo, "WebFetch", {"url": "https://x"})
+    )
+    assert rc == 0 and "deny" not in out
+
+    _write_state(wf_repo, drive_mode=False)
+    mod2 = _load(FENCE_HOOK, "fence_drive_off")
+    rc2, out2 = _call_hook_main(
+        mod2, _fence_payload(wf_repo, "WebFetch", {"url": "https://x"})
+    )
+    assert rc2 == 0 and "deny" in out2  # S15 正常拦截（对照组）
+
+
+def test_fence_drive_mode_keeps_s11_phase_write_fence(wf_repo):
+    # understand 阶段禁写源码（S11）：drive_mode 下仍然拦截
+    _write_state(wf_repo, drive_mode=True)
+    mod = _load(FENCE_HOOK, "fence_drive_s11")
+    target = wf_repo / ".claude" / "worktrees" / "t" / "src.py"
+    rc, out = _call_hook_main(
+        mod, _fence_payload(wf_repo, "Write", {"file_path": str(target)})
+    )
+    assert rc == 0 and "deny" in out
+    assert "禁止写源码" in out

@@ -207,6 +207,18 @@ fi
 # codegraph_gate（H15）等 PreToolUse hook 不受影响。放在 "$@" 前，用户显式传值可覆盖。
 PERM_ARGS=(--permission-mode acceptEdits)
 
+# ---------- v3：默认派发 headless driver（designs/headless-driver-arch-design.md）----------
+# 每子步骤/阶段一个全新 `claude -p` 短会话（上下文按构造最小），门控/推进由
+# dl_drive.py 直调 engine（state 磁盘真源）。drive_mode 由 driver 启动时自置 on。
+# WF_TUI=1 = 回旧 TUI hook 编排路径（回滚面，勿删）；此时须关 drive_mode
+# （否则 hooks 降级不编排，TUI 会话无人推进）。
+if [ "${WF_TUI:-0}" != "1" ]; then
+  DRIVE_ARGS=()
+  [ "$WF_DEBUG" = "1" ] && DRIVE_ARGS=(--debug)
+  exec python3 "$LIB_DIR/dl_drive.py" "$WF_NAME" "${DRIVE_ARGS[@]}"
+fi
+python3 "$LIB_DIR/../../dl_flow_engine.py" drive-mode "$WF_NAME" off >/dev/null 2>&1 || true
+
 # resume：用钉死的 session_id 恢复；否则用 --session-id 钉死
 if [ "$WF_RESUME" = "1" ] && [ -n "${SESSION_ID:-}" ]; then
   exec claude --resume "$SESSION_ID" "${SETTINGS_ARGS[@]}" "${SYS_PROMPT_ARGS[@]}" "${DEBUG_ARGS[@]}" "${PERM_ARGS[@]}" "$@" 2>>"$WF_META_ROOT/$WF_NAME/cc_sdk.log"

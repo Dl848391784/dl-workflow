@@ -367,6 +367,13 @@ def main() -> int:
         return 0
     state = engine.normalize_state(state)
 
+    # v3 drive 模式（dl_drive.py 外部编排，designs/headless-driver-arch-design.md）：
+    # 门控/推进/续轮全归 driver 直调 engine——本 hook 全程不动作（防双 orchestrator：
+    # 同一 trace 被 hook 与 driver 各判一次 = 双重推进/双重 block）。
+    if state.get("drive_mode"):
+        _log(project_root, "drive_mode_skip", wf=name)
+        return 0
+
     # v2.45/v2.122：早提取 transcript_path 供边界交接提示估算上下文
     # （后方 PHASE_DONE 分支另有同款提取，幂等不冲突）。
     transcript_path = ""
