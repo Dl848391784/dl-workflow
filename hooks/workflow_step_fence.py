@@ -542,6 +542,16 @@ def main() -> int:
                     reason + "\n（此硬约束可用 /dl fence off 关闭，回文案约束）"
                 )
 
+    # ---- v3 drive 模式（dl_drive.py 外部编排）：S15/S10 跳过 ----
+    # S15（零 trace 窗口白名单逼先参与编排）与 S10（未判决 trace 全 deny 逼
+    # STEP_DONE+end_turn）的语义前提是「Stop hook 在回合末门控」——drive 模式下
+    # 门控/续轮归外部 driver，会话内没有回合纪律可守（禁标记、单步会话）。
+    # 上方 S14（evidence 收编）/ S11（阶段写围栏）/ plan-mode 封堵与编排者无关，
+    # 全部保留。放 S15 前短路：少两次 state 读 + 无 deny 文案误导。
+    _st = engine.load_state(project_root, name)
+    if _st and _st.get("drive_mode"):
+        return 0
+
     # ---- S15 参与前置围栏：零 trace 窗口 -> 白名单模式，非编排工具 deny ----
     # 与 S10 状态互斥（零 trace vs 未判决 trace），先后无关；放 S14/S11 之后
     # 是让更具体的文案（覆盖守卫/阶段白名单）优先命中。

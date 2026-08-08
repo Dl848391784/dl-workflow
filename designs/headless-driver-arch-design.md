@@ -58,12 +58,16 @@ ac-deepseek1 --dl <name> [--debug]
 
 ### 2.2 headless 段（非交互子步骤）
 
-- **粒度**：每子阶段（minor_state）内连续非交互子步骤为一段，一次 `claude -p` 会话。43 子步骤中约 35 个非交互 → 每节点 1 个 headless 段，8 段/run。
-- **会话上下文按构造最小**：prompt = handoff_pack + 当前节点渲染段落（render_substeps_section）+ 本子步骤区间指令（复用 _stop_continue 模板逐 step 展开）+ append-trace 操作指引（--scaffold 骨架命令）。**不注入 92KB phase-rules 全量**。
-- **system prompt**：`--append-system-prompt-file` 改为节点级渲染产物（workflow 通则 + 本节点段落），per-wf 目录落盘（与 settings 同生命周期）。
-- **工具与权限**：`--permission-mode acceptEdits` + per-wf settings allowlist（钉死，v2.47 实证）。`--settings` 用 **drive 版 settings 模板**（§3.3）——不注册 5 个 workflow hooks（编排已由 driver 承担，防双重推进）；项目级/用户级 hooks（codegraph_gate/audit/inject，H15）不受影响照常生效。
-- **实时尾随**：`--output-format stream-json --verbose`，driver 逐行解析，assistant text delta 实时 tee 到终端 + 完整落盘 per-wf 目录（drive.log）。`--debug` 时 cc_debug.log/cc_sdk.log 落盘路径不变。
+- **粒度（2026-08-08 实现期修订）：每子步骤一个 `claude -p` 会话**，非初版的「子阶段内连续非交互步批量一段」。修订理由（实现期发现的新事实，用户决策时的未知项）：
+  1. **append-trace 是 state 驱动**：`scaffold_payload`/`append_trace`（dl_flow_engine.py:4939/4969）都从 `state.sub_step_index` 解析当前步——批量段内 state 不动，模型给子步骤 i+1..j 落的 trace 会全部错挂到子步骤 i。批量模式须给 scaffold/append 全链路加 `--sub-step` 覆盖（含 trace_payload_path 拒覆盖/v2.63 stale 检查），引擎手术面大。
+  2. **弱模型多步指令风险**：一段做 4-6 步 = 长指令跟随 + 步号自我追踪，正是一过率系统的对立面（一次通过率=最大杠杆）；且 u:1 类重节点（子代理取证回灌）批量段会重建 244k 上下文——消解本架构的核心收益。
+  3. **逐步会话保持全部现有语义**：即时逐步骤门控/返工（gate_sub_step_at_stop 原样复用）、escalate、append-trace 零改动。成本反证可接受：judge 已是 35 次/run 的短会话架构（单次 2-16k 输入）；子步骤会话 ~45k 起步，43 段/run 的启动+缓存重建总开销远低于单会话 318.7M cache_read。
+  用户四项决策中「每子阶段一会话」按此修订执行（目标——上下文最小+无干扰——被子步骤粒度更彻底达成）；初版批量方案及 `--sub-step`  plumbing 不做。
+- **会话上下文按构造最小**：prompt = handoff_pack + 当前步目的/how + append-trace 指引 + 铁律（禁完成标记/只做本步/NEED_USER 出口）。system prompt = 节点级渲染段落（render_substeps_section + 瘦头），**不注入 92KB phase-rules 全量**。
+- **工具与权限**：`--permission-mode acceptEdits` + per-wf settings allowlist（钉死，v2.47 实证）。`--settings` 用 **drive 版 settings**（§3.3）——hooks 保留但 drive_mode 降级（§2.3 同分支）；项目级/用户级 hooks（codegraph_gate/audit/inject，H15）不受影响照常生效。
+- **实时尾随**：`--output-format stream-json --verbose`，driver 逐行解析，assistant text 实时上屏 + tool_use 一行简报；原始流全量落 per-wf `drive-stream.jsonl`（PHASE_DONE 检测+审计）。`--debug` 时每段会话落 `cc_debug.<sid8>.log`。
 - **cwd** = 工作流 worktree（与现状一致）。
+- **门控**：段结束后 driver 直调 `gate_sub_step_at_stop`（原样复用：trace hash 触发/judge/§8.3 产物门/advance/block verdict/escalate 全在内）。block → 判词装配返工 prompt 重发本步会话；none（无新 trace）→ 尖锐重发，连续 3 次 → 用户断点。
 
 ### 2.3 TUI 段（交互子步骤）
 
@@ -116,9 +120,9 @@ driver 的原生断点：state 显示 held_for_gate（plan:4 门栏）或 gate=p
 | 全程 cache_read | 318.7M | 估 15-40M（8-16 段 × 段内轮次 × 段内上下文） |
 | 干扰面 | 全部历史 | 交接包（机械装配，无闲聊/无关工具结果） |
 
-### 3.3 settings 模板（drive 版）
+### 3.3 settings（drive 版，实现期修订）
 
-新增 `wf_write_settings_drive`：permissions 块与现模板一致（acceptEdits + allowlist），hooks 块**空**（headless 段不注册 workflow hooks）。TUI 段沿用现模板。两模板版本戳同源 bump。
+不新增模板：driver 启动时从 per-wf `settings.json` **运行时派生** `settings.drive.json`——去 `outputStyle`（TUI 横幅引导）与 SessionStart hook（交接包由 driver prompt 注入，防双份），其余原样（permissions 全量 + 4 个 workflow hooks）。hooks 不清空的原因（修订）：S11 阶段写围栏/S14 evidence 收编/plan-mode 封堵是**与编排者无关的硬约束**，headless 段同样需要；降级在 hook 内部按 `state.drive_mode` 分支（advance 全程跳过；fence 跳过 S10/S15 保留 S11/S14），单一 settings 真源免双模板漂移，SETTINGS_TEMPLATE_VERSION 机制不受影响。TUI 段沿用 per-wf `settings.json` 全量。
 
 ### 3.4 交互子步骤清单（迁移时核对）
 

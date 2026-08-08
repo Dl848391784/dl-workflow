@@ -83,6 +83,11 @@ class Step:
     # 结构形式要件从 judge 判词变 JSON 校验，值并入 record 顶层
     # （judge 读原始行自动可见）。
     extra_payload_keys: tuple[tuple[str, tuple[str, ...] | str], ...] = ()
+    # v3 headless driver（designs/headless-driver-arch-design.md）：True=交互步
+    # （读回/裁决/问询——需 AskUserQuestion），driver 路由到 TUI 段执行；
+    # False=非交互步，headless `claude -p` 段。声明式单源——禁从 purpose
+    # 文本嗅探（词形漂移病根，症状 M 同型）。TUI hook 编排不读此字段。
+    interactive: bool = False
 
 
 @dataclass(frozen=True)
@@ -675,6 +680,7 @@ _NODES: dict[str, Node] = {
                 kind="skill",
                 ref="define-problem",
                 short="逼问定义",
+                interactive=True,
                 # purpose 含形式要件（模型可见，降形式性返工）；
                 # 质量判据不进 purpose（防应试填表），只在下方 gate 给 judge。
                 purpose=(
@@ -1239,6 +1245,7 @@ _NODES: dict[str, Node] = {
                 kind="skill",
                 ref="define-problem",
                 short="读回确认",
+                interactive=True,
                 # 带证据的读回确认（2026-07-26 重设计）：只给结论不给依据地「通知」用户
                 # = 不信任甚至 backfire effect（Das et al. 2023）；fact-checker 三大解释
                 # 需求 = 不确定性/证据指针/过程可解释（Show Me the Work, CHI 2025）。
@@ -1290,6 +1297,7 @@ _NODES: dict[str, Node] = {
                 kind="tool",
                 ref="推理(KAOS WHY/HOW 问) / AskUserQuestion(补问)",
                 short="目标引出",
+                interactive=True,
                 # 形式要件披露进 purpose（降形式性返工）；质量判据只留 gate 黑盒。
                 purpose=(
                     f"目标引出：{_G2_STEP1_FORM_REQUIREMENTS}。"
@@ -1548,6 +1556,7 @@ _NODES: dict[str, Node] = {
                 kind="skill",
                 ref="define-problem / AskUserQuestion",
                 short="读回确认",
+                interactive=True,
                 # 带证据读回（同构 ProblemContext 子6）：只给结论不给依据地「通知」用户
                 # = 不信任甚至 backfire effect；本步是本子阶段唯一规范裁决点
                 # （must/nice 分层真值归用户，四桶分工）。
@@ -1595,6 +1604,7 @@ _NODES: dict[str, Node] = {
                 kind="tool",
                 ref="推理(KAOS 障碍分析) / AskUserQuestion(补问)",
                 short="障碍分析引出",
+                interactive=True,
                 purpose=(
                     f"障碍分析与约束引出：{_S3_STEP1_FORM_REQUIREMENTS}。"
                     "obstacle = goal 的对偶（KAOS，van Lamsweerde TSE 2000）："
@@ -1809,6 +1819,7 @@ _NODES: dict[str, Node] = {
                 kind="skill",
                 ref="define-problem / AskUserQuestion",
                 short="读回确认",
+                interactive=True,
                 # 带证据读回（同构 ProblemContext 子6 / GoalsAndValue 子5）。
                 # 本子阶段两个规范裁决点都在此：范围边界拍板 + 假设接受（风险承担）。
                 purpose=(
@@ -1864,6 +1875,7 @@ _NODES: dict[str, Node] = {
                 kind="tool",
                 ref="推理(验收视角提问) / AskUserQuestion(补问)",
                 short="成功标准引出",
+                interactive=True,
                 purpose=(
                     f"成功标准引出：{_S4_STEP1_FORM_REQUIREMENTS}。"
                     "solutioneering 剥离：标准候选含方案名词/实现动词"
@@ -2095,6 +2107,7 @@ _NODES: dict[str, Node] = {
                 kind="skill",
                 ref="define-problem / AskUserQuestion",
                 short="读回确认",
+                interactive=True,
                 # 带证据读回（同构前三个节点末步）。本子阶段两个规范裁决点：
                 # 阈值拍板（风险偏好）+ 验收方式认可（含「待建手段」是否接受为任务项）。
                 purpose=(
@@ -2195,6 +2208,7 @@ _NODES: dict[str, Node] = {
                 kind="tool",
                 ref="推理(架构维度变换) / AskUserQuestion(用户既有想法)",
                 short="方案发散",
+                interactive=True,
                 purpose=(
                     f"方案发散：{_DS_STEP2_FORM_REQUIREMENTS}。"
                     "design fixation 防御核心：禁评估禁排序——混入评估=发散被"
@@ -2525,6 +2539,7 @@ _NODES: dict[str, Node] = {
                 kind="skill",
                 ref="define-problem / AskUserQuestion / render-artifact(design.md)",
                 short="读回确认",
+                interactive=True,
                 # 带证据读回（同构 ProblemContext 子6）：只给结论不给依据地「通知」
                 # 用户 = 无依据确认；design.md 装配 = render-artifact 脚本装配
                 # （v2.62，同 understand.md/plan.md）。
@@ -2941,6 +2956,7 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                 kind="skill",
                 ref="AskUserQuestion / Write(plan.md)",
                 short="读回装配",
+                interactive=True,
                 # 带证据读回（同构 DesignSolution 子6）：只给结论不给依据地「通知」
                 # 用户 = 无依据确认；plan.md 装配 = 子4 执行步骤+裁决记录的直接
                 # 装配（禁二次创作，同 understand.md/design.md 装配原则）。
@@ -3316,6 +3332,7 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                 kind="skill",
                 ref=f"AskUserQuestion / Bash(plan.md 追加「{_S_CAP_TOOLS}」节)",
                 short="读回装配",
+                interactive=True,
                 # 带证据读回（同构 plan:2 子5）：只给结论不给依据地「通知」用户 =
                 # 无依据确认；plan.md「能力与工具」节 = 子5 能力包+裁决记录的
                 # 直接装配（禁二次创作）。
@@ -3588,6 +3605,7 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                 kind="skill",
                 ref=f"AskUserQuestion / Edit(plan.md 追加「{_S_CHECKPOINTS}」节)",
                 short="读回装配",
+                interactive=True,
                 # 带证据读回（同构 plan:2 子5/plan:3 子6）。三裁决点的第三个
                 # （冻结策略）是制度裁决：进 execute 前拍板 plan.md 的合同
                 # 语义——judge 逐条核的对象不能是执行期可随手改的。

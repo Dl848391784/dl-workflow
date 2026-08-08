@@ -5605,6 +5605,25 @@ def _cmd_meta() -> int:
     return 0
 
 
+def set_drive_mode(project_root: Path, name: str, on: bool) -> tuple[bool, str]:
+    """drive 模式开关（v3 headless driver，designs/headless-driver-arch-design.md）。
+
+    state.drive_mode=True 时 hooks 降级：workflow_advance 不门控不推进（编排归
+    dl_drive.py 外部 driver，防双 orchestrator）；workflow_step_fence 只保留
+    S11 阶段写围栏等硬约束（S10/S15 的回合纪律语义在外部编排下失效）。
+    dl_drive.py 启动时置 on；WF_TUI=1 回旧 TUI 路径时 dl-launch.sh 置 off。
+    """
+    state = load_state(project_root, name)
+    if state is None:
+        return False, f"工作流 {name} 的 state.json 缺失"
+    state = normalize_state(state)
+    state["drive_mode"] = on
+    save_state(project_root, name, state)
+    return True, (
+        f"drive 模式已{'开启（hooks 降级，编排归 driver）' if on else '关闭（回 TUI hook 编排）'}"
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="dl_flow_engine",
@@ -5622,6 +5641,7 @@ def main(argv: list[str] | None = None) -> int:
             "state-reset",
             "subgate-pass",
             "fence",
+            "drive-mode",
             "dispute",
             "render-phase-rules",
             "append-trace",
@@ -5829,6 +5849,13 @@ def main(argv: list[str] | None = None) -> int:
             "（阶段写围栏 S11 是系统硬约束，不受此开关影响）"
         )
         return 0
+    if args.cmd == "drive-mode":
+        if args.value not in ("on", "off"):
+            print("✗ 用法: drive-mode <name> on|off", file=sys.stderr)
+            return 1
+        ok, msg = set_drive_mode(project_root, name, args.value == "on")
+        print(("✓ " if ok else "✗ ") + msg, file=sys.stdout if ok else sys.stderr)
+        return 0 if ok else 1
     return 1
 
 
