@@ -502,32 +502,15 @@ def build_step_prompt(
     return "\n".join(parts)
 
 
-def run_tui_step(
-    project_root: Path,
-    name: str,
-    state: dict,
-    node: "engine.Node",
-    cur: int,
-    step: "engine.Step",
-    meta: Path,
+def _build_tui_cmd(
+    sid: str,
+    settings: Path,
+    rules: Path,
+    prompt: "str | None",
     debug: bool,
-    wt: Path,
-    *,
-    rework: str | None,
-    disp: "LiveProgress | None" = None,
-) -> tuple[int, str]:
-    """交互子步骤 TUI 段：起原生 claude TUI（全量 per-wf settings——SessionStart
-    注入交接包 / phase 注入 / output-style 横幅齐备），用户交互 + /exit 回收。
-
-    返回 (rc, session_id)。drive_mode 下 advance hook 不推进（state 由 driver
-    在回收后统一门控）；fence 仅 S11/S14 硬约束生效。
-    """
-    sid = str(uuid.uuid4())
-    settings = ensure_tui_settings(project_root, name)  # 全量模板+hook 路径同仓化
-    rules = ensure_node_rules(project_root, name, node)
-    prompt = build_step_prompt(
-        project_root, name, state, node, cur, step, rework=rework, interactive=True
-    )
+    meta: Path,
+) -> list[str]:
+    """TUI 段命令行。prompt=None = 裸开场（无位置参数，会话开了安静等用户打字）。"""
     cmd = [
         "claude",
         "--session-id",
@@ -546,11 +529,68 @@ def run_tui_step(
             "--debug-file",
             str(meta / f"cc_debug.{sid[:8]}.log"),
         ]
-    cmd.append(prompt)
-    print(
-        f"\n▸ 交互子步骤 {cur}/{len(node.sub_steps or ())} —— 起 TUI 会话"
-        f"（回答模型提问；模型报告完成后输入 /exit 返回 driver）"
+    if prompt is not None:
+        cmd.append(prompt)
+    return cmd
+
+
+def _is_bare_open(node: "engine.Node", cur: int, pending_rework: "str | None") -> bool:
+    """裸开场判定（drive-tasklist-render-design §2.4 修订2，用户裁决）：v2.0 原位
+    开场——只限 understand:1#1（全工作流开场步）且无返工上下文时，TUI 不喂任务书
+    prompt，会话开了安静等用户打字；用户陈述提交瞬间 node-rules（系统提示词含子1
+    目的）+ phase 注入（任务清单目标状态）+ output-style 自然就位。裸开场万一未
+    落 trace，none 重试自动换回完整任务书 prompt（主路裸开场、任务书返工兜底）。
+    其余交互步（读回/裁决需模型先呈现材料）保持任务书驱动。
+    """
+    return (
+        pending_rework is None
+        and node.phase == "understand"
+        and node.sub == 1
+        and cur == 1
     )
+
+
+def run_tui_step(
+    project_root: Path,
+    name: str,
+    state: dict,
+    node: "engine.Node",
+    cur: int,
+    step: "engine.Step",
+    meta: Path,
+    debug: bool,
+    wt: Path,
+    *,
+    rework: str | None,
+    disp: "LiveProgress | None" = None,
+    bare: bool = False,
+) -> tuple[int, str]:
+    """交互子步骤 TUI 段：起原生 claude TUI（全量 per-wf settings——SessionStart
+    注入交接包 / phase 注入 / output-style 横幅齐备），用户交互 + /exit 回收。
+
+    返回 (rc, session_id)。drive_mode 下 advance hook 不推进（state 由 driver
+    在回收后统一门控）；fence 仅 S11/S14 硬约束生效。
+    bare=True（裸开场）：不喂任务书 prompt——会话安静等用户打字（v2.0 开场）。
+    """
+    sid = str(uuid.uuid4())
+    settings = ensure_tui_settings(project_root, name)  # 全量模板+hook 路径同仓化
+    rules = ensure_node_rules(project_root, name, node)
+    prompt = None
+    if not bare:
+        prompt = build_step_prompt(
+            project_root, name, state, node, cur, step, rework=rework, interactive=True
+        )
+    cmd = _build_tui_cmd(sid, settings, rules, prompt, debug, meta)
+    if bare:
+        print(
+            f"\n▸ 交互子步骤 {cur}/{len(node.sub_steps or ())} —— TUI 会话已就绪："
+            f"请直接输入你要分析的问题（模型在你提交后接管；完成后输入 /exit 返回 driver）"
+        )
+    else:
+        print(
+            f"\n▸ 交互子步骤 {cur}/{len(node.sub_steps or ())} —— 起 TUI 会话"
+            f"（回答模型提问；模型报告完成后输入 /exit 返回 driver）"
+        )
     if disp is not None:
         disp.stop()  # 终端交还 TUI 会话
     try:
@@ -750,6 +790,7 @@ def drive(project_root: Path, name: str, debug: bool, verbose: bool = False) -> 
                         wt,
                         rework=pending_rework,
                         disp=disp,
+                        bare=_is_bare_open(node, cur, pending_rework),
                     )
                     seg_kind = "tui-step"
                 else:

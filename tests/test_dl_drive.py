@@ -379,3 +379,32 @@ def test_sub1_prompt_conversational_collect_clause(wf_repo):
         wf_repo, "t", state, node2, 5, step2, rework=None, interactive=True
     )
     assert "对话式问用户" not in prompt2
+
+
+# ---------- 裸开场（drive-tasklist-render-design §2.4 修订2） ----------
+
+
+def test_is_bare_open_only_fresh_u1s1():
+    """裸开场只限 understand:1#1 且无返工；其余交互步/返工路径保持任务书驱动。"""
+    drv = _load(DRIVER, "drv_under_test")
+    u1 = engine.get_node("understand", 1)
+    u2 = engine.get_node("understand", 2)
+    assert drv._is_bare_open(u1, 1, None) is True
+    assert drv._is_bare_open(u1, 2, None) is False  # u:1 子2
+    assert drv._is_bare_open(u2, 1, None) is False  # 其他节点子1
+    assert drv._is_bare_open(u1, 1, "返工判词") is False  # 返工=任务书兜底
+
+
+def test_build_tui_cmd_bare_omits_prompt(tmp_path):
+    """bare=True → cmd 无位置参数（会话开了安静等用户打字）；有 prompt → 末位附带。"""
+    drv = _load(DRIVER, "drv_under_test")
+    meta = tmp_path / "meta"
+    cmd_bare = drv._build_tui_cmd(
+        "sid-x", tmp_path / "s.json", tmp_path / "rules.md", None, False, meta
+    )
+    assert cmd_bare[-1] == "acceptEdits"  # 末位是 flag，无 prompt 位置参数
+    assert "sid-x" in cmd_bare
+    cmd_full = drv._build_tui_cmd(
+        "sid-x", tmp_path / "s.json", tmp_path / "rules.md", "任务书", False, meta
+    )
+    assert cmd_full[-1] == "任务书"

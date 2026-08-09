@@ -34,12 +34,16 @@
 
 `build_step_prompt` interactive 分支尾部补硬条款：「会话开场第一件事 = 按 output-style 用 TaskCreate 建齐 13 项阶段清单（subject 带编号），状态镜像当前 state，再做本子步」——prompt 显著性兜底被稀释的 output-style 义务。用户答题时看到的就是 2.0 原生组件。
 
-### 2.4 开场问题陈述采集（根治缺口 2）——**2026-08-09 修订为 TUI 对话式**
+### 2.4 开场问题陈述采集（根治缺口 2）——**2026-08-09 修订2：裸开场（v2.0 原位）**
 
-> **修订记录**：初版实现为 driver 启动 stdin `input()` 断点采集（素终端提示）。用户质询「为啥不是 claude 那种对话式的」后当场裁决：**采集挪进 sub1 TUI 会话原生对话**——driver 进程无 Claude UI 可用，`input()` 是架构错位；sub1 本就是 TUI 交互段（v2.0 首条用户消息语义的原位）。附带收益：消掉「driver 问一遍、TUI 段又问一遍」的双问。代价：采集从「Python 机械保证」变「模型遵从 prompt 条款」（用户在场可见可打断，残余风险=返工非静默错）。driver input() 已撤；`state.problem_statement` 字段与 handoff_pack 收录通道保留（不再采集，留作手动注入通道）。
+> **修订记录**（两轮迭代收敛）：初版 = driver stdin `input()` 断点采集（素终端提示）→ 用户质询「为啥不是 claude 那种对话式」→ 修订1 = 采集挪 sub1 TUI prompt 条款（对话式问），撤 driver input() → 用户再质询「为啥一进会话就喂一大堆任务书 prompt，我要 v2.0 那样什么也不加载、我问完问题才开始」→ **修订2 = 裸开场（本版定稿）**。
+>
+> **修订2 裁决**：understand:1#1（全工作流开场步）无返工时，TUI 启动**不喂任何 prompt**（`claude` 无位置参数 = 会话开了安静等用户打字）——v2.0 原位开场。任务书与系统提示词本就是**重复**的（node-rules 的「本节点子步骤清单」含子1 完整目的；build_step_prompt 为 headless 无注入通道设计，TUI 段复用属冗余）：用户提交陈述瞬间三通道自然就位——①node-rules 系统提示词（子1 目的+落库纪律）；②workflow_phase hook 提交时注入（当前阶段+任务清单目标状态，v2.0 老机制未坏）；③output-style（TaskList 义务）。
+> **防波堤**：裸开场未落 trace → driver none 重试自动换回完整任务书 prompt（`_is_bare_open` 对 pending_rework 返 False）——**主路裸开场，任务书降级为返工兜底**。其余 12 个交互步（读回/裁决需模型先呈现材料再提问）保持任务书驱动。
+> `state.problem_statement` 字段与 handoff_pack 收录通道保留（不再自动采集，留作手动注入通道）。
 
-- `build_step_prompt` understand:1#1 interactive prompt 钉死：「开场第二件事（建完清单立即做）= 对话式问用户『本次要分析的问题是什么』，拿到陈述前禁任何仓库探查/工具调用」——首次 dogfood 实证（先探查 20+ 轮零提问被中断）写进条款当反面教材；
-- 用户陈述经子1 trace 天然携带给后续步骤（handoff_pack 通道不变）。
+- 实现：`run_tui_step(bare=)` 省略位置参数（`_build_tui_cmd` prompt=None）；`_is_bare_open(node, cur, pending_rework)` 单源判定；
+- 用户陈述经子1 trace 天然携带给后续步骤（handoff_pack 通道不变）；陈述丢失场景（裸开场没落库）= none 重试走任务书 prompt，其「对话式问问题陈述」条款重新采集。
 
 ### 2.5 不做
 
