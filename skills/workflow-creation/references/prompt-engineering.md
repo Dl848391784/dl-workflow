@@ -16,7 +16,8 @@
    - **单源化的通道清单要含 purpose 内嵌字面量**（2026-08-02 v2.41 节标题单源化）：同一字符串的通道不止独立文案文件——`Step.purpose`/`selfcheck`/`ref` 里的嵌入字面量是查漏重灾区（grep 节名找出 8 处拷贝，前 3 通道改完这第 4 通道还在）。机制 = 命名常量 f-string 插值（`_S_*`/`SECTIONS_TEXT`）+ **静态同步测试钉死**（渲染无 token 残留/注入含节名/门引用 ⊆ 单源——断链在 pytest 红，不在运行期爆）。**占位粒度判据**：整段归 engine 渲染 → BEGIN/END GENERATED 块；行内单个值 → 内联 token（`{{artifact_sections:<name>[#<idx>]}}`，render 第二阶段替换，非法名/索引 fail loud）——渲染从不回写模板（per-wf 产物 launch 时新写），幂等天然成立。
 5. **强调信号经济学**：禁止/必/强制 每通道一处；~15 处/轮 = 弱遵从模型习惯性忽略。
 6. **给 rationale 防合理化绕过**：「相对路径会写到 worktree，hook 读不到」式因果，比裸禁令遵从率高。
-7. **文案字符有 harness 保留字**：purpose/selfcheck/gate 文本会进 Stop hook 的 additionalContext——**禁含 `✓` 字符**（test_nonfinal_pass_stdout_is_pure_json 断言 hook stdout 无 ✓，落库成功标记专用；v2.37 规则范例用 ✓/✗ 当场踩雷，改「正例/反例」文字）。改文案后全量 pytest 是兜底。
+7. **条款搬家必查通道存活**（2026-08-09 c515b52，diagnostics 症状 X）：契约条款的有效期 = 它住的通道的存活期。通道稳固度排序：`--append-system-prompt-file`（启动必带，抽不走）> 首条 user prompt（裸开场/无 prompt 启动下整体不存在）> UserPromptSubmit attachment（投递≠收到）> output-style（加载但会被当前任务盖过）。**新增启动路径（如裸开场/新会话形态）时，逐条审计「这个契约在新路径下还到不到模型」**——到不了的搬进更高稳固度通道，原通道只留指针防双份（症状 M 漂移）。
+8. **文案字符有 harness 保留字**：purpose/selfcheck/gate 文本会进 Stop hook 的 additionalContext——**禁含 `✓` 字符**（test_nonfinal_pass_stdout_is_pure_json 断言 hook stdout 无 ✓，落库成功标记专用；v2.37 规则范例用 ✓/✗ 当场踩雷，改「正例/反例」文字）。改文案后全量 pytest 是兜底。
 
 **体积审计法**：真实 state 直调 `_format_injection` 量字符数（importlib 加载 hook 即可，注入是每轮成本最大头）。改注入前后各量一次。
 

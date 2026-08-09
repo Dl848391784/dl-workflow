@@ -384,3 +384,18 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 - **已修**：v2.122 固定 minor_state 边界提示（时机可预期）+ 文案分档 + prompt/resolution 配对留痕（未决补记 declined，零交互轮次）。修复出口两档：升结构保证（围栏/gate），或固定时机 + 显式接受用户自主并留痕——「阈值决定是否出现的纯建议」中间形态已淘汰。
 - **沉淀**：rubric §3.6 #33（双指标审计）/ #34（程序化可达性 + 反向事实模拟）。
 
+
+### 症状 X：drive TUI 段零 TaskList/零横幅/像普通聊天（契约条款通道存活）
+
+- **特征**：v3 裸开场 TUI 段，用户陈述后模型确实在干活（invoke 了对的 skill），但零 TaskCreate、零 `## PHASE` 横幅、闷头探查十几轮零提问——视觉上=普通聊天非工作流。driver 进度区不见是设计内（disp.stop 让位终端），别误判。
+- **根因**（2026-08-09 c95e430c 实证，c515b52 修）：契约条款住在 build_step_prompt——裸开场不喂 prompt，**条款随通道一起消失**；output-style+attachment 弱通道压不住弱遵从模型。**通道存活审计：任何契约条款新增/搬家，必查「该通道在全部启动路径下是否存在」**。通道稳固度排序：`--append-system-prompt-file`（启动必带，抽不走）> 首条 user prompt（裸开场可省略=整体不存在）> UserPromptSubmit attachment（投递≠收到，症状 D）> output-style（加载但会被当前任务盖过）。
+- **排查**：读 TUI 段 transcript（`~/.claude/projects/-...-worktrees-<name>/<sid>.jsonl`）看首条 assistant 消息有没有 TaskCreate/横幅；再定位该条款住哪个通道、本次启动路径带不带它（`_is_bare_open`=True 时 build_step_prompt 整体不存在）。
+- **已修**：开场纪律单源 = `ensure_tui_rules()`（system prompt 通道），prompt 尾只留指针防双份（症状 M）。
+- **关联硬约束**：原生 TaskList 只在 TUI 会话内存在（无外部进程向运行中 TUI 推事件的通道）——「透出」类需求先问「哪个进程拥有终端、用户什么时刻看什么」再定方案（driver stdout rich Live 常驻区 + TUI 段原生组件的分面由此而来；v3.1 主会话调度方案被用户当场否决=循环确定性优先于 UI 原生度）。
+
+### 症状 Y：Ctrl+C 不退出 / 退出后还继续流程（编排器信号语义缺失）
+
+- **特征**：driver 跑流程时按 Ctrl+C 不退出、流程反而继续；连按好几次才退出。
+- **根因**（2026-08-09 实证，7222218 修）：Ctrl+C=SIGINT 发**整个前台进程组**——TUI 子会话按原生语义单击=中断生成（不死），driver 无 KeyboardInterrupt 处理裸抛栈死=「driver 死了 TUI 还继续跑」。第二来源：TUI 段未落库（双击退出//exit 早退）时 none 重试**自动重开会话**——交互步靠用户驱动，自动重开=「退出还继续」（应直接断点裁决）。
+- **模式**（`_pwait_interruptible`）：单击=中断当前活动（on_first 后继续等）、双击=杀子进程退 130；`already_interrupted` 参数防「读循环已计单击、wait 阶段再计一遍」的三击断层；headless 子进程 `start_new_session=True`（终端 Ctrl+C 只打 driver——防 child 先收 SIGINT 自杀、driver 读 EOF 当正常收段的竞态）；TUI 段**保同进程组**（TUI 需自收 SIGINT 保原生单击中断生成语义）。
+- **冒烟坑**：TUI raw 模式下 `printf '\x03'` 是**按键不是信号**（driver 收不到 KeyboardInterrupt 属设计内——TUI 自有键绑定处理）；TUI 双击退出确认窗 <1s，pty 喂键须快进（间隔 0.4s 实测可达，2s 必败）。

@@ -90,6 +90,8 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
 - "按系统文案指路操作仍报错 / 文案里的命令照跑也报错 / unrecognized arguments" → references/diagnostics.md 症状 T
 - "门禁该拦没拦 / design_gate 或 codegraph gate 形同虚设 / 没写 design.md 也能改多文件" → references/diagnostics.md 症状 U
 - "judge 全量超时 / 连最小冒烟都 TimeoutExpired / 端点 curl 通但 judge 全挂 / 重放全超时" → references/diagnostics.md 症状 V
+- "TUI 段没 TaskList / 没横幅像普通聊天 / 裸开场条款丢失 / 模型闷头探查不提问" → references/diagnostics.md 症状 X
+- "Ctrl+C 不退出 / 退出还继续流程 / 连按好几下才退出" → references/diagnostics.md 症状 Y
 - "审计这轮运行 / 符合预期吗 / 哪些 error 返工可避免 / judge 输入膨胀 / 重建丢弃" → references/rubric-design.md §3.6
 - "设计新编排节点 / 拆几个子步骤 / 每步什么目的 / 要不要取证步 / 步数怎么定 / 代码设计拆步 / 拆解任务 / 任务切分 / 执行计划 plan.md" → references/node-design.md §3.8
 - "另一会话在改同仓库 / 文件被外部修改 / 两批改动怎么分开 commit / 测试全红是不是我的问题" → references/collab.md
