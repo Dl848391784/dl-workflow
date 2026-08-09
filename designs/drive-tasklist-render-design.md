@@ -61,6 +61,9 @@
 > **§2.6 修订（2026-08-09 第二次裁决，详见 `designs/tui-exit-quits-driver-design.md`）**：
 > TUI 段的「双击退出一切」实践中**不可达**——Claude TUI 处于 raw 模式（单击中断生成而不死 = 铁证），Ctrl+C 只是输入字节，driver 收不到 SIGINT，双击计数结构性空转；且 pty 实测双击 Ctrl+C 与 `/exit` 均 rc=0 + SessionEnd `prompt_input_exit`，driver 无法区分两种退出。用户裁决：**TUI 退 = 全退**——TUI 段一结束（任何方式），driver 判完本步门控即退出，续跑 = `dl <name>`。headless 段的单击中断/双击退出语义不变（headless 子会话 `start_new_session=True`，SIGINT 只打 driver，计数真实可达）。
 
+> **§2.6 修订2（2026-08-09 第三次裁决，详见 `designs/tui-auto-continue-design.md`）**：
+> 「TUI 退 = 全退」只覆盖**手动退出**——叠加程序通道（Stop hook 机械判定本段 trace 落库）后，**落库即自动收段**：hook 写 tui_autodone 标记 + SIGTERM 收 TUI，driver 见标记走共享门控自动续跑（advanced 续跑 / block 自动返工 / escalate 断点），/exit 依赖消失。手动 /exit 与双击 Ctrl+C 仍维持全退裁决不变。
+
 ## 3. 文件面
 
 | 文件 | 改什么 |

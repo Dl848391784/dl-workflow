@@ -665,3 +665,104 @@ class TestPendingBackgroundAgent:
             judge=(True, ""),
         )
         assert "尚未执行" in out
+
+
+class TestTuiAutodone:
+    """TUI 段自动收段（tui-auto-continue-design，2026-08-09 用户裁决「自动续跑」）。
+
+    Stop hook 程序通道：段标记咬合 + 本段新 trace（hash 新鲜度，≠ pre_sha）→
+    写 tui_autodone 标记 + SIGTERM 收 TUI；无段标记 / 无新 trace / 陈旧标记 =
+    不动作（手动退出维持「TUI 退 = 全退」，headless 段零影响）。
+    """
+
+    @staticmethod
+    def _meta(repo: Path) -> Path:
+        return repo / ".claude" / "workflows" / "t"
+
+    def _seg(self, repo: Path, **over) -> None:
+        seg = {
+            "pid": 999999,  # 不存在：真 os.kill 走 OSError 即返，无需 mock
+            "node": "understand:1",
+            "sub_step": 1,
+            "minor_key": "ProblemContext",
+            "pre_sha": None,
+            "started_at": "x",
+        }
+        seg.update(over)
+        self._meta(repo).joinpath("tui_segment.json").write_text(
+            json.dumps(seg), encoding="utf-8"
+        )
+
+    @staticmethod
+    def _state(**over) -> dict:
+        st = {"node": "understand:1", "sub_step_index": 1}
+        st.update(over)
+        return st
+
+    def _autodone(self, repo: Path) -> Path:
+        return self._meta(repo) / "tui_autodone.json"
+
+    def test_no_segment_file_no_action(self, wf_repo):
+        mod = _load_hook()
+        mod._maybe_autodone_tui(wf_repo, "t", self._state())
+        assert not self._autodone(wf_repo).exists()
+
+    def test_no_trace_at_all_no_action(self, wf_repo):
+        mod = _load_hook()
+        self._seg(wf_repo, pre_sha=None)
+        mod._maybe_autodone_tui(wf_repo, "t", self._state())
+        assert not self._autodone(wf_repo).exists()
+
+    def test_same_sha_no_action(self, wf_repo):
+        """本段无新 trace（模型停下来等用户答话）——会话照常住留，不动作。"""
+        mod = _load_hook()
+        _write_trace(wf_repo, sub_step=1)
+        sha = mod.engine.latest_trace_sha1(wf_repo, "t", 1, "ProblemContext")
+        self._seg(wf_repo, pre_sha=sha)  # 段启动前这条 trace 已在 = 段内无新产出
+        mod._maybe_autodone_tui(wf_repo, "t", self._state())
+        assert not self._autodone(wf_repo).exists()
+
+    def test_new_trace_writes_marker_and_sigterm(self, wf_repo, monkeypatch):
+        """本段落新 trace = 活已干完 → 写 autodone 标记 + SIGTERM 收 TUI。"""
+        mod = _load_hook()
+        _write_trace(wf_repo, sub_step=1)
+        self._seg(wf_repo, pre_sha="old-sha")  # 段启动后落的库
+        kills = []
+        monkeypatch.setattr(mod.os, "kill", lambda pid, sig: kills.append((pid, sig)))
+        mod._maybe_autodone_tui(wf_repo, "t", self._state())
+        auto = json.loads(self._autodone(wf_repo).read_text(encoding="utf-8"))
+        assert auto["node"] == "understand:1"
+        assert auto["sub_step"] == 1
+        assert auto["sha"] and auto["sha"] != "old-sha"
+        assert kills[0] == (999999, mod.signal.SIGTERM)
+        assert all(sig != mod.signal.SIGKILL for _, sig in kills)  # _pid_gone 即返
+
+    def test_stale_segment_node_mismatch_no_action(self, wf_repo, monkeypatch):
+        """段标记与 state 当前位置不咬合（陈旧标记）→ 不动作，防误杀后续段会话。"""
+        mod = _load_hook()
+        _write_trace(wf_repo, sub_step=1)
+        self._seg(wf_repo, pre_sha="old-sha", node="understand:2")
+        kills = []
+        monkeypatch.setattr(mod.os, "kill", lambda pid, sig: kills.append(pid))
+        mod._maybe_autodone_tui(wf_repo, "t", self._state())
+        assert not self._autodone(wf_repo).exists()
+        assert not kills
+
+    def test_main_drive_mode_triggers_autodone(self, wf_repo, monkeypatch, capsys):
+        """drive_mode 分支：编排仍全归 driver（stdout 无续轮指令），唯一保留动作
+        = 自动收段。"""
+        _write_state(wf_repo, sub_step=1)
+        st = json.loads(
+            (wf_repo / ".claude" / "workflows" / "t" / "state.json").read_text()
+        )
+        st["drive_mode"] = True
+        (wf_repo / ".claude" / "workflows" / "t" / "state.json").write_text(
+            json.dumps(st), encoding="utf-8"
+        )
+        _write_trace(wf_repo, sub_step=1)
+        self._seg(wf_repo, pre_sha="old-sha")
+        mod = _load_hook()
+        monkeypatch.setattr(mod.os, "kill", lambda pid, sig: None)
+        out, _err = _run_hook(mod, wf_repo, monkeypatch, capsys)
+        assert self._autodone(wf_repo).exists()
+        assert "hookSpecificOutput" not in out  # 不做编排（防双 orchestrator）
