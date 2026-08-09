@@ -237,17 +237,21 @@ def ensure_tui_rules(
     （无 TUI 可透出，不带本段）。
 
     清单内容同源（2026-08-09 用户裁决「内容同源，样式两制」）：TaskCreate 的
-    13 项 subject+状态逐字渲染自 engine.progress_rows(state)（driver rich Live
-    同一数据源）——模型照抄不自行组织，TUI 段原生清单与 driver 进度区内容
-    恒等，割裂收敛为纯样式差。
+    subject+状态逐字渲染自 engine.progress_rows(state)（driver rich Live
+    同一数据源，**含当前节点展开的子步骤维度**——只到 minor_state 会与
+    driver 进度区粒度不一致，真机割裂实证）——模型照抄不自行组织，TUI 段
+    原生清单与 driver 进度区内容恒等，割裂收敛为纯样式差。
     """
     meta = _meta_root(project_root, name)
     nid = engine.node_id(node.phase, node.sub)
     base = ensure_node_rules(project_root, name, node).read_text(encoding="utf-8")
     phase_label = engine.PHASE_LABELS.get(node.phase, node.phase)
     status_map = {"done": "completed", "current": "in_progress", "todo": "pending"}
-    rows = [r for r in engine.progress_rows(state) if r["depth"] <= 1]
-    items = "\n".join(f'   - "{r["label"]}"（{status_map[r["status"]]}）' for r in rows)
+    rows = engine.progress_rows(state)  # 全深度：阶段+子阶段+当前节点子步骤
+    items = "\n".join(
+        f'{"    " * r["depth"]}- "{r["label"]}"（{status_map[r["status"]]}）'
+        for r in rows
+    )
     section = (
         f"\n## TUI 交互段开场纪律（本段=用户面对面的交互会话，用户就在终端前）\n\n"
         f"1. **开场第一件事**：用 TaskCreate 一条消息批量建齐以下 {len(rows)} 项"
@@ -733,7 +737,9 @@ def run_tui_step(
             f"（回答模型提问；模型落库后 driver 自动收段续跑，无需 /exit；"
             f"/exit = 退出整个工作流，续跑 = `dl {name}`）"
         )
-    print("  （段内底部进度 = 会话内原生 TaskList，与上方进度区同源 13 项）")
+    print(
+        "  （段内底部进度 = 会话内原生 TaskList，与上方进度区同源：含当前节点子步骤）"
+    )
     if disp is not None:
         disp.stop()  # 终端交还 TUI 会话
     # 段标记（tui-auto-continue-design §2）：记本段启动前的最新 trace hash——
