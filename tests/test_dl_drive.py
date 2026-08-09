@@ -358,3 +358,24 @@ def test_live_progress_log_without_start(capsys, wf_repo):
     disp = drv.LiveProgress(wf_repo, "t")
     disp.log("事件XYZ")
     assert "事件XYZ" in capsys.readouterr().out
+
+
+def test_sub1_prompt_conversational_collect_clause(wf_repo):
+    """§2.4 修订：开场问题陈述采集归 TUI 对话式——understand:1#1 prompt 钉死
+    「建完清单立即对话式问用户问题陈述，拿到前禁探查」；其他交互步不带。"""
+    drv = _load(DRIVER, "drv_under_test")
+    state = _write_state(wf_repo)
+    node = engine.get_node("understand", 1)
+    step = engine.sub_step_at(node, 1)  # 逼问定义（interactive）
+    prompt = drv.build_step_prompt(
+        wf_repo, "t", state, node, 1, step, rework=None, interactive=True
+    )
+    assert "对话式问用户「本次要分析的问题是什么」" in prompt
+    assert "禁任何仓库探查" in prompt
+    # 其他交互步（u:2 读回）不带采集条款
+    node2 = engine.get_node("understand", 2)
+    step2 = engine.sub_step_at(node2, 5)
+    prompt2 = drv.build_step_prompt(
+        wf_repo, "t", state, node2, 5, step2, rework=None, interactive=True
+    )
+    assert "对话式问用户" not in prompt2

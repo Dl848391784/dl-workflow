@@ -34,11 +34,12 @@
 
 `build_step_prompt` interactive 分支尾部补硬条款：「会话开场第一件事 = 按 output-style 用 TaskCreate 建齐 13 项阶段清单（subject 带编号），状态镜像当前 state，再做本子步」——prompt 显著性兜底被稀释的 output-style 义务。用户答题时看到的就是 2.0 原生组件。
 
-### 2.4 开场问题陈述采集（根治缺口 2）
+### 2.4 开场问题陈述采集（根治缺口 2）——**2026-08-09 修订为 TUI 对话式**
 
-- driver 启动时 state 无 `problem_statement` → stdin 断点：「请描述本次要分析的问题」（可空跳过——子1 TUI 段 AskUserQuestion 兜底追问）；
-- 写入 `state["problem_statement"]`；`handoff_pack` 顶部收录（恢复 v2.0「首条用户消息」语义——子1 模型开场即有用户原话可引，不再面对 slug 自力更生）；
-- 非交互步 prompt 经 handoff_pack 自动携带；交互步 TUI 段经 SessionStart hook 注入（同一 handoff_pack 通道）。
+> **修订记录**：初版实现为 driver 启动 stdin `input()` 断点采集（素终端提示）。用户质询「为啥不是 claude 那种对话式的」后当场裁决：**采集挪进 sub1 TUI 会话原生对话**——driver 进程无 Claude UI 可用，`input()` 是架构错位；sub1 本就是 TUI 交互段（v2.0 首条用户消息语义的原位）。附带收益：消掉「driver 问一遍、TUI 段又问一遍」的双问。代价：采集从「Python 机械保证」变「模型遵从 prompt 条款」（用户在场可见可打断，残余风险=返工非静默错）。driver input() 已撤；`state.problem_statement` 字段与 handoff_pack 收录通道保留（不再采集，留作手动注入通道）。
+
+- `build_step_prompt` understand:1#1 interactive prompt 钉死：「开场第二件事（建完清单立即做）= 对话式问用户『本次要分析的问题是什么』，拿到陈述前禁任何仓库探查/工具调用」——首次 dogfood 实证（先探查 20+ 轮零提问被中断）写进条款当反面教材；
+- 用户陈述经子1 trace 天然携带给后续步骤（handoff_pack 通道不变）。
 
 ### 2.5 不做
 
@@ -50,13 +51,13 @@
 | 文件 | 改什么 |
 |---|---|
 | `dl_flow_engine.py` | `progress_rows(state)`；state `problem_statement` 字段（写入助手）；`handoff_pack` 顶部收录问题陈述 |
-| `scripts/workflow/dl_drive.py` | rich Live 常驻渲染（含让位逻辑）；run_session 关尾随 + `--verbose`；启动断点采集；interactive prompt TaskList 条款 |
+| `scripts/workflow/dl_drive.py` | rich Live 常驻渲染（含让位逻辑）；run_session 关尾随 + `--verbose`；interactive prompt TaskList 条款 + understand:1#1 对话式采集条款（§2.4 修订） |
 | `tests/test_dl_flow_engine.py` | progress_rows 测例（各节点/子步骤位置 → 断言 status 落位与展开行为）；problem_statement 进 handoff_pack 测例 |
 
 ## 4. 验证
 
 1. pytest 全绿（新测例 + 回归）+ ruff clean；
-2. dogfood 真机：`dl interaction_turnover__ret3d_abs_annualized --resume`——开场断点收到问题陈述；headless 段底部 live 区 spinner/耗时/✓ 翻转可见、屏幕不被子会话输出冲刷；TUI 交互段原生 TaskList 建齐。
+2. dogfood 真机：`dl interaction_turnover__ret3d_abs_annualized --resume`——sub1 TUI 段开场对话式问问题陈述（不再先探查）；headless 段底部 live 区 spinner/耗时/✓ 翻转可见、屏幕不被子会话输出冲刷；TUI 交互段原生 TaskList 建齐。
 
 ## 5. 关联
 

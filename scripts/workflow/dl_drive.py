@@ -467,6 +467,15 @@ def build_step_prompt(
             "- 完成并落库后，用文本告诉用户「交互步已完成，请 /exit 返回 driver」"
             "并结束本轮"
         )
+        if node.phase == "understand" and node.sub == 1 and cur == 1:
+            # 开场问题陈述对话式采集（drive-tasklist-render-design §2.4 修订——
+            # 用户裁决：采集归 TUI 会话原生对话，driver input() 已撤）。
+            tail += (
+                "\n- 开场第二件事（建完清单立即做）：对话式问用户「本次要分析的问题"
+                "是什么」——用户打字自由陈述 = 本步结论的首要「用户原话」出处；"
+                "**拿到用户陈述前禁任何仓库探查/工具调用**（首次 dogfood 实证："
+                "先自行探查 20+ 轮零提问被用户中断——先问，才问得出好问题）"
+            )
     else:
         tail = (
             "- 非预期需要用户输入时：输出 `### NEED_USER` + 问题清单后结束"
@@ -652,22 +661,6 @@ def drive(project_root: Path, name: str, debug: bool, verbose: bool = False) -> 
     wt = Path(state["worktree_path"])
     print(f"▸ driver 接管工作流 '{name}'（headless 编排，state 磁盘真源）")
     print(f"  worktree: {wt}  日志: {meta}/drive-stream.jsonl")
-
-    # ---- 开场问题陈述采集（drive-tasklist-render-design §2.4）----
-    # 恢复 v2.0「首条用户消息」语义：handoff_pack 顶部收录后，子1 模型开场即有
-    # 用户原话可引，不再面对工作流名 slug 自力更生翻仓库。可空跳过（交互步追问兜底）。
-    if not (state.get("problem_statement") or "").strip() and sys.stdin.isatty():
-        print("══ 开场采集 ══ 本工作流全程围绕你描述的问题展开（交接包携带）。")
-        try:
-            ans = input(
-                "请用一两句话描述本次要分析的问题（直接回车跳过，交互步会追问）："
-            ).strip()
-        except (EOFError, KeyboardInterrupt):
-            ans = ""
-        if ans:
-            engine.set_problem_statement(project_root, name, ans)
-            state = _load(project_root, name)
-            print(f"  ✓ 已记录问题陈述（{len(ans)} 字）")
 
     disp = LiveProgress(project_root, name, verbose=verbose)
     disp.start()
