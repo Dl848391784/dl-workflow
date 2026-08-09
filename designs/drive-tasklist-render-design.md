@@ -58,6 +58,9 @@
 - **双击 = 退出这个会话包括子任务**：杀子进程 + driver SystemExit(130)（`_pwait_interruptible` 计数，`already_interrupted` 防读循环已计单击后还需三击的计数断层）；
 - **其余角落**（gate/judge/装配）：drive() 顶层 except KeyboardInterrupt → 打印「已退出，state 在磁盘可续」退 130；断点 `driver>` 提示符处 Ctrl+C = 退出（既有 EOFError/KeyboardInterrupt → quit 路径）。
 
+> **§2.6 修订（2026-08-09 第二次裁决，详见 `designs/tui-exit-quits-driver-design.md`）**：
+> TUI 段的「双击退出一切」实践中**不可达**——Claude TUI 处于 raw 模式（单击中断生成而不死 = 铁证），Ctrl+C 只是输入字节，driver 收不到 SIGINT，双击计数结构性空转；且 pty 实测双击 Ctrl+C 与 `/exit` 均 rc=0 + SessionEnd `prompt_input_exit`，driver 无法区分两种退出。用户裁决：**TUI 退 = 全退**——TUI 段一结束（任何方式），driver 判完本步门控即退出，续跑 = `dl <name>`。headless 段的单击中断/双击退出语义不变（headless 子会话 `start_new_session=True`，SIGINT 只打 driver，计数真实可达）。
+
 ## 3. 文件面
 
 | 文件 | 改什么 |

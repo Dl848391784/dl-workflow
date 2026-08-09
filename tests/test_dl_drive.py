@@ -202,9 +202,67 @@ def test_interactive_step_prompt_variant(wf_repo):
         wf_repo, "t", state, node, 5, step, rework=None, interactive=True
     )
     assert "AskUserQuestion（回合内完成）" in prompt
-    assert "/exit 返回 driver" in prompt
+    assert "请 /exit 退出" in prompt  # TUI 退 = 全退（tui-exit-quits-driver-design）
+    assert "返回 driver" not in prompt
     assert "NEED_USER" not in prompt  # TUI 段无 NEED_USER 出口
     assert "交接包" not in prompt  # 交接包归 SessionStart hook，prompt 不带
+
+
+# ---------- TUI 退 = 全退（tui-exit-quits-driver-design） ----------
+
+
+class _DispStub:
+    def __init__(self):
+        self.lines = []
+
+    def log(self, msg):
+        self.lines.append(msg)
+
+
+def _fake_gate(action, reason=""):
+    return lambda *a, **k: (action, reason, None)
+
+
+def test_after_tui_exit_advanced(wf_repo, monkeypatch):
+    drv = _load(DRIVER, "drv_under_test")
+    _write_state(wf_repo)
+    monkeypatch.setattr(engine, "gate_sub_step_at_stop", _fake_gate("advanced"))
+    disp = _DispStub()
+    rc = drv._after_tui_exit(
+        wf_repo, "t", wf_repo / ".claude" / "worktrees" / "t", 1, disp
+    )
+    assert rc == 0
+    assert "pending_rework" not in _read_state(wf_repo)
+    assert any("已过门控" in line for line in disp.lines)
+
+
+def test_after_tui_exit_block_persists_rework(wf_repo, monkeypatch):
+    drv = _load(DRIVER, "drv_under_test")
+    _write_state(wf_repo)
+    monkeypatch.setattr(
+        engine, "gate_sub_step_at_stop", _fake_gate("block", "判词原文XYZ")
+    )
+    disp = _DispStub()
+    rc = drv._after_tui_exit(
+        wf_repo, "t", wf_repo / ".claude" / "worktrees" / "t", 1, disp
+    )
+    assert rc == 0
+    saved = _read_state(wf_repo)
+    assert "判词原文XYZ" in saved["pending_rework"]  # 续跑恢复用，消费即清
+    assert "append-trace" in saved["pending_rework"]
+
+
+def test_after_tui_exit_escalate_and_none(wf_repo, monkeypatch):
+    drv = _load(DRIVER, "drv_under_test")
+    wt = wf_repo / ".claude" / "worktrees" / "t"
+    for action in ("escalate", "none"):
+        _write_state(wf_repo)
+        monkeypatch.setattr(engine, "gate_sub_step_at_stop", _fake_gate(action, "r"))
+        disp = _DispStub()
+        rc = drv._after_tui_exit(wf_repo, "t", wt, 1, disp)
+        assert rc == 0, action
+        assert "pending_rework" not in _read_state(wf_repo), action
+        assert any("续跑" in line for line in disp.lines), action
 
 
 # ---------- PHASE_DONE 检测 ----------

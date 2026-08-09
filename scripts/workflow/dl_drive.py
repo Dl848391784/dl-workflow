@@ -228,8 +228,8 @@ def ensure_tui_rules(
         f" invoke skill 动手；探查不禁，但保持对用户可见的节奏——材料够问就用"
         f" AskUserQuestion 问，**禁闷头连翻十几轮仓库零提问**（真机实证：20+ 轮"
         f"零提问零清单被用户中断）\n"
-        f"4. 完成并落库后，用文本告诉用户「交互步已完成，请 /exit 返回 driver」"
-        f"并结束本轮\n"
+        f"4. 完成并落库后，用文本告诉用户「交互步已完成，请 /exit 退出——本会话与"
+        f" driver 一并结束；续跑 = `dl <name>`」并结束本轮\n"
     )
     # 插在「## 本节点子步骤清单」之前
     marker = "## 本节点子步骤清单"
@@ -541,8 +541,8 @@ def build_step_prompt(
             "- 开场纪律见 system prompt「TUI 交互段开场纪律」段（TaskList+横幅——"
             "不建清单=用户眼里你没在跑工作流）\n"
             "- 需要用户输入时用 AskUserQuestion（回合内完成），用户就在终端前\n"
-            "- 完成并落库后，用文本告诉用户「交互步已完成，请 /exit 返回 driver」"
-            "并结束本轮"
+            "- 完成并落库后，用文本告诉用户「交互步已完成，请 /exit 退出——本会话与"
+            " driver 一并结束；续跑 = `dl <name>`」并结束本轮"
         )
         if node.phase == "understand" and node.sub == 1 and cur == 1:
             # 开场问题陈述对话式采集（drive-tasklist-render-design §2.4 修订——
@@ -662,20 +662,22 @@ def run_tui_step(
     if bare:
         print(
             f"\n▸ 交互子步骤 {cur}/{len(node.sub_steps or ())} —— TUI 会话已就绪："
-            f"请直接输入你要分析的问题（模型在你提交后接管；完成后输入 /exit 返回 driver）"
+            f"请直接输入你要分析的问题（模型在你提交后接管；完成后输入 /exit 退出——"
+            f"driver 一并结束；续跑 = `dl {name}`）"
         )
     else:
         print(
             f"\n▸ 交互子步骤 {cur}/{len(node.sub_steps or ())} —— 起 TUI 会话"
-            f"（回答模型提问；模型报告完成后输入 /exit 返回 driver）"
+            f"（回答模型提问；模型报告完成后输入 /exit 退出——driver 一并结束；"
+            f"续跑 = `dl {name}`）"
         )
     if disp is not None:
         disp.stop()  # 终端交还 TUI 会话
     try:
         with open(meta / "cc_sdk.log", "a", encoding="utf-8") as err_f:
-            # 同进程组：TUI 需自己收 SIGINT 保原生单击中断生成语义；
-            # driver 侧 _pwait_interruptible 计数——单击只标记（TUI 已处理中断），
-            # 双击=TUI 退出 + driver 杀子会话退 130（§2.6）
+            # TUI 处于 raw 模式时 Ctrl+C 只是输入字节，driver 收不到 SIGINT
+            # （tui-exit-quits-driver-design §2 实证）——本计数仅兜底 cooked 窗口：
+            # 双击=杀子会话退 130，与「TUI 退 = 全退」语义一致
             proc = subprocess.Popen(cmd, cwd=str(wt), stderr=err_f)
             rc = _pwait_interruptible(
                 proc,
@@ -688,6 +690,55 @@ def run_tui_step(
             disp.start()
     print(f"—— TUI 段会话结束（{engine.node_id(node.phase, node.sub)}#{cur}，rc={rc}）")
     return rc, sid
+
+
+def _rework_text(reason: str) -> str:
+    """门控 block 判词 → 返工上下文（注入下一轮会话 prompt / 落 state 持久化）。"""
+    return (
+        f"上一轮门控未通过（判词原文）：\n{reason}\n\n"
+        f"按判词修正后重做本子步骤——修正方式 = append-trace 追加新 trace"
+        f"（禁覆盖/编辑旧行，judge 以最后一条为准）。"
+    )
+
+
+def _after_tui_exit(project_root: Path, name: str, wt: Path, cur: int, disp) -> int:
+    """TUI 退 = 全退（tui-exit-quits-driver-design，2026-08-09 用户裁决）。
+
+    TUI 段一结束（任何方式——双击 Ctrl+C 与 /exit 在 claude 内部是同一路径，
+    实测 rc=0 + SessionEnd prompt_input_exit 双通道撞车，driver 不可区分），
+    先判本步门控（主循环入口无「先判未判决 trace」逻辑，不判则已落库 trace
+    永不判决、续跑被当没干过重开），再按结果给续跑指引并退出 driver。
+    """
+    action, reason, _ns = engine.gate_sub_step_at_stop(project_root, name, str(wt))
+    if action == "advanced":
+        disp.log(f"  ✓ 子步骤 {cur} 通过门控")
+        disp.log(
+            f"▸ TUI 段结束，子步骤 {cur} 已过门控——driver 退出。"
+            f"续跑：`dl {name}`（接着下一步往下走）。"
+        )
+        return 0
+    if action == "block":
+        disp.log(f"  ✗ 门控 block：{reason[:200]}")
+        state = _load(project_root, name)
+        state["pending_rework"] = _rework_text(reason)  # 续跑时恢复，消费即清
+        engine.save_state(project_root, name, state)
+        disp.log(
+            f"▸ TUI 段结束，子步骤 {cur} 门控未通过（判词已落 evidence，"
+            f"返工上下文已存 state）——driver 退出。续跑：`dl {name}`（带判词返工本步）。"
+        )
+        return 0
+    if action == "escalate":
+        disp.log(
+            f"▸ TUI 段结束，子步骤 {cur} 连续 block 达阈值（判词：{reason[:200]}）"
+            f"——driver 退出。续跑：`dl {name}` 重开本步；强制通过 = `/dl step-pass`。"
+        )
+        return 0
+    # none：会话结束但门控读不到新 trace（未落库 / 中途退出）
+    disp.log(
+        f"▸ TUI 段结束，子步骤 {cur} 未见落库——driver 退出。"
+        f"续跑：`dl {name}`（重开本步 TUI）。"
+    )
+    return 0
 
 
 def build_phase_prompt(project_root: Path, name: str, state: dict) -> str:
@@ -792,7 +843,9 @@ def drive(project_root: Path, name: str, debug: bool, verbose: bool = False) -> 
     disp = LiveProgress(project_root, name, verbose=verbose)
     disp.start()
 
-    pending_rework: str | None = None  # block/none 后下次会话的返工上下文
+    pending_rework: str | None = state.get(
+        "pending_rework"
+    )  # TUI block 退出时落盘的返工上下文（消费即清）；block/none 后下次会话的返工上下文
     none_retries = 0
     phase_done_at: tuple[str, int] | None = None  # 已见 PHASE_DONE 的节点（防重跑会话）
 
@@ -921,10 +974,18 @@ def drive(project_root: Path, name: str, debug: bool, verbose: bool = False) -> 
                             disp=disp,
                         )
                         seg_kind = "tui-step-needuser"
+                if pending_rework is not None:
+                    # 消费即清（TUI block 退出时落 state 的返工上下文，防陈旧污染）
+                    st = _load(project_root, name)
+                    if st.pop("pending_rework", None) is not None:
+                        engine.save_state(project_root, name, st)
                 pending_rework = None
                 _record_segment(
                     project_root, name, session_id=sid, kind=seg_kind, note=f"rc={rc}"
                 )
+                if seg_kind.startswith("tui"):
+                    # TUI 退 = 全退（双击 Ctrl+C 与 /exit 不可区分，一律判门控后退）
+                    return _after_tui_exit(project_root, name, wt, cur, disp)
                 if rc == RC_INTERRUPTED:
                     # 单击中断子会话（§2.6）——断点等裁决，不自动重发
                     if (
@@ -951,11 +1012,7 @@ def drive(project_root: Path, name: str, debug: bool, verbose: bool = False) -> 
                 if action == "block":
                     none_retries = 0
                     disp.log(f"  ✗ 门控 block：{reason[:200]}")
-                    pending_rework = (
-                        f"上一轮门控未通过（判词原文）：\n{reason}\n\n"
-                        f"按判词修正后重做本子步骤——修正方式 = append-trace 追加新 trace"
-                        f"（禁覆盖/编辑旧行，judge 以最后一条为准）。"
-                    )
+                    pending_rework = _rework_text(reason)
                     continue
                 if action == "escalate":
                     none_retries = 0
