@@ -50,12 +50,20 @@
 - 不改编排循环任何分支逻辑（Python driver 确定性原样）；不改 output-style/phase-rules 模板；headless 子会话本身不动；
 - `/dl status` 共享 progress_rows 留作后续项；live 区配色/字形不追求 1:1 仿原生组件（硬约束：原生只在 TUI 内）。
 
+### 2.6 Ctrl+C 中断语义（2026-08-09 用户裁决：单击中断一切，双击退出一切）
+
+> 缘起：v3.1 真机实测——TUI 段按 Ctrl+C「不仅不退出还继续流程，连按好几次才能退出」。根因：Ctrl+C 发整个前台进程组，driver 与 TUI 子会话同时收——TUI 按原生语义单击=中断生成（不死），driver 侧 `run_tui_step` 无 KeyboardInterrupt 处理裸抛栈死 = driver 死了 TUI 还活着继续跑。
+
+- **单击 = 中断当前活动**：TUI 段 = TUI 原生中断生成（会话不死，driver `_pwait_interruptible` 只标记）；headless 段 = 杀子会话（`start_new_session=True` 保终端 Ctrl+C 只打 driver——防 child 先收 SIGINT 自杀、driver 读 EOF 当正常收段的竞态），返回 `RC_INTERRUPTED` 哨兵，drive 进断点等裁决（回车重试/step-pass/state-reset/q），**不自动重发**；
+- **双击 = 退出这个会话包括子任务**：杀子进程 + driver SystemExit(130)（`_pwait_interruptible` 计数，`already_interrupted` 防读循环已计单击后还需三击的计数断层）；
+- **其余角落**（gate/judge/装配）：drive() 顶层 except KeyboardInterrupt → 打印「已退出，state 在磁盘可续」退 130；断点 `driver>` 提示符处 Ctrl+C = 退出（既有 EOFError/KeyboardInterrupt → quit 路径）。
+
 ## 3. 文件面
 
 | 文件 | 改什么 |
 |---|---|
 | `dl_flow_engine.py` | `progress_rows(state)`；state `problem_statement` 字段（写入助手）；`handoff_pack` 顶部收录问题陈述 |
-| `scripts/workflow/dl_drive.py` | rich Live 常驻渲染（含让位逻辑）；run_session 关尾随 + `--verbose`；interactive prompt TaskList 条款 + understand:1#1 对话式采集条款（§2.4 修订） |
+| `scripts/workflow/dl_drive.py` | rich Live 常驻渲染（含让位逻辑）；run_session 关尾随 + `--verbose` + 独立进程组中断语义；interactive prompt TaskList 条款 + understand:1#1 对话式采集条款（§2.4 修订）；裸开场（§2.4 修订2）；Ctrl+C 单击/双击语义（§2.6） |
 | `tests/test_dl_flow_engine.py` | progress_rows 测例（各节点/子步骤位置 → 断言 status 落位与展开行为）；problem_statement 进 handoff_pack 测例 |
 
 ## 4. 验证

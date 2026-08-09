@@ -408,3 +408,48 @@ def test_build_tui_cmd_bare_omits_prompt(tmp_path):
         "sid-x", tmp_path / "s.json", tmp_path / "rules.md", "任务书", False, meta
     )
     assert cmd_full[-1] == "任务书"
+
+
+# ---------- Ctrl+C 中断语义（drive-tasklist-render-design §2.6） ----------
+
+
+class _FakeProc:
+    def __init__(self, raises: int):
+        self.raises = raises
+        self.killed = False
+
+    def wait(self):
+        if self.raises:
+            self.raises -= 1
+            raise KeyboardInterrupt
+        return 0
+
+    def kill(self):
+        self.killed = True
+
+
+def test_pwait_single_interrupt_calls_on_first_not_kill():
+    """单击=中断语义（on_first 一次）继续等，不杀进程不退出。"""
+    drv = _load(DRIVER, "drv_under_test")
+    calls = []
+    p = _FakeProc(1)
+    rc = drv._pwait_interruptible(p, on_first=lambda: calls.append(1))
+    assert rc == 0 and calls == [1] and not p.killed
+
+
+def test_pwait_double_interrupt_kills_and_exit_130():
+    """双击=杀子进程 + SystemExit(130)——退出这个会话包括子任务。"""
+    drv = _load(DRIVER, "drv_under_test")
+    p = _FakeProc(2)
+    with pytest.raises(SystemExit) as exc:
+        drv._pwait_interruptible(p, on_first=lambda: None)
+    assert exc.value.code == 130 and p.killed
+
+
+def test_pwait_already_interrupted_counts_as_double():
+    """读循环已捕过单击（already_interrupted=True）——本次 Ctrl+C 即双击退出。"""
+    drv = _load(DRIVER, "drv_under_test")
+    p = _FakeProc(1)
+    with pytest.raises(SystemExit) as exc:
+        drv._pwait_interruptible(p, on_first=lambda: None, already_interrupted=True)
+    assert exc.value.code == 130 and p.killed

@@ -49,6 +49,33 @@ NEED_USER_RE = re.compile(r"###\s*NEED_USER")
 # 尖锐重发 N 次仍无 -> 断点等用户（防无限白烧，对齐 escalate 语义）。
 NONE_RETRY_LIMIT = 3
 
+# Ctrl+C 语义（drive-tasklist-render-design §2.6，2026-08-09 用户裁决）：
+# 单击=中断当前活动（TUI 原生中断生成 / headless 杀子会话进断点），
+# 双击=退出这个会话包括子任务（driver 退 130）。
+RC_INTERRUPTED = -2  # run_session 返回哨兵：单击已中断子会话（drive 进断点裁决）
+
+
+def _pwait_interruptible(
+    proc: "subprocess.Popen", on_first, already_interrupted: bool = False
+) -> int:
+    """等子进程退出；单击 Ctrl+C 调 on_first()（中断语义）后继续等，
+    双击 Ctrl+C 杀子进程并 SystemExit(130)——退出这个会话包括子任务。
+    already_interrupted=True：调用方已计过单击（读循环里捕过），本次即双击。
+    """
+    interrupted = already_interrupted
+    while True:
+        try:
+            return proc.wait()
+        except KeyboardInterrupt:
+            if interrupted:
+                proc.kill()
+                print(
+                    "\n✗ 用户中断（双击）——已退出。state 在磁盘，`dl <name>` 随时续。"
+                )
+                raise SystemExit(130)
+            interrupted = True
+            on_first()
+
 
 # ---------- 基础设施 ----------
 
@@ -204,6 +231,8 @@ def run_session(
     的数据源）。verbose=False（默认，drive-tasklist-render-design §2.1——用户裁决
     子会话进度不用展示）：assistant text 不上屏（防冲刷常驻进度区），tool_use
     简报喂常驻区「最近动作」行；verbose=True 恢复旧尾随行为（text + ⚙ 行上屏）。
+    Ctrl+C（§2.6）：子进程独立进程组（start_new_session）——终端 Ctrl+C 只打
+    driver，单击=杀子会话返回 RC_INTERRUPTED（drive 进断点），双击=退出 130。
     """
     sid = str(uuid.uuid4())
     cmd = [
@@ -242,7 +271,11 @@ def run_session(
             stderr=err_f,
             text=True,
             bufsize=1,
+            # 独立进程组：终端 Ctrl+C 只打 driver——中断/退出语义由 driver
+            # 统一裁决（防 child 先收 SIGINT 自杀、driver 读 EOF 当正常收段的竞态）
+            start_new_session=True,
         )
+        interrupted = False
         try:
             assert proc.stdout is not None
             for line in proc.stdout:
@@ -280,10 +313,17 @@ def run_session(
                     else:
                         print(f"\n{msg}")
         except KeyboardInterrupt:
+            # 单击=中断子任务：杀子会话，段以「中断」收场（drive 进断点裁决；
+            # 再按 Ctrl+C = 双击退出，由下方 _pwait_interruptible 处理）
+            interrupted = True
             proc.terminate()
-            print("\n✗ 用户中断（段会话已终止）。state 在磁盘，重跑 `dl <name>` 续。")
-            raise SystemExit(130)
-        rc = proc.wait()
+            if disp is not None:
+                disp.log("  ⛔ 用户中断子会话（单击）——进断点裁决")
+        rc = _pwait_interruptible(
+            proc, on_first=lambda: None, already_interrupted=interrupted
+        )
+        if interrupted:
+            return RC_INTERRUPTED, "\n".join(texts), sid
     return rc, "\n".join(texts), sid
 
 
@@ -595,7 +635,16 @@ def run_tui_step(
         disp.stop()  # 终端交还 TUI 会话
     try:
         with open(meta / "cc_sdk.log", "a", encoding="utf-8") as err_f:
-            rc = subprocess.run(cmd, cwd=str(wt), stderr=err_f, check=False).returncode
+            # 同进程组：TUI 需自己收 SIGINT 保原生单击中断生成语义；
+            # driver 侧 _pwait_interruptible 计数——单击只标记（TUI 已处理中断），
+            # 双击=TUI 退出 + driver 杀子会话退 130（§2.6）
+            proc = subprocess.Popen(cmd, cwd=str(wt), stderr=err_f)
+            rc = _pwait_interruptible(
+                proc,
+                on_first=lambda: print(
+                    "\n（单击 Ctrl+C：TUI 已中断当前生成；快速再按一次 = 退出会话与 driver）"
+                ),
+            )
     finally:
         if disp is not None:
             disp.start()
@@ -838,6 +887,21 @@ def drive(project_root: Path, name: str, debug: bool, verbose: bool = False) -> 
                 _record_segment(
                     project_root, name, session_id=sid, kind=seg_kind, note=f"rc={rc}"
                 )
+                if rc == RC_INTERRUPTED:
+                    # 单击中断子会话（§2.6）——断点等裁决，不自动重发
+                    if (
+                        breakpoint_loop(
+                            project_root,
+                            name,
+                            wt,
+                            f"⛔ 子步骤 {cur} 子会话已被用户中断（单击）——"
+                            f"回车重试本步 / step-pass / state-reset / q 退出。",
+                            disp=disp,
+                        )
+                        == "quit"
+                    ):
+                        return 0
+                    continue
 
                 action, reason, _ns = engine.gate_sub_step_at_stop(
                     project_root, name, str(wt)
@@ -871,6 +935,22 @@ def drive(project_root: Path, name: str, debug: bool, verbose: bool = False) -> 
                         return 0
                     continue
                 # none：会话结束但门控读不到新 trace（没落库 / 中途停了）
+                if seg_kind.startswith("tui"):
+                    # TUI 段未落库（双击 Ctrl+C 退出 / /exit 早退）——交互步靠用户
+                    # 驱动，自动重开=「退出还继续流程」（§2.6 实证坑）；直接断点裁决
+                    if (
+                        breakpoint_loop(
+                            project_root,
+                            name,
+                            wt,
+                            f"⛔ 子步骤 {cur} TUI 段已结束但未落库——"
+                            f"回车重开 TUI / step-pass / state-reset / q 退出。",
+                            disp=disp,
+                        )
+                        == "quit"
+                    ):
+                        return 0
+                    continue
                 none_retries += 1
                 disp.log(f"  ⚠ 门控读不到新 trace（{none_retries}/{NONE_RETRY_LIMIT}）")
                 if none_retries >= NONE_RETRY_LIMIT:
@@ -921,6 +1001,21 @@ def drive(project_root: Path, name: str, debug: bool, verbose: bool = False) -> 
                     kind="headless-phase",
                     note=f"rc={rc}",
                 )
+                if rc == RC_INTERRUPTED:
+                    # 单击中断子会话（§2.6）——断点等裁决，不自动重发
+                    if (
+                        breakpoint_loop(
+                            project_root,
+                            name,
+                            wt,
+                            "⛔ 阶段会话已被用户中断（单击）——"
+                            "回车重试 / next 强制推进 / q 退出。",
+                            disp=disp,
+                        )
+                        == "quit"
+                    ):
+                        return 0
+                    continue
                 m = PHASE_DONE_RE.search(out)
                 if m and m.group(1) == cur_phase:
                     phase_done_at = (cur_phase, state["sub_index"])
@@ -966,6 +1061,10 @@ def drive(project_root: Path, name: str, debug: bool, verbose: bool = False) -> 
                 f"{engine.PHASE_LABELS.get(new_state['phase'], new_state['phase'])}"
             )
             phase_done_at = None
+    except KeyboardInterrupt:
+        # 信号落在 gate/judge/装配等未专门处理的角落（§2.6）——单击即退出
+        print("\n✗ 用户中断——已退出。state 在磁盘，`dl <name>` 随时续。")
+        return 130
     finally:
         disp.stop()
 
