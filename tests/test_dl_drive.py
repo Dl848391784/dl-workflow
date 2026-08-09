@@ -158,6 +158,21 @@ def test_step_prompt_core_elements(wf_repo):
         wf_repo, "t", state, node, 2, step, rework="判词XYZ"
     )
     assert "返工上下文" in prompt2 and "判词XYZ" in prompt2
+    # Bash 形态铁律进铁律块（headless + 非裸 TUI 共享通道）；无 venv 回退 python3
+    assert "Bash 形态铁律" in prompt
+    assert "`python3`" in prompt
+    assert "禁 `$(...)`" in prompt
+
+
+def test_bash_shape_rules_venv_absolute_form(wf_repo):
+    """项目有 venv 时钉绝对路径形态（./ 前缀会让白名单前缀匹配落空）。"""
+    drv = _load(DRIVER, "drv_under_test")
+    py = wf_repo / "venv" / "bin" / "python"
+    py.parent.mkdir(parents=True)
+    py.write_text("#!x", encoding="utf-8")
+    text = drv._bash_shape_rules(wf_repo)
+    assert f"`{py}`" in text
+    assert "env VAR=值" in text  # 裸赋值前缀破前缀匹配的替代写法也钉死
 
 
 # ---------- Step.interactive 标注（v3） ----------
@@ -385,6 +400,9 @@ def test_tui_rules_carry_opening_discipline(wf_repo):
     assert "## PHASE: 理解和求证问题 [1/5]" in tui_rules
     assert "禁闷头连翻十几轮仓库零提问" in tui_rules
     assert "## 本节点子步骤清单" in tui_rules  # node-rules 本体仍在
+    # Bash 形态铁律（2026-08-09 四类弹窗实证）——裸开场唯一通道，必须在这
+    assert "Bash 形态铁律" in tui_rules
+    assert "git -C" in tui_rules
     # headless 段 rules 不带 TUI 段（无 TUI 可透出）
     headless_rules = drv.ensure_node_rules(wf_repo, "t", node).read_text(
         encoding="utf-8"
