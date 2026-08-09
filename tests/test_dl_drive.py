@@ -314,10 +314,29 @@ def test_fence_drive_mode_keeps_s11_phase_write_fence(wf_repo):
 # ---------- 常驻进度区 + TUI TaskList 条款（drive-tasklist-render-design） ----------
 
 
+def test_tui_rules_carry_opening_discipline(wf_repo):
+    """§2.3 修订：开场纪律（TaskList/PHASE 横幅/裸开场顺序）单源 = TUI 段
+    system prompt（ensure_tui_rules）——裸开场抽不走的通道（真机实证：条款住
+    prompt 时裸开场零 TaskCreate/零横幅）；headless node-rules 不带本段。"""
+    drv = _load(DRIVER, "drv_under_test")
+    _write_state(wf_repo)
+    node = engine.get_node("understand", 1)
+    tui_rules = drv.ensure_tui_rules(wf_repo, "t", node, 1).read_text(encoding="utf-8")
+    assert "TUI 交互段开场纪律" in tui_rules
+    assert "TaskCreate 建齐 13 项" in tui_rules
+    assert "## PHASE: 理解和求证问题 [1/5]" in tui_rules
+    assert "禁闷头连翻十几轮仓库零提问" in tui_rules
+    assert "## 本节点子步骤清单" in tui_rules  # node-rules 本体仍在
+    # headless 段 rules 不带 TUI 段（无 TUI 可透出）
+    headless_rules = drv.ensure_node_rules(wf_repo, "t", node).read_text(
+        encoding="utf-8"
+    )
+    assert "TUI 交互段开场纪律" not in headless_rules
+
+
 def test_interactive_prompt_tasklist_clause(wf_repo):
-    """§2.3：TUI 段 prompt 尾部钉死「开场先 TaskCreate 建齐 13 项清单」——
-    output-style 义务被瘦版 node-rules 稀释（首次 dogfood 零 TaskCreate 实证），
-    prompt 显著性兜底。"""
+    """§2.3 修订后：prompt 尾只留指针（开场纪律单源=ensure_tui_rules，防双份
+    打架——症状 M 教训）；headless prompt 仍无任何 TaskList 内容。"""
     drv = _load(DRIVER, "drv_under_test")
     state = _write_state(wf_repo)
     node = engine.get_node("understand", 2)
@@ -325,7 +344,8 @@ def test_interactive_prompt_tasklist_clause(wf_repo):
     prompt = drv.build_step_prompt(
         wf_repo, "t", state, node, 5, step, rework=None, interactive=True
     )
-    assert "TaskCreate 建齐 13 项" in prompt
+    assert "TUI 交互段开场纪律" in prompt  # 指针
+    assert "TaskCreate 建齐 13 项" not in prompt  # 条款本体已搬走（单源化）
     # 非交互 prompt 不带（headless 段无 TUI，建了也无人可见）
     node2 = engine.get_node("understand", 1)
     step2 = engine.sub_step_at(node2, 2)

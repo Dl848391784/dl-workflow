@@ -201,6 +201,45 @@ def ensure_node_rules(project_root: Path, name: str, node: "engine.Node") -> Pat
     return out
 
 
+def ensure_tui_rules(
+    project_root: Path, name: str, node: "engine.Node", cur: int
+) -> Path:
+    """TUI 段 system prompt = node-rules + TUI 开场纪律段（单源：TUI 可见面契约）。
+
+    动机（drive-tasklist-render-design §2.3 修订）：TaskList/横幅条款原住
+    build_step_prompt——裸开场（§2.4 修订2）不喂 prompt，条款随通道一起消失，
+    真机实证零 TaskCreate/零横幅/闷头探查被用户中断。搬进 system prompt
+    （裸开场抽不走的最高优先级可见面）；headless 段仍用 ensure_node_rules
+    （无 TUI 可透出，不带本段）。
+    """
+    meta = _meta_root(project_root, name)
+    nid = engine.node_id(node.phase, node.sub)
+    base = ensure_node_rules(project_root, name, node).read_text(encoding="utf-8")
+    phase_label = engine.PHASE_LABELS.get(node.phase, node.phase)
+    section = (
+        f"\n## TUI 交互段开场纪律（本段=用户面对面的交互会话，用户就在终端前）\n\n"
+        f"1. **开场第一件事**：用 TaskCreate 建齐 13 项阶段任务清单（subject 带编号"
+        f" 1./1.1…/5.，一条消息批量建齐），状态镜像当前进度（当前子阶段"
+        f" in_progress、之前 completed、之后 pending）——该清单是用户唯一可见的"
+        f"工作流结构，不建 = 用户眼里你根本没在跑工作流\n"
+        f"2. **每轮响应首行**输出 `## PHASE: {phase_label} [{engine.phase_index(node.phase)}/5]`"
+        f" 横幅（子步骤 {cur}/{len(node.sub_steps or ())}）\n"
+        f"3. 用户先说话的场合（裸开场）：收到首条消息（问题陈述）后先完成 1+2，再"
+        f" invoke skill 动手；探查不禁，但保持对用户可见的节奏——材料够问就用"
+        f" AskUserQuestion 问，**禁闷头连翻十几轮仓库零提问**（真机实证：20+ 轮"
+        f"零提问零清单被用户中断）\n"
+        f"4. 完成并落库后，用文本告诉用户「交互步已完成，请 /exit 返回 driver」"
+        f"并结束本轮\n"
+    )
+    # 插在「## 本节点子步骤清单」之前
+    marker = "## 本节点子步骤清单"
+    text = base.replace(marker, section + "\n" + marker, 1)
+    out = meta / f"tui-rules.{nid}.md"
+    if not out.exists() or out.read_text(encoding="utf-8") != text:
+        out.write_text(text, encoding="utf-8")
+    return out
+
+
 # ---------- 会话执行（stream-json 实时尾随） ----------
 
 
@@ -496,13 +535,11 @@ def build_step_prompt(
         if pack:
             parts += [pack, ""]
     if interactive:
+        # 开场纪律（TaskList/PHASE 横幅/裸开场顺序）单源 = ensure_tui_rules
+        # （system prompt 通道，裸开场抽不走）——prompt 尾只留交互指引，防双份打架
         tail = (
-            # TaskList 硬条款（drive-tasklist-render-design §2.3）：output-style
-            # 的建清单义务被瘦版 node-rules 稀释（首次 dogfood 实证零 TaskCreate），
-            # prompt 显著性兜底——TUI 段用户看到的就是 v2.0 原生 TaskList。
-            "- 会话开场第一件事：按 output-style 用 TaskCreate 建齐 13 项阶段清单"
-            "（subject 带编号 1./1.1…/5.，一条消息批量建齐），状态镜像当前进度"
-            "（当前子阶段 in_progress、之前 completed、之后 pending），再做本子步\n"
+            "- 开场纪律见 system prompt「TUI 交互段开场纪律」段（TaskList+横幅——"
+            "不建清单=用户眼里你没在跑工作流）\n"
             "- 需要用户输入时用 AskUserQuestion（回合内完成），用户就在终端前\n"
             "- 完成并落库后，用文本告诉用户「交互步已完成，请 /exit 返回 driver」"
             "并结束本轮"
@@ -510,6 +547,7 @@ def build_step_prompt(
         if node.phase == "understand" and node.sub == 1 and cur == 1:
             # 开场问题陈述对话式采集（drive-tasklist-render-design §2.4 修订——
             # 用户裁决：采集归 TUI 会话原生对话，driver input() 已撤）。
+            # 仅 prompt 驱动的返工路径会走到（裸开场=用户先说话，本条款不适用）。
             tail += (
                 "\n- 开场第二件事（建完清单立即做）：对话式问用户「本次要分析的问题"
                 "是什么」——用户打字自由陈述 = 本步结论的首要「用户原话」出处；"
@@ -614,7 +652,7 @@ def run_tui_step(
     """
     sid = str(uuid.uuid4())
     settings = ensure_tui_settings(project_root, name)  # 全量模板+hook 路径同仓化
-    rules = ensure_node_rules(project_root, name, node)
+    rules = ensure_tui_rules(project_root, name, node, cur)  # node-rules+TUI 开场纪律
     prompt = None
     if not bare:
         prompt = build_step_prompt(

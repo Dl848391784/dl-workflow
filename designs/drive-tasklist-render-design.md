@@ -30,9 +30,9 @@
 - 签名 `progress_rows(state: dict) -> list[dict]`，每行 `{depth, label, status, extra}`（status ∈ done/current/todo）；节点线性序 = `_NODES` 声明序；子步骤状态按 `state["sub_step_index"]`。
 - engine 不依赖 rich——结构化数据进 engine（可测），rich 渲染归 driver。
 
-### 2.3 TUI 交互段恢复原生 TaskList（v2.0 体验原位保留）
+### 2.3 TUI 交互段恢复原生 TaskList（v2.0 体验原位保留）——**2026-08-09 修订：条款搬进 TUI system prompt**
 
-`build_step_prompt` interactive 分支尾部补硬条款：「会话开场第一件事 = 按 output-style 用 TaskCreate 建齐 13 项阶段清单（subject 带编号），状态镜像当前 state，再做本子步」——prompt 显著性兜底被稀释的 output-style 义务。用户答题时看到的就是 2.0 原生组件。
+> **修订记录**：初版条款住 `build_step_prompt` interactive 尾部。裸开场（§2.4 修订2）不喂 prompt，条款随通道一起消失——真机实证（c95e430c）：用户陈述后模型 invoke 了对的 skill 但零 TaskCreate/零 `## PHASE` 横幅/闷头探查 20+ 轮被中断，视觉上=普通聊天非工作流。**修订定稿**：开场纪律单源 = `ensure_tui_rules()`（node-rules + 「TUI 交互段开场纪律」段，`--append-system-prompt-file` 是裸开场抽不走的最高优先级可见面）：①第一件事 TaskCreate 建齐 13 项清单；②每轮响应首行 `## PHASE: <中文名> [n/5]` 横幅；③裸开场收到首条消息先完成 ①② 再动手、禁闷头连翻十几轮零提问；④完成告知 /exit。`build_step_prompt` 尾只留指针（防双份打架，症状 M 教训）；headless 段仍用 ensure_node_rules 不带本段。
 
 ### 2.4 开场问题陈述采集（根治缺口 2）——**2026-08-09 修订2：裸开场（v2.0 原位）**
 
