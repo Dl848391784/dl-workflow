@@ -29,6 +29,15 @@ _DLWF_ROOT = Path(__file__).resolve().parents[2]  # ~/.dl-workflow/
 sys.path.insert(0, str(_DLWF_ROOT))
 import dl_flow_engine as engine  # noqa: E402
 
+try:  # 常驻进度区依赖（drive-tasklist-render-design §2.1）；缺失时降级事件打印
+    from rich.live import Live
+    from rich.spinner import Spinner
+    from rich.text import Text
+
+    _HAS_RICH = True
+except ImportError:
+    _HAS_RICH = False
+
 LIB_DIR = Path(__file__).resolve().parent  # scripts/workflow/
 DL_CMD = LIB_DIR / "dl-cmd.sh"
 PHASE_RULES_TEMPLATE = LIB_DIR / "phase-rules.md"
@@ -186,11 +195,15 @@ def run_session(
     meta: Path,
     debug: bool,
     note: str,
+    verbose: bool = False,
+    disp: "LiveProgress | None" = None,
 ) -> tuple[int, str, str]:
     """一次 headless `claude -p` 会话。返回 (rc, assistant 全文, session_id)。
 
-    stream-json 逐行解析：assistant text 实时上屏（尾随），tool_use 打一行简报；
-    原始流全量落 drive-stream.jsonl（审计/PHASE_DONE 检测的数据源）。
+    stream-json 逐行解析：原始流全量落 drive-stream.jsonl（审计/PHASE_DONE 检测
+    的数据源）。verbose=False（默认，drive-tasklist-render-design §2.1——用户裁决
+    子会话进度不用展示）：assistant text 不上屏（防冲刷常驻进度区），tool_use
+    简报喂常驻区「最近动作」行；verbose=True 恢复旧尾随行为（text + ⚙ 行上屏）。
     """
     sid = str(uuid.uuid4())
     cmd = [
@@ -246,23 +259,168 @@ def run_session(
                         if blk.get("type") == "text":
                             t = blk.get("text") or ""
                             if t:
-                                print(t)
                                 texts.append(t)
+                                if verbose:
+                                    print(t)
                         elif blk.get("type") == "tool_use":
-                            print(f"  ⚙ {blk.get('name')} {_brief_tool_input(blk)}")
+                            brief = f"{blk.get('name')} {_brief_tool_input(blk)}"
+                            if verbose:
+                                print(f"  ⚙ {brief}")
+                            elif disp is not None:
+                                disp.set_action(brief[:100])
                 elif etype == "result":
                     dur = int(ev.get("duration_ms") or 0) // 1000
                     cost = ev.get("total_cost_usd") or 0.0
-                    print(
-                        f"\n—— 段会话结束（{note}）：{ev.get('subtype')} · "
+                    msg = (
+                        f"—— 段会话结束（{note}）：{ev.get('subtype')} · "
                         f"{ev.get('num_turns')}轮 · {dur}s · ${cost:.3f}"
                     )
+                    if disp is not None:
+                        disp.log(msg)
+                    else:
+                        print(f"\n{msg}")
         except KeyboardInterrupt:
             proc.terminate()
             print("\n✗ 用户中断（段会话已终止）。state 在磁盘，重跑 `dl <name>` 续。")
             raise SystemExit(130)
         rc = proc.wait()
     return rc, "\n".join(texts), sid
+
+
+# ---------- 常驻进度区（drive-tasklist-render-design §2.1） ----------
+
+
+def _fmt_elapsed(seconds: float) -> str:
+    s = int(seconds)
+    return f"{s // 60}m{s % 60:02d}s"
+
+
+class LiveProgress:
+    """driver stdout 底部常驻进度区：rich Live 原地重绘（spinner/耗时/✓ 实时翻转）。
+
+    数据 100% 机械读 engine.progress_rows(state)——✓ 翻转瞬间 = gate 落盘瞬间，
+    不靠模型 TaskUpdate。无 rich 环境降级为「状态变化时重印一次」（明示降级，
+    非常驻）。TUI 段/stdin 断点期间 stop() 让位终端，结束后 start() 恢复。
+    """
+
+    def __init__(self, project_root: Path, name: str, *, verbose: bool = False):
+        self.project_root = project_root
+        self.name = name
+        self.verbose = verbose
+        self.state: dict | None = None
+        self.activity = ""  # 当前段描述（空=无段在跑，不转 spinner）
+        self.action = ""  # 最近动作一行（子会话最后工具调用简报）
+        self._started = time.monotonic()
+        # Live 直接吃 self（__rich_console__ 渲染当前字段）——refresh 重渲同一
+        # renderable，字段突变即上屏；传 bound method 会 NotRenderableError（冒烟实证）。
+        self._live = (
+            Live(
+                self,
+                refresh_per_second=4,
+                transient=False,
+            )
+            if _HAS_RICH
+            else None
+        )
+        self._last_printed: str | None = None  # 降级模式：状态签名去重
+
+    # ---- 生命周期 ----
+    def start(self) -> None:
+        if self._live is not None:
+            self._live.start()
+
+    def stop(self) -> None:
+        if self._live is not None:
+            self._live.stop()
+
+    # ---- 数据更新 ----
+    def set_state(self, state: dict) -> None:
+        self.state = state
+        if self._live is None:
+            self._degraded_reprint()
+
+    def begin(self, activity: str) -> None:
+        """新段落开始：重置计时与最近动作。"""
+        self.activity = activity
+        self.action = ""
+        self._started = time.monotonic()
+        if self._live is None:
+            self._degraded_reprint(force=True)
+
+    def set_action(self, action: str) -> None:
+        self.action = action
+
+    def log(self, msg: str) -> None:
+        """事件上屏：live 模式打在常驻区上方；降级=直接 print。"""
+        if self._live is not None:
+            self._live.console.print(msg)
+        else:
+            print(msg)
+
+    # ---- 渲染 ----
+    def _rows_with_focus(self) -> tuple[list[dict], int]:
+        """progress_rows + 焦点行（活动/耗时/spinner 只挂最深 current 行——
+        首次冒烟实证挂全部 current 行 = 阶段/子阶段/子步骤三连刷屏）。"""
+        rows = engine.progress_rows(self.state)
+        focus = max(
+            (i for i, r in enumerate(rows) if r["status"] == "current"), default=-1
+        )
+        return rows, focus
+
+    def _snapshot_lines(self) -> list[str]:
+        """纯文本快照（降级模式与测试共用）。"""
+        if self.state is None:
+            return []
+        out = [f"══ 进度 ══ {self.name}"]
+        rows, focus = self._rows_with_focus()
+        for i, r in enumerate(rows):
+            mark = {"done": "✓", "current": "▸", "todo": "·"}[r["status"]]
+            line = f"{'    ' * r['depth']}{mark} {r['label']}"
+            if r["extra"]:
+                line += f" ({r['extra']})"
+            if i == focus and self.activity:
+                line += f" — {self.activity} ({_fmt_elapsed(time.monotonic() - self._started)})"
+                if self.action:
+                    line += f" · {self.action}"
+            out.append(line)
+        return out
+
+    def __rich_console__(self, console, options):  # rich 协议：Live 每帧重渲
+        yield self._render()
+
+    def _render(self):  # rich 模式 renderable 工厂（读当前字段，帧间突变即上屏）
+        from rich.console import Group
+
+        if self.state is None:
+            return Text(f"══ 进度 ══ {self.name}（读 state 中…）")
+        now = time.monotonic()
+        parts: list[Text] = [Text(f"══ 进度 ══ {self.name}", style="bold")]
+        spin = Spinner("dots").render(now) if self.activity else None
+        rows, focus = self._rows_with_focus()
+        for i, r in enumerate(rows):
+            mark, style = {
+                "done": ("✓", "green"),
+                "current": ("▸", "cyan"),
+                "todo": ("·", "dim"),
+            }[r["status"]]
+            line = Text(f"{'    ' * r['depth']}{mark} {r['label']}", style=style)
+            if r["extra"]:
+                line.append(f" ({r['extra']})", style="dim")
+            if i == focus and self.activity:
+                line.append(" ")
+                line.append_text(spin)
+                line.append(f" {self.activity} ({_fmt_elapsed(now - self._started)})")
+                if self.action:
+                    line.append(f" · {self.action}", style="dim")
+            parts.append(line)
+        return Group(*parts)
+
+    def _degraded_reprint(self, *, force: bool = False) -> None:
+        lines = self._snapshot_lines()
+        sig = "\n".join(lines)
+        if force or sig != self._last_printed:
+            print(sig)
+            self._last_printed = sig
 
 
 # ---------- prompt 装配 ----------
@@ -299,6 +457,12 @@ def build_step_prompt(
             parts += [pack, ""]
     if interactive:
         tail = (
+            # TaskList 硬条款（drive-tasklist-render-design §2.3）：output-style
+            # 的建清单义务被瘦版 node-rules 稀释（首次 dogfood 实证零 TaskCreate），
+            # prompt 显著性兜底——TUI 段用户看到的就是 v2.0 原生 TaskList。
+            "- 会话开场第一件事：按 output-style 用 TaskCreate 建齐 13 项阶段清单"
+            "（subject 带编号 1./1.1…/5.，一条消息批量建齐），状态镜像当前进度"
+            "（当前子阶段 in_progress、之前 completed、之后 pending），再做本子步\n"
             "- 需要用户输入时用 AskUserQuestion（回合内完成），用户就在终端前\n"
             "- 完成并落库后，用文本告诉用户「交互步已完成，请 /exit 返回 driver」"
             "并结束本轮"
@@ -341,6 +505,7 @@ def run_tui_step(
     wt: Path,
     *,
     rework: str | None,
+    disp: "LiveProgress | None" = None,
 ) -> tuple[int, str]:
     """交互子步骤 TUI 段：起原生 claude TUI（全量 per-wf settings——SessionStart
     注入交接包 / phase 注入 / output-style 横幅齐备），用户交互 + /exit 回收。
@@ -377,8 +542,14 @@ def run_tui_step(
         f"\n▸ 交互子步骤 {cur}/{len(node.sub_steps or ())} —— 起 TUI 会话"
         f"（回答模型提问；模型报告完成后输入 /exit 返回 driver）"
     )
-    with open(meta / "cc_sdk.log", "a", encoding="utf-8") as err_f:
-        rc = subprocess.run(cmd, cwd=str(wt), stderr=err_f, check=False).returncode
+    if disp is not None:
+        disp.stop()  # 终端交还 TUI 会话
+    try:
+        with open(meta / "cc_sdk.log", "a", encoding="utf-8") as err_f:
+            rc = subprocess.run(cmd, cwd=str(wt), stderr=err_f, check=False).returncode
+    finally:
+        if disp is not None:
+            disp.start()
     print(f"—— TUI 段会话结束（{engine.node_id(node.phase, node.sub)}#{cur}，rc={rc}）")
     return rc, sid
 
@@ -412,11 +583,27 @@ def _dl_cmd(args: list[str], wt: Path) -> None:
     subprocess.run(["bash", str(DL_CMD), *args], cwd=str(wt), check=False)
 
 
-def breakpoint_loop(project_root: Path, name: str, wt: Path, header: str) -> str:
+def breakpoint_loop(
+    project_root: Path,
+    name: str,
+    wt: Path,
+    header: str,
+    disp: "LiveProgress | None" = None,
+) -> str:
     """前台断点：打印 header，stdin 收命令。返回 "changed"（状态可能变了，重读续跑）
     或 "quit"（退出 driver）。gate/next/back/jump/state-reset/step-pass 后返回 changed；
-    status/fence/dispute 留在断点内。
+    status/fence/dispute 留在断点内。常驻进度区在断点期间让位终端（stop/start）。
     """
+    if disp is not None:
+        disp.stop()
+    try:
+        return _breakpoint_body(project_root, name, wt, header)
+    finally:
+        if disp is not None:
+            disp.start()
+
+
+def _breakpoint_body(project_root: Path, name: str, wt: Path, header: str) -> str:
     print(f"\n{'─' * 60}\n{header}")
     print(
         "命令: gate | status | next | back | jump <phase> | step-pass | "
@@ -457,7 +644,7 @@ def breakpoint_loop(project_root: Path, name: str, wt: Path, header: str) -> str
 # ---------- 主循环 ----------
 
 
-def drive(project_root: Path, name: str, debug: bool) -> int:
+def drive(project_root: Path, name: str, debug: bool, verbose: bool = False) -> int:
     meta = _meta_root(project_root, name)
     settings = ensure_drive_settings(project_root, name)
     engine.set_drive_mode(project_root, name, True)
@@ -466,104 +653,98 @@ def drive(project_root: Path, name: str, debug: bool) -> int:
     print(f"▸ driver 接管工作流 '{name}'（headless 编排，state 磁盘真源）")
     print(f"  worktree: {wt}  日志: {meta}/drive-stream.jsonl")
 
+    # ---- 开场问题陈述采集（drive-tasklist-render-design §2.4）----
+    # 恢复 v2.0「首条用户消息」语义：handoff_pack 顶部收录后，子1 模型开场即有
+    # 用户原话可引，不再面对工作流名 slug 自力更生翻仓库。可空跳过（交互步追问兜底）。
+    if not (state.get("problem_statement") or "").strip() and sys.stdin.isatty():
+        print("══ 开场采集 ══ 本工作流全程围绕你描述的问题展开（交接包携带）。")
+        try:
+            ans = input(
+                "请用一两句话描述本次要分析的问题（直接回车跳过，交互步会追问）："
+            ).strip()
+        except (EOFError, KeyboardInterrupt):
+            ans = ""
+        if ans:
+            engine.set_problem_statement(project_root, name, ans)
+            state = _load(project_root, name)
+            print(f"  ✓ 已记录问题陈述（{len(ans)} 字）")
+
+    disp = LiveProgress(project_root, name, verbose=verbose)
+    disp.start()
+
     pending_rework: str | None = None  # block/none 后下次会话的返工上下文
     none_retries = 0
     phase_done_at: tuple[str, int] | None = None  # 已见 PHASE_DONE 的节点（防重跑会话）
 
-    while True:
-        state = _load(project_root, name)
-        if state.get("gate") == "done":
-            print(f"\n╔═ WORKFLOW · {name} · 已完成全部 5 阶段（进化终结）")
-            return 0
-        node = engine.get_node(state["phase"], state["sub_index"])
-        cur_phase = state["phase"]
-
-        # ---- 门栏断点（held_for_gate，唯一出口 release_subgate）----
-        if state.get("held_for_gate"):
-            if (
-                breakpoint_loop(
-                    project_root,
-                    name,
-                    wt,
-                    f"⛔ 子阶段门栏：「{node.label}」全部子步骤已通过门控，"
-                    f"进下一子阶段需用户裁决（gate 放行 / state-reset 重测）。",
-                )
-                == "quit"
-            ):
+    try:
+        while True:
+            state = _load(project_root, name)
+            disp.set_state(state)
+            if state.get("gate") == "done":
+                disp.log(f"\n╔═ WORKFLOW · {name} · 已完成全部 5 阶段（进化终结）")
                 return 0
-            continue
+            node = engine.get_node(state["phase"], state["sub_index"])
+            cur_phase = state["phase"]
 
-        if node.sub_steps:
-            # ---- PHASE_DONE 通道（advance="phase" 编排末节点门栏放行后）----
-            if engine.phase_done_channel_open(project_root, name, state, node):
-                if engine.is_gated_after(cur_phase) and state.get("gate") != "passed":
+            # ---- 门栏断点（held_for_gate，唯一出口 release_subgate）----
+            if state.get("held_for_gate"):
+                if (
+                    breakpoint_loop(
+                        project_root,
+                        name,
+                        wt,
+                        f"⛔ 子阶段门栏：「{node.label}」全部子步骤已通过门控，"
+                        f"进下一子阶段需用户裁决（gate 放行 / state-reset 重测）。",
+                        disp=disp,
+                    )
+                    == "quit"
+                ):
+                    return 0
+                continue
+
+            if node.sub_steps:
+                # ---- PHASE_DONE 通道（advance="phase" 编排末节点门栏放行后）----
+                if engine.phase_done_channel_open(project_root, name, state, node):
                     if (
-                        breakpoint_loop(
-                            project_root,
-                            name,
-                            wt,
-                            f"⛔ 阶段闸门：{engine.PHASE_LABELS.get(cur_phase, cur_phase)}"
-                            f" 已完成（产物已装配），进下一阶段需 gate 放行。",
-                        )
+                        engine.is_gated_after(cur_phase)
+                        and state.get("gate") != "passed"
+                    ):
+                        if (
+                            breakpoint_loop(
+                                project_root,
+                                name,
+                                wt,
+                                f"⛔ 阶段闸门：{engine.PHASE_LABELS.get(cur_phase, cur_phase)}"
+                                f" 已完成（产物已装配），进下一阶段需 gate 放行。",
+                                disp=disp,
+                            )
+                            == "quit"
+                        ):
+                            return 0
+                        continue
+                    new_state = engine.advance_state(project_root, name, via="driver")
+                    disp.log(
+                        f"\n╔═ 阶段切换：{engine.PHASE_LABELS.get(cur_phase, cur_phase)} ──► "
+                        f"{engine.PHASE_LABELS.get(new_state['phase'], new_state['phase'])}"
+                    )
+                    phase_done_at = None
+                    continue
+
+                # ---- 子步骤会话（交互步 TUI 段 / 非交互步 headless 段，门控处理统一）----
+                cur = state.get("sub_step_index", 1)
+                step = engine.sub_step_at(node, cur)
+                if step is None:
+                    disp.log(f"✗ 子步骤 {cur} 不存在（state 越界）——断点等用户处置")
+                    if (
+                        breakpoint_loop(project_root, name, wt, "state 越界", disp=disp)
                         == "quit"
                     ):
                         return 0
                     continue
-                new_state = engine.advance_state(project_root, name, via="driver")
-                print(
-                    f"\n╔═ 阶段切换：{engine.PHASE_LABELS.get(cur_phase, cur_phase)} ──► "
-                    f"{engine.PHASE_LABELS.get(new_state['phase'], new_state['phase'])}"
-                )
-                phase_done_at = None
-                continue
 
-            # ---- 子步骤会话（交互步 TUI 段 / 非交互步 headless 段，门控处理统一）----
-            cur = state.get("sub_step_index", 1)
-            step = engine.sub_step_at(node, cur)
-            if step is None:
-                print(f"✗ 子步骤 {cur} 不存在（state 越界）——断点等用户处置")
-                if breakpoint_loop(project_root, name, wt, "state 越界") == "quit":
-                    return 0
-                continue
-
-            total = len(node.sub_steps)
-            if getattr(step, "interactive", False):
-                rc, sid = run_tui_step(
-                    project_root,
-                    name,
-                    state,
-                    node,
-                    cur,
-                    step,
-                    meta,
-                    debug,
-                    wt,
-                    rework=pending_rework,
-                )
-                seg_kind = "tui-step"
-            else:
-                print(
-                    f"\n▸ {engine.PHASE_LABELS.get(cur_phase, cur_phase)} · "
-                    f"子阶段「{node.label}」· 子步骤 {cur}/{total} —— 起 headless 会话"
-                )
-                rules = ensure_node_rules(project_root, name, node)
-                prompt = build_step_prompt(
-                    project_root, name, state, node, cur, step, rework=pending_rework
-                )
-                rc, out, sid = run_session(
-                    prompt,
-                    cwd=wt,
-                    settings=settings,
-                    sys_prompt_file=rules,
-                    meta=meta,
-                    debug=debug,
-                    note=f"{engine.node_id(node.phase, node.sub)}#{cur}",
-                )
-                seg_kind = "headless-step"
-                if NEED_USER_RE.search(out):
-                    # 动态交互 fallback（§2.3）：模型非预期需要用户输入——
-                    # 当场重分类为交互步，同轮起 TUI 段接管（不重发 headless）。
-                    print("  ⚑ 模型请求用户输入（NEED_USER）——接管为 TUI 段")
+                total = len(node.sub_steps)
+                disp.begin(f"子步骤 {cur}/{total} · {step.short}")
+                if getattr(step, "interactive", False):
                     rc, sid = run_tui_step(
                         project_root,
                         name,
@@ -575,101 +756,89 @@ def drive(project_root: Path, name: str, debug: bool) -> int:
                         debug,
                         wt,
                         rework=pending_rework,
+                        disp=disp,
                     )
-                    seg_kind = "tui-step-needuser"
-            pending_rework = None
-            _record_segment(
-                project_root, name, session_id=sid, kind=seg_kind, note=f"rc={rc}"
-            )
-
-            action, reason, _ns = engine.gate_sub_step_at_stop(
-                project_root, name, str(wt)
-            )
-            if action == "advanced":
-                none_retries = 0
-                print(f"  ✓ 子步骤 {cur} 通过门控")
-                continue
-            if action == "block":
-                none_retries = 0
-                print(f"  ✗ 门控 block：{reason[:200]}")
-                pending_rework = (
-                    f"上一轮门控未通过（判词原文）：\n{reason}\n\n"
-                    f"按判词修正后重做本子步骤——修正方式 = append-trace 追加新 trace"
-                    f"（禁覆盖/编辑旧行，judge 以最后一条为准）。"
+                    seg_kind = "tui-step"
+                else:
+                    rules = ensure_node_rules(project_root, name, node)
+                    prompt = build_step_prompt(
+                        project_root,
+                        name,
+                        state,
+                        node,
+                        cur,
+                        step,
+                        rework=pending_rework,
+                    )
+                    rc, out, sid = run_session(
+                        prompt,
+                        cwd=wt,
+                        settings=settings,
+                        sys_prompt_file=rules,
+                        meta=meta,
+                        debug=debug,
+                        note=f"{engine.node_id(node.phase, node.sub)}#{cur}",
+                        verbose=verbose,
+                        disp=disp,
+                    )
+                    seg_kind = "headless-step"
+                    if NEED_USER_RE.search(out):
+                        # 动态交互 fallback（§2.3）：模型非预期需要用户输入——
+                        # 当场重分类为交互步，同轮起 TUI 段接管（不重发 headless）。
+                        disp.log("  ⚑ 模型请求用户输入（NEED_USER）——接管为 TUI 段")
+                        rc, sid = run_tui_step(
+                            project_root,
+                            name,
+                            state,
+                            node,
+                            cur,
+                            step,
+                            meta,
+                            debug,
+                            wt,
+                            rework=pending_rework,
+                            disp=disp,
+                        )
+                        seg_kind = "tui-step-needuser"
+                pending_rework = None
+                _record_segment(
+                    project_root, name, session_id=sid, kind=seg_kind, note=f"rc={rc}"
                 )
-                continue
-            if action == "escalate":
-                none_retries = 0
-                if (
-                    breakpoint_loop(
-                        project_root,
-                        name,
-                        wt,
-                        f"⛔ 子步骤 {cur} 连续 block 达阈值（判词：{reason[:200]}）——"
-                        f"用户裁决：step-pass 强制通过 / state-reset 回退 / q 退出。",
-                    )
-                    == "quit"
-                ):
-                    return 0
-                continue
-            # none：会话结束但门控读不到新 trace（没落库 / 中途停了）
-            none_retries += 1
-            print(f"  ⚠ 门控读不到新 trace（{none_retries}/{NONE_RETRY_LIMIT}）")
-            if none_retries >= NONE_RETRY_LIMIT:
-                none_retries = 0
-                if (
-                    breakpoint_loop(
-                        project_root,
-                        name,
-                        wt,
-                        f"⛔ 子步骤 {cur} 连续 {NONE_RETRY_LIMIT} 次会话未落 trace——"
-                        f"step-pass 强制通过 / state-reset 回退 / 直接回车重试 / q 退出。",
-                    )
-                    == "quit"
-                ):
-                    return 0
-                continue
-            pending_rework = (
-                "上一轮会话结束后，门控在 evidence 里读不到本子步骤的新 trace——"
-                "你的产出等于没交。本步的硬性交付是 append-trace 落库："
-                "--scaffold 生成骨架 → Edit 填「待填」→ --from-file 落库。"
-                "若上次 append-trace 报错，按报错修载荷重跑，不要跳过。"
-            )
-            continue
 
-        # ---- 无编排阶段（execute/review/evolution）：整阶段一个会话 ----
-        if phase_done_at != (cur_phase, state["sub_index"]):
-            print(
-                f"\n▸ 阶段「{engine.PHASE_LABELS.get(cur_phase, cur_phase)}」"
-                f"—— 起整阶段 headless 会话"
-            )
-            rules = ensure_phase_rules(project_root, name)
-            prompt = build_phase_prompt(project_root, name, state)
-            rc, out, sid = run_session(
-                prompt,
-                cwd=wt,
-                settings=settings,
-                sys_prompt_file=rules,
-                meta=meta,
-                debug=debug,
-                note=f"phase:{cur_phase}",
-            )
-            _record_segment(
-                project_root,
-                name,
-                session_id=sid,
-                kind="headless-phase",
-                note=f"rc={rc}",
-            )
-            m = PHASE_DONE_RE.search(out)
-            if m and m.group(1) == cur_phase:
-                phase_done_at = (cur_phase, state["sub_index"])
-                none_retries = 0
-            else:
+                action, reason, _ns = engine.gate_sub_step_at_stop(
+                    project_root, name, str(wt)
+                )
+                if action == "advanced":
+                    none_retries = 0
+                    disp.log(f"  ✓ 子步骤 {cur} 通过门控")
+                    continue
+                if action == "block":
+                    none_retries = 0
+                    disp.log(f"  ✗ 门控 block：{reason[:200]}")
+                    pending_rework = (
+                        f"上一轮门控未通过（判词原文）：\n{reason}\n\n"
+                        f"按判词修正后重做本子步骤——修正方式 = append-trace 追加新 trace"
+                        f"（禁覆盖/编辑旧行，judge 以最后一条为准）。"
+                    )
+                    continue
+                if action == "escalate":
+                    none_retries = 0
+                    if (
+                        breakpoint_loop(
+                            project_root,
+                            name,
+                            wt,
+                            f"⛔ 子步骤 {cur} 连续 block 达阈值（判词：{reason[:200]}）——"
+                            f"用户裁决：step-pass 强制通过 / state-reset 回退 / q 退出。",
+                            disp=disp,
+                        )
+                        == "quit"
+                    ):
+                        return 0
+                    continue
+                # none：会话结束但门控读不到新 trace（没落库 / 中途停了）
                 none_retries += 1
-                print(
-                    f"  ⚠ 阶段会话结束但未输出 PHASE_DONE（{none_retries}/{NONE_RETRY_LIMIT}）"
-                )
+                disp.log(f"  ⚠ 门控读不到新 trace（{none_retries}/{NONE_RETRY_LIMIT}）")
                 if none_retries >= NONE_RETRY_LIMIT:
                     none_retries = 0
                     if (
@@ -677,33 +846,94 @@ def drive(project_root: Path, name: str, debug: bool) -> int:
                             project_root,
                             name,
                             wt,
-                            f"⛔ 阶段会话连续 {NONE_RETRY_LIMIT} 次未完成（未输出 "
-                            f"### PHASE_DONE: {cur_phase}）——next 强制推进 / 直接回车重试 / q 退出。",
+                            f"⛔ 子步骤 {cur} 连续 {NONE_RETRY_LIMIT} 次会话未落 trace——"
+                            f"step-pass 强制通过 / state-reset 回退 / 直接回车重试 / q 退出。",
+                            disp=disp,
                         )
                         == "quit"
                     ):
                         return 0
+                    continue
+                pending_rework = (
+                    "上一轮会话结束后，门控在 evidence 里读不到本子步骤的新 trace——"
+                    "你的产出等于没交。本步的硬性交付是 append-trace 落库："
+                    "--scaffold 生成骨架 → Edit 填「待填」→ --from-file 落库。"
+                    "若上次 append-trace 报错，按报错修载荷重跑，不要跳过。"
+                )
                 continue
-        # PHASE_DONE 已确认 -> 闸门 -> 推进
-        if engine.is_gated_after(cur_phase) and state.get("gate") != "passed":
-            if (
-                breakpoint_loop(
+
+            # ---- 无编排阶段（execute/review/evolution）：整阶段一个会话 ----
+            if phase_done_at != (cur_phase, state["sub_index"]):
+                disp.begin(
+                    f"阶段「{engine.PHASE_LABELS.get(cur_phase, cur_phase)}」· 整阶段会话"
+                )
+                rules = ensure_phase_rules(project_root, name)
+                prompt = build_phase_prompt(project_root, name, state)
+                rc, out, sid = run_session(
+                    prompt,
+                    cwd=wt,
+                    settings=settings,
+                    sys_prompt_file=rules,
+                    meta=meta,
+                    debug=debug,
+                    note=f"phase:{cur_phase}",
+                    verbose=verbose,
+                    disp=disp,
+                )
+                _record_segment(
                     project_root,
                     name,
-                    wt,
-                    f"⛔ 阶段闸门：{engine.PHASE_LABELS.get(cur_phase, cur_phase)}"
-                    f" 已完成，进下一阶段需 gate 放行。",
+                    session_id=sid,
+                    kind="headless-phase",
+                    note=f"rc={rc}",
                 )
-                == "quit"
-            ):
-                return 0
-            continue
-        new_state = engine.advance_state(project_root, name, via="driver")
-        print(
-            f"\n╔═ 阶段切换：{engine.PHASE_LABELS.get(cur_phase, cur_phase)} ──► "
-            f"{engine.PHASE_LABELS.get(new_state['phase'], new_state['phase'])}"
-        )
-        phase_done_at = None
+                m = PHASE_DONE_RE.search(out)
+                if m and m.group(1) == cur_phase:
+                    phase_done_at = (cur_phase, state["sub_index"])
+                    none_retries = 0
+                else:
+                    none_retries += 1
+                    disp.log(
+                        f"  ⚠ 阶段会话结束但未输出 PHASE_DONE（{none_retries}/{NONE_RETRY_LIMIT}）"
+                    )
+                    if none_retries >= NONE_RETRY_LIMIT:
+                        none_retries = 0
+                        if (
+                            breakpoint_loop(
+                                project_root,
+                                name,
+                                wt,
+                                f"⛔ 阶段会话连续 {NONE_RETRY_LIMIT} 次未完成（未输出 "
+                                f"### PHASE_DONE: {cur_phase}）——next 强制推进 / 直接回车重试 / q 退出。",
+                                disp=disp,
+                            )
+                            == "quit"
+                        ):
+                            return 0
+                    continue
+            # PHASE_DONE 已确认 -> 闸门 -> 推进
+            if engine.is_gated_after(cur_phase) and state.get("gate") != "passed":
+                if (
+                    breakpoint_loop(
+                        project_root,
+                        name,
+                        wt,
+                        f"⛔ 阶段闸门：{engine.PHASE_LABELS.get(cur_phase, cur_phase)}"
+                        f" 已完成，进下一阶段需 gate 放行。",
+                        disp=disp,
+                    )
+                    == "quit"
+                ):
+                    return 0
+                continue
+            new_state = engine.advance_state(project_root, name, via="driver")
+            disp.log(
+                f"\n╔═ 阶段切换：{engine.PHASE_LABELS.get(cur_phase, cur_phase)} ──► "
+                f"{engine.PHASE_LABELS.get(new_state['phase'], new_state['phase'])}"
+            )
+            phase_done_at = None
+    finally:
+        disp.stop()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -714,13 +944,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--debug", action="store_true", help="段会话 debug 落盘 per-wf 目录"
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="子会话输出尾随上屏（默认静默——只落 drive-stream.jsonl，保常驻进度区）",
+    )
     args = parser.parse_args(argv)
 
     project_root = engine.resolve_project_root(str(Path.cwd()))
     if project_root is None:
         print("✗ 不在 git 仓库内", file=sys.stderr)
         return 1
-    return drive(project_root, args.name, args.debug)
+    return drive(project_root, args.name, args.debug, verbose=args.verbose)
 
 
 if __name__ == "__main__":

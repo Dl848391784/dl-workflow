@@ -9844,3 +9844,131 @@ class TestTracePayloadPath:
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
         fp = str(tmp_path / ".trace-payload-t.md")
         assert eng.phase_write_denial(tmp_path, "t", fp) is None
+
+
+def _mem_state(phase, sub, sub_step=0, **extra):
+    """内存 state（progress_rows 等纯函数测用，不落盘）。"""
+    st = {
+        "name": "t",
+        "phase": phase,
+        "index": eng.phase_index(phase),
+        "sub_index": sub,
+        "sub_total": eng.sub_total(phase),
+        "node": eng.current_node_id(phase, sub),
+        "sub_step_index": sub_step,
+        "gate": "pending",
+    }
+    st.update(extra)
+    return st
+
+
+class TestProgressRows:
+    """drive-tasklist-render-design §2.2：progress_rows 结构化行进数据（driver
+    rich Live 渲染数据源；状态映射：节点线性序 < 当前=done / ==current / >todo，
+    子步骤按 sub_step_index 同理；仅当前节点展开子步骤）。"""
+
+    def _by_label(self, rows, label):
+        (row,) = [r for r in rows if r["label"] == label]
+        return row
+
+    def test_initial_state_expands_only_current_node(self):
+        rows = eng.progress_rows(_mem_state("understand", 1, 1))
+        # 5 阶段 + understand 4 子阶段 + plan 4 子阶段 + 当前节点 6 子步骤
+        assert len(rows) == 5 + 4 + 4 + 6
+        p1 = self._by_label(rows, "1. 理解和求证问题")
+        assert p1["depth"] == 0 and p1["status"] == "current"
+        assert p1["extra"] == "gate: pending"
+        assert self._by_label(rows, "1.1 理解问题和背景")["status"] == "current"
+        assert self._by_label(rows, "1.2 明确目标和价值")["status"] == "todo"
+        assert self._by_label(rows, "1 逼问定义")["status"] == "current"
+        assert self._by_label(rows, "2 拆解深挖")["status"] == "todo"
+        assert self._by_label(rows, "6 读回确认")["status"] == "todo"
+        assert self._by_label(rows, "2. 生成执行计划")["status"] == "todo"
+        assert self._by_label(rows, "2.1 设计解决方案")["status"] == "todo"
+        assert self._by_label(rows, "5. 进化")["status"] == "todo"
+
+    def test_mid_node_substep_progress(self):
+        rows = eng.progress_rows(_mem_state("understand", 1, 3))
+        assert self._by_label(rows, "1 逼问定义")["status"] == "done"
+        assert self._by_label(rows, "2 拆解深挖")["status"] == "done"
+        assert self._by_label(rows, "3 双向取证")["status"] == "current"
+        assert self._by_label(rows, "4 质检裁决")["status"] == "todo"
+
+    def test_later_node_collapses_prior_substeps(self):
+        rows = eng.progress_rows(_mem_state("understand", 3, 2))
+        # 5 + 4 + 4 + 当前节点 5 子步骤 = 18（前序节点子步骤不展开）
+        assert len(rows) == 18
+        assert self._by_label(rows, "1.1 理解问题和背景")["status"] == "done"
+        assert self._by_label(rows, "1.2 明确目标和价值")["status"] == "done"
+        assert self._by_label(rows, "1.3 确定范围与约束")["status"] == "current"
+        assert self._by_label(rows, "1.4 定义成功标准和验收方式")["status"] == "todo"
+        assert self._by_label(rows, "2 约束验证标注")["status"] == "current"
+
+    def test_plan_node(self):
+        rows = eng.progress_rows(_mem_state("plan", 2, 4))
+        assert self._by_label(rows, "1. 理解和求证问题")["status"] == "done"
+        assert self._by_label(rows, "1.1 理解问题和背景")["status"] == "done"
+        assert self._by_label(rows, "2.1 设计解决方案")["status"] == "done"
+        cur = self._by_label(rows, "2.2 拆解任务与阶段")
+        assert cur["status"] == "current"
+        assert self._by_label(rows, "4 归一化步骤")["status"] == "current"
+        assert self._by_label(rows, "3. 执行")["status"] == "todo"
+
+    def test_whole_phase_node_no_substep_rows(self):
+        rows = eng.progress_rows(_mem_state("execute", 0, 0))
+        # 整阶段节点无子步骤：仅 13 行（5 阶段 + 8 子阶段），无 depth=2
+        assert len(rows) == 13
+        assert not [r for r in rows if r["depth"] == 2]
+        assert self._by_label(rows, "1. 理解和求证问题")["status"] == "done"
+        assert self._by_label(rows, "2. 生成执行计划")["status"] == "done"
+        p3 = self._by_label(rows, "3. 执行")
+        assert p3["status"] == "current" and p3["extra"] == "gate: pending"
+        assert self._by_label(rows, "5. 进化")["status"] == "todo"
+
+    def test_gate_passed_shown_on_current_phase(self):
+        rows = eng.progress_rows(_mem_state("plan", 4, 5, gate="passed"))
+        assert self._by_label(rows, "2. 生成执行计划")["extra"] == "gate: passed"
+
+
+class TestProblemStatement:
+    """drive-tasklist-render-design §2.4：开场问题陈述入 state + handoff_pack
+    顶部收录（恢复 v2.0「首条用户消息」语义——子1 模型开场即有用户原话）。"""
+
+    def test_set_problem_statement_roundtrip(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        eng.set_problem_statement(tmp_path, "t", "annualized 显示 95% 不合常理")
+        st = eng.load_state(tmp_path, "t")
+        assert st["problem_statement"] == "annualized 显示 95% 不合常理"
+
+    def test_pack_with_statement_but_no_traces(self, tmp_path):
+        # 首次启动（零 trace）但有用户陈述 -> 交接包仍生成（陈述是唯一前序上下文）
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        eng.set_problem_statement(tmp_path, "t", "annualized 显示 95% 不合常理")
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None and "annualized 显示 95% 不合常理" in pack
+
+    def test_pack_statement_before_traces(self, tmp_path):
+        rec = {
+            "kind": "skill-trace",
+            "major_stage": "Understand",
+            "minor_stage": "ProblemContext",
+            "sub_step": 1,
+            "skill": "s",
+            "purpose": "p",
+            "q": ["q_marker"],
+            "a": ["a_marker"],
+        }
+        ev = tmp_path / ".claude" / "evidence"
+        ev.mkdir(parents=True, exist_ok=True)
+        (ev / "t.jsonl").write_text(
+            json.dumps(rec, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=2)
+        eng.set_problem_statement(tmp_path, "t", "annualized 显示 95% 不合常理")
+        pack = eng.handoff_pack(tmp_path, "t")
+        # 陈述在 trace 留痕之前（顶部收录）
+        assert pack.index("annualized 显示 95% 不合常理") < pack.index("a_marker")
+
+    def test_first_launch_without_statement_still_none(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        assert eng.handoff_pack(tmp_path, "t") is None

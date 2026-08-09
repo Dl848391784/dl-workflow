@@ -309,3 +309,52 @@ def test_fence_drive_mode_keeps_s11_phase_write_fence(wf_repo):
     )
     assert rc == 0 and "deny" in out
     assert "禁止写源码" in out
+
+
+# ---------- 常驻进度区 + TUI TaskList 条款（drive-tasklist-render-design） ----------
+
+
+def test_interactive_prompt_tasklist_clause(wf_repo):
+    """§2.3：TUI 段 prompt 尾部钉死「开场先 TaskCreate 建齐 13 项清单」——
+    output-style 义务被瘦版 node-rules 稀释（首次 dogfood 零 TaskCreate 实证），
+    prompt 显著性兜底。"""
+    drv = _load(DRIVER, "drv_under_test")
+    state = _write_state(wf_repo)
+    node = engine.get_node("understand", 2)
+    step = engine.sub_step_at(node, 5)  # 读回确认（interactive）
+    prompt = drv.build_step_prompt(
+        wf_repo, "t", state, node, 5, step, rework=None, interactive=True
+    )
+    assert "TaskCreate 建齐 13 项" in prompt
+    # 非交互 prompt 不带（headless 段无 TUI，建了也无人可见）
+    node2 = engine.get_node("understand", 1)
+    step2 = engine.sub_step_at(node2, 2)
+    prompt2 = drv.build_step_prompt(wf_repo, "t", state, node2, 2, step2, rework=None)
+    assert "TaskCreate" not in prompt2
+
+
+def test_live_progress_snapshot_lines(wf_repo):
+    """§2.1：快照行 = 全清单 + ✓/▸/· + 当前行活动/耗时/最近动作。"""
+    drv = _load(DRIVER, "drv_under_test")
+    state = _write_state(wf_repo)
+    disp = drv.LiveProgress(wf_repo, "t")
+    disp.set_state(state)
+    lines = disp._snapshot_lines()
+    assert lines[0].startswith("══ 进度 ══ t")
+    assert any(
+        "▸ 1. 理解和求证问题" in line and "gate: pending" in line for line in lines
+    )
+    cur = [line for line in lines if "▸ 1 逼问定义" in line][0]
+    assert "m0" not in cur  # 无活动（activity 空）→ 当前行不带耗时/活动
+    disp.begin("子步骤 1/6 · 逼问定义")
+    disp.set_action("Bash grep -rn foo")
+    cur = [line for line in disp._snapshot_lines() if "▸ 1 逼问定义" in line][0]
+    assert "子步骤 1/6 · 逼问定义" in cur and "Bash grep -rn foo" in cur
+
+
+def test_live_progress_log_without_start(capsys, wf_repo):
+    """log 事件上屏不依赖 Live 启动（降级路径/未 start 均安全）。"""
+    drv = _load(DRIVER, "drv_under_test")
+    disp = drv.LiveProgress(wf_repo, "t")
+    disp.log("事件XYZ")
+    assert "事件XYZ" in capsys.readouterr().out

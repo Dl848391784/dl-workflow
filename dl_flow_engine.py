@@ -1383,21 +1383,24 @@ def handoff_pack(project_root: Path, name: str) -> str | None:
     3. 前序已完成节点：归一化步（倒数第 2 步）+ 读回步（末步，含用户裁决原话——
        v2.45 user_decision_recorded 机械保证其存在）的最新 trace；
     4. 当前步最新 block 判词（/clear 发生在返工中段时，新会话须知道修什么）；
-    5. 已装配产物清单（路径指针，禁全文——全文内联 = 把省下的 token 又花回去）。
+    5. 已装配产物清单（路径指针，禁全文——全文内联 = 把省下的 token 又花回去）；
+    6. 用户问题陈述（state.problem_statement，开场采集——drive-tasklist-render-design
+       §2.4；零 trace 的首次启动也凭它生成交接包，子1 模型开场即有用户原话）。
 
-    无任何 trace -> None（首次启动不注入，调用方静默）。
+    无 trace 且无问题陈述 -> None（首次启动不注入，调用方静默）。
     """
     state = load_state(project_root, name)
     if state is None:
         return None
     state = normalize_state(state)
+    problem = (state.get("problem_statement") or "").strip()
     cur_phase, cur_sub = state["phase"], state["sub_index"]
     try:
         cur_node = get_node(cur_phase, cur_sub)
     except KeyError:
         return None
     text = read_evidence(project_root, name)
-    if not text:
+    if not text and not problem:
         return None
 
     # 单遍扫描：最新 trace（按 minor_stage+sub_step）+ 最新 block 判词（按 node+sub_step）。
@@ -1405,7 +1408,7 @@ def handoff_pack(project_root: Path, name: str) -> str | None:
     latest_trace: dict[tuple, str] = {}
     latest_block: dict[tuple, str] = {}
     decoder = json.JSONDecoder()
-    for line in text.splitlines():
+    for line in (text or "").splitlines():
         s = line.strip()
         idx = 0
         while idx < len(s):
@@ -1429,7 +1432,7 @@ def handoff_pack(project_root: Path, name: str) -> str | None:
                 and rec.get("reason")
             ):
                 latest_block[(rec.get("node"), rec.get("sub_step"))] = rec["reason"]
-    if not latest_trace:
+    if not latest_trace and not problem:
         return None
 
     cur_step = state.get("sub_step_index", 1)
@@ -1438,6 +1441,10 @@ def handoff_pack(project_root: Path, name: str) -> str | None:
         "## WORKFLOW 上下文交接包（/clear 接续——以下为机械装配的前序证据，",
         "禁止重做已完成步骤；从当前子步继续）",
         "",
+    ]
+    if problem:
+        lines.append(f"### 用户问题陈述（开场采集原话）\n{problem}\n")
+    lines += [
         f"### 当前位置：{cur_node.label}（{node_id(cur_phase, cur_sub)}）子步骤 {cur_step}",
         "",
     ]
@@ -5472,6 +5479,86 @@ def fetch_prompt(project_root: Path, name: str) -> str | None:
         "（以下为调用方逐原子填写的可检验 claim 与证实/证伪标准——按 claim 谓词"
         "取证，证据须直接针对谓词，不泛泛取行业常识）" + claim_seg
     )
+
+
+# ---------- drive 模式进度快照（drive-tasklist-render-design §2.2）----------
+
+
+def progress_rows(state: dict[str, Any]) -> list[dict[str, Any]]:
+    """drive 模式进度快照的结构化行（driver rich Live 渲染数据源）。
+
+    每行 {depth, label, status, extra}：depth 0=阶段 / 1=子阶段 / 2=子步骤
+    （仅当前节点展开）；status ∈ done/current/todo——节点线性序（_NODES 声明序）
+    < 当前=done、==当前=current、> 当前=todo，子步骤按 sub_step_index 同理；
+    当前阶段行 extra 带 gate 状态。纯函数，零 IO。
+    """
+    st = normalize_state(dict(state))
+    order = _node_order()
+    cur_ord = order[st["node"]]
+    cur_step = st.get("sub_step_index", 0)
+    gate = st.get("gate", "")
+    rows: list[dict[str, Any]] = []
+    for pi, phase in enumerate(PHASES):
+        members = [(nid, n) for nid, n in _NODES.items() if n.phase == phase]
+        ords = [order[nid] for nid, _ in members]
+        if max(ords) < cur_ord:
+            p_status = "done"
+        elif min(ords) > cur_ord:
+            p_status = "todo"
+        else:
+            p_status = "current"
+        rows.append(
+            {
+                "depth": 0,
+                "label": f"{pi + 1}. {PHASE_LABELS.get(phase, phase)}",
+                "status": p_status,
+                "extra": f"gate: {gate}" if p_status == "current" else "",
+            }
+        )
+        for nid, node in members:
+            if node.sub == 0:
+                continue  # 整阶段节点：阶段行即节点行
+            o = order[nid]
+            n_status = (
+                "done" if o < cur_ord else ("current" if o == cur_ord else "todo")
+            )
+            rows.append(
+                {
+                    "depth": 1,
+                    "label": f"{pi + 1}.{node.sub} {node.label}",
+                    "status": n_status,
+                    "extra": "",
+                }
+            )
+            if o == cur_ord and node.sub_steps:
+                for si, step in enumerate(node.sub_steps, start=1):
+                    s_status = (
+                        "done"
+                        if si < cur_step
+                        else ("current" if si == cur_step else "todo")
+                    )
+                    rows.append(
+                        {
+                            "depth": 2,
+                            "label": f"{si} {step.short}",
+                            "status": s_status,
+                            "extra": "",
+                        }
+                    )
+    return rows
+
+
+def set_problem_statement(project_root: Path, name: str, statement: str) -> None:
+    """写入开场采集的用户问题陈述（drive-tasklist-render-design §2.4）。
+
+    恢复 v2.0「首条用户消息」语义——handoff_pack 顶部收录后，子1 模型开场
+    即有用户原话可引，不再面对工作流名 slug 自力更生翻仓库。
+    """
+    state = load_state(project_root, name)
+    if state is None:
+        raise FileNotFoundError(f"工作流 {name} 的 state.json 缺失")
+    state["problem_statement"] = statement
+    save_state(project_root, name, state)
 
 
 # ---------- CLI（design §8.1;供 dl-cmd.sh / 手动覆盖调用）----------

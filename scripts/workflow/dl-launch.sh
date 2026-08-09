@@ -9,6 +9,7 @@
 #   dl <name> --phase <p>  直接跳到某阶段
 #   dl <name> --base <ref> 从指定 ref 建分支（默认当前 HEAD）
 #   dl <name> --debug      debug 落盘到 per-wf 目录（cc_debug.log + cc_sdk.log）
+#   dl <name> --verbose    子会话输出尾随上屏（默认静默只落 drive-stream.jsonl）
 #   dl list                列举所有工作流
 #   dl <name> --done       归档工作流（删 worktree，保留元数据）
 
@@ -63,6 +64,7 @@ WF_PHASE_OVERRIDE=""
 WF_BASE=""
 WF_DONE=0
 WF_DEBUG=0
+WF_VERBOSE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --resume) WF_RESUME=1;;
@@ -70,6 +72,7 @@ while [ $# -gt 0 ]; do
     --base)  WF_BASE="$2"; shift;;
     --done)  WF_DONE=1;;
     --debug) WF_DEBUG=1;;
+    --verbose) WF_VERBOSE=1;;
     -h|--help) usage 0;;
     *) echo "wf-launch: 未知参数 '$1'" >&2; usage 1;;
   esac
@@ -214,7 +217,8 @@ PERM_ARGS=(--permission-mode acceptEdits)
 # （否则 hooks 降级不编排，TUI 会话无人推进）。
 if [ "${WF_TUI:-0}" != "1" ]; then
   DRIVE_ARGS=()
-  [ "$WF_DEBUG" = "1" ] && DRIVE_ARGS=(--debug)
+  [ "$WF_DEBUG" = "1" ] && DRIVE_ARGS+=(--debug)
+  [ "$WF_VERBOSE" = "1" ] && DRIVE_ARGS+=(--verbose)
   exec python3 "$LIB_DIR/dl_drive.py" "$WF_NAME" "${DRIVE_ARGS[@]}"
 fi
 python3 "$LIB_DIR/../../dl_flow_engine.py" drive-mode "$WF_NAME" off >/dev/null 2>&1 || true
