@@ -400,7 +400,7 @@ def test_tui_rules_carry_opening_discipline(wf_repo):
         encoding="utf-8"
     )
     assert "TUI 交互段开场纪律" in tui_rules
-    assert "TaskCreate 一条消息批量建齐以下 13 项" in tui_rules
+    assert "TaskCreate 一条消息批量建齐以下 19 项" in tui_rules  # 13+当前节点 6 子步骤
     assert "## PHASE: 理解和求证问题 [1/5]" in tui_rules
     assert "禁闷头连翻十几轮仓库零提问" in tui_rules
     assert "## 本节点子步骤清单" in tui_rules  # node-rules 本体仍在
@@ -416,22 +416,26 @@ def test_tui_rules_carry_opening_discipline(wf_repo):
 
 def test_tui_rules_tasklist_same_source_as_driver(wf_repo):
     """清单内容同源（2026-08-09 用户裁决「内容同源，样式两制」）：TUI 段
-    TaskCreate 的 13 项 subject+状态逐字渲染自 engine.progress_rows(state)
-    （driver rich Live 同一数据源）——两通道内容恒等，割裂只剩样式差。"""
+    TaskCreate 的 subject+状态逐字渲染自 engine.progress_rows(state)
+    （driver rich Live 同一数据源，**含当前节点子步骤维度**——只到
+    minor_state 的粒度差是真机割裂实证）——两通道内容恒等，割裂只剩样式差。"""
     drv = _load(DRIVER, "drv_under_test")
-    state = _write_state(wf_repo)  # 当前位置 understand:1
+    state = _write_state(wf_repo)  # 当前位置 understand:1 子1
     node = engine.get_node("understand", 1)
     text = drv.ensure_tui_rules(wf_repo, "t", node, 1, state).read_text(
         encoding="utf-8"
     )
-    rows = [r for r in engine.progress_rows(state) if r["depth"] <= 1]
-    assert len(rows) == 13  # 5 阶段 + understand 4 子 + plan 4 子
+    rows = engine.progress_rows(state)
+    assert len(rows) == 19  # 13（5 阶段+u4 子+plan4 子）+ understand:1 展开 6 子步骤
     status_map = {"done": "completed", "current": "in_progress", "todo": "pending"}
     for r in rows:
         assert f'"{r["label"]}"（{status_map[r["status"]]}）' in text
-    # 状态镜像抽样：当前子阶段 in_progress、后续 pending
+    # 状态镜像抽样：当前子阶段/子步骤 in_progress、后续 pending
     assert '"1.1 理解问题和背景"（in_progress）' in text
     assert '"2. 生成执行计划"（pending）' in text
+    # 子步骤维度：当前步 in_progress、后续步 pending（与 driver 进度区同粒度）
+    assert '"1 逼问定义"（in_progress）' in text
+    assert '"2 拆解深挖"（pending）' in text
 
 
 def test_interactive_prompt_tasklist_clause(wf_repo):
