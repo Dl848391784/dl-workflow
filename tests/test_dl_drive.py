@@ -217,7 +217,9 @@ def test_interactive_step_prompt_variant(wf_repo):
         wf_repo, "t", state, node, 5, step, rework=None, interactive=True
     )
     assert "AskUserQuestion（回合内完成）" in prompt
-    assert "请 /exit 退出" in prompt  # TUI 退 = 全退（tui-exit-quits-driver-design）
+    # 自动收段续跑（tui-auto-continue-design）：落库后 driver 自动收段，/exit 依赖消失
+    assert "无需 /exit" in prompt
+    assert "请 /exit 退出" not in prompt
     assert "返回 driver" not in prompt
     assert "NEED_USER" not in prompt  # TUI 段无 NEED_USER 出口
     assert "交接包" not in prompt  # 交接包归 SessionStart hook，prompt 不带
@@ -549,3 +551,108 @@ def test_pwait_already_interrupted_counts_as_double():
     with pytest.raises(SystemExit) as exc:
         drv._pwait_interruptible(p, on_first=lambda: None, already_interrupted=True)
     assert exc.value.code == 130 and p.killed
+
+
+# ---------- TUI 段自动收段续跑（tui-auto-continue-design，2026-08-09 用户裁决） ----------
+
+
+class _FakeTuiProc:
+    pid = 4321
+
+
+def _run_tui_step_stubbed(drv, repo, monkeypatch, captured):
+    """run_tui_step 打桩：Popen→假进程；fake wait 期间抓取段标记内容（收段后即删，
+    只有 wait 窗口内可观测）。"""
+    meta = repo / ".claude" / "workflows" / "t"
+    _write_state(repo)
+    (meta / "settings.json").write_text(
+        json.dumps({"permissions": {}}), encoding="utf-8"
+    )
+    monkeypatch.setattr(drv.subprocess, "Popen", lambda *a, **k: _FakeTuiProc())
+
+    def fake_wait(proc, on_first=None):
+        captured["segment"] = json.loads(
+            (meta / "tui_segment.json").read_text(encoding="utf-8")
+        )
+        return 0
+
+    monkeypatch.setattr(drv, "_pwait_interruptible", fake_wait)
+    monkeypatch.setattr(engine, "latest_trace_sha1", lambda *a, **k: "sha0")
+    node = engine.get_node("understand", 2)
+    step = engine.sub_step_at(node, 5)  # 读回确认（interactive）
+    return drv.run_tui_step(
+        repo,
+        "t",
+        _read_state(repo),
+        node,
+        5,
+        step,
+        meta,
+        False,
+        repo / ".claude" / "worktrees" / "t",
+        rework=None,
+    )
+
+
+def test_run_tui_step_writes_segment_marker(wf_repo, monkeypatch):
+    """段标记：起 TUI 后写（pid/node/sub_step/minor_key/pre_sha），收段后删——
+    Stop hook 的「本段新 trace」机械判定只在本文件存活期内生效。"""
+    drv = _load(DRIVER, "drv_under_test")
+    captured = {}
+    rc, _sid = _run_tui_step_stubbed(drv, wf_repo, monkeypatch, captured)
+    assert rc == 0
+    seg = captured["segment"]
+    assert seg["pid"] == 4321
+    assert seg["node"] == "understand:2"
+    assert seg["sub_step"] == 5
+    assert seg["minor_key"] == "GoalsAndValue"
+    assert seg["pre_sha"] == "sha0"  # 段启动前的最新 trace hash（新鲜度基线）
+    meta = wf_repo / ".claude" / "workflows" / "t"
+    assert not (meta / "tui_segment.json").exists()  # 收段即删
+
+
+def test_run_tui_step_clears_stale_autodone(wf_repo, monkeypatch):
+    """起段前清旧 autodone——防上一段的标记污染本段分流。"""
+    drv = _load(DRIVER, "drv_under_test")
+    meta = wf_repo / ".claude" / "workflows" / "t"
+    meta.mkdir(parents=True, exist_ok=True)
+    (meta / "tui_autodone.json").write_text("{}", encoding="utf-8")
+    _run_tui_step_stubbed(drv, wf_repo, monkeypatch, {})
+    assert not (meta / "tui_autodone.json").exists()
+
+
+def test_handle_tui_segment_end_autodone_goes_shared_gate(wf_repo):
+    """有 autodone（模型落库 = 活已干完）→ None：主循环落共享门控自动续跑，
+    driver 不退出（/exit 依赖消失）；标记消费即删。"""
+    drv = _load(DRIVER, "drv_under_test")
+    _write_state(wf_repo)
+    meta = wf_repo / ".claude" / "workflows" / "t"
+    (meta / "tui_autodone.json").write_text(
+        json.dumps({"node": "understand:1", "sub_step": 1, "sha": "s"}),
+        encoding="utf-8",
+    )
+    disp = _DispStub()
+    rc = drv._handle_tui_segment_end(
+        wf_repo, "t", wf_repo / ".claude" / "worktrees" / "t", 1, meta, disp
+    )
+    assert rc is None
+    assert not (meta / "tui_autodone.json").exists()  # 消费即删
+    assert any("自动收段" in line for line in disp.lines)
+
+
+def test_handle_tui_segment_end_manual_exit_full_quit(wf_repo, monkeypatch):
+    """无 autodone（手动 /exit / 双击 Ctrl+C）→ TUI 退 = 全退（裁决不变）。"""
+    drv = _load(DRIVER, "drv_under_test")
+    _write_state(wf_repo)
+    monkeypatch.setattr(engine, "gate_sub_step_at_stop", _fake_gate("advanced"))
+    disp = _DispStub()
+    rc = drv._handle_tui_segment_end(
+        wf_repo,
+        "t",
+        wf_repo / ".claude" / "worktrees" / "t",
+        1,
+        wf_repo / ".claude" / "workflows" / "t",
+        disp,
+    )
+    assert rc == 0
+    assert any("已过门控" in line for line in disp.lines)

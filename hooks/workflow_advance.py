@@ -26,7 +26,9 @@ Stop hook：工作流阶段推进（§8.3 瘦化版,委托 dl_flow_engine）。
 """
 
 import json
+import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -204,6 +206,86 @@ def _emit(msg: str) -> None:
     sys.stdout.flush()
 
 
+def _pid_gone(pid: int) -> bool:
+    """pid 已退出（含 zombie——driver 在 proc.wait 回收前的毫秒窗口，不算活）。"""
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return True
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+        return stat.rpartition(")")[2].split()[0] == "Z"
+    except (OSError, IndexError):
+        return True
+
+
+def _sigterm_then_kill(pid: object) -> None:
+    """SIGTERM 收 TUI，2s 未退 SIGKILL 兜底（tui-auto-continue-design §2）。
+
+    安全前提：TUI 段会话按构造一次性（state/evidence 磁盘真源），trace 已由
+    append-trace 独立进程同步落盘，杀 claude 不丢编排数据。
+    """
+    if not isinstance(pid, int) or pid <= 0:
+        return
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        return  # 已退出
+    deadline = time.time() + 2.0
+    while time.time() < deadline:
+        if _pid_gone(pid):
+            return
+        time.sleep(0.1)
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError:
+        pass
+
+
+def _maybe_autodone_tui(project_root: Path, name: str, state: dict) -> None:
+    """TUI 段自动收段（tui-auto-continue-design，2026-08-09 用户裁决「自动续跑」）。
+
+    程序通道区分退出方式（信号通道证伪「可区分」后的第三条路）：driver 起 TUI 段
+    时写 tui_segment.json（pid + pre_sha=段启动前最新 trace hash）；模型收轮时本
+    函数机械判定「本段内落了新 trace」（latest hash ≠ pre_sha）→ 写 tui_autodone
+    标记 + SIGTERM 收 TUI。driver 见标记走共享门控自动续跑，/exit 依赖消失。
+
+    不动作的情形（均与现状一致）：无段标记（headless 段/普通会话=零影响）；
+    段标记与 state 当前位置不咬合（陈旧标记）；本段无新 trace（模型停下来等用户
+    答话等）——会话照常住留，手动退出仍走「TUI 退 = 全退」。
+    """
+    meta = project_root / ".claude" / "workflows" / name
+    try:
+        seg = json.loads((meta / "tui_segment.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    if not isinstance(seg, dict):
+        return
+    # 咬合：段标记必须对得上 state 当前位置（防陈旧标记误杀后续段的会话）
+    if seg.get("node") != state.get("node") or seg.get("sub_step") != state.get(
+        "sub_step_index"
+    ):
+        return
+    sha = engine.latest_trace_sha1(
+        project_root, name, seg["sub_step"], seg.get("minor_key")
+    )
+    if sha is None or sha == seg.get("pre_sha"):
+        return  # 本段无新 trace——会话住留（等用户答话等），不动作
+    (meta / "tui_autodone.json").write_text(
+        json.dumps(
+            {
+                "node": seg.get("node"),
+                "sub_step": seg.get("sub_step"),
+                "sha": sha,
+                "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    _sigterm_then_kill(seg.get("pid"))
+    _log(project_root, "tui_autodone", wf=name, pid=seg.get("pid"))
+
+
 def _stop_continue(body: str) -> int:
     """返 Stop hook 的 additionalContext 续轮（changelog:1000 机制）通用底座。
 
@@ -368,9 +450,12 @@ def main() -> int:
     state = engine.normalize_state(state)
 
     # v3 drive 模式（dl_drive.py 外部编排，designs/headless-driver-arch-design.md）：
-    # 门控/推进/续轮全归 driver 直调 engine——本 hook 全程不动作（防双 orchestrator：
+    # 门控/推进/续轮全归 driver 直调 engine——本 hook 不做编排（防双 orchestrator：
     # 同一 trace 被 hook 与 driver 各判一次 = 双重推进/双重 block）。
+    # 唯一保留动作 = TUI 段自动收段（tui-auto-continue-design）：机械判定本段
+    # 落库后写标记 + 收 TUI，编排裁决仍全归 driver。
     if state.get("drive_mode"):
+        _maybe_autodone_tui(project_root, name, state)
         _log(project_root, "drive_mode_skip", wf=name)
         return 0
 

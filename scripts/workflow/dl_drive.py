@@ -252,8 +252,8 @@ def ensure_tui_rules(
         f" invoke skill 动手；探查不禁，但保持对用户可见的节奏——材料够问就用"
         f" AskUserQuestion 问，**禁闷头连翻十几轮仓库零提问**（真机实证：20+ 轮"
         f"零提问零清单被用户中断）\n"
-        f"4. 完成并落库后，用文本告诉用户「交互步已完成，请 /exit 退出——本会话与"
-        f" driver 一并结束；续跑 = `dl <name>`」并结束本轮\n\n"
+        f"4. 完成并落库后，用文本简要汇报并结束本轮——driver 检测到落库会自动收掉"
+        f"本会话并续跑下一步，无需 /exit（/exit = 退出整个工作流）\n\n"
         + _bash_shape_rules(project_root)
         + "\n"
     )
@@ -567,8 +567,8 @@ def build_step_prompt(
             "- 开场纪律见 system prompt「TUI 交互段开场纪律」段（TaskList+横幅——"
             "不建清单=用户眼里你没在跑工作流）\n"
             "- 需要用户输入时用 AskUserQuestion（回合内完成），用户就在终端前\n"
-            "- 完成并落库后，用文本告诉用户「交互步已完成，请 /exit 退出——本会话与"
-            " driver 一并结束；续跑 = `dl <name>`」并结束本轮"
+            "- 完成并落库后，用文本简要汇报并结束本轮——driver 检测到落库会自动"
+            "收掉本会话并续跑下一步，无需 /exit（/exit = 退出整个工作流）"
         )
         if node.phase == "understand" and node.sub == 1 and cur == 1:
             # 开场问题陈述对话式采集（drive-tasklist-render-design §2.4 修订——
@@ -655,6 +655,30 @@ def _is_bare_open(node: "engine.Node", cur: int, pending_rework: "str | None") -
     )
 
 
+def _tui_segment_file(meta: Path) -> Path:
+    """TUI 段标记（tui-auto-continue-design §2）：driver 起 TUI 后写、收段后删——
+    Stop hook 据此做「本段内落了新 trace」机械判定（程序通道，区分自动完成 vs
+    手动退出）。只在 TUI 段存活期存在：headless 段/普通会话无此文件 = hook 不动作。"""
+    return meta / "tui_segment.json"
+
+
+def _tui_autodone_file(meta: Path) -> Path:
+    """自动收段标记：Stop hook 发现新 trace 落库后写（并 SIGTERM 收 TUI）；
+    driver 收段后消费（消费即删）。有此标记 = 走共享门控自动续跑，无需 /exit。"""
+    return meta / "tui_autodone.json"
+
+
+def _consume_tui_autodone(meta: Path) -> "dict | None":
+    """消费自动收段标记（消费即删，防陈旧标记污染下一段）。无标记 -> None。"""
+    f = _tui_autodone_file(meta)
+    try:
+        payload = json.loads(f.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    f.unlink(missing_ok=True)
+    return payload if isinstance(payload, dict) else {}
+
+
 def run_tui_step(
     project_root: Path,
     name: str,
@@ -689,29 +713,50 @@ def run_tui_step(
     if bare:
         print(
             f"\n▸ 交互子步骤 {cur}/{len(node.sub_steps or ())} —— TUI 会话已就绪："
-            f"请直接输入你要分析的问题（模型在你提交后接管；完成后输入 /exit 退出——"
-            f"driver 一并结束；续跑 = `dl {name}`）"
+            f"请直接输入你要分析的问题（模型在你提交后接管；落库后 driver 自动收段"
+            f"续跑，无需 /exit；/exit = 退出整个工作流，续跑 = `dl {name}`）"
         )
     else:
         print(
             f"\n▸ 交互子步骤 {cur}/{len(node.sub_steps or ())} —— 起 TUI 会话"
-            f"（回答模型提问；模型报告完成后输入 /exit 退出——driver 一并结束；"
-            f"续跑 = `dl {name}`）"
+            f"（回答模型提问；模型落库后 driver 自动收段续跑，无需 /exit；"
+            f"/exit = 退出整个工作流，续跑 = `dl {name}`）"
         )
     if disp is not None:
         disp.stop()  # 终端交还 TUI 会话
+    # 段标记（tui-auto-continue-design §2）：记本段启动前的最新 trace hash——
+    # Stop hook 以 hash 变化机械判定「本段内落了新 trace」→ 自动收段续跑。
+    # 清旧 autodone：防上一段的标记污染本段分流。
+    pre_sha = engine.latest_trace_sha1(project_root, name, cur, node.minor_key)
+    _tui_autodone_file(meta).unlink(missing_ok=True)
     try:
         with open(meta / "cc_sdk.log", "a", encoding="utf-8") as err_f:
             # TUI 处于 raw 模式时 Ctrl+C 只是输入字节，driver 收不到 SIGINT
             # （tui-exit-quits-driver-design §2 实证）——本计数仅兜底 cooked 窗口：
             # 双击=杀子会话退 130，与「TUI 退 = 全退」语义一致
             proc = subprocess.Popen(cmd, cwd=str(wt), stderr=err_f)
-            rc = _pwait_interruptible(
-                proc,
-                on_first=lambda: print(
-                    "\n（单击 Ctrl+C：TUI 已中断当前生成；快速再按一次 = 退出会话与 driver）"
+            _tui_segment_file(meta).write_text(
+                json.dumps(
+                    {
+                        "pid": proc.pid,
+                        "node": engine.node_id(node.phase, node.sub),
+                        "sub_step": cur,
+                        "minor_key": node.minor_key,
+                        "pre_sha": pre_sha,
+                        "started_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    }
                 ),
+                encoding="utf-8",
             )
+            try:
+                rc = _pwait_interruptible(
+                    proc,
+                    on_first=lambda: print(
+                        "\n（单击 Ctrl+C：TUI 已中断当前生成；快速再按一次 = 退出会话与 driver）"
+                    ),
+                )
+            finally:
+                _tui_segment_file(meta).unlink(missing_ok=True)  # 段已收，标记即失效
     finally:
         if disp is not None:
             disp.start()
@@ -766,6 +811,22 @@ def _after_tui_exit(project_root: Path, name: str, wt: Path, cur: int, disp) -> 
         f"续跑：`dl {name}`（重开本步 TUI）。"
     )
     return 0
+
+
+def _handle_tui_segment_end(
+    project_root: Path, name: str, wt: Path, cur: int, meta: Path, disp
+) -> "int | None":
+    """TUI 段结束分流（tui-auto-continue-design §3，2026-08-09 用户裁决）。
+
+    有 autodone 标记（Stop hook 机械判定本段落库 = 活已干完）→ 返回 None：
+    主循环落共享门控——advanced 直接续跑下一步 / block 带判词自动重开 /
+    escalate 断点，driver 不退出，/exit 依赖消失。
+    无标记（手动 /exit / 双击 Ctrl+C）→ TUI 退 = 全退（裁决不变），返回退出码。
+    """
+    if _consume_tui_autodone(meta) is not None:
+        disp.log("  ⚑ 模型已落库——driver 自动收段，判门控后续跑（无需 /exit）")
+        return None
+    return _after_tui_exit(project_root, name, wt, cur, disp)
 
 
 def build_phase_prompt(project_root: Path, name: str, state: dict) -> str:
@@ -1011,8 +1072,12 @@ def drive(project_root: Path, name: str, debug: bool, verbose: bool = False) -> 
                     project_root, name, session_id=sid, kind=seg_kind, note=f"rc={rc}"
                 )
                 if seg_kind.startswith("tui"):
-                    # TUI 退 = 全退（双击 Ctrl+C 与 /exit 不可区分，一律判门控后退）
-                    return _after_tui_exit(project_root, name, wt, cur, disp)
+                    seg_rc = _handle_tui_segment_end(
+                        project_root, name, wt, cur, meta, disp
+                    )
+                    if seg_rc is not None:
+                        return seg_rc  # 手动退出：TUI 退 = 全退
+                    # autodone：落共享门控（advanced 续跑 / block 自动返工 / escalate 断点）
                 if rc == RC_INTERRUPTED:
                     # 单击中断子会话（§2.6）——断点等裁决，不自动重发
                     if (
