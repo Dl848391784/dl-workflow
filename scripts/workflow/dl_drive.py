@@ -201,6 +201,30 @@ def ensure_node_rules(project_root: Path, name: str, node: "engine.Node") -> Pat
     return out
 
 
+def _bash_shape_rules(project_root: Path) -> str:
+    """Bash 命令形态铁律（2026-08-09 interaction_turnover dogfood 四类弹窗/报错实证）。
+
+    这些形态触发 Claude Code 安全守卫或解析器失败——白名单按命令头前缀收，
+    守卫类（cd+git 信任检查 / 换行+# 校验绕过检查）甚至无视白名单照弹，
+    唯一根治 = 从生成侧禁掉这些形态。单源：build_step_prompt 铁律块 +
+    ensure_tui_rules（裸开场 TUI 唯一通道）双处注入。
+    """
+    py = project_root / "venv" / "bin" / "python"
+    py_cmd = str(py) if py.exists() else "python3"
+    return (
+        "Bash 形态铁律（违反=触发 CC 安全守卫必弹窗或解析失败，加白名单也管不到）：\n"
+        f"- 查主仓 git 一律 `git -C {project_root} ...`；禁 `cd <目录> && git`"
+        "（cd+git 信任守卫必弹窗）\n"
+        f"- 项目 Python 一律 `{py_cmd}`（白名单按前缀收此形态；禁 `./venv/...`"
+        f" 相对形态、禁 `VAR=值 cmd` 裸赋值前缀——要环境变量用 `env VAR=值 {py_cmd}`"
+        "，env: 已在白名单）\n"
+        '- `python -c "` 代码体顶格（前导缩进=IndentationError），禁 `#` 注释'
+        "（换行+`#` 触发校验绕过守卫必弹窗）——说明文字写在命令外的正文里\n"
+        "- 禁 `$(...)` 命令替换内嵌（解析器 Parse error 直接失败）——拆两条命令："
+        "先跑查值，再把字面量写进下一条"
+    )
+
+
 def ensure_tui_rules(
     project_root: Path, name: str, node: "engine.Node", cur: int
 ) -> Path:
@@ -229,7 +253,9 @@ def ensure_tui_rules(
         f" AskUserQuestion 问，**禁闷头连翻十几轮仓库零提问**（真机实证：20+ 轮"
         f"零提问零清单被用户中断）\n"
         f"4. 完成并落库后，用文本告诉用户「交互步已完成，请 /exit 退出——本会话与"
-        f" driver 一并结束；续跑 = `dl <name>`」并结束本轮\n"
+        f" driver 一并结束；续跑 = `dl <name>`」并结束本轮\n\n"
+        + _bash_shape_rules(project_root)
+        + "\n"
     )
     # 插在「## 本节点子步骤清单」之前
     marker = "## 本节点子步骤清单"
@@ -573,6 +599,7 @@ def build_step_prompt(
         f"铁律：\n"
         f"- 只做这一个子步骤——后续步骤由 driver 另起会话，与你无关\n"
         f"- 禁输出 ### STEP_DONE / ### PHASE_DONE 标记（外部编排，标记无效）\n"
+        f"{_bash_shape_rules(project_root)}\n"
         f"{tail}\n" + engine.selfcheck_hint(step)
     )
     if rework:
