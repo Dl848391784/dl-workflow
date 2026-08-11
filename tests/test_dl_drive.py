@@ -1229,3 +1229,60 @@ def test_fence_front_dynamic13_keeps_v2_discipline(wf_repo):
         wf_repo, "WebFetch", {"url": "https://x"}, front_mode=True, sub_step_index=2
     )
     assert "deny" in out
+
+
+# ---------- dl-launch.sh --front 接线（front-tui-hybrid-design §4 M3）----------
+
+
+def _fake_claude_env(tmp_path: Path) -> dict:
+    """PATH 前置假 claude（打印参数即退）——不起真会话验证 launcher 接线。"""
+    bin_dir = tmp_path / "fakebin"
+    bin_dir.mkdir(exist_ok=True)
+    fake = bin_dir / "claude"
+    fake.write_text('#!/bin/bash\necho "FAKE_CLAUDE $*"\n', encoding="utf-8")
+    fake.chmod(0o755)
+    return dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}")
+
+
+def test_launcher_front_flag_enters_tui_with_front_mode(wf_repo, tmp_path):
+    """--front：走 TUI 路径（非 dl_drive 派发）+ front_mode on + drive_mode off。"""
+    r = subprocess.run(
+        [
+            "bash",
+            str(DLWF_ROOT / "scripts" / "workflow" / "dl-launch.sh"),
+            "--workflow",
+            "t",
+            "--front",
+        ],
+        cwd=wf_repo,
+        env=_fake_claude_env(tmp_path),
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0, r.stderr
+    assert "FAKE_CLAUDE" in r.stdout  # 起 TUI（非 driver）
+    assert "--session-id" in r.stdout  # TUI 钉 session（driver 路径无此参数）
+    st = _read_state(wf_repo)
+    assert st["front_mode"] is True
+    assert st["drive_mode"] is False
+
+
+def test_launcher_tui_path_clears_front_mode(wf_repo, tmp_path):
+    """WF_TUI=1（v2 回滚面）：front_mode 显式 off——模式由入口唯一决定。"""
+    env = _fake_claude_env(tmp_path)
+    env["WF_TUI"] = "1"
+    r = subprocess.run(
+        [
+            "bash",
+            str(DLWF_ROOT / "scripts" / "workflow" / "dl-launch.sh"),
+            "--workflow",
+            "t",
+        ],
+        cwd=wf_repo,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0, r.stderr
+    assert "FAKE_CLAUDE" in r.stdout
+    assert _read_state(wf_repo).get("front_mode") is False
