@@ -78,8 +78,10 @@ SUB_STEP_BLOCK_ESCALATE = 3
 # （2026-08-01 understand:1 审计：24 次裁决 316.6s 全 allow 纯税，其中
 # AskUserQuestion 3 次均值 46.2s 被误归因为用户思考时间）。
 SETTINGS_TEMPLATE_VERSION = (
-    7  # v7：两轮实测命令头挖掘补尾（路径形态 codegraph/venv python/pytest +
+    8  # v8：front 模式段派发命令（dl_drive.py --segment）入白名单——否则前台会话
 )
+# 每次派发都弹窗（front-tui-hybrid-design M3）。
+# v7：两轮实测命令头挖掘补尾（路径形态 codegraph/venv python/pytest +
 # xargs/tr/comm/od/xxd/env/sleep）；刻意不加 rm/dd/sudo——破坏性命令保留弹窗
 # = 弱模型幻觉刹车；正向名单可收敛，deny 反向名单是打地鼠。
 # v6：Read 放宽到主仓全树 Read(//主仓/**)——Bash 只读命令触及 cwd 外

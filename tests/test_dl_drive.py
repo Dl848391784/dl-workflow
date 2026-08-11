@@ -1286,3 +1286,23 @@ def test_launcher_tui_path_clears_front_mode(wf_repo, tmp_path):
     assert r.returncode == 0, r.stderr
     assert "FAKE_CLAUDE" in r.stdout
     assert _read_state(wf_repo).get("front_mode") is False
+
+
+def test_settings_allowlist_covers_segment_dispatch(wf_repo):
+    """front 派发命令进 per-wf settings 白名单（否则模型每次派发都弹窗）+
+    版本戳 = engine 单源常量（v2.35：改模板实质内容必 bump）。"""
+    r = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f"source {DLWF_ROOT}/scripts/workflow/dl-lib.sh && wf_write_settings t",
+        ],
+        cwd=wf_repo,
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0, r.stderr
+    data = json.loads((wf_repo / SEG_META / "settings.json").read_text())
+    allow = data["permissions"]["allow"]
+    assert "Bash(python3 ~/.dl-workflow/scripts/workflow/dl_drive.py:*)" in allow
+    assert data["wf_settings_template_version"] == engine.SETTINGS_TEMPLATE_VERSION
