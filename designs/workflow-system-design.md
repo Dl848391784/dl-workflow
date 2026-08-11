@@ -2,7 +2,7 @@
 
 > 状态：设计中（2026-07-22 起）。本文件为 H8 Design-First 产物，也是工作流子系统的真源。
 > 对应实现：`scripts/workflow/`、`.claude/hooks/workflow_*.py`、`.claude/output-styles/workflow.md`、`.claude/commands/dl*.md`、`~/.bashrc` ac-ark。
-> 运行模式演进：v3 headless driver（headless-driver-arch-design.md，默认 `dl <name>`）；v4 前台混合（front-tui-hybrid-design.md，`dl <name> --front`，2026-08-11）。
+> 运行模式演进：v4 前台混合（front-tui-hybrid-design.md，默认 `dl <name>`，2026-08-11）；v3 headless driver（headless-driver-arch-design.md，`dl <name> --headless`）。
 
 ## 0. 背景与目标
 

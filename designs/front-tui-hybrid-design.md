@@ -160,6 +160,6 @@ state 新增 `front_mode: true`（launcher 置；engine `set_front_mode` 单源�
 
 ## 7. 开放问题（评审拍板）
 
-1. **入口形态**：M3 落地后 `dl <name> --front` opt-in；dogfood 通过后是否翻转默认（`--front` 成为默认，v3 driver 退居 `--headless`）？倾向：dogfood 数据说话，stall 率 ≈ 0 且通知抵达率 100% 才翻转。
+1. **入口形态**：~~M3 落地后 `dl <name> --front` opt-in；dogfood 通过后是否翻转默认~~ **已裁决（2026-08-11）：默认即 front**（`dl <name>`），v3 driver 退居 `--headless` 逃生门。用户原话诉求「必须要 --front 参数么？」——dogfood 由默认路径直接承担；观察指标不变（stall 率/通知抵达率/fence 误伤），数据恶化则一行翻回。
 2. **stall 重提示阈值**：暂定 3 次停轮等用户。是否可调（state 字段）？
 3. **段跑期间用户问进度**：模型用 Bash 跑 `dl-cmd.sh status` 自取（fence 白名单已含只读 /dl），是否够用，还是注入里再附一行「段在跑，当前位置 X/Y」？倾向后者（一行，零风险）。
