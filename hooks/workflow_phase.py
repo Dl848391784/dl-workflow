@@ -493,8 +493,10 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
         )
     if front_dispatch:
         lines.append(
-            f"- ▶ 当前位置（{state.get('node')} 子步骤 "
-            f"{state.get('sub_step_index')}）的活归后台工人，本会话不执行。\n"
+            f"- ▶ 起跑位置（{state.get('node')} 子步骤 "
+            f"{state.get('sub_step_index')}）的活归后台工人，本会话不执行"
+            "——段会连续推进多步，此为派发时刻快照而非实时位置；"
+            "段内实时进度看底部状态栏。\n"
             "  立即用 Bash 运行（run_in_background=true，逐字照抄）：\n"
             f"    {engine.front_segment_command(name)}\n"
             "  段跑完会自动回到本会话；等待期间可与用户自由交流。\n"

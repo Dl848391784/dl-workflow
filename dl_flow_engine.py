@@ -78,8 +78,10 @@ SUB_STEP_BLOCK_ESCALATE = 3
 # （2026-08-01 understand:1 审计：24 次裁决 316.6s 全 allow 纯税，其中
 # AskUserQuestion 3 次均值 46.2s 被误归因为用户思考时间）。
 SETTINGS_TEMPLATE_VERSION = (
-    8  # v8：front 模式段派发命令（dl_drive.py --segment）入白名单——否则前台会话
+    9  # v9：statusLine 进度栏入模板（dl_statusline.py，refreshInterval=10 空闲
 )
+# 也刷新，v4-statusline-progress-design）——front 模式段工人零可见性 dogfood 修复。
+# v8：front 模式段派发命令（dl_drive.py --segment）入白名单——否则前台会话
 # 每次派发都弹窗（front-tui-hybrid-design M3）。
 # v7：两轮实测命令头挖掘补尾（路径形态 codegraph/venv python/pytest +
 # xargs/tr/comm/od/xxd/env/sleep）；刻意不加 rm/dd/sudo——破坏性命令保留弹窗
