@@ -682,3 +682,233 @@ def test_handle_tui_segment_end_manual_exit_full_quit(wf_repo, monkeypatch):
     )
     assert rc == 0
     assert any("已过门控" in line for line in disp.lines)
+
+
+# ---------- --segment 段执行器（front-tui-hybrid-design M1）----------
+#
+# 段语义：从 state 当前位置起连续跑非交互工作，撞「需要人或需要前台」的边界
+# 按退出码收场（0 完成 / 10 交互步 / 11 门栏闸门 / 12 断点 / 13 NEED_USER / 1 异常），
+# 断点去 stdin 化（breakpoint_loop 不可用——段无前台），结局落 segment_summary.json；
+# front_segment.json 锁（pid+起跑位置）随退出清；drive_mode try/finally 恢复 off。
+
+import os  # noqa: E402
+
+SEG_META = ".claude/workflows/t"
+
+
+def _seg_write_state(repo: Path, **over) -> dict:
+    """段测试 state：补 per-wf settings.json（ensure_drive_settings 的派生源，
+    真机由 launcher 保证存在）。"""
+    (repo / SEG_META / "settings.json").write_text(
+        json.dumps({"permissions": {}}), encoding="utf-8"
+    )
+    return _write_state(repo, **over)
+
+
+def _summary(repo: Path) -> dict:
+    return json.loads(
+        (repo / SEG_META / "segment_summary.json").read_text(encoding="utf-8")
+    )
+
+
+def _run_session_stub(drv, monkeypatch, outs) -> list:
+    """按序返回 (rc, out, sid)（Exception 实例则抛出），捕获逐次 prompt。"""
+    calls = []
+    it = iter(outs)
+
+    def fake(prompt, **kw):
+        calls.append(prompt)
+        item = next(it)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    monkeypatch.setattr(drv, "run_session", fake)
+    return calls
+
+
+def _gate_advancing(repo: Path):
+    """假门控：advanced 并真实推进 state（子步 +1；越界则跨到 understand:2#1）。
+
+    understand:1 共 6 子步骤（子1 交互/子2-6 非交互），understand:2#1 交互——
+    段从 u:1 任一非交互步起跑，推进耗尽后必撞交互步退出 10。
+    """
+
+    def fake(project_root, name, cwd):
+        st = _read_state(repo)
+        node = engine.get_node(st["phase"], st["sub_index"])
+        cur = st.get("sub_step_index", 1)
+        if cur < len(node.sub_steps):
+            st["sub_step_index"] = cur + 1
+        else:
+            st.update(sub_index=2, node="understand:2", sub_step_index=1)
+        (repo / SEG_META / "state.json").write_text(json.dumps(st), encoding="utf-8")
+        return ("advanced", "", None)
+
+    return fake
+
+
+def test_segment_exits_10_immediately_on_interactive_step(wf_repo, monkeypatch):
+    """当前步即交互步（u:2#1）→ 退出 10，不起任何子会话。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(wf_repo, sub_index=2, node="understand:2", sub_step_index=1)
+    calls = _run_session_stub(drv, monkeypatch, [])
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 10
+    assert calls == []
+    assert _summary(wf_repo)["code"] == 10
+    meta = wf_repo / SEG_META
+    assert not (meta / "front_segment.json").exists()  # 锁随退出清
+    assert _read_state(wf_repo)["drive_mode"] is False  # 编排权交回前台
+
+
+def test_segment_runs_headless_steps_then_exits_10(wf_repo, monkeypatch):
+    """u:1#2 起跑：子2-5 各一个 headless 会话，撞 #6（读回=交互步）退出 10。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(wf_repo, sub_step_index=2)
+    calls = _run_session_stub(drv, monkeypatch, [(0, "", "s")] * 4)
+    monkeypatch.setattr(engine, "gate_sub_step_at_stop", _gate_advancing(wf_repo))
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 10
+    assert len(calls) == 4  # u:1 子2..5（子1/子6 为交互步，不在段内）
+    assert _read_state(wf_repo)["sub_step_index"] == 6
+
+
+def test_segment_lock_live_during_run(wf_repo, monkeypatch):
+    """段运行期间 front_segment.json 锁活（pid=本进程+起跑位置），退出即删。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(wf_repo, sub_step_index=5)  # 只跑一步（#5→推进即撞交互步 #6）
+    meta = wf_repo / SEG_META
+    seen = {}
+
+    def fake(prompt, **kw):
+        seen["lock"] = json.loads(
+            (meta / "front_segment.json").read_text(encoding="utf-8")
+        )
+        return (0, "", "s")
+
+    monkeypatch.setattr(drv, "run_session", fake)
+    monkeypatch.setattr(engine, "gate_sub_step_at_stop", _gate_advancing(wf_repo))
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 10
+    assert seen["lock"]["pid"] == os.getpid()
+    assert seen["lock"]["sub_step"] == 5  # 起跑位置
+    assert seen["lock"]["started_at"]
+    assert not (meta / "front_segment.json").exists()
+
+
+def test_segment_exits_11_on_held_for_gate(wf_repo, monkeypatch):
+    """门栏扣留 → 退出 11（等用户 /dl gate），不起子会话。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(wf_repo, held_for_gate=True)
+    calls = _run_session_stub(drv, monkeypatch, [])
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 11 and calls == []
+    assert "门栏" in _summary(wf_repo)["message"]
+
+
+def test_segment_exits_11_on_phase_gate(wf_repo, monkeypatch):
+    """PHASE_DONE 通道开 + 阶段闸门未放行 → 退出 11。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(
+        wf_repo,
+        phase="plan",
+        sub_index=4,
+        node="plan:4",
+        sub_step_index=5,
+        gate="pending",
+    )
+    monkeypatch.setattr(engine, "phase_done_channel_open", lambda *a: True)
+    monkeypatch.setattr(engine, "is_gated_after", lambda ph: True)
+    calls = _run_session_stub(drv, monkeypatch, [])
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 11 and calls == []
+    assert "闸门" in _summary(wf_repo)["message"]
+
+
+def test_segment_exits_12_on_escalate(wf_repo, monkeypatch):
+    """门控 escalate（连续 block 达阈值）→ 退出 12，判词进 summary。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(wf_repo, sub_step_index=2)
+    calls = _run_session_stub(drv, monkeypatch, [(0, "", "s")])
+    monkeypatch.setattr(
+        engine, "gate_sub_step_at_stop", _fake_gate("escalate", "判词Q")
+    )
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 12 and len(calls) == 1
+    assert "判词Q" in _summary(wf_repo)["message"]
+
+
+def test_segment_exits_12_on_none_retry_limit(wf_repo, monkeypatch):
+    """连续 NONE_RETRY_LIMIT 次会话未落 trace → 退出 12（防无限白烧）。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(wf_repo, sub_step_index=2)
+    calls = _run_session_stub(drv, monkeypatch, [(0, "", "s")] * drv.NONE_RETRY_LIMIT)
+    monkeypatch.setattr(engine, "gate_sub_step_at_stop", _fake_gate("none"))
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 12 and len(calls) == drv.NONE_RETRY_LIMIT
+
+
+def test_segment_exits_13_on_need_user(wf_repo, monkeypatch):
+    """headless 会话输出 ### NEED_USER → 退出 13（动态重分类为交互，回前台处理）。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(wf_repo, sub_step_index=2)
+    calls = _run_session_stub(
+        drv, monkeypatch, [(0, "结果\n### NEED_USER\n问题清单", "s")]
+    )
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 13 and len(calls) == 1
+
+
+def test_segment_exits_0_when_workflow_done(wf_repo):
+    """gate=done（五阶段终结）→ 退出 0。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(wf_repo, gate="done")
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 0
+    assert _summary(wf_repo)["code"] == 0
+
+
+def test_segment_block_feeds_rework_into_next_prompt(wf_repo, monkeypatch):
+    """段内 block 不出段：判词装配返工上下文重发本步（v3 语义原样）。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(wf_repo, sub_step_index=5)  # block 重跑本步后推进即撞 #6 交互
+    calls = _run_session_stub(drv, monkeypatch, [(0, "", "s"), (0, "", "s")])
+    advancing = _gate_advancing(wf_repo)
+    seq = [("block", "判词Z", None)]
+
+    def fake_gate(*a):
+        return seq.pop(0) if seq else advancing(*a)
+
+    monkeypatch.setattr(engine, "gate_sub_step_at_stop", fake_gate)
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 10
+    assert len(calls) == 2
+    assert "判词Z" in calls[1]  # 返工上下文进重发 prompt
+
+
+def test_segment_exception_restores_drive_mode(wf_repo, monkeypatch):
+    """段内异常（API 挂等）→ 退出 1；drive_mode 恢复 off、锁清、summary 落盘。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(wf_repo, sub_step_index=2)
+    _run_session_stub(drv, monkeypatch, [RuntimeError("api炸")])
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 1
+    assert "api炸" in _summary(wf_repo)["message"]
+    assert _read_state(wf_repo)["drive_mode"] is False
+    assert not (wf_repo / SEG_META / "front_segment.json").exists()
+
+
+def test_main_routes_segment_flag(wf_repo, monkeypatch):
+    """--segment flag 路由到 run_segment（全程 driver 路径不受影响）。"""
+    drv = _load(DRIVER, "drv_seg")
+    monkeypatch.chdir(wf_repo / ".claude" / "worktrees" / "t")
+    seen = {}
+
+    def fake_segment(project_root, name, debug=False):
+        seen.update(project_root=project_root, name=name)
+        return 10
+
+    monkeypatch.setattr(drv, "run_segment", fake_segment)
+    rc = drv.main(["t", "--segment"])
+    assert rc == 10 and seen["name"] == "t"
