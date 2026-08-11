@@ -396,6 +396,43 @@ def _deny(reason: str) -> int:
     return 0
 
 
+# v4 前台混合（front-tui-hybrid-design §2.3）：非交互位置白名单工具集——
+# 记账（output-style 强制 TaskList）/ Read / AskUserQuestion（裁决与对话）。
+_FRONT_WHITELIST_TOOLS = frozenset(
+    {"Read", "AskUserQuestion", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet"}
+)
+
+
+def _front_fence_verdict(
+    project_root: Path, name: str, tool: str, payload: dict
+) -> int:
+    """front 非交互位置白名单：派发命令（逐字两变体）/ /dl 状态管理 / 白名单工具。
+
+    放行面刻意窄：dl-cmd.sh 全子命令只动 workflow state 不写文件（gate/step-pass/
+    dispute 等用户裁决的执行通道）；干活工具一律 deny 指回派发命令。
+    """
+    ti = payload.get("tool_input") or {}
+    if tool in _FRONT_WHITELIST_TOOLS:
+        return 0
+    if tool == "SlashCommand":  # 用户手敲 /dl gate 等的执行通道
+        if str(ti.get("command") or "").startswith("/dl"):
+            return 0
+    elif tool == "Bash":
+        cmd = str(ti.get("command") or "").strip()
+        seg_cmd = engine.front_segment_command(name)
+        if cmd in {seg_cmd, seg_cmd.replace("~", str(Path.home()), 1)}:
+            return 0
+        if re.match(r"^bash\s+\S*dl-cmd\.sh(\s|$)", cmd):
+            return 0
+    _log_deny(project_root, name, "front_fence_deny", f"tool={tool}")
+    return _deny(
+        "前台模式：当前位置的活归后台工人，本会话不执行。\n"
+        "派发用 Bash（run_in_background=true，逐字照抄）：\n"
+        f"  {engine.front_segment_command(name)}\n"
+        "要与用户交互请直接对话（AskUserQuestion 可用）；看进度用 /dl status。"
+    )
+
+
 def main() -> int:
     try:
         payload = json.load(sys.stdin)
@@ -551,6 +588,30 @@ def main() -> int:
     _st = engine.load_state(project_root, name)
     if _st and _st.get("drive_mode"):
         return 0
+
+    # ---- v4 前台混合（front-tui-hybrid-design §2.3）：非交互位置白名单 ----
+    # 活归后台 --segment 工人；前台模型抢干活 = 上下文胀回 v2.x 病灶（本分支的
+    # 防御目标）。段在跑 = drive_mode on（上方已 return 0）；交互步 / NEED_USER
+    # 动态重分类（code 13 咬合）→ 落下方 v2 S15/S10 既有纪律。
+    if _st and _st.get("front_mode"):
+        _node_f = None
+        try:
+            _node_f = engine.get_node(
+                _st.get("phase", "understand"), _st.get("sub_index", 1)
+            )
+        except KeyError:
+            _node_f = None
+        _step_f = (
+            engine.sub_step_at(_node_f, _st.get("sub_step_index", 1))
+            if _node_f is not None and _node_f.sub_steps
+            else None
+        )
+        _interactive_f = bool(
+            (_step_f is not None and _step_f.interactive)
+            or engine.front_dynamic_interactive(project_root, name, _st)
+        )
+        if not _interactive_f:
+            return _front_fence_verdict(project_root, name, tool, payload)
 
     # ---- S15 参与前置围栏：零 trace 窗口 -> 白名单模式，非编排工具 deny ----
     # 与 S10 状态互斥（零 trace vs 未判决 trace），先后无关；放 S14/S11 之后
