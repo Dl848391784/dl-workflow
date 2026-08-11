@@ -4,13 +4,13 @@
 # 被 ~/.bashrc 的 dl 调用（不设 provider env，继承当前 shell env）。
 #
 # 用法：
-#   dl <name>              新建/续工作流（停在 understand）
+#   dl <name>              新建/续工作流（v4 默认：常驻 TUI + 后台段工人跑非交互步）
 #   dl <name> --resume     续已存在工作流（恢复 session + 当前阶段）
 #   dl <name> --phase <p>  直接跳到某阶段
 #   dl <name> --base <ref> 从指定 ref 建分支（默认当前 HEAD）
 #   dl <name> --debug      debug 落盘到 per-wf 目录（cc_debug.log + cc_sdk.log）
 #   dl <name> --verbose    子会话输出尾随上屏（默认静默只落 drive-stream.jsonl）
-#   dl <name> --front      v4 前台混合：常驻 TUI 会话 + 后台段工人跑非交互步
+#   dl <name> --headless   v3 全程 headless driver（driver 占终端，stdin 断点）
 #   dl list                列举所有工作流
 #   dl <name> --done       归档工作流（删 worktree，保留元数据）
 
@@ -21,7 +21,7 @@ LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$LIB_DIR/dl-lib.sh"
 
 usage() {
-  sed -n '3,13p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '3,15p' "$0" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -66,7 +66,7 @@ WF_BASE=""
 WF_DONE=0
 WF_DEBUG=0
 WF_VERBOSE=0
-WF_FRONT=0
+WF_HEADLESS=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --resume) WF_RESUME=1;;
@@ -75,7 +75,7 @@ while [ $# -gt 0 ]; do
     --done)  WF_DONE=1;;
     --debug) WF_DEBUG=1;;
     --verbose) WF_VERBOSE=1;;
-    --front) WF_FRONT=1;;
+    --headless) WF_HEADLESS=1;;
     -h|--help) usage 0;;
     *) echo "wf-launch: 未知参数 '$1'" >&2; usage 1;;
   esac
@@ -213,15 +213,13 @@ fi
 # codegraph_gate（H15）等 PreToolUse hook 不受影响。放在 "$@" 前，用户显式传值可覆盖。
 PERM_ARGS=(--permission-mode acceptEdits)
 
-# ---------- v3/v4：默认派发 headless driver；--front = 前台混合 ----------
-# v3（默认）：每子步骤/阶段一个全新 `claude -p` 短会话（上下文按构造最小），
-# 门控/推进由 dl_drive.py 直调 engine（state 磁盘真源）。
-# v4（--front，front-tui-hybrid-design）：常驻 TUI 前台（本脚本下方 TUI 路径），
-# 非交互步由会话内派发的 dl_drive.py --segment 后台段执行——hooks 走 front 分支。
-# WF_TUI=1 = 回旧 v2 TUI hook 编排路径（回滚面，勿删）；此时须关 drive_mode
-# （否则 hooks 降级不编排，TUI 会话无人推进）。
+# ---------- 模式派发（2026-08-11 用户裁决：默认 = v4 front 前台混合） ----------
+# v4（默认，front-tui-hybrid-design）：常驻 TUI 前台（下方 TUI 路径），非交互步
+# 由会话内派发的 dl_drive.py --segment 后台段执行——hooks 走 front 分支。
+# v3（--headless）：全程 headless driver（dl_drive.py 占终端，stdin 断点）。
+# WF_TUI=1 = 回旧 v2 TUI hook 编排路径（回滚面，勿删）。
 # 模式由入口唯一决定：三条路径显式置 front_mode/drive_mode，防残留串模态。
-if [ "${WF_TUI:-0}" != "1" ] && [ "$WF_FRONT" != "1" ]; then
+if [ "${WF_TUI:-0}" != "1" ] && [ "$WF_HEADLESS" = "1" ]; then
   python3 "$LIB_DIR/../../dl_flow_engine.py" front-mode "$WF_NAME" off >/dev/null 2>&1 || true
   DRIVE_ARGS=()
   [ "$WF_DEBUG" = "1" ] && DRIVE_ARGS+=(--debug)
@@ -229,11 +227,11 @@ if [ "${WF_TUI:-0}" != "1" ] && [ "$WF_FRONT" != "1" ]; then
   exec python3 "$LIB_DIR/dl_drive.py" "$WF_NAME" "${DRIVE_ARGS[@]}"
 fi
 python3 "$LIB_DIR/../../dl_flow_engine.py" drive-mode "$WF_NAME" off >/dev/null 2>&1 || true
-if [ "$WF_FRONT" = "1" ]; then
+if [ "${WF_TUI:-0}" = "1" ]; then
+  python3 "$LIB_DIR/../../dl_flow_engine.py" front-mode "$WF_NAME" off >/dev/null 2>&1 || true
+else
   python3 "$LIB_DIR/../../dl_flow_engine.py" front-mode "$WF_NAME" on >/dev/null 2>&1 || true
   echo "front 模式：非交互步归后台段工人（模型按注入派发 --segment），本会话全程保留。"
-else
-  python3 "$LIB_DIR/../../dl_flow_engine.py" front-mode "$WF_NAME" off >/dev/null 2>&1 || true
 fi
 
 # resume：用钉死的 session_id 恢复；否则用 --session-id 钉死

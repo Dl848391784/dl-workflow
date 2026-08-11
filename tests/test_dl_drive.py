@@ -1244,15 +1244,15 @@ def _fake_claude_env(tmp_path: Path) -> dict:
     return dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}")
 
 
-def test_launcher_front_flag_enters_tui_with_front_mode(wf_repo, tmp_path):
-    """--front：走 TUI 路径（非 dl_drive 派发）+ front_mode on + drive_mode off。"""
+def test_launcher_default_enters_tui_with_front_mode(wf_repo, tmp_path):
+    """默认（无 flag）= v4 front：走 TUI 路径 + front_mode on + drive_mode off
+    （2026-08-11 用户裁决默认翻转；--headless = v3 全程 driver 逃生门）。"""
     r = subprocess.run(
         [
             "bash",
             str(DLWF_ROOT / "scripts" / "workflow" / "dl-launch.sh"),
             "--workflow",
             "t",
-            "--front",
         ],
         cwd=wf_repo,
         env=_fake_claude_env(tmp_path),
@@ -1306,3 +1306,26 @@ def test_settings_allowlist_covers_segment_dispatch(wf_repo):
     allow = data["permissions"]["allow"]
     assert "Bash(python3 ~/.dl-workflow/scripts/workflow/dl_drive.py:*)" in allow
     assert data["wf_settings_template_version"] == engine.SETTINGS_TEMPLATE_VERSION
+
+
+def test_launcher_headless_flag_goes_driver(wf_repo, tmp_path):
+    """--headless = v3 全程 driver：front_mode off，stdout 见 driver 接管
+    （假 claude 下 TUI 段起即退、门控 none、driver 安全收场）。"""
+    r = subprocess.run(
+        [
+            "bash",
+            str(DLWF_ROOT / "scripts" / "workflow" / "dl-launch.sh"),
+            "--workflow",
+            "t",
+            "--headless",
+        ],
+        cwd=wf_repo,
+        env=_fake_claude_env(tmp_path),
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert "driver 接管工作流" in r.stdout
+    st = _read_state(wf_repo)
+    assert st.get("front_mode") is False
+    assert st.get("drive_mode") is True
