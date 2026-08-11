@@ -267,6 +267,11 @@ wf_write_settings() {
 {
   "wf_settings_template_version": ${WF_SETTINGS_TEMPLATE_VERSION:-0},
   "outputStyle": "workflow",
+  "statusLine": {
+    "type": "command",
+    "command": "python3 ~/.dl-workflow/scripts/workflow/dl_statusline.py --project ${WF_REPO_ROOT} --name ${name}",
+    "refreshInterval": 10
+  },
   "permissions": {
     "defaultMode": "acceptEdits",
     "allow": [

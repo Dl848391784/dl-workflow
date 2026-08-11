@@ -124,6 +124,29 @@ def test_drive_settings_strips_output_style_and_session_start(wf_repo):
     assert out.stat().st_mtime == mtime
 
 
+def test_drive_settings_strips_statusline(wf_repo):
+    """statusLine 是 TUI 件：headless claude -p 无 TUI，drive 派生剔除
+    （与 outputStyle 同批，v4-statusline-progress-design §5.2）。"""
+    drv = _load(DRIVER, "drv_under_test")
+    meta = wf_repo / ".claude" / "workflows" / "t"
+    (meta / "settings.json").write_text(
+        json.dumps(
+            {
+                "statusLine": {
+                    "type": "command",
+                    "command": "x",
+                    "refreshInterval": 10,
+                },
+                "permissions": {"defaultMode": "acceptEdits"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    out = drv.ensure_drive_settings(wf_repo, "t")
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert "statusLine" not in data
+
+
 # ---------- ensure_node_rules ----------
 
 
@@ -1030,6 +1053,10 @@ def test_phase_front_dispatch_block_on_noninteractive_step(wf_repo):
     assert "run_in_background" in text
     # 干活指令块不下发（防前台模型误以为活是自己的）
     assert "落库后输出 `### STEP_DONE" not in text
+    # 段会连续推进多步：位置是起跑快照不是「当前」（dogfood 文案 bug 修复），
+    # 段内实时进度指路底部状态栏
+    assert "起跑位置" in text
+    assert "状态栏" in text
 
 
 def test_phase_front_no_dispatch_on_interactive_step(wf_repo):
@@ -1306,6 +1333,29 @@ def test_settings_allowlist_covers_segment_dispatch(wf_repo):
     allow = data["permissions"]["allow"]
     assert "Bash(python3 ~/.dl-workflow/scripts/workflow/dl_drive.py:*)" in allow
     assert data["wf_settings_template_version"] == engine.SETTINGS_TEMPLATE_VERSION
+
+
+def test_settings_template_contains_statusline(wf_repo):
+    """v4 statusLine 进度栏入 per-wf settings 模板（v4-statusline-progress-design
+    §5.2）：命令烧死 --project/--name，refreshInterval=10（空闲也刷新）。"""
+    r = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f"source {DLWF_ROOT}/scripts/workflow/dl-lib.sh && wf_write_settings t",
+        ],
+        cwd=wf_repo,
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0, r.stderr
+    data = json.loads((wf_repo / SEG_META / "settings.json").read_text())
+    sl = data["statusLine"]
+    assert sl["type"] == "command"
+    assert "dl_statusline.py" in sl["command"]
+    assert f"--project {wf_repo}" in sl["command"]
+    assert "--name t" in sl["command"]
+    assert sl["refreshInterval"] == 10
 
 
 def test_launcher_headless_flag_goes_driver(wf_repo, tmp_path):

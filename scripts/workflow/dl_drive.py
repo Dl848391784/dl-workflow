@@ -134,7 +134,8 @@ def _rewrite_hook_paths(data: dict) -> dict:
 
 def ensure_drive_settings(project_root: Path, name: str) -> Path:
     """drive 版 settings：per-wf settings.json 派生——去 outputStyle（TUI 横幅引导）
-    与 SessionStart hook（交接包由 driver prompt 注入，防双份）。
+    与 SessionStart hook（交接包由 driver prompt 注入，防双份）与 statusLine
+    （TUI 底部进度栏，headless claude -p 无 TUI，v4-statusline-progress-design §5.2）。
     workflow_advance / step_fence / phase 保留（hook 内 drive_mode 分支降级/收窄）。
     内容变化才重写（per-wf settings.json 是真源，版本戳机制天然覆盖模板升级）。
     """
@@ -143,6 +144,7 @@ def ensure_drive_settings(project_root: Path, name: str) -> Path:
     dst = meta / "settings.drive.json"
     data = json.loads(src.read_text(encoding="utf-8"))
     data.pop("outputStyle", None)
+    data.pop("statusLine", None)
     hooks = data.get("hooks") or {}
     hooks.pop("SessionStart", None)
     if hooks:
