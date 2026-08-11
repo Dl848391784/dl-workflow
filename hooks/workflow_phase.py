@@ -334,7 +334,28 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
         and project_root is not None
         and engine.phase_done_channel_open(project_root, name, state, node)
     )
-    if phase_done_open:
+    # v4 前台混合（front-tui-hybrid-design §2.3）：front_mode 下非交互位置的干活
+    # 指令块不下发（活归后台 --segment 工人），改发逐字派发命令；段在跑只报状态；
+    # 交互步 / NEED_USER 动态重分类（code 13 咬合）= 干活块照常（前台亲自做）。
+    front = bool(state.get("front_mode")) and project_root is not None
+    front_seg_alive = front and engine.front_segment_alive(project_root, name)
+    front_dispatch = False
+    if front and not front_seg_alive and not held_for_gate:
+        _cur_step_obj = (
+            engine.sub_step_at(node, state.get("sub_step_index", 1))
+            if node and node.sub_steps
+            else None
+        )
+        _work_here = bool(
+            (_cur_step_obj is not None and _cur_step_obj.interactive)
+            or engine.front_dynamic_interactive(project_root, name, state)
+        )
+        if phase_done_open:
+            # 通道已开：闸门未放行 = 等 /dl gate（现有文案）；否则派发段机械推进
+            front_dispatch = not (engine.is_gated_after(phase) and gate != "passed")
+        else:
+            front_dispatch = not _work_here
+    if phase_done_open and not front_dispatch:
         if node.artifact_on_release:
             lines.append(
                 f"- ✓ 本子阶段全部子步骤已通过门控，门栏已放行——**汇总写 "
@@ -351,7 +372,13 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
                 f"**输出 `### PHASE_DONE: {node.phase}`** 触发阶段大闸门"
                 "（仍需用户 `/dl gate` 放行才进下一阶段）。不要重做已通过的子步骤。"
             )
-    if node and node.sub_steps and not held_for_gate and not phase_done_open:
+    if (
+        node
+        and node.sub_steps
+        and not held_for_gate
+        and not phase_done_open
+        and (not front_dispatch)
+    ):
         cur_step = state.get("sub_step_index", 1)
         total_steps = len(node.sub_steps)
         cur = (
@@ -457,6 +484,24 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
         lines.append(
             "（仅当当前子步骤 purpose 真正达成 + evidence 已写时输出 STEP_DONE；未达成绝不输出）"
         )
+    # v4 前台混合：段在跑只报状态（不催派发）；非交互位置发逐字派发命令
+    # （干活指令块已在上方跳过——防前台模型误以为活是自己的，v2.x 病灶）
+    if front_seg_alive:
+        lines.append(
+            "- ▸ 后台段在跑（非交互活归工人执行）：无需动作，段跑完自动回本会话；"
+            "用户问进度可 Read segment_summary.json 或跑 /dl status。"
+        )
+    if front_dispatch:
+        lines.append(
+            f"- ▶ 当前位置（{state.get('node')} 子步骤 "
+            f"{state.get('sub_step_index')}）的活归后台工人，本会话不执行。\n"
+            "  立即用 Bash 运行（run_in_background=true，逐字照抄）：\n"
+            f"    {engine.front_segment_command(name)}\n"
+            "  段跑完会自动回到本会话；等待期间可与用户自由交流。\n"
+            "  上轮段结局（若有）：Read segment_summary.json（.claude/workflows/"
+            f"{name}/ 下）——code 10=开始交互步 / 11=请用户 /dl gate / "
+            "12=请用户裁决 / 13=本步转会话内交互处理 / 0=全部完成。"
+        )
     # 子阶段块（仅当前阶段有子阶段时注入）
     if has_sub:
         lines.append(f"- 子阶段(共 {sub_total} 个, 依次完成, 各自动推进到下一子阶段):")
@@ -503,7 +548,7 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
                 f"回复末尾单独一行输出: `### PHASE_DONE: {phase}`"
             )
         lines.append("（仅当当前子阶段目标真正达成时输出对应标记；未达成绝不输出）")
-    elif not has_sub:
+    elif not has_sub and not front_dispatch:
         lines.append(f"完成本阶段后，回复末尾单独一行输出: `### PHASE_DONE: {phase}`")
         lines.append(
             "（仅当阶段目标真正达成时输出；闸门阶段不会自动推进，需 /dl gate 放行）"

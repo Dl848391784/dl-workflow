@@ -28,6 +28,7 @@ DLWF_ROOT = Path(__file__).resolve().parents[1]
 DRIVER = DLWF_ROOT / "scripts" / "workflow" / "dl_drive.py"
 ADVANCE_HOOK = DLWF_ROOT / "hooks" / "workflow_advance.py"
 FENCE_HOOK = DLWF_ROOT / "hooks" / "workflow_step_fence.py"
+PHASE_HOOK = DLWF_ROOT / "hooks" / "workflow_phase.py"
 
 sys.path.insert(0, str(DLWF_ROOT))
 import dl_flow_engine as engine  # noqa: E402
@@ -682,3 +683,626 @@ def test_handle_tui_segment_end_manual_exit_full_quit(wf_repo, monkeypatch):
     )
     assert rc == 0
     assert any("已过门控" in line for line in disp.lines)
+
+
+# ---------- --segment 段执行器（front-tui-hybrid-design M1）----------
+#
+# 段语义：从 state 当前位置起连续跑非交互工作，撞「需要人或需要前台」的边界
+# 按退出码收场（0 完成 / 10 交互步 / 11 门栏闸门 / 12 断点 / 13 NEED_USER / 1 异常），
+# 断点去 stdin 化（breakpoint_loop 不可用——段无前台），结局落 segment_summary.json；
+# front_segment.json 锁（pid+起跑位置）随退出清；drive_mode try/finally 恢复 off。
+
+import os  # noqa: E402
+
+SEG_META = ".claude/workflows/t"
+
+
+def _seg_write_state(repo: Path, **over) -> dict:
+    """段测试 state：补 per-wf settings.json（ensure_drive_settings 的派生源，
+    真机由 launcher 保证存在）。"""
+    (repo / SEG_META / "settings.json").write_text(
+        json.dumps({"permissions": {}}), encoding="utf-8"
+    )
+    return _write_state(repo, **over)
+
+
+def _summary(repo: Path) -> dict:
+    return json.loads(
+        (repo / SEG_META / "segment_summary.json").read_text(encoding="utf-8")
+    )
+
+
+def _run_session_stub(drv, monkeypatch, outs) -> list:
+    """按序返回 (rc, out, sid)（Exception 实例则抛出），捕获逐次 prompt。"""
+    calls = []
+    it = iter(outs)
+
+    def fake(prompt, **kw):
+        calls.append(prompt)
+        item = next(it)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    monkeypatch.setattr(drv, "run_session", fake)
+    return calls
+
+
+def _gate_advancing(repo: Path):
+    """假门控：advanced 并真实推进 state（子步 +1；越界则跨到 understand:2#1）。
+
+    understand:1 共 6 子步骤（子1 交互/子2-6 非交互），understand:2#1 交互——
+    段从 u:1 任一非交互步起跑，推进耗尽后必撞交互步退出 10。
+    """
+
+    def fake(project_root, name, cwd):
+        st = _read_state(repo)
+        node = engine.get_node(st["phase"], st["sub_index"])
+        cur = st.get("sub_step_index", 1)
+        if cur < len(node.sub_steps):
+            st["sub_step_index"] = cur + 1
+        else:
+            st.update(sub_index=2, node="understand:2", sub_step_index=1)
+        (repo / SEG_META / "state.json").write_text(json.dumps(st), encoding="utf-8")
+        return ("advanced", "", None)
+
+    return fake
+
+
+def test_segment_exits_10_immediately_on_interactive_step(wf_repo, monkeypatch):
+    """当前步即交互步（u:2#1）→ 退出 10，不起任何子会话。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(wf_repo, sub_index=2, node="understand:2", sub_step_index=1)
+    calls = _run_session_stub(drv, monkeypatch, [])
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 10
+    assert calls == []
+    assert _summary(wf_repo)["code"] == 10
+    meta = wf_repo / SEG_META
+    assert not (meta / "front_segment.json").exists()  # 锁随退出清
+    assert _read_state(wf_repo)["drive_mode"] is False  # 编排权交回前台
+
+
+def test_segment_runs_headless_steps_then_exits_10(wf_repo, monkeypatch):
+    """u:1#2 起跑：子2-5 各一个 headless 会话，撞 #6（读回=交互步）退出 10。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(wf_repo, sub_step_index=2)
+    calls = _run_session_stub(drv, monkeypatch, [(0, "", "s")] * 4)
+    monkeypatch.setattr(engine, "gate_sub_step_at_stop", _gate_advancing(wf_repo))
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 10
+    assert len(calls) == 4  # u:1 子2..5（子1/子6 为交互步，不在段内）
+    assert _read_state(wf_repo)["sub_step_index"] == 6
+
+
+def test_segment_lock_live_during_run(wf_repo, monkeypatch):
+    """段运行期间 front_segment.json 锁活（pid=本进程+起跑位置），退出即删。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(wf_repo, sub_step_index=5)  # 只跑一步（#5→推进即撞交互步 #6）
+    meta = wf_repo / SEG_META
+    seen = {}
+
+    def fake(prompt, **kw):
+        seen["lock"] = json.loads(
+            (meta / "front_segment.json").read_text(encoding="utf-8")
+        )
+        return (0, "", "s")
+
+    monkeypatch.setattr(drv, "run_session", fake)
+    monkeypatch.setattr(engine, "gate_sub_step_at_stop", _gate_advancing(wf_repo))
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 10
+    assert seen["lock"]["pid"] == os.getpid()
+    assert seen["lock"]["sub_step"] == 5  # 起跑位置
+    assert seen["lock"]["started_at"]
+    assert not (meta / "front_segment.json").exists()
+
+
+def test_segment_exits_11_on_held_for_gate(wf_repo, monkeypatch):
+    """门栏扣留 → 退出 11（等用户 /dl gate），不起子会话。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(wf_repo, held_for_gate=True)
+    calls = _run_session_stub(drv, monkeypatch, [])
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 11 and calls == []
+    assert "门栏" in _summary(wf_repo)["message"]
+
+
+def test_segment_exits_11_on_phase_gate(wf_repo, monkeypatch):
+    """PHASE_DONE 通道开 + 阶段闸门未放行 → 退出 11。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(
+        wf_repo,
+        phase="plan",
+        sub_index=4,
+        node="plan:4",
+        sub_step_index=5,
+        gate="pending",
+    )
+    monkeypatch.setattr(engine, "phase_done_channel_open", lambda *a: True)
+    monkeypatch.setattr(engine, "is_gated_after", lambda ph: True)
+    calls = _run_session_stub(drv, monkeypatch, [])
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 11 and calls == []
+    assert "闸门" in _summary(wf_repo)["message"]
+
+
+def test_segment_exits_12_on_escalate(wf_repo, monkeypatch):
+    """门控 escalate（连续 block 达阈值）→ 退出 12，判词进 summary。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(wf_repo, sub_step_index=2)
+    calls = _run_session_stub(drv, monkeypatch, [(0, "", "s")])
+    monkeypatch.setattr(
+        engine, "gate_sub_step_at_stop", _fake_gate("escalate", "判词Q")
+    )
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 12 and len(calls) == 1
+    assert "判词Q" in _summary(wf_repo)["message"]
+
+
+def test_segment_exits_12_on_none_retry_limit(wf_repo, monkeypatch):
+    """连续 NONE_RETRY_LIMIT 次会话未落 trace → 退出 12（防无限白烧）。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(wf_repo, sub_step_index=2)
+    calls = _run_session_stub(drv, monkeypatch, [(0, "", "s")] * drv.NONE_RETRY_LIMIT)
+    monkeypatch.setattr(engine, "gate_sub_step_at_stop", _fake_gate("none"))
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 12 and len(calls) == drv.NONE_RETRY_LIMIT
+
+
+def test_segment_exits_13_on_need_user(wf_repo, monkeypatch):
+    """headless 会话输出 ### NEED_USER → 退出 13（动态重分类为交互，回前台处理）。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(wf_repo, sub_step_index=2)
+    calls = _run_session_stub(
+        drv, monkeypatch, [(0, "结果\n### NEED_USER\n问题清单", "s")]
+    )
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 13 and len(calls) == 1
+
+
+def test_segment_exits_0_when_workflow_done(wf_repo):
+    """gate=done（五阶段终结）→ 退出 0。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(wf_repo, gate="done")
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 0
+    assert _summary(wf_repo)["code"] == 0
+
+
+def test_segment_block_feeds_rework_into_next_prompt(wf_repo, monkeypatch):
+    """段内 block 不出段：判词装配返工上下文重发本步（v3 语义原样）。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(wf_repo, sub_step_index=5)  # block 重跑本步后推进即撞 #6 交互
+    calls = _run_session_stub(drv, monkeypatch, [(0, "", "s"), (0, "", "s")])
+    advancing = _gate_advancing(wf_repo)
+    seq = [("block", "判词Z", None)]
+
+    def fake_gate(*a):
+        return seq.pop(0) if seq else advancing(*a)
+
+    monkeypatch.setattr(engine, "gate_sub_step_at_stop", fake_gate)
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 10
+    assert len(calls) == 2
+    assert "判词Z" in calls[1]  # 返工上下文进重发 prompt
+
+
+def test_segment_exception_restores_drive_mode(wf_repo, monkeypatch):
+    """段内异常（API 挂等）→ 退出 1；drive_mode 恢复 off、锁清、summary 落盘。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(wf_repo, sub_step_index=2)
+    _run_session_stub(drv, monkeypatch, [RuntimeError("api炸")])
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 1
+    assert "api炸" in _summary(wf_repo)["message"]
+    assert _read_state(wf_repo)["drive_mode"] is False
+    assert not (wf_repo / SEG_META / "front_segment.json").exists()
+
+
+def test_main_routes_segment_flag(wf_repo, monkeypatch):
+    """--segment flag 路由到 run_segment（全程 driver 路径不受影响）。"""
+    drv = _load(DRIVER, "drv_seg")
+    monkeypatch.chdir(wf_repo / ".claude" / "worktrees" / "t")
+    seen = {}
+
+    def fake_segment(project_root, name, debug=False):
+        seen.update(project_root=project_root, name=name)
+        return 10
+
+    monkeypatch.setattr(drv, "run_segment", fake_segment)
+    rc = drv.main(["t", "--segment"])
+    assert rc == 10 and seen["name"] == "t"
+
+
+# ---------- front_mode 前台混合（front-tui-hybrid-design §2.3，M2）----------
+#
+# 三分支：phase 注入派发块（当前步非交互且段不在跑）/ advance stall 兜底重提示
+# （3 次计数闸）/ fence 非交互步白名单（防前台模型抢干活=上下文胀回 v2.x 病灶）。
+# 段在跑 = drive_mode on（hooks 既有早退分支覆盖）；交互步 / NEED_USER 动态
+# 重分类（summary code 13 咬合当前位置）= 落 v2 既有路径一行不改。
+
+
+def _phase_injection(repo: Path, **over) -> str:
+    _write_state(repo, **over)
+    mod = _load(PHASE_HOOK, "wp_front_test")
+    payload = {
+        "cwd": str(repo / ".claude" / "worktrees" / "t"),
+        "session_id": "s",
+        "prompt": "继续",
+    }
+    _rc, out = _call_hook_main(mod, payload)
+    data = json.loads(out)
+    return data["hookSpecificOutput"]["additionalContext"]
+
+
+def _advance_front(repo: Path, **over) -> tuple[int, str]:
+    _write_state(repo, **over)
+    mod = _load(ADVANCE_HOOK, "wa_front_test")
+    payload = {
+        "cwd": str(repo / ".claude" / "worktrees" / "t"),
+        "session_id": "s",
+        "transcript_path": "/nonexistent/x.jsonl",
+    }
+    return _call_hook_main(mod, payload)
+
+
+def _write_summary(repo: Path, code: int, node="understand:1", sub_step=2) -> None:
+    (repo / SEG_META / "segment_summary.json").write_text(
+        json.dumps(
+            {
+                "code": code,
+                "message": "m",
+                "ts": "t",
+                "node": node,
+                "sub_step": sub_step,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def _write_lock(repo: Path, pid: int) -> None:
+    (repo / SEG_META / "front_segment.json").write_text(
+        json.dumps(
+            {"pid": pid, "started_at": "t", "node": "understand:1", "sub_step": 2}
+        ),
+        encoding="utf-8",
+    )
+
+
+# ---- engine 单源 ----
+
+
+def test_set_front_mode_function_and_cli(wf_repo):
+    _write_state(wf_repo)
+    ok, _msg = engine.set_front_mode(wf_repo, "t", True)
+    assert ok and _read_state(wf_repo)["front_mode"] is True
+    r = subprocess.run(
+        [
+            sys.executable,
+            str(DLWF_ROOT / "dl_flow_engine.py"),
+            "front-mode",
+            "t",
+            "off",
+        ],
+        cwd=wf_repo / ".claude" / "worktrees" / "t",
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0, r.stderr
+    assert _read_state(wf_repo)["front_mode"] is False
+
+
+def test_front_segment_alive_pid_liveness(wf_repo):
+    _write_state(wf_repo)
+    assert engine.front_segment_alive(wf_repo, "t") is False  # 无锁
+    _write_lock(wf_repo, 99999999)  # 死 pid = stale 锁
+    assert engine.front_segment_alive(wf_repo, "t") is False
+    _write_lock(wf_repo, os.getpid())  # 活 pid
+    assert engine.front_segment_alive(wf_repo, "t") is True
+
+
+def test_front_dynamic_interactive_summary_13咬合(wf_repo):
+    st = _write_state(wf_repo, sub_step_index=2)
+    assert engine.front_dynamic_interactive(wf_repo, "t", st) is False  # 无 summary
+    _write_summary(wf_repo, 13)
+    assert engine.front_dynamic_interactive(wf_repo, "t", st) is True
+    _write_summary(wf_repo, 10)  # 非 13
+    assert engine.front_dynamic_interactive(wf_repo, "t", st) is False
+    _write_summary(wf_repo, 13, sub_step=3)  # 位置不咬合 = 陈旧 summary
+    assert engine.front_dynamic_interactive(wf_repo, "t", st) is False
+
+
+def test_front_segment_command_single_source():
+    cmd = engine.front_segment_command("my-wf")
+    assert "dl_drive.py my-wf --segment" in cmd
+    assert cmd.startswith("python3 ")
+
+
+# ---- workflow_phase：派发块注入 ----
+
+
+def test_phase_front_dispatch_block_on_noninteractive_step(wf_repo):
+    text = _phase_injection(wf_repo, front_mode=True, sub_step_index=2)  # u:1#2 非交互
+    assert "活归后台工人" in text
+    assert "dl_drive.py t --segment" in text
+    assert "run_in_background" in text
+    # 干活指令块不下发（防前台模型误以为活是自己的）
+    assert "落库后输出 `### STEP_DONE" not in text
+
+
+def test_phase_front_no_dispatch_on_interactive_step(wf_repo):
+    text = _phase_injection(wf_repo, front_mode=True, sub_step_index=1)  # u:1#1 交互
+    assert "活归后台工人" not in text
+    assert "当前子步骤 1/6" in text  # v2 干活块照常
+
+
+def test_phase_front_segment_alive_announces_no_dispatch(wf_repo):
+    _write_lock(wf_repo, os.getpid())
+    text = _phase_injection(wf_repo, front_mode=True, sub_step_index=2)
+    assert "段在跑" in text
+    assert "活归后台工人" not in text  # 不催派发（段已在跑）
+
+
+def test_phase_front_held_gate_no_dispatch(wf_repo):
+    text = _phase_injection(
+        wf_repo,
+        front_mode=True,
+        phase="plan",
+        sub_index=4,
+        node="plan:4",
+        sub_step_index=5,
+        held_for_gate=True,
+    )
+    assert "门栏" in text
+    assert "活归后台工人" not in text  # 等 /dl gate，不催派发
+
+
+# ---- workflow_advance：stall 兜底 + v2 路径保留 ----
+
+
+def test_advance_front_silent_when_segment_alive(wf_repo):
+    _write_lock(wf_repo, os.getpid())
+    rc, out = _advance_front(wf_repo, front_mode=True, sub_step_index=2)
+    assert rc == 0 and out == ""
+    assert _read_state(wf_repo)["sub_step_index"] == 2  # 不推进（编排归段）
+
+
+def test_advance_front_stall_reprompt_then_silent(wf_repo):
+    """无段在跑的非交互步：Stop 兜底重提示派发（牙齿），3 次后停轮等用户。"""
+    _write_state(wf_repo, front_mode=True, sub_step_index=2)  # state 只写一次
+    mod = _load(ADVANCE_HOOK, "wa_front_test")
+    payload = {
+        "cwd": str(wf_repo / ".claude" / "worktrees" / "t"),
+        "session_id": "s",
+        "transcript_path": "/nonexistent/x.jsonl",
+    }
+    for expect_count in (1, 2, 3):
+        rc, out = _call_hook_main(mod, payload)
+        assert rc == 0
+        data = json.loads(out)
+        ctx = data["hookSpecificOutput"]["additionalContext"]
+        assert "dl_drive.py t --segment" in ctx
+        assert "run_in_background" in ctx
+        assert _read_state(wf_repo)["front_stall"]["count"] == expect_count
+    # 第 4 次：停轮等用户（计数闸，防死循环）
+    rc, out = _call_hook_main(mod, payload)
+    assert rc == 0 and out == ""
+
+
+def test_advance_front_silent_when_gate_held(wf_repo, monkeypatch):
+    """门栏扣留（plan:4 末步=交互读回步已判过）：落 v2 路径无新 trace 静默——
+    不催派发、不返工（等用户 /dl gate）。"""
+    _write_state(
+        wf_repo,
+        front_mode=True,
+        phase="plan",
+        sub_index=4,
+        node="plan:4",
+        sub_step_index=5,
+        held_for_gate=True,
+    )
+    # 末步已判过的现场：本步 trace 存在（过 S13），门控无新 trace 返回 none
+    node = engine.get_node("plan", 4)
+    ev = wf_repo / ".claude" / "evidence" / "t.jsonl"
+    ev.write_text(
+        json.dumps(
+            {
+                "kind": "skill-trace",
+                "minor_stage": node.minor_key,
+                "sub_step": 5,
+                "payload": "x",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(engine, "gate_sub_step_at_stop", _fake_gate("none"))
+    mod = _load(ADVANCE_HOOK, "wa_front_held")
+    payload = {
+        "cwd": str(wf_repo / ".claude" / "worktrees" / "t"),
+        "session_id": "s",
+        "transcript_path": "/nonexistent/x.jsonl",
+    }
+    rc, out = _call_hook_main(mod, payload)
+    assert rc == 0 and out == ""  # 等用户 /dl gate，不催派发
+
+
+def test_advance_front_interactive_step_falls_to_v2(wf_repo):
+    """交互步落 v2 既有路径：零 trace 停轮 = S13 强制参与 block（一行未改）。"""
+    rc, out = _advance_front(wf_repo, front_mode=True, sub_step_index=1)  # u:1#1 交互
+    data = json.loads(out)
+    assert "尚未执行" in data["hookSpecificOutput"]["additionalContext"]
+
+
+def test_advance_front_dynamic13_falls_to_v2(wf_repo):
+    """summary code 13 咬合当前位置 = 动态重分类交互：零 trace 同样吃 S13。"""
+    _write_summary(wf_repo, 13)
+    rc, out = _advance_front(wf_repo, front_mode=True, sub_step_index=2)
+    data = json.loads(out)
+    assert "尚未执行" in data["hookSpecificOutput"]["additionalContext"]
+
+
+def test_advance_front_pass_continues_with_dispatch(wf_repo, monkeypatch):
+    """交互步过门控后新步非交互：续轮文案 = 派发指令（非「现在立即执行子步骤 N」）。"""
+    _write_state(wf_repo, front_mode=True, sub_step_index=1)
+    # 给 S13 前置检查一条本步 trace（latest_trace_sha1 非 None 才进门控调用）
+    ev = wf_repo / ".claude" / "evidence" / "t.jsonl"
+    ev.write_text(
+        json.dumps(
+            {
+                "kind": "skill-trace",
+                "minor_stage": "ProblemContext",
+                "sub_step": 1,
+                "payload": "x",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        engine,
+        "gate_sub_step_at_stop",
+        lambda *a: ("advanced", "", {"sub_step_index": 2, "sub_index": 1}),
+    )
+    mod = _load(ADVANCE_HOOK, "wa_front_pass")
+    payload = {
+        "cwd": str(wf_repo / ".claude" / "worktrees" / "t"),
+        "session_id": "s",
+        "transcript_path": "/nonexistent/x.jsonl",
+    }
+    rc, out = _call_hook_main(mod, payload)
+    data = json.loads(out)
+    ctx = data["hookSpecificOutput"]["additionalContext"]
+    assert "dl_drive.py t --segment" in ctx
+    assert "现在立即执行" not in ctx  # v2 干活续轮文案不下发
+
+
+# ---- workflow_step_fence：非交互步白名单 ----
+
+
+def _fence_front(repo: Path, tool: str, tool_input: dict, **over) -> str:
+    _write_state(repo, **over)
+    mod = _load(FENCE_HOOK, "fence_front_test")
+    _rc, out = _call_hook_main(mod, _fence_payload(repo, tool, tool_input))
+    return out
+
+
+def test_fence_front_whitelist_on_noninteractive_step(wf_repo):
+    over = dict(front_mode=True, sub_step_index=2)
+    # 放行：派发命令（逐字）/ /dl 状态管理 / 记账 / Read / AskUserQuestion
+    assert "deny" not in _fence_front(
+        wf_repo, "Bash", {"command": engine.front_segment_command("t")}, **over
+    )
+    assert "deny" not in _fence_front(
+        wf_repo,
+        "Bash",
+        {"command": "bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh status"},
+        **over,
+    )
+    assert "deny" not in _fence_front(wf_repo, "Read", {"file_path": "/x"}, **over)
+    assert "deny" not in _fence_front(
+        wf_repo, "AskUserQuestion", {"questions": []}, **over
+    )
+    assert "deny" not in _fence_front(
+        wf_repo, "TaskCreate", {"subject": "s", "description": "d"}, **over
+    )
+    # 拦截：干活工具（活归后台工人，前台干=上下文胀回 v2.x 病灶）
+    assert "deny" in _fence_front(wf_repo, "Write", {"file_path": "/tmp/x"}, **over)
+    assert "deny" in _fence_front(wf_repo, "WebFetch", {"url": "https://x"}, **over)
+    assert "deny" in _fence_front(wf_repo, "Bash", {"command": "ls"}, **over)
+
+
+def test_fence_front_interactive_step_keeps_v2_discipline(wf_repo):
+    # 交互步零 trace 窗口：S15 照常（WebFetch deny）——front_mode 不放松交互步纪律
+    out = _fence_front(
+        wf_repo, "WebFetch", {"url": "https://x"}, front_mode=True, sub_step_index=1
+    )
+    assert "deny" in out
+
+
+def test_fence_front_dynamic13_keeps_v2_discipline(wf_repo):
+    # NEED_USER 重分类（code 13 咬合）→ 落 v2 路径：零 trace 窗口 S15 照常
+    _write_summary(wf_repo, 13)
+    out = _fence_front(
+        wf_repo, "WebFetch", {"url": "https://x"}, front_mode=True, sub_step_index=2
+    )
+    assert "deny" in out
+
+
+# ---------- dl-launch.sh --front 接线（front-tui-hybrid-design §4 M3）----------
+
+
+def _fake_claude_env(tmp_path: Path) -> dict:
+    """PATH 前置假 claude（打印参数即退）——不起真会话验证 launcher 接线。"""
+    bin_dir = tmp_path / "fakebin"
+    bin_dir.mkdir(exist_ok=True)
+    fake = bin_dir / "claude"
+    fake.write_text('#!/bin/bash\necho "FAKE_CLAUDE $*"\n', encoding="utf-8")
+    fake.chmod(0o755)
+    return dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}")
+
+
+def test_launcher_front_flag_enters_tui_with_front_mode(wf_repo, tmp_path):
+    """--front：走 TUI 路径（非 dl_drive 派发）+ front_mode on + drive_mode off。"""
+    r = subprocess.run(
+        [
+            "bash",
+            str(DLWF_ROOT / "scripts" / "workflow" / "dl-launch.sh"),
+            "--workflow",
+            "t",
+            "--front",
+        ],
+        cwd=wf_repo,
+        env=_fake_claude_env(tmp_path),
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0, r.stderr
+    assert "FAKE_CLAUDE" in r.stdout  # 起 TUI（非 driver）
+    assert "--session-id" in r.stdout  # TUI 钉 session（driver 路径无此参数）
+    st = _read_state(wf_repo)
+    assert st["front_mode"] is True
+    assert st["drive_mode"] is False
+
+
+def test_launcher_tui_path_clears_front_mode(wf_repo, tmp_path):
+    """WF_TUI=1（v2 回滚面）：front_mode 显式 off——模式由入口唯一决定。"""
+    env = _fake_claude_env(tmp_path)
+    env["WF_TUI"] = "1"
+    r = subprocess.run(
+        [
+            "bash",
+            str(DLWF_ROOT / "scripts" / "workflow" / "dl-launch.sh"),
+            "--workflow",
+            "t",
+        ],
+        cwd=wf_repo,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0, r.stderr
+    assert "FAKE_CLAUDE" in r.stdout
+    assert _read_state(wf_repo).get("front_mode") is False
+
+
+def test_settings_allowlist_covers_segment_dispatch(wf_repo):
+    """front 派发命令进 per-wf settings 白名单（否则模型每次派发都弹窗）+
+    版本戳 = engine 单源常量（v2.35：改模板实质内容必 bump）。"""
+    r = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f"source {DLWF_ROOT}/scripts/workflow/dl-lib.sh && wf_write_settings t",
+        ],
+        cwd=wf_repo,
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0, r.stderr
+    data = json.loads((wf_repo / SEG_META / "settings.json").read_text())
+    allow = data["permissions"]["allow"]
+    assert "Bash(python3 ~/.dl-workflow/scripts/workflow/dl_drive.py:*)" in allow
+    assert data["wf_settings_template_version"] == engine.SETTINGS_TEMPLATE_VERSION

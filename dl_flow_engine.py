@@ -78,8 +78,10 @@ SUB_STEP_BLOCK_ESCALATE = 3
 # （2026-08-01 understand:1 审计：24 次裁决 316.6s 全 allow 纯税，其中
 # AskUserQuestion 3 次均值 46.2s 被误归因为用户思考时间）。
 SETTINGS_TEMPLATE_VERSION = (
-    7  # v7：两轮实测命令头挖掘补尾（路径形态 codegraph/venv python/pytest +
+    8  # v8：front 模式段派发命令（dl_drive.py --segment）入白名单——否则前台会话
 )
+# 每次派发都弹窗（front-tui-hybrid-design M3）。
+# v7：两轮实测命令头挖掘补尾（路径形态 codegraph/venv python/pytest +
 # xargs/tr/comm/od/xxd/env/sleep）；刻意不加 rm/dd/sudo——破坏性命令保留弹窗
 # = 弱模型幻觉刹车；正向名单可收敛，deny 反向名单是打地鼠。
 # v6：Read 放宽到主仓全树 Read(//主仓/**)——Bash 只读命令触及 cwd 外
@@ -5711,6 +5713,83 @@ def set_drive_mode(project_root: Path, name: str, on: bool) -> tuple[bool, str]:
     )
 
 
+# ---------- front_mode 前台混合（front-tui-hybrid-design §2.3） ----------
+
+
+def set_front_mode(project_root: Path, name: str, on: bool) -> tuple[bool, str]:
+    """front 模式开关（v4 前台混合）：常驻 TUI 前台 + 后台 --segment 工人。
+
+    state.front_mode=True 时 hooks 走 front 分支：phase 注入派发块（非交互步）、
+    advance 守 stall 兜底（段不在跑则重提示派发，3 次计数闸）、fence 收紧非交互
+    步白名单（防前台模型抢干活=上下文胀回 v2.x 病灶）。段跑期间 drive_mode=on
+    优先（hooks 既有早退分支），front 分支只在段不在跑时生效。
+    dl-launch.sh --front 置 on；v3 全程 driver / WF_TUI=1 v2 路径不置。
+    """
+    state = load_state(project_root, name)
+    if state is None:
+        return False, f"工作流 {name} 的 state.json 缺失"
+    state = normalize_state(state)
+    state["front_mode"] = on
+    save_state(project_root, name, state)
+    return True, (f"front 模式已{'开启（前台会话 + 后台段工人）' if on else '关闭'}")
+
+
+def front_segment_command(name: str) -> str:
+    """前台派发命令逐字单源（phase 注入 / advance 兜底 / fence 白名单三通道共用）。"""
+    return f"python3 ~/.dl-workflow/scripts/workflow/dl_drive.py {name} --segment"
+
+
+def _front_pid_gone(pid: object) -> bool:
+    """pid 已退出（含 zombie）。workflow_advance._pid_gone 同款；engine 自持一份——
+    hooks import engine，反向不许。"""
+    if not isinstance(pid, int) or pid <= 0:
+        return True
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return True
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+        return stat.rpartition(")")[2].split()[0] == "Z"
+    except (OSError, IndexError):
+        return True
+
+
+def front_segment_alive(project_root: Path, name: str) -> bool:
+    """段活性：front_segment.json 锁存在且 pid 活。锁缺失 / pid 死（stale）= False。"""
+    meta = project_root / ".claude" / "workflows" / name
+    try:
+        seg = json.loads((meta / "front_segment.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(seg, dict):
+        return False
+    return not _front_pid_gone(seg.get("pid"))
+
+
+def front_segment_summary(project_root: Path, name: str) -> dict | None:
+    """上轮段结局便签（segment_summary.json）；缺失/损坏 = None（state 才是唯一真源）。"""
+    meta = project_root / ".claude" / "workflows" / name
+    try:
+        s = json.loads((meta / "segment_summary.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return s if isinstance(s, dict) else None
+
+
+def front_dynamic_interactive(project_root: Path, name: str, state: dict) -> bool:
+    """NEED_USER 动态重分类判定：上轮段以 code 13 收场且位置咬合当前 state
+    → 本步按交互步对待（hooks 落 v2 路径，fence 走 S15/S10 而非前台白名单）。
+    位置推进后 summary 自动失咬合 = 自清理，无需显式删。"""
+    s = front_segment_summary(project_root, name)
+    return bool(
+        s
+        and s.get("code") == 13
+        and s.get("node") == state.get("node")
+        and s.get("sub_step") == state.get("sub_step_index")
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="dl_flow_engine",
@@ -5729,6 +5808,7 @@ def main(argv: list[str] | None = None) -> int:
             "subgate-pass",
             "fence",
             "drive-mode",
+            "front-mode",
             "dispute",
             "render-phase-rules",
             "append-trace",
@@ -5941,6 +6021,13 @@ def main(argv: list[str] | None = None) -> int:
             print("✗ 用法: drive-mode <name> on|off", file=sys.stderr)
             return 1
         ok, msg = set_drive_mode(project_root, name, args.value == "on")
+        print(("✓ " if ok else "✗ ") + msg, file=sys.stdout if ok else sys.stderr)
+        return 0 if ok else 1
+    if args.cmd == "front-mode":
+        if args.value not in ("on", "off"):
+            print("✗ 用法: front-mode <name> on|off", file=sys.stderr)
+            return 1
+        ok, msg = set_front_mode(project_root, name, args.value == "on")
         print(("✓ " if ok else "✗ ") + msg, file=sys.stdout if ok else sys.stderr)
         return 0 if ok else 1
     return 1

@@ -14,10 +14,13 @@ dl_flow_engine（state.json + evidence.jsonl 磁盘真源，天然会话无关�
 外部终端 /dl 并发也兼容——每轮循环重读 state.json）。
 
 被 dl-launch.sh 派发（ac-deepseek1 --dl <name> [--debug]）；WF_TUI=1 回旧 TUI 路径。
+--segment = 段模式（v4 前台混合，front-tui-hybrid-design §2.2）：从 state 当前位置
+连续跑非交互工作，撞交互步/门栏/闸门/断点按退出码收场（无 stdin 断点）。
 """
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -934,10 +937,47 @@ def _breakpoint_body(project_root: Path, name: str, wt: Path, header: str) -> st
             )
 
 
+# ---------- --segment 段模式基础设施（front-tui-hybrid-design §2.2） ----------
+
+# 段退出码：段结局分类，前台会话据此前进（0/1 沿用惯例，10+ 为段语义）。
+SEG_DONE = 0  # 工作流全部 5 阶段完成
+SEG_ERROR = 1  # 段内异常（API 挂等）——重跑同一命令即续
+SEG_INTERACTIVE = 10  # 撞交互子步骤（Step.interactive）——回前台会话问答
+SEG_GATE = 11  # 门栏 held_for_gate / 阶段闸门——等用户 /dl gate 裁决
+SEG_BREAKPOINT = 12  # escalate / none 重试上限 / 中断 / state 越界——等用户处置
+SEG_NEED_USER = 13  # headless 会话 ### NEED_USER——动态重分类为交互回前台
+
+
+class _SegmentExit(Exception):
+    """段边界信号：撞「需要人或需要前台」即抛出收场（--segment 无 stdin 断点）。"""
+
+    def __init__(self, code: int, message: str):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+class _PrintDisp:
+    """--segment 无终端：LiveProgress 的 print 替身（段输出走后台任务日志）。"""
+
+    def set_state(self, state) -> None:
+        pass
+
+    def begin(self, activity: str) -> None:
+        pass
+
+    def set_action(self, action: str) -> None:
+        pass
+
+    def log(self, msg: str) -> None:
+        print(msg)
+
+
 # ---------- 主循环 ----------
 
 
 def drive(project_root: Path, name: str, debug: bool, verbose: bool = False) -> int:
+    """全程 driver（v3 默认入口）：断点 = 前台 stdin，交互步 = 原地 TUI 段。"""
     meta = _meta_root(project_root, name)
     settings = ensure_drive_settings(project_root, name)
     engine.set_drive_mode(project_root, name, True)
@@ -949,7 +989,81 @@ def drive(project_root: Path, name: str, debug: bool, verbose: bool = False) -> 
     disp = LiveProgress(project_root, name, verbose=verbose)
     disp.start()
 
-    pending_rework: str | None = state.get(
+    def _breakpoint(header: str, _code: int) -> str:
+        return breakpoint_loop(project_root, name, wt, header, disp=disp)
+
+    def _interactive(st, node, cur, step, rework):
+        rc, sid = run_tui_step(
+            project_root,
+            name,
+            st,
+            node,
+            cur,
+            step,
+            meta,
+            debug,
+            wt,
+            rework=rework,
+            disp=disp,
+            bare=_is_bare_open(node, cur, rework),
+        )
+        return rc, sid, "tui-step"
+
+    def _need_user(st, node, cur, step, rework):
+        disp.log("  ⚑ 模型请求用户输入（NEED_USER）——接管为 TUI 段")
+        rc, sid = run_tui_step(
+            project_root,
+            name,
+            st,
+            node,
+            cur,
+            step,
+            meta,
+            debug,
+            wt,
+            rework=rework,
+            disp=disp,
+        )
+        return rc, sid, "tui-step-needuser"
+
+    try:
+        return _run_boundary_loop(
+            project_root,
+            name,
+            wt,
+            meta,
+            settings,
+            debug,
+            verbose,
+            disp,
+            on_breakpoint=_breakpoint,
+            on_interactive=_interactive,
+            on_need_user=_need_user,
+        )
+    finally:
+        disp.stop()
+
+
+def _run_boundary_loop(
+    project_root: Path,
+    name: str,
+    wt: Path,
+    meta: Path,
+    settings: Path,
+    debug: bool,
+    verbose: bool,
+    disp,
+    *,
+    on_breakpoint,  # (header, seg_code) -> "changed"|"quit"；--segment 实现抛 _SegmentExit
+    on_interactive,  # (state, node, cur, step, rework) -> (rc, sid, seg_kind)
+    on_need_user,  # 签名同上；--segment 下两回调均抛 _SegmentExit（无 stdin 可等）
+) -> int:
+    """主循环单源（drive 全程模式与 --segment 段模式共用，front-tui-hybrid-design §2.2）。
+
+    返回 0 = 完成 / 断点 quit（drive 语义）；130 = 双击中断。--segment 的边界全部
+    经 _SegmentExit 抛出，不由本函数返回。
+    """
+    pending_rework: str | None = _load(project_root, name).get(
         "pending_rework"
     )  # TUI block 退出时落盘的返工上下文（消费即清）；block/none 后下次会话的返工上下文
     none_retries = 0
@@ -968,13 +1082,10 @@ def drive(project_root: Path, name: str, debug: bool, verbose: bool = False) -> 
             # ---- 门栏断点（held_for_gate，唯一出口 release_subgate）----
             if state.get("held_for_gate"):
                 if (
-                    breakpoint_loop(
-                        project_root,
-                        name,
-                        wt,
+                    on_breakpoint(
                         f"⛔ 子阶段门栏：「{node.label}」全部子步骤已通过门控，"
                         f"进下一子阶段需用户裁决（gate 放行 / state-reset 重测）。",
-                        disp=disp,
+                        SEG_GATE,
                     )
                     == "quit"
                 ):
@@ -989,13 +1100,10 @@ def drive(project_root: Path, name: str, debug: bool, verbose: bool = False) -> 
                         and state.get("gate") != "passed"
                     ):
                         if (
-                            breakpoint_loop(
-                                project_root,
-                                name,
-                                wt,
+                            on_breakpoint(
                                 f"⛔ 阶段闸门：{engine.PHASE_LABELS.get(cur_phase, cur_phase)}"
                                 f" 已完成（产物已装配），进下一阶段需 gate 放行。",
-                                disp=disp,
+                                SEG_GATE,
                             )
                             == "quit"
                         ):
@@ -1014,31 +1122,16 @@ def drive(project_root: Path, name: str, debug: bool, verbose: bool = False) -> 
                 step = engine.sub_step_at(node, cur)
                 if step is None:
                     disp.log(f"✗ 子步骤 {cur} 不存在（state 越界）——断点等用户处置")
-                    if (
-                        breakpoint_loop(project_root, name, wt, "state 越界", disp=disp)
-                        == "quit"
-                    ):
+                    if on_breakpoint("state 越界", SEG_BREAKPOINT) == "quit":
                         return 0
                     continue
 
                 total = len(node.sub_steps)
                 disp.begin(f"子步骤 {cur}/{total} · {step.short}")
                 if getattr(step, "interactive", False):
-                    rc, sid = run_tui_step(
-                        project_root,
-                        name,
-                        state,
-                        node,
-                        cur,
-                        step,
-                        meta,
-                        debug,
-                        wt,
-                        rework=pending_rework,
-                        disp=disp,
-                        bare=_is_bare_open(node, cur, pending_rework),
+                    rc, sid, seg_kind = on_interactive(
+                        state, node, cur, step, pending_rework
                     )
-                    seg_kind = "tui-step"
                 else:
                     rules = ensure_node_rules(project_root, name, node)
                     prompt = build_step_prompt(
@@ -1064,22 +1157,10 @@ def drive(project_root: Path, name: str, debug: bool, verbose: bool = False) -> 
                     seg_kind = "headless-step"
                     if NEED_USER_RE.search(out):
                         # 动态交互 fallback（§2.3）：模型非预期需要用户输入——
-                        # 当场重分类为交互步，同轮起 TUI 段接管（不重发 headless）。
-                        disp.log("  ⚑ 模型请求用户输入（NEED_USER）——接管为 TUI 段")
-                        rc, sid = run_tui_step(
-                            project_root,
-                            name,
-                            state,
-                            node,
-                            cur,
-                            step,
-                            meta,
-                            debug,
-                            wt,
-                            rework=pending_rework,
-                            disp=disp,
+                        # drive 当场重分类起 TUI 段；--segment 抛 _SegmentExit(13)。
+                        rc, sid, seg_kind = on_need_user(
+                            state, node, cur, step, pending_rework
                         )
-                        seg_kind = "tui-step-needuser"
                 if pending_rework is not None:
                     # 消费即清（TUI block 退出时落 state 的返工上下文，防陈旧污染）
                     st = _load(project_root, name)
@@ -1099,13 +1180,10 @@ def drive(project_root: Path, name: str, debug: bool, verbose: bool = False) -> 
                 if rc == RC_INTERRUPTED:
                     # 单击中断子会话（§2.6）——断点等裁决，不自动重发
                     if (
-                        breakpoint_loop(
-                            project_root,
-                            name,
-                            wt,
+                        on_breakpoint(
                             f"⛔ 子步骤 {cur} 子会话已被用户中断（单击）——"
                             f"回车重试本步 / step-pass / state-reset / q 退出。",
-                            disp=disp,
+                            SEG_BREAKPOINT,
                         )
                         == "quit"
                     ):
@@ -1127,13 +1205,10 @@ def drive(project_root: Path, name: str, debug: bool, verbose: bool = False) -> 
                 if action == "escalate":
                     none_retries = 0
                     if (
-                        breakpoint_loop(
-                            project_root,
-                            name,
-                            wt,
+                        on_breakpoint(
                             f"⛔ 子步骤 {cur} 连续 block 达阈值（判词：{reason[:200]}）——"
                             f"用户裁决：step-pass 强制通过 / state-reset 回退 / q 退出。",
-                            disp=disp,
+                            SEG_BREAKPOINT,
                         )
                         == "quit"
                     ):
@@ -1144,13 +1219,10 @@ def drive(project_root: Path, name: str, debug: bool, verbose: bool = False) -> 
                     # TUI 段未落库（双击 Ctrl+C 退出 / /exit 早退）——交互步靠用户
                     # 驱动，自动重开=「退出还继续流程」（§2.6 实证坑）；直接断点裁决
                     if (
-                        breakpoint_loop(
-                            project_root,
-                            name,
-                            wt,
+                        on_breakpoint(
                             f"⛔ 子步骤 {cur} TUI 段已结束但未落库——"
                             f"回车重开 TUI / step-pass / state-reset / q 退出。",
-                            disp=disp,
+                            SEG_BREAKPOINT,
                         )
                         == "quit"
                     ):
@@ -1161,13 +1233,10 @@ def drive(project_root: Path, name: str, debug: bool, verbose: bool = False) -> 
                 if none_retries >= NONE_RETRY_LIMIT:
                     none_retries = 0
                     if (
-                        breakpoint_loop(
-                            project_root,
-                            name,
-                            wt,
+                        on_breakpoint(
                             f"⛔ 子步骤 {cur} 连续 {NONE_RETRY_LIMIT} 次会话未落 trace——"
                             f"step-pass 强制通过 / state-reset 回退 / 直接回车重试 / q 退出。",
-                            disp=disp,
+                            SEG_BREAKPOINT,
                         )
                         == "quit"
                     ):
@@ -1209,13 +1278,10 @@ def drive(project_root: Path, name: str, debug: bool, verbose: bool = False) -> 
                 if rc == RC_INTERRUPTED:
                     # 单击中断子会话（§2.6）——断点等裁决，不自动重发
                     if (
-                        breakpoint_loop(
-                            project_root,
-                            name,
-                            wt,
+                        on_breakpoint(
                             "⛔ 阶段会话已被用户中断（单击）——"
                             "回车重试 / next 强制推进 / q 退出。",
-                            disp=disp,
+                            SEG_BREAKPOINT,
                         )
                         == "quit"
                     ):
@@ -1233,13 +1299,10 @@ def drive(project_root: Path, name: str, debug: bool, verbose: bool = False) -> 
                     if none_retries >= NONE_RETRY_LIMIT:
                         none_retries = 0
                         if (
-                            breakpoint_loop(
-                                project_root,
-                                name,
-                                wt,
+                            on_breakpoint(
                                 f"⛔ 阶段会话连续 {NONE_RETRY_LIMIT} 次未完成（未输出 "
                                 f"### PHASE_DONE: {cur_phase}）——next 强制推进 / 直接回车重试 / q 退出。",
-                                disp=disp,
+                                SEG_BREAKPOINT,
                             )
                             == "quit"
                         ):
@@ -1248,13 +1311,10 @@ def drive(project_root: Path, name: str, debug: bool, verbose: bool = False) -> 
             # PHASE_DONE 已确认 -> 闸门 -> 推进
             if engine.is_gated_after(cur_phase) and state.get("gate") != "passed":
                 if (
-                    breakpoint_loop(
-                        project_root,
-                        name,
-                        wt,
+                    on_breakpoint(
                         f"⛔ 阶段闸门：{engine.PHASE_LABELS.get(cur_phase, cur_phase)}"
                         f" 已完成，进下一阶段需 gate 放行。",
-                        disp=disp,
+                        SEG_GATE,
                     )
                     == "quit"
                 ):
@@ -1270,8 +1330,93 @@ def drive(project_root: Path, name: str, debug: bool, verbose: bool = False) -> 
         # 信号落在 gate/judge/装配等未专门处理的角落（§2.6）——单击即退出
         print("\n✗ 用户中断——已退出。state 在磁盘，`dl <name>` 随时续。")
         return 130
+
+
+def run_segment(project_root: Path, name: str, debug: bool = False) -> int:
+    """--segment：从 state 当前位置连续跑非交互工作，撞边界按退出码收场。
+
+    与 drive() 共用 _run_boundary_loop（单一逻辑真源，禁拷贝分叉）；两模式差异
+    全在策略回调：交互步 / NEED_USER / 断点 = 抛 _SegmentExit（段无 stdin 可等）。
+    结局落 segment_summary.json（code+message+位置，前台会话的判读便签——
+    state.json 仍是唯一真源）；front_segment.json 锁（pid+起跑位置）随退出清。
+    drive_mode try/finally 恢复 off（编排权交回前台会话）；段被 SIGKILL 时 finally
+    不跑——锁残留由前台 hooks 以 pid 活性判 stale，drive_mode 残留由 launcher
+    启动时显式 off 兜底（同 WF_TUI 路径既有做法）。
+    """
+    meta = _meta_root(project_root, name)
+    settings = ensure_drive_settings(project_root, name)
+    state = _load(project_root, name)
+    wt = Path(state["worktree_path"])
+    engine.set_drive_mode(project_root, name, True)
+    (meta / "front_segment.json").write_text(
+        json.dumps(
+            {
+                "pid": os.getpid(),
+                "started_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "node": state.get("node"),
+                "sub_step": state.get("sub_step_index"),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def _breakpoint(header: str, code: int) -> str:
+        raise _SegmentExit(code, header)
+
+    def _interactive(st, node, cur, step, rework):
+        raise _SegmentExit(
+            SEG_INTERACTIVE,
+            f"撞交互子步骤 {engine.node_id(node.phase, node.sub)}#{cur}"
+            f"（{step.short}）——回前台会话处理。",
+        )
+
+    def _need_user(st, node, cur, step, rework):
+        raise _SegmentExit(
+            SEG_NEED_USER,
+            f"子步骤 {cur} 的 headless 会话请求用户输入（### NEED_USER）"
+            "——回前台会话交互处理本步。",
+        )
+
+    code, message = SEG_DONE, "工作流全部 5 阶段已完成。"
+    try:
+        rc = _run_boundary_loop(
+            project_root,
+            name,
+            wt,
+            meta,
+            settings,
+            debug,
+            False,
+            _PrintDisp(),
+            on_breakpoint=_breakpoint,
+            on_interactive=_interactive,
+            on_need_user=_need_user,
+        )
+        if rc != 0:  # KeyboardInterrupt 130 等：归断点（后台段无 tty 单击语义）
+            code, message = SEG_BREAKPOINT, f"段被中断（rc={rc}）——重跑同一命令即续。"
+    except _SegmentExit as e:
+        code, message = e.code, e.message
+    except Exception as e:  # 段异常必须落 summary——后台无人看 stderr
+        code, message = SEG_ERROR, f"段异常：{type(e).__name__}: {e}"
     finally:
-        disp.stop()
+        (meta / "front_segment.json").unlink(missing_ok=True)
+        engine.set_drive_mode(project_root, name, False)
+    end_state = _load(project_root, name)
+    (meta / "segment_summary.json").write_text(
+        json.dumps(
+            {
+                "code": code,
+                "message": message,
+                "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "node": end_state.get("node"),
+                "sub_step": end_state.get("sub_step_index"),
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    print(f"—— 段结束（code={code}）：{message}")
+    return code
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1287,12 +1432,19 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="子会话输出尾随上屏（默认静默——只落 drive-stream.jsonl，保常驻进度区）",
     )
+    parser.add_argument(
+        "--segment",
+        action="store_true",
+        help="段模式（v4 前台混合）：跑连续非交互段后按退出码收场，撞交互步/门栏回前台",
+    )
     args = parser.parse_args(argv)
 
     project_root = engine.resolve_project_root(str(Path.cwd()))
     if project_root is None:
         print("✗ 不在 git 仓库内", file=sys.stderr)
         return 1
+    if args.segment:
+        return run_segment(project_root, args.name, debug=args.debug)
     return drive(project_root, args.name, args.debug, verbose=args.verbose)
 
 

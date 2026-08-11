@@ -248,7 +248,8 @@ wf_state_mark_artifact() {
 #   可收敛，deny 反向名单是打地鼠）。env 前缀形态规则语法不支持=已知残余。
 # 威胁模型 = 弱遵从而非对抗（SKILL 症状 O 原则 4），宽白名单可接受。
 # 覆盖三类（2026-07-30 tail_volume 会话 116 次 Bash + 66 次 Write 实测归集）：
-#   ① 编排命令：dl-cmd.sh 全子命令 / dl_flow_engine.py / sqlite3 / codegraph；
+#   ① 编排命令：dl-cmd.sh 全子命令 / dl_flow_engine.py / dl_drive.py --segment
+#   （front 模式段派发）/ sqlite3 / codegraph；
 #   ② 写工具裸规则：Write/Edit/MultiEdit（acceptEdits 本意，非 acceptEdits 模式兜底）；
 #   ③ 只读/常用命令头 + execute 期工具链（pytest/ruff/mypy/git/python3）。
 # ④（2026-08-01 tail_volume_acceleration_annualized understand:1 审计补）：
@@ -280,6 +281,7 @@ wf_write_settings() {
       "Agent",
       "Bash(bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh:*)",
       "Bash(python3 ~/.dl-workflow/dl_flow_engine.py:*)",
+      "Bash(python3 ~/.dl-workflow/scripts/workflow/dl_drive.py:*)",
       "Bash(sqlite3:*)",
       "Bash(codegraph:*)",
       "Bash(echo:*)",

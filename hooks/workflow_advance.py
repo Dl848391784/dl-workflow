@@ -352,6 +352,65 @@ def _sub_step_continue(
     )
 
 
+# ---------- v4 前台混合（front-tui-hybrid-design §2.3） ----------
+
+FRONT_STALL_LIMIT = 3  # stall 重提示计数闸（防死循环——任何自动续轮都要有闸）
+
+
+def _front_gate_held(project_root: Path, name: str, state: dict, node) -> bool:
+    """门栏扣留 / 阶段闸门未放行 = 等用户裁决态（front 模式不催派发，注入已指路）。"""
+    if (
+        node is not None
+        and node.sub_steps
+        and node.hold_for_gate
+        and state.get("held_for_gate")
+        and state.get("sub_step_index", 1) == len(node.sub_steps)
+    ):
+        return True
+    return bool(
+        node is not None
+        and engine.phase_done_channel_open(project_root, name, state, node)
+        and engine.is_gated_after(state.get("phase", ""))
+        and state.get("gate") != "passed"
+    )
+
+
+def _front_stall_reprompt(project_root: Path, name: str, state: dict) -> int:
+    """非交互位置无段在跑：重提示逐字派发命令（牙齿），超限停轮等用户。
+
+    竞态已知面：模型刚派发、段进程尚未写锁的毫秒窗口内 Stop 会误计一次——
+    代价 = 一次多余重提示（模型重派则第二段撞锁即退，编排无双重推进）。
+    """
+    pos = f"{state.get('node')}:{state.get('sub_step_index')}"
+    stall = state.get("front_stall") or {}
+    count = stall.get("count", 0) + 1 if stall.get("pos") == pos else 1
+    state["front_stall"] = {"pos": pos, "count": count}
+    engine.save_state(project_root, name, state)
+    if count > FRONT_STALL_LIMIT:
+        _log(project_root, "front_stall_silent", wf=name, pos=pos, count=count)
+        return 0  # 停轮等用户（用户回「继续」→ 注入再指路）
+    _log(project_root, "front_stall_reprompt", wf=name, pos=pos, count=count)
+    return _stop_continue(
+        f"## WORKFLOW 前台模式：当前位置（{pos}）的活归后台工人，本会话不执行。\n"
+        "立即用 Bash 运行（run_in_background=true，逐字照抄）：\n"
+        f"  {engine.front_segment_command(name)}\n"
+        "段跑完会自动回到本会话。若你刚派发（段启动中）忽略本提示；"
+        "上轮段结局可 Read segment_summary.json 按 code 行动"
+        "（11=等 /dl gate 放行 / 12=等用户处置——未裁决前勿重派）。"
+    )
+
+
+def _front_dispatch_continue(name: str, node, n: int) -> int:
+    """front 模式 pass 续轮：新步非交互 → 续轮正文 = 逐字派发命令（非干活指令）。"""
+    return _stop_continue(
+        f"## WORKFLOW 已过门控——下一位置（{node.label} 子步骤 {n}）"
+        "的活归后台工人，本会话不执行。\n"
+        "立即用 Bash 运行（run_in_background=true，逐字照抄）：\n"
+        f"  {engine.front_segment_command(name)}\n"
+        "段跑完会自动回到本会话；等待期间可与用户自由交流。"
+    )
+
+
 def _handoff_boundary_prompt(
     project_root: Path | None,
     name: str,
@@ -470,6 +529,35 @@ def main() -> int:
 
     cur_phase = state.get("phase", "understand")
     cur_sub = state.get("sub_index", 1)
+
+    # v4 前台混合（front-tui-hybrid-design §2.3）：front_mode = 常驻 TUI 前台 +
+    # 后台 --segment 工人。本分支只管非交互位置：段在跑 → 静默（编排归段）；
+    # 无段在跑 → stall 兜底重提示派发（注入是建议，Stop 兜底才是牙齿——v2.x
+    # 「15 注入 0 上屏」教训；计数闸防死循环）。交互步 / NEED_USER 动态重分类
+    # （summary code 13 咬合当前位置）→ 落下方 v2 既有路径（S13/门控/续轮原样）。
+    if state.get("front_mode"):
+        if engine.front_segment_alive(project_root, name):
+            _log(project_root, "front_segment_alive_skip", wf=name)
+            return 0
+        cur_node_f = None
+        try:
+            cur_node_f = engine.get_node(cur_phase, cur_sub)
+        except KeyError:
+            cur_node_f = None
+        step_f = (
+            engine.sub_step_at(cur_node_f, state.get("sub_step_index", 1))
+            if cur_node_f is not None and cur_node_f.sub_steps
+            else None
+        )
+        interactive_now = bool(
+            (step_f is not None and step_f.interactive)
+            or engine.front_dynamic_interactive(project_root, name, state)
+        )
+        if not interactive_now:
+            if _front_gate_held(project_root, name, state, cur_node_f):
+                _log(project_root, "front_gate_held_silent", wf=name)
+                return 0  # 门栏/闸门等用户裁决——注入已指路 /dl gate，不催派发
+            return _front_stall_reprompt(project_root, name, state)
 
     # ---- 0. 子步骤 Stop 门控（§substep-gate-at-stop）----
     # 触发 = evidence 当前子步骤最新 trace hash 有变化（非 transcript，避 flush 竞态）；
@@ -601,6 +689,10 @@ def main() -> int:
                         f"✓ 子步骤 {judged_step} 通过门控 -> "
                         f"{nxt_node.label} 子步骤 1（自动续轮）\n"
                     )
+                    if state.get("front_mode"):
+                        nxt_step_f = engine.sub_step_at(nxt_node, 1)
+                        if nxt_step_f is not None and not nxt_step_f.interactive:
+                            return _front_dispatch_continue(name, nxt_node, 1)
                     return _sub_step_continue(
                         f"子阶段「{cur_node0.label}」的全部子步骤",
                         nxt_node,
@@ -622,6 +714,10 @@ def main() -> int:
             sys.stderr.write(
                 f"✓ 子步骤 {judged_step} 通过门控 -> 子步骤 {nxt}（自动续轮）\n"
             )
+            if state.get("front_mode"):
+                nxt_step_f = engine.sub_step_at(cur_node0, nxt)
+                if nxt_step_f is not None and not nxt_step_f.interactive:
+                    return _front_dispatch_continue(name, cur_node0, nxt)
             return _sub_step_continue(
                 f"子步骤 {judged_step}",
                 cur_node0,
