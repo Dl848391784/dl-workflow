@@ -124,3 +124,9 @@ P0（已完成，含 kimi 对照）→ P1（1-2 天，token -30~40%，deepseek �
 provider 维度待决项：是否为工作流评一个 kimi 类端点 = 独立决策，前置是 35 gate 重放回归 + 单价核算，不在本方案实施面内。
 
 实施纪律：本仓 worktree-per-session 协议；每 Phase 独立分支独立收口；P1/P2 改动 hook/engine 后 `git pull` 即生效（hook 直引源），skill/output-style 改动需 install.sh 重 copy。
+
+## 5. P2-2 审计收官（2026-08-13）：不实施，判据健康
+
+- **逐节点审查结果：35/35 gate 均含语义判据方框**（同义反复/稻草人/矩阵放水/空泛标签/替用户拍板类），framing 反转系列已把词形可判子项全部下沉 mech——剩余判面按设计就是「只有 judge 能判的真值/质量」。**无一节点符合跳过条件，跳过机制不建**（建了即死代码，H13）。
+- **judge 延迟实测推翻预估前提**：生产真实载荷单调 8.9s（judge_ms 6.3s，8.3k in / $0.078）——方案预估基于 v2 时代未裁剪的 ~36s 旧数。35 次/run ≈ 5.3 min + $2.7（占总账单 ~4%），即使全可跳也只是小头。
+- 结论：judge 侧无系统税可压，P2-2 关闭。残余观察项：judge 输入随 trace 体积缓涨（本轮 8.3k vs 裁剪基线 2-3k），如后续 judge 延迟离群再查 read_evidence_for_step 裁剪面。
