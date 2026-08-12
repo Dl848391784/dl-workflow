@@ -1377,15 +1377,56 @@ def write_handoff_resolution(project_root: Path, name: str, *, choice: str) -> b
     )
 
 
+# 交接包瘦身（v4 成本优化 P1-1，v4-cost-latency-optimization-design §2 P1）：
+# trace 行的机械字段（purpose/skill 等）模型从注入侧已知，包内全剥；
+# 前序节点 trace 再压内容（boundary/q 截断）——摘要保留语义骨架，细节按
+# 产物/evidence 指针 Read 自取（合法通道）。本节点 trace 保内容全文
+# （跨步一致性/装配判材），只剥机械字段。
+_PACK_TRACE_DROP_KEYS = ("purpose", "skill", "kind", "major_stage", "atomic_questions")
+_PACK_PRIOR_Q_MAX = 80  # 前序节点 q 截断阈值（读回标题保留前 80 字符）
+_PACK_PRIOR_BOUNDARY_MAX = 100  # 前序节点 statements.boundary 截断阈值
+
+
+def _truncate(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[:limit] + "…"
+
+
+def _slim_trace_for_pack(seg: str, *, prior: bool) -> str:
+    """交接包 trace 瘦身。parse 失败原样返回（宁纵勿枉，不丢证据）。"""
+    try:
+        rec = json.loads(seg)
+    except json.JSONDecodeError:
+        return seg
+    if not isinstance(rec, dict):
+        return seg
+    out = {k: v for k, v in rec.items() if k not in _PACK_TRACE_DROP_KEYS}
+    if prior:
+        if isinstance(out.get("q"), list):
+            out["q"] = [
+                _truncate(x, _PACK_PRIOR_Q_MAX) if isinstance(x, str) else x
+                for x in out["q"]
+            ]
+        if isinstance(out.get("statements"), list):
+            slim = []
+            for st in out["statements"]:
+                if isinstance(st, dict) and isinstance(st.get("boundary"), str):
+                    st = dict(st)
+                    st["boundary"] = _truncate(st["boundary"], _PACK_PRIOR_BOUNDARY_MAX)
+                slim.append(st)
+            out["statements"] = slim
+    return json.dumps(out, ensure_ascii=False)
+
+
 def handoff_pack(project_root: Path, name: str) -> str | None:
     """机械装配交接包（/clear 后新会话注入，context-handoff-design §3）。
 
     内容（单源生成，禁模型自选）：
     1. 当前位置（节点 + 子步指针；逐步 purpose 由 workflow_phase 每轮注入，不重复）；
-    2. 当前节点已完成各子步的**最新** trace（返工历史不带——judge 输入裁剪同
-       逻辑，v2.12 read_evidence_for_step 已验证）；
-    3. 前序已完成节点：归一化步（倒数第 2 步）+ 读回步（末步，含用户裁决原话——
-       v2.45 user_decision_recorded 机械保证其存在）的最新 trace；
+    2. 当前节点已完成各子步的**最新** trace（剥机械字段、保内容全文——跨步
+       一致性/装配判材；返工历史不带，v2.12 read_evidence_for_step 已验证）；
+    3. 前序已完成节点：归一化步 + 读回步的最新 trace **摘要**（v4 P1-1：boundary/q
+       截断 + 机械字段剥除——全文进包 = deepseek 类端点每段首调全量 fresh 的主因，
+       实测交接包随步数 47.7k->73.3k 单调涨；细节按 evidence/产物指针 Read 自取）；
     4. 当前步最新 block 判词（/clear 发生在返工中段时，新会话须知道修什么）；
     5. 已装配产物清单（路径指针，禁全文——全文内联 = 把省下的 token 又花回去）；
     6. 用户问题陈述（state.problem_statement，开场采集——drive-tasklist-render-design
@@ -1452,7 +1493,8 @@ def handoff_pack(project_root: Path, name: str) -> str | None:
         f"### 当前位置：{cur_node.label}（{node_id(cur_phase, cur_sub)}）子步骤 {cur_step}",
         "",
     ]
-    # 当前节点已完成步的最新 trace（含当前步已有 trace——返工中段 clear 的场景）
+    # 当前节点已完成步的最新 trace（含当前步已有 trace——返工中段 clear 的场景）；
+    # 本节点 trace 保内容全文只剥机械字段（跨步一致性/装配判材，P1-1）
     cur_traces = [
         (k[1], seg)
         for k, seg in latest_trace.items()
@@ -1461,13 +1503,14 @@ def handoff_pack(project_root: Path, name: str) -> str | None:
     if cur_traces:
         lines.append(f"### 本节点（{cur_node.label}）各步最新留痕")
         for _step, seg in sorted(cur_traces):
-            lines.append(seg)
+            lines.append(_slim_trace_for_pack(seg, prior=False))
         lines.append("")
     # 当前步最新 block 判词（返工中段 clear：新会话要知道修什么）
     reason = latest_block.get((node_id(cur_phase, cur_sub), cur_step))
     if reason:
         lines.append(f"### 当前子步最新门控判词（未通过，按此返工）\n{reason}\n")
-    # 前序已完成节点：归一化步 + 读回步的最新 trace
+    # 前序已完成节点：归一化步 + 读回步的最新 trace，摘要化（P1-1：
+    # 全文 -> verdict 摘要 + 指针，细节按 evidence/产物 Read 自取）
     prior_sections = []
     for ph in PHASES:
         subs = range(1, sub_total(ph) + 1) if sub_total(ph) else [0]
@@ -1482,17 +1525,19 @@ def handoff_pack(project_root: Path, name: str) -> str | None:
                 continue
             n = len(node.sub_steps)
             keep = [
-                latest_trace[k]
+                _slim_trace_for_pack(latest_trace[k], prior=True)
                 for k in ((node.minor_key, n - 1), (node.minor_key, n))
                 if k in latest_trace
             ]
             if keep:
                 prior_sections.append(
-                    f"### 前序节点「{node.label}」归一化陈述 + 用户裁决\n"
+                    f"### 前序节点「{node.label}」结论摘要（归一化 + 用户裁决）\n"
                     + "\n".join(keep)
                 )
     if prior_sections:
         lines.extend(prior_sections)
+        ev_path = project_root / ".claude" / "evidence" / f"{name}.jsonl"
+        lines.append(f"（以上为摘要；前序细节按需 Read `{ev_path}`，禁凭记忆补全）")
         lines.append("")
     # 产物清单（指针非全文）
     artifacts = []

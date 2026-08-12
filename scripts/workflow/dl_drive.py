@@ -289,6 +289,30 @@ def ensure_tui_rules(
 
 # ---------- 会话执行（stream-json 实时尾随） ----------
 
+# P1-2 首调 fresh 监控（v4-cost-latency-optimization-design §2）：段首调未缓存
+# 输入超阈值告警（宁纵勿枉，只告不拦）——交接包静默膨胀的历史教训（v2.12
+# judge 侧、2026-08-12 交接包侧均靠事后审计抓），把斜率钉成可观察信号。
+SEG_FIRST_FRESH_WARN = 35_000
+
+
+def _first_call_fresh(ev: dict) -> "int | None":
+    """assistant 事件的本次调用未缓存输入（fresh）；无 usage 返回 None。"""
+    u = (ev.get("message") or {}).get("usage")
+    if not isinstance(u, dict):
+        return None
+    v = u.get("input_tokens")
+    return v if isinstance(v, int) else None
+
+
+def _fresh_warn_line(first_fresh: "int | None", note: str) -> "str | None":
+    """首调 fresh 超阈值告警行；未超/无数据返回 None（宁纵勿枉）。"""
+    if first_fresh is None or first_fresh <= SEG_FIRST_FRESH_WARN:
+        return None
+    return (
+        f"  ⚠ 首调 fresh {first_fresh:,} tok 超阈值 {SEG_FIRST_FRESH_WARN:,}"
+        f"（{note}）——交接包疑似膨胀，查 handoff_pack 组成"
+    )
+
 
 def _brief_tool_input(blk: dict) -> str:
     ti = blk.get("input") or {}
@@ -373,6 +397,7 @@ def run_session(
             start_new_session=True,
         )
         interrupted = False
+        first_fresh: "int | None" = None
         try:
             assert proc.stdout is not None
             for line in proc.stdout:
@@ -383,6 +408,8 @@ def run_session(
                     continue
                 etype = ev.get("type")
                 if etype == "assistant":
+                    if first_fresh is None:
+                        first_fresh = _first_call_fresh(ev)
                     for blk in (ev.get("message") or {}).get("content") or []:
                         if not isinstance(blk, dict):
                             continue
@@ -409,6 +436,12 @@ def run_session(
                         disp.log(msg)
                     else:
                         print(f"\n{msg}")
+                    warn = _fresh_warn_line(first_fresh, note)
+                    if warn:
+                        if disp is not None:
+                            disp.log(warn)
+                        else:
+                            print(warn)
         except KeyboardInterrupt:
             # 单击=中断子任务：杀子会话，段以「中断」收场（drive 进断点裁决；
             # 再按 Ctrl+C = 双击退出，由下方 _pwait_interruptible 处理）
