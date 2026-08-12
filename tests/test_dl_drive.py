@@ -1707,3 +1707,24 @@ def test_launcher_headless_flag_goes_driver(wf_repo, tmp_path):
     st = _read_state(wf_repo)
     assert st.get("front_mode") is False
     assert st.get("drive_mode") is True
+
+
+# ---------- P1-2 首调 fresh 监控（v4-cost-latency-optimization-design §2） ----------
+
+
+def test_first_call_fresh_extraction():
+    drv = _load(DRIVER, "drv_fresh")
+    ev = {"type": "assistant", "message": {"usage": {"input_tokens": 47676}}}
+    assert drv._first_call_fresh(ev) == 47676
+    assert drv._first_call_fresh({"type": "assistant", "message": {}}) is None
+    assert drv._first_call_fresh({"type": "assistant"}) is None
+    assert drv._first_call_fresh({"message": {"usage": {"input_tokens": "x"}}}) is None
+
+
+def test_fresh_warn_line_threshold():
+    drv = _load(DRIVER, "drv_fresh")
+    # 宁纵勿枉：无数据/未超阈值不告警
+    assert drv._fresh_warn_line(None, "n") is None
+    assert drv._fresh_warn_line(drv.SEG_FIRST_FRESH_WARN, "n") is None
+    w = drv._fresh_warn_line(drv.SEG_FIRST_FRESH_WARN + 1, "node#子3")
+    assert w is not None and "交接包" in w and "node#子3" in w
