@@ -18,6 +18,7 @@
 6. **给 rationale 防合理化绕过**：「相对路径会写到 worktree，hook 读不到」式因果，比裸禁令遵从率高。
 7. **条款搬家必查通道存活**（2026-08-09 c515b52，diagnostics 症状 X）：契约条款的有效期 = 它住的通道的存活期。通道稳固度排序：`--append-system-prompt-file`（启动必带，抽不走）> 首条 user prompt（裸开场/无 prompt 启动下整体不存在）> UserPromptSubmit attachment（投递≠收到）> output-style（加载但会被当前任务盖过）。**新增启动路径（如裸开场/新会话形态）时，逐条审计「这个契约在新路径下还到不到模型」**——到不了的搬进更高稳固度通道，原通道只留指针防双份（症状 M 漂移）。
 8. **文案字符有 harness 保留字**：purpose/selfcheck/gate 文本会进 Stop hook 的 additionalContext——**禁含 `✓` 字符**（test_nonfinal_pass_stdout_is_pure_json 断言 hook stdout 无 ✓，落库成功标记专用；v2.37 规则范例用 ✓/✗ 当场踩雷，改「正例/反例」文字）。改文案后全量 pytest 是兜底。
+9. **行为约束能沉权限/机制层就不放 prompt 层**（2026-08-12 交互步 prep 三层实证）：`--disallowedTools AskUserQuestion` 让错误分支**结构性不存在**——15 连真实模型重放试调 0 次（工具从可见面消失，不是调了被拦）。prompt 禁令=建议层（弱模型可忽略），权限层=物理层。权限层接不住的用机械检测兜底（driver stream 嗅探 tool_use 机械转码，不依赖模型记得输出标记），**标记/记忆类承诺永不做承重墙**——三层配方 = L1 权限堵入口 / L2 机械嗅探兜底 / L3 计数重试断点。
 
 **体积审计法**：真实 state 直调 `_format_injection` 量字符数（importlib 加载 hook 即可，注入是每轮成本最大头）。改注入前后各量一次。
 
