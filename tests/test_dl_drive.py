@@ -1728,3 +1728,86 @@ def test_fresh_warn_line_threshold():
     assert drv._fresh_warn_line(drv.SEG_FIRST_FRESH_WARN, "n") is None
     w = drv._fresh_warn_line(drv.SEG_FIRST_FRESH_WARN + 1, "node#子3")
     assert w is not None and "交接包" in w and "node#子3" in w
+
+
+# ---------- P2-1 读回 prep 并入前序工作段（v4-cost-latency-optimization-design §2） ----------
+
+
+def test_next_prep_prompt_block():
+    """prep_next 注入：带下一交互步目的 + NEXT_PREP 契约；不带则无。"""
+    drv = _load(DRIVER, "drv_np")
+    node = engine.get_node("understand", 1)
+    st = {"index": 1}
+    p = drv.build_step_prompt(
+        Path("/x"),
+        "t",
+        st,
+        node,
+        5,
+        node.sub_steps[4],
+        rework=None,
+        prep_next=node.sub_steps[5],
+    )
+    assert "### NEXT_PREP" in p and '"questions"' in p
+    assert node.sub_steps[5].purpose in p  # 下一步目的进 prompt（问题设计依据）
+    assert "禁混用" in p  # NEXT_PREP 与 NEED_USER 分通道声明
+    p2 = drv.build_step_prompt(
+        Path("/x"), "t", st, node, 5, node.sub_steps[4], rework=None
+    )
+    assert "NEXT_PREP" not in p2
+
+
+def test_next_prep_marker_roundtrip(wf_repo):
+    """标记精确匹配才消费；不匹配不动（宁纵勿枉走原 prep 段）。"""
+    drv = _load(DRIVER, "drv_np")
+    _seg_write_state(wf_repo, sub_step_index=5)
+    drv._mark_next_prep(wf_repo, "t", "understand:1#6")
+    assert drv._consume_next_prep(wf_repo, "t", "understand:1#5") is False  # 错位不消费
+    assert drv._consume_next_prep(wf_repo, "t", "understand:1#6") is True
+    assert drv._consume_next_prep(wf_repo, "t", "understand:1#6") is False  # 一次性
+
+
+def test_segment_next_prep_skips_prep_session(wf_repo, monkeypatch):
+    """工作段输出 NEXT_PREP → 门控通过后落标记 → 子6（交互）直接退 13，不起 prep 段。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(wf_repo, sub_step_index=5)
+    next_prep_out = (
+        '落库完成\n### NEXT_PREP\n```json\n{"questions": [{"question": "q"}]}\n```'
+    )
+    calls = _run_session_stub(drv, monkeypatch, [(0, next_prep_out, "s")])
+    monkeypatch.setattr(engine, "gate_sub_step_at_stop", _gate_advancing(wf_repo))
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 13
+    assert len(calls) == 1  # 只有子5 工作段，无子6 prep 段
+    assert "### NEXT_PREP" in calls[0]  # prompt 带了顺带交付指令
+    data = json.loads((wf_repo / SEG_META / "need_user.json").read_text())
+    assert data["questions"][0]["question"] == "q"
+    assert _read_state(wf_repo)["sub_step_index"] == 6
+
+
+def test_segment_block_content_questions_not_stashed(wf_repo, monkeypatch):
+    """被 block 的内容备的 NEXT_PREP 不落标记（门控通过才 stash）——
+    防「按不合格内容备的问题」转前台。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(wf_repo, sub_step_index=5)
+    next_prep_out = 'x\n### NEXT_PREP\n```json\n{"questions": [{"question": "q"}]}\n```'
+    # 两轮：第一轮 block（带 NEXT_PREP），第二轮 advanced（不带）
+    prep_out = 'ok\n### NEED_USER\n```json\n{"questions": [{"question": "q2"}]}\n```'
+    calls = _run_session_stub(
+        drv, monkeypatch, [(0, next_prep_out, "s"), (0, "", "s"), (0, prep_out, "s")]
+    )
+    acts = iter([("block", "缺 X", None), ("advanced", "", None)])
+
+    def fake_gate(project_root, name, cwd):
+        a = next(acts)
+        if a[0] == "advanced":
+            st = _read_state(wf_repo)
+            st["sub_step_index"] = 6
+            (wf_repo / SEG_META / "state.json").write_text(json.dumps(st))
+        return a
+
+    monkeypatch.setattr(engine, "gate_sub_step_at_stop", fake_gate)
+    rc = drv.run_segment(wf_repo, "t")
+    # 第二轮未输出 NEXT_PREP -> 无标记 -> 子6 走原 prep 段（第三次调用）后退 13
+    assert rc == 13
+    assert len(calls) == 3
