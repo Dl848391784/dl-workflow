@@ -331,6 +331,13 @@ def run_session(
         "--output-format",
         "stream-json",
         "--verbose",
+    ]
+    if disallow_ask:
+        # --disallowedTools 是变长参数（<tools...>）：其后必须跟旗标——
+        # 直接跟位置参数 prompt 会被吞成工具名（2026-08-12 实爆：claude 秒退
+        # rc=1「Input must be provided」，prep 3 连空转退 12）
+        cmd += ["--disallowedTools", "AskUserQuestion"]
+    cmd += [
         "--permission-mode",
         "acceptEdits",
         "--settings",
@@ -340,8 +347,6 @@ def run_session(
         "--session-id",
         sid,
     ]
-    if disallow_ask:
-        cmd += ["--disallowedTools", "AskUserQuestion"]
     if debug:
         cmd += [
             "--debug",

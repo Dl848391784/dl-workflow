@@ -1298,6 +1298,48 @@ def test_is_bare_open_has_statement():
     assert drv._is_bare_open(node, 1, None, has_statement=True) is False
 
 
+def test_run_session_disallow_ask_flag_order(wf_repo, monkeypatch):
+    """--disallowedTools 是变长参数（<tools...>）：其后必须跟旗标而非位置参数
+    prompt——2026-08-12 实爆：prompt 被吞成工具名，claude 秒退 rc=1
+    「Input must be provided」，prep 3 连空转退 12。"""
+    drv = _load(DRIVER, "drv_rs")
+    captured = {}
+
+    class _FakeProc:
+        stdout = iter([])
+
+        def wait(self):
+            return 0
+
+        def terminate(self):
+            pass
+
+        def kill(self):
+            pass
+
+    def fake_popen(cmd, **kw):
+        captured["cmd"] = cmd
+        return _FakeProc()
+
+    monkeypatch.setattr(drv.subprocess, "Popen", fake_popen)
+    meta = wf_repo / SEG_META
+    drv.run_session(
+        "提示词正文",
+        cwd=wf_repo,
+        settings=meta / "settings.json",
+        sys_prompt_file=meta / "rules.md",
+        meta=meta,
+        debug=False,
+        note="t",
+        disallow_ask=True,
+    )
+    cmd = captured["cmd"]
+    assert cmd[-1] == "提示词正文"  # prompt 仍是位置参数（未被吞）
+    i = cmd.index("--disallowedTools")
+    assert cmd[i + 1] == "AskUserQuestion"
+    assert cmd[i + 2].startswith("--")  # 变长参数后必跟旗标
+
+
 def test_phase_front_dispatch_block_on_noninteractive_step(wf_repo):
     text = _phase_injection(wf_repo, front_mode=True, sub_step_index=2)  # u:1#2 非交互
     assert "活归后台工人" in text
