@@ -591,26 +591,12 @@ def main() -> int:
 
     # ---- v4 前台混合（front-tui-hybrid-design §2.3）：非交互位置白名单 ----
     # 活归后台 --segment 工人；前台模型抢干活 = 上下文胀回 v2.x 病灶（本分支的
-    # 防御目标）。段在跑 = drive_mode on（上方已 return 0）；交互步 / NEED_USER
-    # 动态重分类（code 13 咬合）→ 落下方 v2 S15/S10 既有纪律。
+    # 防御目标）。段在跑 = drive_mode on（上方已 return 0）；「前台亲自干」两态
+    # （真·裸开场 / NEED_USER code 13 咬合，engine.front_interactive_work_here
+    # 单源）→ 落下方 v2 S15/S10 既有纪律；其余位置（含有陈述的 u:1#1——§8 起
+    # 交互步也派段跑 prep）一律前台白名单。
     if _st and _st.get("front_mode"):
-        _node_f = None
-        try:
-            _node_f = engine.get_node(
-                _st.get("phase", "understand"), _st.get("sub_index", 1)
-            )
-        except KeyError:
-            _node_f = None
-        _step_f = (
-            engine.sub_step_at(_node_f, _st.get("sub_step_index", 1))
-            if _node_f is not None and _node_f.sub_steps
-            else None
-        )
-        _interactive_f = bool(
-            (_step_f is not None and _step_f.interactive)
-            or engine.front_dynamic_interactive(project_root, name, _st)
-        )
-        if not _interactive_f:
+        if not engine.front_interactive_work_here(project_root, name, _st):
             return _front_fence_verdict(project_root, name, tool, payload)
 
     # ---- S15 参与前置围栏：零 trace 窗口 -> 白名单模式，非编排工具 deny ----

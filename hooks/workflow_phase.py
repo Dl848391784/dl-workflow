@@ -343,23 +343,10 @@ def _format_injection(
     front_seg_alive = front and engine.front_segment_alive(project_root, name)
     front_dispatch = False
     if front and not front_seg_alive and not held_for_gate:
-        _cur_step_obj = (
-            engine.sub_step_at(node, state.get("sub_step_index", 1))
-            if node and node.sub_steps
-            else None
-        )
-        # 裸开场收窄（§8）：真·裸开场 = 交互步且仍无问题陈述（前台亲自收陈述）；
-        # 陈述在手后交互步与其余位置同路径（派段 → prep → code 13 回前台弹卡片）。
-        _bare_no_stmt = bool(
-            _cur_step_obj is not None
-            and _cur_step_obj.interactive
-            and state.get("node") == "understand:1"
-            and state.get("sub_step_index", 1) == 1
-            and not (state.get("problem_statement") or "").strip()
-        )
-        _work_here = bool(
-            _bare_no_stmt or engine.front_dynamic_interactive(project_root, name, state)
-        )
+        # 「前台亲自干」判定单源 = engine.front_interactive_work_here（§8 收窄：
+        # 真·裸开场 = u:1#1 且无陈述；有陈述后交互步与其余位置同路径——
+        # 派段 → prep → code 13 回前台弹卡片）。fence 同源判定，禁各持副本。
+        _work_here = engine.front_interactive_work_here(project_root, name, state)
         if phase_done_open:
             # 通道已开：闸门未放行 = 等 /dl gate（现有文案）；否则派发段机械推进
             front_dispatch = not (engine.is_gated_after(phase) and gate != "passed")
