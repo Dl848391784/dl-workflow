@@ -501,9 +501,25 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
             f"    {engine.front_segment_command(name)}\n"
             "  段跑完会自动回到本会话；等待期间可与用户自由交流。\n"
             "  上轮段结局（若有）：Read segment_summary.json（.claude/workflows/"
-            f"{name}/ 下）——code 10=开始交互步 / 11=请用户 /dl gate / "
-            "12=请用户裁决 / 13=本步转会话内交互处理 / 0=全部完成。"
+            f"{name}/ 下）——code 10=开场自由对话 / 11=请用户 /dl gate / "
+            "12=请用户裁决 / 13=本步需你回答（问题或已备好，见下） / 0=全部完成。"
         )
+    # prep 载荷指针（interactive-step-headless-prep §4.4）：code 13 咬合 +
+    # need_user.json 在场 → 问题清单逐字照抄（TUI 纯问答，零组织过程）；
+    # 咬合判定复用 front_dynamic_interactive 单源（防陈旧载荷误用）。
+    if (
+        front
+        and not front_seg_alive
+        and project_root is not None
+        and engine.front_dynamic_interactive(project_root, name, state)
+    ):
+        _nu = Path(project_root) / ".claude" / "workflows" / name / "need_user.json"
+        if _nu.exists():
+            lines.append(
+                f"- 📋 本步问题清单已由后台预处理备好：Read `{_nu}`——"
+                "用 AskUserQuestion **逐字照抄**提问（禁改写/增删/换序——"
+                "内容同源纪律）；答完按本步要求落 trace。"
+            )
     # 子阶段块（仅当前阶段有子阶段时注入）
     if has_sub:
         lines.append(f"- 子阶段(共 {sub_total} 个, 依次完成, 各自动推进到下一子阶段):")

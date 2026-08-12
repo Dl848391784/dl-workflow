@@ -772,49 +772,201 @@ def _gate_advancing(repo: Path):
     return fake
 
 
-def test_segment_exits_10_immediately_on_interactive_step(wf_repo, monkeypatch):
-    """当前步即交互步（u:2#1）→ 退出 10，不起任何子会话。"""
+def test_segment_interactive_step_prep_then_exit_13(wf_repo, monkeypatch):
+    """交互步后台化（interactive-step-headless-prep §4.1）：当前步即交互步（u:2#1）
+    不再停段——跑 prep 会话（L1 disallow_ask=True），NEED_USER + 问题载荷 →
+    退出 13 + need_user.json 落盘 + summary 带载荷指针。"""
     drv = _load(DRIVER, "drv_seg")
     _seg_write_state(wf_repo, sub_index=2, node="understand:2", sub_step_index=1)
-    calls = _run_session_stub(drv, monkeypatch, [])
+    out = (
+        "问题已备好\n### NEED_USER\n```json\n"
+        '{"questions": [{"question": "q1", "header": "h", "multiSelect": false,'
+        ' "options": []}]}\n```'
+    )
+    seen = {}
+
+    def fake(prompt, **kw):
+        seen["prompt"] = prompt
+        seen["kw"] = kw
+        return (0, out, "s")
+
+    monkeypatch.setattr(drv, "run_session", fake)
     rc = drv.run_segment(wf_repo, "t")
-    assert rc == 10
-    assert calls == []
-    assert _summary(wf_repo)["code"] == 10
+    assert rc == 13
+    assert seen["kw"].get("disallow_ask") is True  # L1 工具封锁
+    assert "预处理" in seen["prompt"]  # 变体 prompt
+    data = json.loads((wf_repo / SEG_META / "need_user.json").read_text())
+    assert data["questions"][0]["question"] == "q1"
+    assert "need_user.json" in _summary(wf_repo)["message"]
     meta = wf_repo / SEG_META
     assert not (meta / "front_segment.json").exists()  # 锁随退出清
     assert _read_state(wf_repo)["drive_mode"] is False  # 编排权交回前台
 
 
-def test_segment_runs_headless_steps_then_exits_10(wf_repo, monkeypatch):
-    """u:1#2 起跑：子2-5 各一个 headless 会话，撞 #6（读回=交互步）退出 10。"""
+def test_segment_bare_open_still_exits_10(wf_repo, monkeypatch):
+    """裸开场（u:1#1 无返工）保 TUI 段退出 10——57a64e1 用户裁决不动。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(wf_repo, sub_step_index=1)
+    calls = _run_session_stub(drv, monkeypatch, [])
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 10 and calls == []
+
+
+def test_segment_prep_askuser_sniff_forces_13(wf_repo, monkeypatch):
+    """L2 嗅探（§4.2）：prep 会话忘输出 NEED_USER 但 stream 里调了
+    AskUserQuestion（denial 回执也是 tool_use 形态）→ 机械按 code 13 收场。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(wf_repo, sub_index=2, node="understand:2", sub_step_index=1)
+    meta = wf_repo / SEG_META
+
+    def fake(prompt, **kw):
+        with open(meta / "drive-stream.jsonl", "a", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "session_id": "s",
+                        "message": {
+                            "content": [
+                                {
+                                    "type": "tool_use",
+                                    "name": "AskUserQuestion",
+                                    "input": {},
+                                }
+                            ]
+                        },
+                    }
+                )
+                + "\n"
+            )
+        return (0, "（忘输出标记）", "s")
+
+    monkeypatch.setattr(drv, "run_session", fake)
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 13
+
+
+def test_segment_prep_no_exit_retries_then_12(wf_repo, monkeypatch):
+    """L3（§4.2）：prep 会话既无标记也无工具嗅探 → none 计数重试，达限退 12。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(wf_repo, sub_index=2, node="understand:2", sub_step_index=1)
+    calls = _run_session_stub(drv, monkeypatch, [(0, "", "s")] * drv.NONE_RETRY_LIMIT)
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 12 and len(calls) == drv.NONE_RETRY_LIMIT
+    assert "NEED_USER" in _summary(wf_repo)["message"]
+
+
+def test_session_called_ask_user_sniff(wf_repo):
+    """L2 嗅探函数：按 session_id 匹配 AskUserQuestion tool_use；他会话/坏行不扰。"""
+    drv = _load(DRIVER, "drv_seg")
+    meta = wf_repo / SEG_META
+    lines = [
+        json.dumps(
+            {
+                "type": "assistant",
+                "session_id": "other",
+                "message": {
+                    "content": [{"type": "tool_use", "name": "AskUserQuestion"}]
+                },
+            }
+        ),
+        "{bad json",
+        json.dumps(
+            {
+                "type": "assistant",
+                "session_id": "s",
+                "message": {"content": [{"type": "tool_use", "name": "Read"}]},
+            }
+        ),
+    ]
+    (meta / "drive-stream.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    assert drv._session_called_ask_user(meta, "s") is False
+    with open(meta / "drive-stream.jsonl", "a", encoding="utf-8") as f:
+        f.write(
+            json.dumps(
+                {
+                    "type": "assistant",
+                    "session_id": "s",
+                    "message": {
+                        "content": [{"type": "tool_use", "name": "AskUserQuestion"}]
+                    },
+                }
+            )
+            + "\n"
+        )
+    assert drv._session_called_ask_user(meta, "s") is True
+
+
+def test_stash_need_user_payload(wf_repo):
+    """问题载荷提取（§4.4）：合法 → need_user.json 落盘；非法/缺失 → 清陈旧文件。"""
+    drv = _load(DRIVER, "drv_seg")
+    meta = wf_repo / SEG_META
+    good = 'x\n### NEED_USER\n```json\n{"questions": [{"question": "q1"}]}\n```'
+    assert drv._stash_need_user_payload(meta, good) is True
+    data = json.loads((meta / "need_user.json").read_text())
+    assert data["questions"][0]["question"] == "q1" and data["ts"]
+    # 非法载荷：清掉上一轮的合法文件（防陈旧载荷被当下轮的用）
+    assert drv._stash_need_user_payload(meta, "x\n### NEED_USER\n没给json") is False
+    assert not (meta / "need_user.json").exists()
+    assert (
+        drv._stash_need_user_payload(meta, "### NEED_USER\n```json\n{bad}\n```")
+        is False
+    )
+
+
+def test_step_prompt_prep_variant(wf_repo):
+    """prep 变体 prompt（§4.3）：交付=NEED_USER+问题载荷；禁 AskUserQuestion/
+    禁落 trace/禁编造答复；无 append-trace 指引（prep 不交 trace）。"""
+    drv = _load(DRIVER, "drv_under_test")
+    state = _write_state(wf_repo, sub_index=2, node="understand:2")
+    node = engine.get_node("understand", 2)
+    step = engine.sub_step_at(node, 1)
+    assert step.interactive  # u:2#1 引出步（防节点数据漂移误选非交互步）
+    prompt = drv.build_step_prompt(
+        wf_repo, "t", state, node, 1, step, rework=None, prep=True
+    )
+    assert "预处理" in prompt
+    assert "### NEED_USER" in prompt
+    assert '"questions"' in prompt  # 载荷契约
+    assert "禁调 AskUserQuestion" in prompt
+    assert "禁编造用户答复" in prompt
+    assert "append-trace" not in prompt  # prep 不落 trace（归前台问答段）
+
+
+def test_segment_runs_headless_steps_then_prep_exits_13(wf_repo, monkeypatch):
+    """u:1#2 起跑：子2-5 各一个 headless 会话，子6（读回=交互步）跑 prep 后退出 13。"""
     drv = _load(DRIVER, "drv_seg")
     _seg_write_state(wf_repo, sub_step_index=2)
-    calls = _run_session_stub(drv, monkeypatch, [(0, "", "s")] * 4)
+    need_out = 'ok\n### NEED_USER\n```json\n{"questions": [{"question": "q"}]}\n```'
+    calls = _run_session_stub(
+        drv, monkeypatch, [(0, "", "s")] * 4 + [(0, need_out, "s")]
+    )
     monkeypatch.setattr(engine, "gate_sub_step_at_stop", _gate_advancing(wf_repo))
     rc = drv.run_segment(wf_repo, "t")
-    assert rc == 10
-    assert len(calls) == 4  # u:1 子2..5（子1/子6 为交互步，不在段内）
+    assert rc == 13
+    assert len(calls) == 5  # u:1 子2..5 headless + 子6 prep（子1 不在段内）
     assert _read_state(wf_repo)["sub_step_index"] == 6
 
 
 def test_segment_lock_live_during_run(wf_repo, monkeypatch):
     """段运行期间 front_segment.json 锁活（pid=本进程+起跑位置），退出即删。"""
     drv = _load(DRIVER, "drv_seg")
-    _seg_write_state(wf_repo, sub_step_index=5)  # 只跑一步（#5→推进即撞交互步 #6）
+    _seg_write_state(wf_repo, sub_step_index=5)  # 只跑一步（#5→推进到交互步 #6 prep）
     meta = wf_repo / SEG_META
     seen = {}
+    need_out = 'ok\n### NEED_USER\n```json\n{"questions": [{"question": "q"}]}\n```'
+    outs = iter([(0, "", "s"), (0, need_out, "s")])
 
     def fake(prompt, **kw):
         seen["lock"] = json.loads(
             (meta / "front_segment.json").read_text(encoding="utf-8")
         )
-        return (0, "", "s")
+        return next(outs)
 
     monkeypatch.setattr(drv, "run_session", fake)
     monkeypatch.setattr(engine, "gate_sub_step_at_stop", _gate_advancing(wf_repo))
     rc = drv.run_segment(wf_repo, "t")
-    assert rc == 10
+    assert rc == 13
     assert seen["lock"]["pid"] == os.getpid()
     assert seen["lock"]["sub_step"] == 5  # 起跑位置
     assert seen["lock"]["started_at"]
@@ -896,8 +1048,11 @@ def test_segment_exits_0_when_workflow_done(wf_repo):
 def test_segment_block_feeds_rework_into_next_prompt(wf_repo, monkeypatch):
     """段内 block 不出段：判词装配返工上下文重发本步（v3 语义原样）。"""
     drv = _load(DRIVER, "drv_seg")
-    _seg_write_state(wf_repo, sub_step_index=5)  # block 重跑本步后推进即撞 #6 交互
-    calls = _run_session_stub(drv, monkeypatch, [(0, "", "s"), (0, "", "s")])
+    _seg_write_state(wf_repo, sub_step_index=5)  # block 重跑本步后推进到 #6 交互 prep
+    need_out = 'ok\n### NEED_USER\n```json\n{"questions": [{"question": "q"}]}\n```'
+    calls = _run_session_stub(
+        drv, monkeypatch, [(0, "", "s"), (0, "", "s"), (0, need_out, "s")]
+    )
     advancing = _gate_advancing(wf_repo)
     seq = [("block", "判词Z", None)]
 
@@ -906,8 +1061,8 @@ def test_segment_block_feeds_rework_into_next_prompt(wf_repo, monkeypatch):
 
     monkeypatch.setattr(engine, "gate_sub_step_at_stop", fake_gate)
     rc = drv.run_segment(wf_repo, "t")
-    assert rc == 10
-    assert len(calls) == 2
+    assert rc == 13  # #6 交互步 prep 后 NEED_USER 收场
+    assert len(calls) == 3
     assert "判词Z" in calls[1]  # 返工上下文进重发 prompt
 
 
@@ -1044,6 +1199,26 @@ def test_front_segment_command_single_source():
 
 
 # ---- workflow_phase：派发块注入 ----
+
+
+def test_phase_front_needuser_payload_pointer(wf_repo):
+    """code 13 咬合 + need_user.json 在场 → 注入「逐字照抄」提问指针（§4.4 前者裁决）。"""
+    _write_summary(wf_repo, 13, node="understand:1", sub_step=2)
+    (wf_repo / SEG_META / "need_user.json").write_text(
+        json.dumps({"questions": [{"question": "q1"}]}), encoding="utf-8"
+    )
+    text = _phase_injection(wf_repo, front_mode=True, sub_step_index=2)
+    assert "need_user.json" in text
+    assert "逐字照抄" in text
+
+
+def test_phase_front_needuser_pointer_requires_fresh_13(wf_repo):
+    """陈旧 need_user.json（无 code 13 咬合 summary）→ 不给指针（防旧载荷误用）。"""
+    (wf_repo / SEG_META / "need_user.json").write_text(
+        json.dumps({"questions": [{"question": "q1"}]}), encoding="utf-8"
+    )
+    text = _phase_injection(wf_repo, front_mode=True, sub_step_index=2)
+    assert "need_user.json" not in text
 
 
 def test_phase_front_dispatch_block_on_noninteractive_step(wf_repo):
