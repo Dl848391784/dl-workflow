@@ -5796,6 +5796,23 @@ def front_dynamic_interactive(project_root: Path, name: str, state: dict) -> boo
     )
 
 
+def front_interactive_work_here(project_root: Path, name: str, state: dict) -> bool:
+    """front 模式当前位置是否「前台亲自干」（单源：phase 注入路由 + fence 白名单
+    共用——2026-08-12 实爆：两处各持副本，§8 路由翻转只改 phase 漏改 fence，
+    派发命令被 S15 deny、模型误读「交回本会话」在 TUI 抢干活）。
+
+    True 仅两态：①真·裸开场（u:1#1 交互步且无 problem_statement——前台收陈述）；
+    ②NEED_USER 动态重分类（code 13 咬合——前台问答段落库）。
+    其余全部 False = 派段（含陈述在手的 u:1#1——§8 起交互步先后台 prep）。
+    """
+    bare_no_stmt = bool(
+        state.get("node") == "understand:1"
+        and state.get("sub_step_index", 1) == 1
+        and not (state.get("problem_statement") or "").strip()
+    )
+    return bool(bare_no_stmt or front_dynamic_interactive(project_root, name, state))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="dl_flow_engine",

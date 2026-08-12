@@ -1510,6 +1510,40 @@ def test_fence_front_dynamic13_keeps_v2_discipline(wf_repo):
     assert "deny" in out
 
 
+def test_fence_front_bare_open_with_statement_allows_dispatch(wf_repo):
+    """§8 缺口修复（2026-08-12 真机实爆）：有陈述的 u:1#1 路由已翻转为派段，
+    fence 判定必须同源——派发命令放行（否则模型被 S15 deny 后误读「交回本会话」
+    在 TUI 自行干活）；干活工具仍拦。"""
+    over = dict(front_mode=True, sub_step_index=1, problem_statement="分析X")
+    assert "deny" not in _fence_front(
+        wf_repo, "Bash", {"command": engine.front_segment_command("t")}, **over
+    )
+    assert "deny" in _fence_front(wf_repo, "Write", {"file_path": "/tmp/x"}, **over)
+
+
+def test_fence_front_bare_open_no_statement_keeps_v2_discipline(wf_repo):
+    """真·裸开场（无陈述）：前台亲自收陈述，派发命令仍被 S15 拦（不派段）。"""
+    out = _fence_front(
+        wf_repo,
+        "Bash",
+        {"command": engine.front_segment_command("t")},
+        front_mode=True,
+        sub_step_index=1,
+    )
+    assert "deny" in out
+
+
+def test_front_interactive_work_here_single_source(wf_repo):
+    """engine 单源判定两态：裸开场无陈述 / code 13 咬合 = True；有陈述 = False。"""
+    st = _write_state(wf_repo, front_mode=True, sub_step_index=1)
+    assert engine.front_interactive_work_here(wf_repo, "t", st) is True  # 裸开场
+    st["problem_statement"] = "分析X"
+    assert engine.front_interactive_work_here(wf_repo, "t", st) is False  # §8 派段
+    st2 = _write_state(wf_repo, front_mode=True, sub_step_index=2)
+    _write_summary(wf_repo, 13)
+    assert engine.front_interactive_work_here(wf_repo, "t", st2) is True  # 13 咬合
+
+
 # ---------- dl-launch.sh --front 接线（front-tui-hybrid-design §4 M3）----------
 
 
