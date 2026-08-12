@@ -8642,6 +8642,72 @@ class TestHandoffPack:
         assert "缺 X 条款" in pack
 
 
+class TestHandoffPackSlim:
+    """v4 P1-1 交接包瘦身（v4-cost-latency-optimization-design §2）：
+    机械字段全剥（本节点+前序）；前序节点 q/boundary 截断、用户裁决 a 保全文；
+    附 evidence 指针。真源 trace 不动（证据不丢，只压包内呈现）。"""
+
+    def _write_evidence(self, tmp_path, records):
+        ev = tmp_path / ".claude" / "evidence"
+        ev.mkdir(parents=True, exist_ok=True)
+        with open(ev / "t.jsonl", "w", encoding="utf-8") as f:
+            for r in records:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+    def test_slim_behavior(self, tmp_path):
+        long_boundary = "B" * 300
+        long_q = "读回标题" + "Q" * 200
+        recs = [
+            # 前序节点 u:1 归一化步（statements 带长 boundary）+ 读回步（长 q + 裁决 a）
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "ProblemContext",
+                "sub_step": 5,
+                "skill": "s_marker",
+                "purpose": "purpose_marker",
+                "statements": [
+                    {"text": "结论甲", "type_label": "must", "boundary": long_boundary}
+                ],
+            },
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "ProblemContext",
+                "sub_step": 6,
+                "skill": "s",
+                "purpose": "p",
+                "q": [long_q],
+                "a": ["用户裁决原话保留"],
+            },
+            # 本节点 u:2 子1（长 a 不截断——本节点保内容全文）
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "GoalsAndValue",
+                "sub_step": 1,
+                "skill": "s",
+                "purpose": "p",
+                "q": ["qn"],
+                "a": ["A" * 300],
+            },
+        ]
+        self._write_evidence(tmp_path, recs)
+        _write_state_full(tmp_path, "t", "understand", 2, sub_step=2)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None
+        # 机械字段剥除（本节点+前序都不带）
+        assert "purpose_marker" not in pack and "s_marker" not in pack
+        # 前序 boundary 截断（100 + …），本节点长 a 全文保留
+        assert "B" * 200 not in pack and "B" * 100 + "…" in pack
+        assert "A" * 300 in pack
+        # 前序长 q 截断（80 + …），用户裁决 a 保全文
+        assert "Q" * 100 not in pack
+        assert "用户裁决原话保留" in pack
+        # 摘要指引 + evidence 指针
+        assert "结论摘要" in pack and ".claude" in pack and "evidence" in pack
+
+
 class TestHandoffEvents:
     """v2.122 handoff 留痕（minor-boundary-handoff-prompt-design §2.2）。
 
