@@ -9,13 +9,16 @@ dl_flow_engine（state.json + evidence.jsonl 磁盘真源，天然会话无关�
 318.7M（成本=轮次×上下文的平方膨胀）；边界 /clear 提示 15 次注入 0 次上屏
 （attachment 进模型不被转达，且 /clear 无程序化入口）。
 
-交互子步骤（Step.interactive，读回步等 AskUserQuestion 场景）回 TUI 段（M2）。
+交互子步骤（Step.interactive，读回步等 AskUserQuestion 场景）后台化预处理
+（interactive-step-headless-prep §4.1）：headless 备问题清单 → NEED_USER 转 TUI
+纯问答；裸开场（u:1#1 无返工）除外，保 TUI 原生开场（57a64e1 用户裁决）。
 门栏/闸门 = 本进程前台断点，stdin 收 gate/back/state-reset 等（转发 dl-cmd.sh，
 外部终端 /dl 并发也兼容——每轮循环重读 state.json）。
 
 被 dl-launch.sh 派发（ac-deepseek1 --dl <name> [--debug]）；WF_TUI=1 回旧 TUI 路径。
 --segment = 段模式（v4 前台混合，front-tui-hybrid-design §2.2）：从 state 当前位置
-连续跑非交互工作，撞交互步/门栏/闸门/断点按退出码收场（无 stdin 断点）。
+连续跑非交互工作（交互步先 headless 预处理备问题，NEED_USER 转前台纯问答），
+撞裸开场/门栏/闸门/断点按退出码收场（无 stdin 断点）。
 """
 
 import argparse
@@ -307,6 +310,7 @@ def run_session(
     note: str,
     verbose: bool = False,
     disp: "LiveProgress | None" = None,
+    disallow_ask: bool = False,
 ) -> tuple[int, str, str]:
     """一次 headless `claude -p` 会话。返回 (rc, assistant 全文, session_id)。
 
@@ -316,6 +320,9 @@ def run_session(
     简报喂常驻区「最近动作」行；verbose=True 恢复旧尾随行为（text + ⚙ 行上屏）。
     Ctrl+C（§2.6）：子进程独立进程组（start_new_session）——终端 Ctrl+C 只打
     driver，单击=杀子会话返回 RC_INTERRUPTED（drive 进断点），双击=退出 130。
+    disallow_ask=True（交互步 prep 会话）：--disallowedTools AskUserQuestion
+    权限层堵入口（interactive-step-headless-prep §4.2 L1——调了必吃 denial，
+    配合 _session_called_ask_user L2 嗅探，NEED_USER 标记不作承重墙）。
     """
     sid = str(uuid.uuid4())
     cmd = [
@@ -333,6 +340,8 @@ def run_session(
         "--session-id",
         sid,
     ]
+    if disallow_ask:
+        cmd += ["--disallowedTools", "AskUserQuestion"]
     if debug:
         cmd += [
             "--debug",
@@ -408,6 +417,73 @@ def run_session(
         if interrupted:
             return RC_INTERRUPTED, "\n".join(texts), sid
     return rc, "\n".join(texts), sid
+
+
+# ---------- 交互步 prep 的机械保证（interactive-step-headless-prep §4.2/§4.4） ----------
+
+
+def _session_called_ask_user(meta: Path, sid: str) -> bool:
+    """L2 嗅探：本会话 stream 里出现过 AskUserQuestion tool_use（无论成败——
+    L1 denial 回执同样是 tool_use 形态）。命中 = 「需要用户」的机械信号，
+    不依赖模型记得输出 NEED_USER 标记。"""
+    try:
+        with open(meta / "drive-stream.jsonl", encoding="utf-8") as f:
+            for line in f:
+                if sid not in line or '"AskUserQuestion"' not in line:
+                    continue  # 字符串预筛：26MB 级文件逐行 json.loads 太贵
+                try:
+                    ev = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if ev.get("session_id") != sid:
+                    continue
+                for blk in (ev.get("message") or {}).get("content") or []:
+                    if (
+                        isinstance(blk, dict)
+                        and blk.get("type") == "tool_use"
+                        and blk.get("name") == "AskUserQuestion"
+                    ):
+                        return True
+    except OSError:
+        pass
+    return False
+
+
+# NEED_USER 标记后的 ```json 围栏块（非贪婪到第一个闭围栏；嵌套花括号安全——
+# 以围栏为界不以花括号配对为界）。
+_NEED_USER_JSON_RE = re.compile(r"###\s*NEED_USER.*?```json\s*(\{.*?)```", re.DOTALL)
+
+
+def _stash_need_user_payload(meta: Path, out: str) -> bool:
+    """从 prep 会话输出提取问题载荷落 need_user.json（§4.4 文件通道）。
+
+    非法/缺失载荷 → 删除陈旧文件（防上一轮载荷被当下轮的用）并返回 False，
+    TUI 侧退回自组织提问（宁纵勿枉）。
+    """
+    target = meta / "need_user.json"
+    data: object = None
+    m = _NEED_USER_JSON_RE.search(out)
+    if m:
+        try:
+            data = json.loads(m.group(1))
+        except json.JSONDecodeError:
+            data = None
+    if (
+        not isinstance(data, dict)
+        or not isinstance(data.get("questions"), list)
+        or not data["questions"]
+    ):
+        target.unlink(missing_ok=True)
+        return False
+    target.write_text(
+        json.dumps(
+            {"questions": data["questions"], "ts": time.strftime("%Y-%m-%dT%H:%M:%S")},
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return True
 
 
 # ---------- 常驻进度区（drive-tasklist-render-design §2.1） ----------
@@ -559,6 +635,8 @@ def build_step_prompt(
     *,
     rework: str | None,
     interactive: bool = False,
+    prep: bool = False,
+    needuser: bool = False,
 ) -> str:
     """子步骤会话 prompt = 交接包 + 当前步目的 + append-trace 指引 + 铁律（+返工判词）。
 
@@ -566,6 +644,9 @@ def build_step_prompt(
     禁完成标记（外部编排）+ 只做本步（会话粒度=子步骤）。
     interactive=True（TUI 段）：交接包由 SessionStart hook 注入（全量 settings），
     prompt 不带防双份；交互指引替换 NEED_USER 出口。
+    prep=True（交互步后台预处理，interactive-step-headless-prep §4.3）：
+    交付从 append-trace 换成「备问题清单 + ### NEED_USER + ```json 载荷」，
+    禁 AskUserQuestion/禁落 trace（本步 trace 归前台问答段）。
     """
     total = len(node.sub_steps or ())
     if step.kind == "skill":
@@ -598,27 +679,73 @@ def build_step_prompt(
                 "**拿到用户陈述前禁任何仓库探查/工具调用**（首次 dogfood 实证："
                 "先自行探查 20+ 轮零提问被用户中断——先问，才问得出好问题）"
             )
+        if needuser:
+            _nu = project_root / ".claude" / "workflows" / name / "need_user.json"
+            if _nu.exists():
+                # prep 载荷指针（interactive-step-headless-prep §4.4 前者裁决：
+                # 问题清单逐字照抄，TUI 零组织过程）
+                tail += (
+                    f"\n- 本步问题清单已由后台预处理备好：Read `{_nu}`——"
+                    "用 AskUserQuestion **逐字照抄**提问"
+                    "（禁改写/增删/换序——内容同源纪律）"
+                )
     else:
         tail = (
             "- 非预期需要用户输入时：输出 `### NEED_USER` + 问题清单后结束"
             "（driver 会接管为交互会话），禁编造用户答复"
+        )
+    if prep:
+        if step.kind == "skill":
+            how_prep = (
+                f"0. 先用 Skill 工具 invoke `{step.ref}` 取问题设计指引"
+                "（只准备，不执行问答）\n"
+            )
+        elif step.ref == "AskUserQuestion":
+            how_prep = ""  # 问答工具本身在 prep 环境不可用，不指引
+        else:
+            how_prep = f"0. 可用工具 {step.ref} 查取证材料（只准备，不执行问答）\n"
+        deliverable = (
+            "任务性质：本步是**交互步的后台预处理**——问答本身由前台会话执行"
+            "（用户只在终端前回答问题），你的唯一交付 = 备好问题清单：\n"
+            f"{how_prep}"
+            "1. 按本步目的准备要向用户提的问题（问题/选项设计纪律 = 上方目的条款）\n"
+            "2. 输出 `### NEED_USER`，紧跟一个 ```json 代码块（问题载荷契约）：\n"
+            '   {"questions": [{"question": "...", "header": "≤12字标签", '
+            '"multiSelect": false, "options": [{"label": "...", "description": "..."}]}]}\n'
+            "3. 输出完即结束本轮"
+        )
+        rules_block = (
+            "铁律：\n"
+            "- 只做这一个子步骤的预处理——问答由前台会话执行，与你无关\n"
+            "- 禁调 AskUserQuestion（本环境无此工具，调了也不会有人答）\n"
+            "- 禁编造用户答复；禁落 evidence trace（本步 trace 归前台问答段落）\n"
+            "- 禁输出 ### STEP_DONE / ### PHASE_DONE 标记（外部编排，标记无效）\n"
+            f"{_bash_shape_rules(project_root)}\n"
+            "- 备齐问题清单后输出 `### NEED_USER` + 上述 json 载荷并结束"
+        )
+    else:
+        deliverable = (
+            f"{how}；完成后落 evidence（本步的硬性交付，门控只认它）：\n"
+            f"1. Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace --scaffold`"
+            f" 生成载荷骨架（打印路径）\n"
+            f"2. Read 骨架文件，Edit 把每个「待填」换成实际内容\n"
+            f"3. Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace "
+            f"--from-file <骨架路径>` 落库"
+        )
+        rules_block = (
+            "铁律：\n"
+            "- 只做这一个子步骤——后续步骤由 driver 另起会话，与你无关\n"
+            "- 禁输出 ### STEP_DONE / ### PHASE_DONE 标记（外部编排，标记无效）\n"
+            f"{_bash_shape_rules(project_root)}\n"
+            f"{tail}\n" + engine.selfcheck_hint(step)
         )
     parts.append(
         f"## WORKFLOW 当前任务（外部 driver 编排）\n"
         f"工作流 {name} · {phase_label} [{state['index']}/5] · "
         f"子阶段「{node.label}」· 子步骤 {cur}/{total}（{step.kind}: {step.ref}）\n\n"
         f"目的：{step.purpose}\n\n"
-        f"{how}；完成后落 evidence（本步的硬性交付，门控只认它）：\n"
-        f"1. Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace --scaffold`"
-        f" 生成载荷骨架（打印路径）\n"
-        f"2. Read 骨架文件，Edit 把每个「待填」换成实际内容\n"
-        f"3. Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace "
-        f"--from-file <骨架路径>` 落库\n\n"
-        f"铁律：\n"
-        f"- 只做这一个子步骤——后续步骤由 driver 另起会话，与你无关\n"
-        f"- 禁输出 ### STEP_DONE / ### PHASE_DONE 标记（外部编排，标记无效）\n"
-        f"{_bash_shape_rules(project_root)}\n"
-        f"{tail}\n" + engine.selfcheck_hint(step)
+        f"{deliverable}\n\n"
+        f"{rules_block}\n"
     )
     if rework:
         parts.append(f"\n## 返工上下文\n{rework}")
@@ -711,6 +838,7 @@ def run_tui_step(
     rework: str | None,
     disp: "LiveProgress | None" = None,
     bare: bool = False,
+    needuser: bool = False,
 ) -> tuple[int, str]:
     """交互子步骤 TUI 段：起原生 claude TUI（全量 per-wf settings——SessionStart
     注入交接包 / phase 注入 / output-style 横幅齐备），用户交互 + /exit 回收。
@@ -718,6 +846,7 @@ def run_tui_step(
     返回 (rc, session_id)。drive_mode 下 advance hook 不推进（state 由 driver
     在回收后统一门控）；fence 仅 S11/S14 硬约束生效。
     bare=True（裸开场）：不喂任务书 prompt——会话安静等用户打字（v2.0 开场）。
+    needuser=True（prep 后接管）：prompt 带 need_user.json 逐字照抄指针。
     """
     sid = str(uuid.uuid4())
     settings = ensure_tui_settings(project_root, name)  # 全量模板+hook 路径同仓化
@@ -727,7 +856,15 @@ def run_tui_step(
     prompt = None
     if not bare:
         prompt = build_step_prompt(
-            project_root, name, state, node, cur, step, rework=rework, interactive=True
+            project_root,
+            name,
+            state,
+            node,
+            cur,
+            step,
+            rework=rework,
+            interactive=True,
+            needuser=needuser,
         )
     cmd = _build_tui_cmd(sid, settings, rules, prompt, debug, meta)
     if bare:
@@ -944,7 +1081,7 @@ def _breakpoint_body(project_root: Path, name: str, wt: Path, header: str) -> st
 # 段退出码：段结局分类，前台会话据此前进（0/1 沿用惯例，10+ 为段语义）。
 SEG_DONE = 0  # 工作流全部 5 阶段完成
 SEG_ERROR = 1  # 段内异常（API 挂等）——重跑同一命令即续
-SEG_INTERACTIVE = 10  # 撞交互子步骤（Step.interactive）——回前台会话问答
+SEG_INTERACTIVE = 10  # 撞裸开场（u:1#1 无返工，57a64e1 裁决保 TUI）——回前台对话
 SEG_GATE = 11  # 门栏 held_for_gate / 阶段闸门——等用户 /dl gate 裁决
 SEG_BREAKPOINT = 12  # escalate / none 重试上限 / 中断 / state 越界——等用户处置
 SEG_NEED_USER = 13  # headless 会话 ### NEED_USER——动态重分类为交互回前台
@@ -1025,6 +1162,7 @@ def drive(project_root: Path, name: str, debug: bool, verbose: bool = False) -> 
             wt,
             rework=rework,
             disp=disp,
+            needuser=True,
         )
         return rc, sid, "tui-step-needuser"
 
@@ -1130,7 +1268,82 @@ def _run_boundary_loop(
 
                 total = len(node.sub_steps)
                 disp.begin(f"子步骤 {cur}/{total} · {step.short}")
-                if getattr(step, "interactive", False):
+                if getattr(step, "interactive", False) and not _is_bare_open(
+                    node, cur, pending_rework
+                ):
+                    # 交互步后台化预处理（interactive-step-headless-prep §4.1）：
+                    # 不停段让 TUI——先 headless 备问题清单（L1 工具封锁+变体 prompt），
+                    # 出口恒为 NEED_USER（显式标记 > L2 AskUserQuestion 嗅探）。
+                    # 裸开场（u:1#1 无返工）除外——保 57a64e1 用户裁决的 TUI 原生开场。
+                    rules = ensure_node_rules(project_root, name, node)
+                    prompt = build_step_prompt(
+                        project_root,
+                        name,
+                        state,
+                        node,
+                        cur,
+                        step,
+                        rework=pending_rework,
+                        prep=True,
+                    )
+                    rc, out, sid = run_session(
+                        prompt,
+                        cwd=wt,
+                        settings=settings,
+                        sys_prompt_file=rules,
+                        meta=meta,
+                        debug=debug,
+                        note=f"{engine.node_id(node.phase, node.sub)}#{cur}-prep",
+                        verbose=verbose,
+                        disp=disp,
+                        disallow_ask=True,
+                    )
+                    seg_kind = "headless-prep"
+                    if rc != RC_INTERRUPTED:
+                        need = bool(NEED_USER_RE.search(out)) or (
+                            _session_called_ask_user(meta, sid)
+                        )
+                        if need:
+                            _stash_need_user_payload(meta, out)
+                            # drive 当场重分类起 TUI 段；--segment 抛 _SegmentExit(13)
+                            rc, sid, seg_kind = on_need_user(
+                                state, node, cur, step, pending_rework
+                            )
+                        else:
+                            # L3：prep 会话无出口——none 计数重试（不交门控：
+                            # prep 无 trace 交付，trace 归前台问答段）
+                            _record_segment(
+                                project_root,
+                                name,
+                                session_id=sid,
+                                kind=seg_kind,
+                                note=f"rc={rc}",
+                            )
+                            none_retries += 1
+                            disp.log(
+                                f"  ⚠ 预处理会话未输出 NEED_USER"
+                                f"（{none_retries}/{NONE_RETRY_LIMIT}）"
+                            )
+                            if none_retries >= NONE_RETRY_LIMIT:
+                                none_retries = 0
+                                if (
+                                    on_breakpoint(
+                                        f"⛔ 子步骤 {cur} 预处理连续 "
+                                        f"{NONE_RETRY_LIMIT} 次未输出 NEED_USER——"
+                                        f"回车重试 / step-pass / state-reset / q 退出。",
+                                        SEG_BREAKPOINT,
+                                    )
+                                    == "quit"
+                                ):
+                                    return 0
+                                continue
+                            pending_rework = (
+                                "上一轮你未输出 ### NEED_USER——本步唯一交付 = "
+                                "备好问题清单后输出 ### NEED_USER + ```json 问题载荷。"
+                                "禁落 trace、禁调 AskUserQuestion、禁编造用户答复。"
+                            )
+                            continue
+                elif getattr(step, "interactive", False):
                     rc, sid, seg_kind = on_interactive(
                         state, node, cur, step, pending_rework
                     )
@@ -1366,17 +1579,23 @@ def run_segment(project_root: Path, name: str, debug: bool = False) -> int:
         raise _SegmentExit(code, header)
 
     def _interactive(st, node, cur, step, rework):
+        # 仅剩裸开场路径（主循环里其余交互步已被 prep 分支截走）
         raise _SegmentExit(
             SEG_INTERACTIVE,
-            f"撞交互子步骤 {engine.node_id(node.phase, node.sub)}#{cur}"
-            f"（{step.short}）——回前台会话处理。",
+            f"撞裸开场 {engine.node_id(node.phase, node.sub)}#{cur}"
+            f"（{step.short}）——回前台会话自由对话。",
         )
 
     def _need_user(st, node, cur, step, rework):
+        payload_note = (
+            "问题清单已备好：need_user.json。"
+            if (meta / "need_user.json").exists()
+            else ""
+        )
         raise _SegmentExit(
             SEG_NEED_USER,
             f"子步骤 {cur} 的 headless 会话请求用户输入（### NEED_USER）"
-            "——回前台会话交互处理本步。",
+            f"——回前台会话交互处理本步。{payload_note}",
         )
 
     code, message = SEG_DONE, "工作流全部 5 阶段已完成。"
@@ -1437,7 +1656,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--segment",
         action="store_true",
-        help="段模式（v4 前台混合）：跑连续非交互段后按退出码收场，撞交互步/门栏回前台",
+        help="段模式（v4 前台混合）：跑连续工作段（交互步先 prep 备问题）后按退出码收场，撞裸开场/门栏/NEED_USER 回前台",
     )
     args = parser.parse_args(argv)
 

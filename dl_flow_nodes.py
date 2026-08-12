@@ -84,7 +84,9 @@ class Step:
     # （judge 读原始行自动可见）。
     extra_payload_keys: tuple[tuple[str, tuple[str, ...] | str], ...] = ()
     # v3 headless driver（designs/headless-driver-arch-design.md）：True=交互步
-    # （读回/裁决/问询——需 AskUserQuestion），driver 路由到 TUI 段执行；
+    # （读回/裁决/问询——需 AskUserQuestion）。v4.1 起（interactive-step-headless-prep
+    # §4.1）语义=「用 prep 变体 prompt + AskUserQuestion 封锁跑后台预处理，
+    # NEED_USER 转 TUI 纯问答」；仅裸开场（u:1#1 无返工）仍直路由 TUI 段。
     # False=非交互步，headless `claude -p` 段。声明式单源——禁从 purpose
     # 文本嗅探（词形漂移病根，症状 M 同型）。TUI hook 编排不读此字段。
     interactive: bool = False
