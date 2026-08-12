@@ -1916,6 +1916,10 @@ def reset_state(project_root: Path, name: str, target: str) -> tuple[bool, str]:
     state["sub_step_index"] = step if t_node.sub_steps else 0
     state["node_attempts"] = 0
     state.pop("held_for_gate", None)  # 门栏状态同步失效（同旧 step-reset）
+    if t_nid == "understand:1" and step == 1:
+        # 回滚到裸开场步 = 问题陈述同步作废（interactive-step-headless-prep §8：
+        # 陈述在 = step1 走后台 prep，不清则旧陈述污染重跑开场）
+        state.pop("problem_statement", None)
     # gate 重算（advance_state 同规则）：进入 T 跨过的前驱节点是阶段出口且
     # 其 phase 在 GATED_AFTER -> 进入已是放行后。
     prev = list(_NODES.values())[t_ord - 1] if t_ord > 0 else None

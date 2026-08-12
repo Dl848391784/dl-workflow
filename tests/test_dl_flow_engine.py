@@ -2919,6 +2919,20 @@ class TestStateReset:
         assert ok is True
         assert eng.load_state(tmp_path, "t")["last_judged_trace"] == {}
 
+    def test_reset_to_bare_open_clears_problem_statement(self, tmp_path):
+        # 回滚到 u:1#1（裸开场步）= 问题陈述同步作废（interactive-step-headless-prep
+        # §8：陈述在 = step1 走后台 prep，不清则旧陈述污染重跑）；回滚到 #2 保留。
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=3)
+        st = eng.load_state(tmp_path, "t")
+        st["problem_statement"] = "旧陈述"
+        eng.save_state(tmp_path, "t", st)
+        ok, _ = eng.reset_state(tmp_path, "t", "2")
+        assert ok is True
+        assert eng.load_state(tmp_path, "t")["problem_statement"] == "旧陈述"
+        ok, _ = eng.reset_state(tmp_path, "t", "1")
+        assert ok is True
+        assert "problem_statement" not in eng.load_state(tmp_path, "t")
+
     def test_reset_rejects_node_without_sub_steps(self, tmp_path):
         _write_state_full(tmp_path, "t", "execute", 0)
         ok, msg = eng.reset_state(tmp_path, "t", "2")
