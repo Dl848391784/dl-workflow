@@ -490,17 +490,23 @@ def _session_called_ask_user(meta: Path, sid: str) -> bool:
 # NEED_USER 标记后的 ```json 围栏块（非贪婪到第一个闭围栏；嵌套花括号安全——
 # 以围栏为界不以花括号配对为界）。
 _NEED_USER_JSON_RE = re.compile(r"###\s*NEED_USER.*?```json\s*(\{.*?)```", re.DOTALL)
+# NEXT_PREP（P2-1 读回 prep 并入前序工作段，v4-cost-latency-optimization-design §2）：
+# 与 NEED_USER 严格分通道——工作段尾部的 NEXT_PREP =「为下一步备的问题」，
+# 若复用 NEED_USER 会被动态交互 fallback（本步需要用户）误吞。
+_NEXT_PREP_JSON_RE = re.compile(r"###\s*NEXT_PREP.*?```json\s*(\{.*?)```", re.DOTALL)
 
 
-def _stash_need_user_payload(meta: Path, out: str) -> bool:
-    """从 prep 会话输出提取问题载荷落 need_user.json（§4.4 文件通道）。
+def _stash_need_user_payload(
+    meta: Path, out: str, pattern: "re.Pattern" = _NEED_USER_JSON_RE
+) -> bool:
+    """从会话输出提取问题载荷落 need_user.json（§4.4 文件通道）。
 
     非法/缺失载荷 → 删除陈旧文件（防上一轮载荷被当下轮的用）并返回 False，
-    TUI 侧退回自组织提问（宁纵勿枉）。
+    TUI 侧退回自组织提问（宁纵勿枉）。pattern 参数 = NEXT_PREP/NEED_USER 双通道。
     """
     target = meta / "need_user.json"
     data: object = None
-    m = _NEED_USER_JSON_RE.search(out)
+    m = pattern.search(out)
     if m:
         try:
             data = json.loads(m.group(1))
@@ -522,6 +528,26 @@ def _stash_need_user_payload(meta: Path, out: str) -> bool:
         encoding="utf-8",
     )
     return True
+
+
+def _consume_next_prep(project_root: Path, name: str, key: str) -> bool:
+    """P2-1 标记消费：前序工作段已为本交互步备好问题清单（need_user.json）。
+
+    精确匹配 f"<node>#<cur>" 才生效——state-reset 回退后陈旧标记永不误配
+    （不匹配 = 走原独立 prep 段，宁纵勿枉）。命中即 pop（一次性）。
+    """
+    st = _load(project_root, name)
+    if st.get("next_prep_stashed") != key:
+        return False
+    st.pop("next_prep_stashed", None)
+    engine.save_state(project_root, name, st)
+    return True
+
+
+def _mark_next_prep(project_root: Path, name: str, key: str) -> None:
+    st = _load(project_root, name)
+    st["next_prep_stashed"] = key
+    engine.save_state(project_root, name, st)
 
 
 # ---------- 常驻进度区（drive-tasklist-render-design §2.1） ----------
@@ -663,6 +689,13 @@ class LiveProgress:
 # ---------- prompt 装配 ----------
 
 
+# 问题载荷契约（prep 段与 NEXT_PREP 顺带交付共用同一形状——内容同源纪律）
+_QUESTIONS_CONTRACT = (
+    '{"questions": [{"question": "...", "header": "≤12字标签", '
+    '"multiSelect": false, "options": [{"label": "...", "description": "..."}]}]}'
+)
+
+
 def build_step_prompt(
     project_root: Path,
     name: str,
@@ -675,6 +708,7 @@ def build_step_prompt(
     interactive: bool = False,
     prep: bool = False,
     needuser: bool = False,
+    prep_next: "engine.Step | None" = None,
 ) -> str:
     """子步骤会话 prompt = 交接包 + 当前步目的 + append-trace 指引 + 铁律（+返工判词）。
 
@@ -748,8 +782,7 @@ def build_step_prompt(
             f"{how_prep}"
             "1. 按本步目的准备要向用户提的问题（问题/选项设计纪律 = 上方目的条款）\n"
             "2. 输出 `### NEED_USER`，紧跟一个 ```json 代码块（问题载荷契约）：\n"
-            '   {"questions": [{"question": "...", "header": "≤12字标签", '
-            '"multiSelect": false, "options": [{"label": "...", "description": "..."}]}]}\n'
+            f"   {_QUESTIONS_CONTRACT}\n"
             "3. 输出完即结束本轮"
         )
         rules_block = (
@@ -785,6 +818,19 @@ def build_step_prompt(
         f"{deliverable}\n\n"
         f"{rules_block}\n"
     )
+    if prep_next is not None:
+        # P2-1 读回 prep 并入前序工作段：本段顺带备下一交互步的问题清单——
+        # 模型刚产出本步内容（在context里），转问题零重读；独立 prep 段全省。
+        parts.append(
+            f"\n## 附带交付：为下一步「读回/问答」备问题清单（P2-1 合并段）\n"
+            f"下一步目的：{prep_next.purpose}\n"
+            "1. 先完成本步 append-trace 落库（硬性交付不变）\n"
+            "2. 再按下一步目的设计要向用户提的问题（问题/选项设计纪律 = 上方目的条款）\n"
+            "3. 输出 `### NEXT_PREP`，紧跟一个 ```json 代码块（问题载荷契约）：\n"
+            f"   {_QUESTIONS_CONTRACT}\n"
+            "4. 输出完即结束本轮——问答由前台会话执行，与你无关；\n"
+            "   `### NEXT_PREP` 是备料标记，与 `### NEED_USER`（本步需要用户）严格不同，禁混用"
+        )
     if rework:
         parts.append(f"\n## 返工上下文\n{rework}")
     return "\n".join(parts)
@@ -1316,12 +1362,31 @@ def _run_boundary_loop(
 
                 total = len(node.sub_steps)
                 disp.begin(f"子步骤 {cur}/{total} · {step.short}")
-                if getattr(step, "interactive", False) and not _is_bare_open(
+                bare_open = _is_bare_open(
                     node,
                     cur,
                     pending_rework,
                     has_statement=bool(state.get("problem_statement")),
-                ):
+                )
+                prep_next = None  # P2-1：下一步为交互步时 = 该 Step（仅工作段赋值）
+                out = ""
+                prep_done = (
+                    getattr(step, "interactive", False)
+                    and not bare_open
+                    and _consume_next_prep(
+                        project_root,
+                        name,
+                        f"{engine.node_id(node.phase, node.sub)}#{cur}",
+                    )
+                )
+                if prep_done:
+                    # P2-1：问题清单已由前序工作段顺带备妥（need_user.json 在位）——
+                    # 省独立 prep 段，直接转前台问答
+                    disp.log("  ⚑ 问题清单前序段已备（P2-1 合并段）——转前台问答")
+                    rc, sid, seg_kind = on_need_user(
+                        state, node, cur, step, pending_rework
+                    )
+                elif getattr(step, "interactive", False) and not bare_open:
                     # 交互步后台化预处理（interactive-step-headless-prep §4.1）：
                     # 不停段让 TUI——先 headless 备问题清单（L1 工具封锁+变体 prompt），
                     # 出口恒为 NEED_USER（显式标记 > L2 AskUserQuestion 嗅探）。
@@ -1400,6 +1465,13 @@ def _run_boundary_loop(
                     )
                 else:
                     rules = ensure_node_rules(project_root, name, node)
+                    # P2-1：下一步是交互步 -> 本段顺带备其问题清单（NEXT_PREP 通道）
+                    nxt = engine.sub_step_at(node, cur + 1) if cur < total else None
+                    prep_next = (
+                        nxt
+                        if (nxt is not None and getattr(nxt, "interactive", False))
+                        else None
+                    )
                     prompt = build_step_prompt(
                         project_root,
                         name,
@@ -1408,6 +1480,7 @@ def _run_boundary_loop(
                         cur,
                         step,
                         rework=pending_rework,
+                        prep_next=prep_next,
                     )
                     rc, out, sid = run_session(
                         prompt,
@@ -1462,6 +1535,15 @@ def _run_boundary_loop(
                 if action == "advanced":
                     none_retries = 0
                     disp.log(f"  ✓ 子步骤 {cur} 通过门控")
+                    if prep_next is not None and _NEXT_PREP_JSON_RE.search(out):
+                        # P2-1：只在门控通过后落标记——被 block 的内容备的问题
+                        # 不得转前台（返工段会重新输出，覆盖更新）
+                        if _stash_need_user_payload(meta, out, _NEXT_PREP_JSON_RE):
+                            _mark_next_prep(
+                                project_root,
+                                name,
+                                f"{engine.node_id(node.phase, node.sub)}#{cur + 1}",
+                            )
                     continue
                 if action == "block":
                     none_retries = 0
