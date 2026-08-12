@@ -64,6 +64,24 @@
 
 **操作含义**：`claude -p` 全部请求流式 + 每段新 session ⇒ 首调必冷，prompt 重排/派发紧凑化/非流式热身（写的全局缓存流式不读）全部无效。fresh 侧仅剩两个杠杆：P1-1（首调负载瘦身，直接减冷启动量）与 P2-4（减少段数，摊薄次数）。
 
+### 2.0b provider 缓存能力矩阵（通用化，2026-08-13 kimi 实测补齐）
+
+**原则：缓存语义是 provider 级能力参数，不进架构假设。新 provider 接入先跑探针（`scripts/probe/cache_probe.py`，token 只走 env），再定该 provider 的成本模型与段粒度。**
+
+| 能力 | deepseek anthropic 端点 | kimi coding 端点（k3） |
+|---|---|---|
+| 非流式跨调用共享 | ✓（TTL>24min） | ✓ |
+| 前缀粒度部分给分 | ✓ | ✓ |
+| **流式跨会话共享** | **✗ 会话级隔离** | **✓ 全局共享（新会话首调 100% 命中）** |
+| TTL | >24min（非流式实测） | >7min（实测）；覆盖段间隔（2-6min） |
+| 接入坑 | x-api-key 即可 | 需 `Authorization: Bearer`；裸 API 模型 id 剥 `[1m]` 后缀（claude-code 窗口标记，直发 401） |
+
+**对方案的分流影响**：
+- 在 kimi 类（流式全局缓存）provider 上，段冷启动税≈0——每段首调只付交接包 delta 的 fresh，共享前缀（harness system + node-rules）全命中。**P2-4 段合并的必要性在该 provider 上基本消失**，P1-1 仍保值（交接包 delta 本身要瘦）。
+- 在 deepseek 类（流式会话隔离）provider 上，P1-1 + P2-4 是仅有的 fresh 杠杆，照原方案执行。
+- **provider 选择本身成为成本杠杆**：同一 v4 架构在两个 provider 上的 fresh input 差一个量级。但换 provider 的隐性成本 = 全部门控判据的重放回归（judge framing 系列是按 MiniMax/deepseek 弱模型调的，k3 能力不同，35 个 gate 的三向重放要重跑）+ 单价/质量重估——按弱模型优先原则，这不是免费午餐，决策须带重放数据。
+- 架构层（段隔离/交接包/逐步门控）两 provider 通用，无需分叉。
+
 ### P1 token 侧（1-2 天，零一过率风险）
 
 **P1-1 交接包瘦身（fresh 侧唯一有效杠杆，P0 后升级）**。`engine.handoff_pack` 前序各步 trace 只留 verdict 摘要 + 产物指针，不喂全文——v2.12 `read_evidence_for_step` 裁剪的同范式平移。预期首调 50-73k → ~30k，fresh -40%；连带每段上下文整体变小（cache_read 同步降）。
@@ -101,7 +119,8 @@
 
 ## 4. 实施顺序与预期
 
-P0（半天）→ P1（1-2 天，token -30~40%）→ P2-1/P2-2（2-3 天，墙钟 -15~20 min/run）→ P3-1（待分级标准）→ P2-4（试点）。
-全部落地预期：全 run ~3-3.5h、fresh ~1.2M、cache ~45M、成本 -25~30%，一过率不降。
+P0（已完成，含 kimi 对照）→ P1（1-2 天，token -30~40%，deepseek 上；kimi 上 P1-1 收益收窄为交接包 delta 本身）→ P2-1/P2-2（2-3 天，墙钟 -15~20 min/run，provider 无关）→ P3-1（待分级标准）→ P2-4（试点制；仅 deepseek 类 provider 有必要）。
+全部落地预期（deepseek）：全 run ~3-3.5h、fresh ~1.2M、cache ~45M、成本 -25~30%，一过率不降。
+provider 维度待决项：是否为工作流评一个 kimi 类端点 = 独立决策，前置是 35 gate 重放回归 + 单价核算，不在本方案实施面内。
 
 实施纪律：本仓 worktree-per-session 协议；每 Phase 独立分支独立收口；P1/P2 改动 hook/engine 后 `git pull` 即生效（hook 直引源），skill/output-style 改动需 install.sh 重 copy。
