@@ -1221,6 +1221,83 @@ def test_phase_front_needuser_pointer_requires_fresh_13(wf_repo):
     assert "need_user.json" not in text
 
 
+# ---- 裸开场收窄：陈述机械捕获 + step1 后台化（interactive-step-headless-prep §8）----
+
+
+def _phase_injection_prompt(repo: Path, prompt: str, **over) -> str:
+    """带自定义 prompt 的 phase 注入（_phase_injection 固定「继续」的泛化）。"""
+    _write_state(repo, **over)
+    mod = _load(PHASE_HOOK, "wp_front_test")
+    payload = {
+        "cwd": str(repo / ".claude" / "worktrees" / "t"),
+        "session_id": "s",
+        "prompt": prompt,
+    }
+    _rc, out = _call_hook_main(mod, payload)
+    return json.loads(out)["hookSpecificOutput"]["additionalContext"]
+
+
+def test_phase_capture_statement_at_bare_open(wf_repo):
+    """裸开场位置首条 prompt = 问题陈述：机械捕获 + 当轮即派段（step1 也后台）。"""
+    text = _phase_injection_prompt(wf_repo, "帮我分析5348.7%是否异常", front_mode=True)
+    st = _read_state(wf_repo)
+    assert st["problem_statement"] == "帮我分析5348.7%是否异常"
+    assert "已记录" in text
+    assert "活归后台工人" in text  # 捕获当轮路由即翻转（有陈述 ≠ 裸开场）
+
+
+def test_phase_capture_skips_command_and_short(wf_repo):
+    """防误捕：斜杠命令与 <3 字符的 prompt 不当陈述。"""
+    _phase_injection_prompt(wf_repo, "/dl status", front_mode=True)
+    assert "problem_statement" not in _read_state(wf_repo)
+    _phase_injection_prompt(wf_repo, "继续", front_mode=True)
+    assert "problem_statement" not in _read_state(wf_repo)
+
+
+def test_phase_capture_no_overwrite(wf_repo):
+    """已有陈述不覆盖（重开/续跑场景）。"""
+    text = _phase_injection_prompt(
+        wf_repo, "想换个问题分析", front_mode=True, problem_statement="旧陈述"
+    )
+    assert _read_state(wf_repo)["problem_statement"] == "旧陈述"
+    assert "已记录" not in text
+
+
+def test_phase_capture_only_at_bare_open(wf_repo):
+    """非 u:1#1 位置不捕获。"""
+    _phase_injection_prompt(
+        wf_repo, "这不是问题陈述哦", front_mode=True, sub_step_index=2
+    )
+    assert "problem_statement" not in _read_state(wf_repo)
+
+
+def test_phase_capture_v2_mode_keeps_work_here(wf_repo):
+    """v2 模式（无 front_mode）：捕获照做但路由不变——step1 仍前台干（无段概念）。"""
+    text = _phase_injection_prompt(wf_repo, "我的问题是X123")
+    assert _read_state(wf_repo)["problem_statement"] == "我的问题是X123"
+    assert "当前子步骤 1/6" in text
+    assert "活归后台工人" not in text
+
+
+def test_segment_bare_open_with_statement_runs_prep(wf_repo, monkeypatch):
+    """有陈述的 u:1#1 = 非裸开场：段内走 prep（§8）——退 13 不退 10。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(wf_repo, sub_step_index=1, problem_statement="分析X是否异常")
+    need_out = 'ok\n### NEED_USER\n```json\n{"questions": [{"question": "q"}]}\n```'
+    calls = _run_session_stub(drv, monkeypatch, [(0, need_out, "s")])
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 13 and len(calls) == 1
+    assert "预处理" in calls[0]
+
+
+def test_is_bare_open_has_statement():
+    """_is_bare_open §8 新条件：有陈述 = 非裸开场。"""
+    drv = _load(DRIVER, "drv_seg")
+    node = engine.get_node("understand", 1)
+    assert drv._is_bare_open(node, 1, None, has_statement=False) is True
+    assert drv._is_bare_open(node, 1, None, has_statement=True) is False
+
+
 def test_phase_front_dispatch_block_on_noninteractive_step(wf_repo):
     text = _phase_injection(wf_repo, front_mode=True, sub_step_index=2)  # u:1#2 非交互
     assert "活归后台工人" in text

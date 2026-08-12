@@ -784,16 +784,24 @@ def _build_tui_cmd(
     return cmd
 
 
-def _is_bare_open(node: "engine.Node", cur: int, pending_rework: "str | None") -> bool:
+def _is_bare_open(
+    node: "engine.Node",
+    cur: int,
+    pending_rework: "str | None",
+    has_statement: bool = False,
+) -> bool:
     """裸开场判定（drive-tasklist-render-design §2.4 修订2，用户裁决）：v2.0 原位
     开场——只限 understand:1#1（全工作流开场步）且无返工上下文时，TUI 不喂任务书
     prompt，会话开了安静等用户打字；用户陈述提交瞬间 node-rules（系统提示词含子1
     目的）+ phase 注入（任务清单目标状态）+ output-style 自然就位。裸开场万一未
     落 trace，none 重试自动换回完整任务书 prompt（主路裸开场、任务书返工兜底）。
     其余交互步（读回/裁决需模型先呈现材料）保持任务书驱动。
+    §8 收窄（2026-08-12 用户裁决）：has_statement=True（陈述已被 phase hook
+    机械捕获）即非裸开场——step1 与其余交互步同路径走 prep 后台化。
     """
     return (
         pending_rework is None
+        and not has_statement
         and node.phase == "understand"
         and node.sub == 1
         and cur == 1
@@ -1144,7 +1152,9 @@ def drive(project_root: Path, name: str, debug: bool, verbose: bool = False) -> 
             wt,
             rework=rework,
             disp=disp,
-            bare=_is_bare_open(node, cur, rework),
+            bare=_is_bare_open(
+                node, cur, rework, has_statement=bool(st.get("problem_statement"))
+            ),
         )
         return rc, sid, "tui-step"
 
@@ -1269,7 +1279,10 @@ def _run_boundary_loop(
                 total = len(node.sub_steps)
                 disp.begin(f"子步骤 {cur}/{total} · {step.short}")
                 if getattr(step, "interactive", False) and not _is_bare_open(
-                    node, cur, pending_rework
+                    node,
+                    cur,
+                    pending_rework,
+                    has_statement=bool(state.get("problem_statement")),
                 ):
                     # 交互步后台化预处理（interactive-step-headless-prep §4.1）：
                     # 不停段让 TUI——先 headless 备问题清单（L1 工具封锁+变体 prompt），

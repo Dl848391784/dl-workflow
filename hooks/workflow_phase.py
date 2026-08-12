@@ -224,7 +224,9 @@ def _settings_staleness_notice(project_root: Path, name: str) -> str:
     )
 
 
-def _format_injection(state: dict, project_root: Path | None) -> str:
+def _format_injection(
+    state: dict, project_root: Path | None, captured_statement: bool = False
+) -> str:
     """格式化阶段注入文本（当前阶段 + 规则四要素 + 子阶段 + 完成标记格式）。
 
     project_root：主仓库根（main() 已反查），用于拼 evidence.jsonl 绝对路径给模型写。
@@ -346,9 +348,17 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
             if node and node.sub_steps
             else None
         )
+        # 裸开场收窄（§8）：真·裸开场 = 交互步且仍无问题陈述（前台亲自收陈述）；
+        # 陈述在手后交互步与其余位置同路径（派段 → prep → code 13 回前台弹卡片）。
+        _bare_no_stmt = bool(
+            _cur_step_obj is not None
+            and _cur_step_obj.interactive
+            and state.get("node") == "understand:1"
+            and state.get("sub_step_index", 1) == 1
+            and not (state.get("problem_statement") or "").strip()
+        )
         _work_here = bool(
-            (_cur_step_obj is not None and _cur_step_obj.interactive)
-            or engine.front_dynamic_interactive(project_root, name, state)
+            _bare_no_stmt or engine.front_dynamic_interactive(project_root, name, state)
         )
         if phase_done_open:
             # 通道已开：闸门未放行 = 等 /dl gate（现有文案）；否则派发段机械推进
@@ -492,6 +502,14 @@ def _format_injection(state: dict, project_root: Path | None) -> str:
             "用户问进度可 Read segment_summary.json 或跑 /dl status。"
         )
     if front_dispatch:
+        if captured_statement:
+            # §8 捕获当轮：确认 + 先建清单再派段（step1 预处理也在后台跑）
+            lines.append(
+                "- ✓ 已记录你的问题陈述（进 state.problem_statement，后续步骤"
+                "交接包顶部可见）。现在：①建齐 TaskList 13 项（用户要看到清单）"
+                "②立即按下方命令派段——step1 预处理也在后台跑，备好问题后"
+                "回本会话弹卡片问你。"
+            )
         lines.append(
             f"- ▶ 起跑位置（{state.get('node')} 子步骤 "
             f"{state.get('sub_step_index')}）的活归后台工人，本会话不执行"
@@ -619,6 +637,22 @@ def main() -> int:
         return 0  # state 缺失 -> 不注入（可能未走 launcher）
     state = engine.normalize_state(state)
 
+    # 裸开场收窄（interactive-step-headless-prep §8）：u:1#1 且无陈述时，本条
+    # prompt 即用户问题陈述——机械捕获进 state.problem_statement（handoff_pack
+    # 顶部收录通道已有），模型零负担。防误捕：斜杠命令 / <3 字符跳过。
+    # 捕获后同轮 _format_injection 即按「有陈述」路由（front=派段跑 step1 prep）。
+    captured_statement = False
+    if (
+        state.get("node") == "understand:1"
+        and state.get("sub_step_index", 1) == 1
+        and not (state.get("problem_statement") or "").strip()
+        and len(prompt.strip()) >= 3
+        and not prompt.lstrip().startswith("/")
+    ):
+        engine.set_problem_statement(project_root, name, prompt.strip())
+        state["problem_statement"] = prompt.strip()
+        captured_statement = True
+
     # §substep-gate-at-stop：子步骤 gate+推进已收口到 Stop hook（evidence hash 触发），
     # 本 hook 只注入当前状态（含推进后的最新 sub_step_index），不再跑 gate。
 
@@ -634,7 +668,7 @@ def main() -> int:
             "然后 end_turn 等待。\n\n"
         )
 
-    context = _format_injection(state, project_root)
+    context = _format_injection(state, project_root, captured_statement)
     if plan_warn:
         context = plan_warn + context
     # v2.35：settings 模板版本落后警告（防静默权限税，症状 R）置注入最前。

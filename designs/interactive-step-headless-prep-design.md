@@ -84,3 +84,15 @@ plan:4 门栏、plan→execute 闸门、/dl gate 流程与本设计正交，零�
 - 不改 trace/gate 判据语义（prep 不落判材 trace）；
 - 不做问题清单的 judge 质检（问题质量沿用各步 purpose 既有条款 + 用户当场可纠正，加质检层是过度工程）；
 - 不动 v2 旧 TUI 路径（WF_TUI=1）。
+
+## §8 追加（2026-08-12 用户裁决）：裸开场收窄 = 只收陈述，step1 也后台化
+
+用户原话：「我问完问题后 TUI 加载 tasklist，然后 step1 也在后台执行——step1 启动前所有流程和交互跟现在一样，只不过 step1 也改在后台执行」。
+
+**机制**：
+1. **机械捕获**（workflow_phase.py UserPromptSubmit）：位置 = u:1#1 且 state 无 problem_statement 时，把用户本条 prompt 机械写入 state.problem_statement（engine.set_problem_statement 既有通道，handoff_pack 顶部收录已有）。防误捕：以 `/` 开头的命令、<4 字符的 prompt 不捕。误捕补救 = Q&A 环节当场纠正 / /dl state-reset。
+2. **路由收窄**：front 注入 `_work_here` 从「step.interactive 即前台干」改为「step.interactive 且无陈述（真·裸开场）才前台干」——有陈述后 u:1#1 与其余交互步同路径：派段 → prep → code 13 → TUI 弹卡片。`_is_bare_open` 加 `has_statement` 条件（dl_drive 段边界同步：有陈述的 u:1#1 走 prep 不再退 10）。
+3. **陈述当轮注入变体**：捕获发生的当轮注入「✓ 已记录问题陈述 + 建齐 TaskList + 立即派段」指引。
+4. v2（WF_TUI=1）模式只捕获不改路由（无段概念）；drive 模式行为不变（bare TUI 段落 trace 收段，rework 才有二次访问而 rework 非裸）。
+
+**验证**：u:1#1 prep 变体真实模型重放 n=3（带假陈述）NEED_USER 出口率须 100% 才 merge；单测覆盖捕获/防误捕/不覆盖/路由两态/段边界两态。
