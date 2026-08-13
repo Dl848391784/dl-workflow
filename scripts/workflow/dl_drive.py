@@ -261,7 +261,11 @@ def ensure_node_rules(project_root: Path, name: str, node: "engine.Node") -> Pat
         f"- 禁静默兜底：捕获异常必 log，默认值必标记，缺数据必暴露\n"
         f"- 取证去冗余：grep 用一条 compound 命令覆盖所有近义关键词和路径"
         f"（例 `grep -rnE 'annual|annualized|年化|ann_pct' 路径1 路径2`），"
-        f"禁对同一关键词反复发 grep 变体；先列需查证据清单再逐项读，禁读一个再想下一个\n\n"
+        f"禁对同一关键词反复发 grep 变体；先列需查证据清单再逐项读，禁读一个再想下一个\n"
+        f"- 载荷格式以 --scaffold 骨架为准：字段标头（【purpose】【qa】【q】【a】【statements】"
+        f"【text】【type_label】【boundary】【fields.*】）逐字照抄骨架，"
+        f"禁反向 grep engine 源码（dl_flow_engine.py）核对格式/校验规则——"
+        f"骨架 + 本节点 purpose 已含全部格式信息\n\n"
         f"## 本节点子步骤清单\n\n"
         f"{section}\n"
     )

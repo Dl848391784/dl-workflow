@@ -158,6 +158,7 @@ def test_node_rules_is_node_scoped_not_full_template(wf_repo):
     assert "子步骤" in text
     assert "禁输出 ### STEP_DONE" in text
     assert "取证去冗余" in text  # 通用纪律含证据搜寻去冗余指令（v4-cost-latency）
+    assert "载荷格式以 --scaffold 骨架为准" in text  # 禁反向 grep engine 核对格式
     # 瘦版：只含本节点段落——本节点 GENERATED 段在、其它节点的段不在
     assert "sub_steps understand:1" in text
     assert "sub_steps plan:" not in text
