@@ -1999,13 +1999,25 @@ def test_chain_resume_on_match(wf_repo):
 
 
 def test_chain_resume_rejects_non_whitelist_node(wf_repo):
-    """试点纪律：白名单（u:2/3/4）外节点不续链；空名单=全局关（回滚面）。"""
+    """白名单外节点不续链（u:1 重步链化待评估，除外）；空名单=全局关（回滚面）。"""
     drv = _load(DRIVER, "drv_chain_wl")
     state = _write_state(
         wf_repo,
-        segment_chain={"node": "plan:1", "sid": "abc", "last_step": 1},
+        segment_chain={"node": "understand:1", "sid": "abc", "last_step": 1},
     )
-    assert drv._chain_resume_sid(state, "plan:1", 2) is None
+    assert drv._chain_resume_sid(state, "understand:1", 2) is None
+
+
+def test_chain_resume_plan_nodes_whitelisted(wf_repo):
+    """2026-08-13 扩面（试点护栏达标：22/22 一次过+链峰值<250k+零兜底）：
+    plan:1-4 全族续链；plan:1 子2 交互步由 last_step 不变式天然断链。"""
+    drv = _load(DRIVER, "drv_chain_plan")
+    for nid in ("plan:1", "plan:2", "plan:3", "plan:4"):
+        state = _write_state(
+            wf_repo,
+            segment_chain={"node": nid, "sid": f"s-{nid}", "last_step": 2},
+        )
+        assert drv._chain_resume_sid(state, nid, 3) == f"s-{nid}"
 
 
 def test_chain_resume_rejects_step_gap(wf_repo):
@@ -2052,7 +2064,7 @@ def test_chain_update_clears_on_non_whitelist_node(wf_repo):
         wf_repo,
         segment_chain={"node": "understand:2", "sid": "abc", "last_step": 4},
     )
-    drv._chain_update(wf_repo, "t", "plan:1", 1, "sid-y")
+    drv._chain_update(wf_repo, "t", "understand:1", 1, "sid-y")
     assert "segment_chain" not in _read_state(wf_repo)
 
 

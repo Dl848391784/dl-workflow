@@ -2,6 +2,7 @@
 
 > 立项依据：`v4-cost-latency-optimization-design.md` §2 P2-4（段合并 = deepseek 类 provider 摊薄冷启动次数的唯一途径；P1/P2-1/P3-1 已落地，P2-2 已审计关闭，本项为剩余最大杠杆）+ 2026-08-13 用户裁决：杠杆一（段合并）做；杠杆二（11 步去 judge）= P2-2 今日审计已关闭（35/35 gate 含语义判据，judge 实测 8.9s/次 ≈ 4% 账单），放弃；杠杆三（任务分级 fast lane）待本项落地 + 护栏数据后评估。
 > 机制冒烟（2026-08-13 设计期实测）：`claude -p --resume <sid>` 跨进程续会话**通过**（kimi 端点，第二轮记得第一轮内容，session_id 一致）——核心机制成立；全旗标组合（--settings/--append-system-prompt-file/stream-json/stdin prompt/--resume）冒烟列实施步 0。
+> 修订（2026-08-13，用户裁决）：**扩 plan 族**——试点护栏达标（interaction run 实测：u:2/3/4 三链各覆盖子2-子4、22/22 步一次过零返工、链峰值 111-149k << 250k、零 chain_broken_fallback、fresh 省 ~270k），`SEGMENT_CHAIN_NODES` 扩入 plan:1-4。u:1 仍除外（重步链化收益最大但峰值风险同大，#4 单步实测 168k，单独评估）。在飞实例兼容性：段工人按段 spawn 新进程 import engine，扩面即时生效，纯增量无断链风险。
 
 ## 0. 与 v3.0 §2.2 否「批量段」的差异（为什么本次不撞旧否决）
 
