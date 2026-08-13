@@ -413,6 +413,36 @@ class TestStep456Redesign:
         assert all(s.record for s in self._steps())
 
 
+class TestEvidenceTierRedesign:
+    """2026-08-13 取证深度档与取证策略重设计
+    （designs/evidence-gathering-tier-redesign-design.md）：sub3 审计实证 light+full
+    两 agent 17 curl 仅 4 次有效（24%）。A1 light 例错删；A2 值不值得取证判据；
+    A3 tier 前置到因果链前；B1/B2 权威源注册表定点抓 + 术语翻译 + 泛搜兜底。"""
+
+    def _steps(self):
+        node = eng.get_node("understand", 1)
+        assert node.sub_steps is not None and len(node.sub_steps) == 6
+        return node.sub_steps
+
+    def test_sub2_tier_rule_value_check_and_order(self):
+        p2 = self._steps()[1].purpose  # sub2 拆解深挖
+        # A2：值不值得取证判据（外部取证是否改变结论方向）
+        assert "值不值得" in p2 or "是否改变「问题是否成立」" in p2
+        # A3：tier 前置——取证深度档 在 因果链 之前（避免因果链锚定误判）
+        assert p2.index("取证深度档") < p2.index("因果链")
+        # A1：light 旧例子「年化量级合理性」移除、换成「有具体公认一次即得」
+        assert "（如年化量级合理性判断）" not in p2
+        assert "有具体、公认、一次即得" in p2
+
+    def test_sub3_authority_registry_and_targeted_fetch(self):
+        p3 = self._steps()[2].purpose  # sub3 双向取证
+        # B1：权威源注册表（按 claim 类型定点抓）
+        assert "权威源注册表" in p3
+        # B2：定点抓权威源 + 术语翻译 + 泛搜兜底
+        assert "定点抓" in p3
+        assert "业界术语" in p3
+
+
 class TestHarnessPromptOptimization:
     """2026-07-26 harness 化优化（designs/harness-prompt-optimization-design.md）：
     Step.short 骨架短名（P0 注入瘦身）；purpose 清考古（P2，规则留、考古移注释）；

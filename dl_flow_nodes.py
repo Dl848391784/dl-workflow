@@ -478,17 +478,37 @@ _CAUSAL_CHAIN_EVIDENCE_RULE = (
 # 侧，模型侧无操作测试（单侧钉死，§3.5 #12）。补操作测试：论证过程用到
 # 仓外知识 = 问题含外部知识依赖。
 _FETCH_TIER_RULE = (
-    "取证深度三档（逐原子问题定档，拿不准标 light——默认档）："
+    "取证深度三档（逐原子问题定档，拿不准标 light——默认档）。"
+    "定档前先问「值不值得取证」：外部取证结论（无论证实还是证伪）"
+    "是否会改变「问题是否成立」或「修复方向」？不会 → 该原子问题标 none"
+    "（仓内佐证即可，不派外部 agent）。"
     "none=答案仓内可达（函数行为/数据契约/配置/日志），仅内查不派外部 "
     "agent，tier_reason 须指出仓内取证路径（文件/file:line）；"
-    "light=单一事实/数值 claim，公开有权威锚点（如年化量级合理性判断），"
-    "≤2 层源 ≤4 curl 单向点查即收；"
-    "full=方法论/设计/开放问题，无单一权威答案，五层源双向充分取证。"
+    "light=有具体、公认、一次即得的单一事实/数值（如某因子历史年化的"
+    "明确文献值），≤2 层源 ≤4 curl 单向点查即收；"
+    "full=方法论/设计/量级合理性/开放问题（无单一权威、需综合——"
+    "如「X 策略年化 48.7% 是否合理」这类量级合理性判断），五层源双向充分取证。"
     "外部知识依赖操作测试：问题本身或你的论证过程（因果链/tier_reason）"
     "用到仓外知识——行业常识/第三方库行为/方法论/数值合理性公式"
     "（如年化 = 均值×252）——即含外部知识依赖，不得标 none（至少 "
     "light）；反例「论证引 annual_return = valid_mean*252*coverage 公式"
     "判量级合理性，却标 none」= 漏取证，判 block"
+)
+
+# 取证权威源注册表（2026-08-13 amplitude_annualized sub3 审计：light+full 17 curl
+# 仅 4 次有效（24%），其余泛搜索全空——「年化折算」是工程惯例非学术问题，权威在
+# 业界标准库源码，不在 OpenAlex/arXiv 关键词索引。按 claim 类型定点抓，禁先泛搜。
+_FETCH_AUTHORITY_REGISTRY = (
+    "取证权威源注册表（按 claim 类型定点抓，禁先泛搜学术数据库）："
+    "①年化折算/回测统计惯例 → empyrical / pyfolio / quantstats / vectorbt / zipline "
+    "源码（raw.githubusercontent 直抓）；"
+    "②因子收益量级/方法论 → Fama-French 数据库 / WRDS / 具体 SSRN 论文；"
+    "③框架 API 语义 → 官方文档 / docstring；"
+    "④单点数值 → 已知定点网页/文档。"
+    "取证第一步 = 按 claim 类型查本表、定点抓权威源；"
+    "查询词先翻译成业界术语（禁 repo 内部黑话，如 coverage → annualization with "
+    "missing trading days）；泛搜索（OpenAlex/arXiv/SE/HN）只作「注册表无对应项」"
+    "时的兜底。"
 )
 
 # 交互读回步的提问拆分规则（2026-07-30 tail_volume understand:4 子5 审计）：
@@ -775,12 +795,12 @@ _NODES: dict[str, Node] = {
                 purpose=(
                     "拆解深挖：①单一/复合判定——复合痛点按 MECE 拆成原子问题清单"
                     "（互不重叠、合起来覆盖全部痛点；单一则声明「无复合」理由）；"
-                    "②每个原子问题沿因果链挖到根因（invoke causal-inference-root-cause，"
+                    f"②每个原子问题定取证深度档——{_FETCH_TIER_RULE}；"
+                    "③每个原子问题沿因果链挖到根因（invoke causal-inference-root-cause，"
                     "5 Whys/鱼骨/时序分析），每环必须有可观察证据，禁纯叙事——"
                     f"{_CAUSAL_CHAIN_EVIDENCE_RULE}；"
-                    "③每个问题 ≥1 个竞争假设 + 排除理由（或当前假设为何最可能）；"
-                    "④区分近因与根因，标注置信度；"
-                    f"⑤每个原子问题定取证深度档——{_FETCH_TIER_RULE}。"
+                    "④每个问题 ≥1 个竞争假设 + 排除理由（或当前假设为何最可能）；"
+                    "⑤区分近因与根因，标注置信度。"
                     "原子问题清单连档作为载荷顶层 atomic_questions 键提交"
                     "（逐项 "
                     '{"q":<原子问题>, "tier":"none|light|full", "tier_reason":<分档理由>}，'
@@ -919,6 +939,7 @@ _NODES: dict[str, Node] = {
                 purpose=(
                     "按档取证（标称档 = 子2 atomic_questions，本步只执行不重定档；"
                     "外部层卸子代理，主会话只收蒸馏报告；"
+                    f"{_FETCH_AUTHORITY_REGISTRY}"
                     "执行序钉死=①→②→③→④，禁调换）："
                     "①主张可检验化（主会话做）——每个 tier≠none 的原子问题 → "
                     "可证伪 claim + 事先写死「什么证据会证实/什么证据会证伪」；"
