@@ -1,8 +1,14 @@
 # 取证去冗余指令设计（降段工人轮次 / 成本）
 
-> 状态：已实现。触发 = 2026-08-13 `amplitude_annualized` 审计：sub2 拆解 55 轮、
+> 状态：已回退（commit e7813f4）。触发 = 2026-08-13 `amplitude_annualized` 审计：sub2 拆解 55 轮、
 > sub3 取证 92 轮（其中 62 轮是 ingest-agent 定位 bug，另修；本设计针对剩余的证据
 > 搜寻冗余）。
+>
+> ⚠️ 回退原因（2026-08-13 重跑实证）：有界 A/B 实验（53→16 工具调用）未迁移到真实
+> sub2——真实 sub2 的冗余是「沿调用链追函数」（load_backtest_results ×3、
+> convert_return_to_percentage ×2），非「关键词变体」；compound grep 覆盖更多关键词
+> 反而命中更多线索，净 grep 30→41、cache_read 3.0M→5.84M、成本 $3.24→$4.96。教训：
+> **有界任务的 prompt 收益不能外推到复杂多步任务**，须真实任务重放验证。
 
 ## 1. 背景与实证
 
