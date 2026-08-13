@@ -251,8 +251,8 @@ def ensure_node_rules(project_root: Path, name: str, node: "engine.Node") -> Pat
     phase_label = engine.PHASE_LABELS.get(node.phase, node.phase)
     text = (
         f"# WORKFLOW 节点规则（driver 装配瘦版——全量 phase-rules 不注入）\n\n"
-        f"你在外部 driver 编排的工作流会话中执行子步骤。**每个会话只做当前一个子步骤**；"
-        f"后续步骤由 driver 另起全新会话，与你无关。门控只认 evidence trace"
+        f"你在外部 driver 编排的工作流会话中执行子步骤。**每次派发只做当前一个子步骤**；"
+        f"后续步骤由 driver 另行派发，与你无关。门控只认 evidence trace"
         f"（append-trace 落库），不认可完成标记。\n\n"
         f"## 通用纪律\n"
         f"- 完成后必须 append-trace 落库（--scaffold 生成骨架 → Edit 填「待填」→ --from-file）\n"
@@ -907,7 +907,7 @@ def build_step_prompt(
         )
         rules_block = (
             "铁律：\n"
-            "- 只做这一个子步骤——后续步骤由 driver 另起会话，与你无关\n"
+            "- 只做这一个子步骤——后续步骤由 driver 另行派发，与你无关\n"
             "- 禁输出 ### STEP_DONE / ### PHASE_DONE 标记（外部编排，标记无效）\n"
             f"{_bash_shape_rules(project_root)}\n"
             f"{tail}\n" + engine.selfcheck_hint(step)
