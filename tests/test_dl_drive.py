@@ -944,8 +944,10 @@ def test_segment_runs_headless_steps_then_prep_exits_13(wf_repo, monkeypatch):
     monkeypatch.setattr(engine, "gate_sub_step_at_stop", _gate_advancing(wf_repo))
     rc = drv.run_segment(wf_repo, "t")
     assert rc == 13
-    assert len(calls) == 5  # u:1 子2..5 headless + 子6 prep（子1 不在段内）
-    assert _read_state(wf_repo)["sub_step_index"] == 6
+    # u:1 子2..5 headless + u:2#1 prep（P3-1：子6 读回降确认级，无 prep 段直通）
+    assert len(calls) == 5
+    st = _read_state(wf_repo)
+    assert st["node"] == "understand:2" and st["sub_step_index"] == 1
 
 
 def test_segment_lock_live_during_run(wf_repo, monkeypatch):
@@ -1767,29 +1769,45 @@ def test_next_prep_marker_roundtrip(wf_repo):
     assert drv._consume_next_prep(wf_repo, "t", "understand:1#6") is False  # 一次性
 
 
+def _gate_advancing_plan1(repo: Path):
+    """plan:1 内推进假门控（P3-1 后 NEXT_PREP 仅存场景=plan:1#1→#2 方案发散）。"""
+
+    def fake(project_root, name, cwd):
+        st = _read_state(repo)
+        st["sub_step_index"] = st.get("sub_step_index", 1) + 1
+        (repo / SEG_META / "state.json").write_text(json.dumps(st), encoding="utf-8")
+        return ("advanced", "", None)
+
+    return fake
+
+
 def test_segment_next_prep_skips_prep_session(wf_repo, monkeypatch):
-    """工作段输出 NEXT_PREP → 门控通过后落标记 → 子6（交互）直接退 13，不起 prep 段。"""
+    """工作段输出 NEXT_PREP → 门控通过后落标记 → 子2（decision 级交互）直接退 13。"""
     drv = _load(DRIVER, "drv_seg")
-    _seg_write_state(wf_repo, sub_step_index=5)
+    _seg_write_state(
+        wf_repo, phase="plan", index=2, sub_index=1, node="plan:1", sub_step_index=1
+    )
     next_prep_out = (
         '落库完成\n### NEXT_PREP\n```json\n{"questions": [{"question": "q"}]}\n```'
     )
     calls = _run_session_stub(drv, monkeypatch, [(0, next_prep_out, "s")])
-    monkeypatch.setattr(engine, "gate_sub_step_at_stop", _gate_advancing(wf_repo))
+    monkeypatch.setattr(engine, "gate_sub_step_at_stop", _gate_advancing_plan1(wf_repo))
     rc = drv.run_segment(wf_repo, "t")
     assert rc == 13
-    assert len(calls) == 1  # 只有子5 工作段，无子6 prep 段
+    assert len(calls) == 1  # 只有子1 工作段，无子2 prep 段
     assert "### NEXT_PREP" in calls[0]  # prompt 带了顺带交付指令
     data = json.loads((wf_repo / SEG_META / "need_user.json").read_text())
     assert data["questions"][0]["question"] == "q"
-    assert _read_state(wf_repo)["sub_step_index"] == 6
+    assert _read_state(wf_repo)["sub_step_index"] == 2
 
 
 def test_segment_block_content_questions_not_stashed(wf_repo, monkeypatch):
     """被 block 的内容备的 NEXT_PREP 不落标记（门控通过才 stash）——
     防「按不合格内容备的问题」转前台。"""
     drv = _load(DRIVER, "drv_seg")
-    _seg_write_state(wf_repo, sub_step_index=5)
+    _seg_write_state(
+        wf_repo, phase="plan", index=2, sub_index=1, node="plan:1", sub_step_index=1
+    )
     next_prep_out = 'x\n### NEXT_PREP\n```json\n{"questions": [{"question": "q"}]}\n```'
     # 两轮：第一轮 block（带 NEXT_PREP），第二轮 advanced（不带）
     prep_out = 'ok\n### NEED_USER\n```json\n{"questions": [{"question": "q2"}]}\n```'
@@ -1802,12 +1820,109 @@ def test_segment_block_content_questions_not_stashed(wf_repo, monkeypatch):
         a = next(acts)
         if a[0] == "advanced":
             st = _read_state(wf_repo)
-            st["sub_step_index"] = 6
+            st["sub_step_index"] = 2
             (wf_repo / SEG_META / "state.json").write_text(json.dumps(st))
         return a
 
     monkeypatch.setattr(engine, "gate_sub_step_at_stop", fake_gate)
     rc = drv.run_segment(wf_repo, "t")
-    # 第二轮未输出 NEXT_PREP -> 无标记 -> 子6 走原 prep 段（第三次调用）后退 13
+    # 第二轮未输出 NEXT_PREP -> 无标记 -> 子2 走原 prep 段（第三次调用）后退 13
     assert rc == 13
     assert len(calls) == 3
+
+
+# ---------- P3-1 确认级读回（v4-cost-latency-optimization-design §2 P3，2026-08-13 用户裁决） ----------
+
+
+def _read_evidence_recs(repo: Path) -> list:
+    p = repo / ".claude" / "evidence" / "t.jsonl"
+    if not p.exists():
+        return []
+    return [
+        json.loads(x) for x in p.read_text(encoding="utf-8").splitlines() if x.strip()
+    ]
+
+
+def test_confirm_artifact_mapping():
+    node = engine.get_node("understand", 4)
+    assert engine.confirm_artifact(node) == ("understand.md", None)
+    assert engine.confirm_artifact(engine.get_node("plan", 2)) == ("plan.md", None)
+    assert engine.confirm_artifact(engine.get_node("plan", 3)) == ("plan.md", None)
+    assert engine.confirm_artifact(engine.get_node("plan", 4)) == ("plan.md", None)
+    assert engine.confirm_artifact(engine.get_node("plan", 1)) == (
+        "design.md",
+        "USE_WORKFLOW_NAME",
+    )
+    assert engine.confirm_artifact(engine.get_node("understand", 1)) is None
+
+
+def test_write_confirm_trace_shape(wf_repo):
+    node = engine.get_node("understand", 1)
+    engine.write_confirm_trace(wf_repo, "t", node, 6)
+    recs = _read_evidence_recs(wf_repo)
+    assert len(recs) == 1
+    r = recs[0]
+    assert r["kind"] == "skill-trace" and r["sub_step"] == 6
+    assert r["minor_stage"] == node.minor_key
+    # user_decision_recorded 同形：q 含「读回」+ a ≥50 字（交接后可还原拍板语义）
+    assert "读回" in r["q"][0] and len(r["a"][0]) >= 50
+    assert "state-reset" in r["a"][0]  # 异议通道入 trace
+
+
+def test_segment_confirm_readback_no_session(wf_repo, monkeypatch):
+    """确认级读回（u:1#6）：不起任何模型段——机械展示+落 trace+推进，
+    直通 u:2#1（decision 级）prep 退 13。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(wf_repo, sub_step_index=6)
+    rb_calls = []
+
+    def fake_rb(project_root, name):
+        rb_calls.append(1)
+        return True, "归一化内容展示"
+
+    monkeypatch.setattr(engine, "render_readback", fake_rb)
+    calls = _run_session_stub(
+        drv,
+        monkeypatch,
+        [(0, 'ok\n### NEED_USER\n```json\n{"questions": []}\n```', "s")],
+    )
+    monkeypatch.setattr(engine, "gate_sub_step_at_stop", _gate_advancing(wf_repo))
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 13
+    assert rb_calls == [1]  # 机械展示被调
+    assert len(calls) == 1  # 只有 u:2#1 的 prep 段——读回步零会话
+    recs = _read_evidence_recs(wf_repo)
+    assert any(
+        r.get("skill") == "confirm-readback" and r.get("sub_step") == 6 for r in recs
+    )
+
+
+def test_segment_confirm_readback_assembles_artifact(wf_repo, monkeypatch):
+    """plan:2#5 确认级：render_artifact 以 plan.md 被调；装配后落 trace 推进。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(
+        wf_repo, phase="plan", index=2, sub_index=2, node="plan:2", sub_step_index=5
+    )
+    art_calls = []
+
+    def fake_art(project_root, name, basename, slug=None, force=False):
+        art_calls.append((basename, slug))
+        return True, "assembled"
+
+    monkeypatch.setattr(engine, "render_artifact", fake_art)
+    monkeypatch.setattr(engine, "render_readback", lambda *a: (True, "展示"))
+
+    def fake_gate(project_root, name, cwd):
+        st = _read_state(wf_repo)
+        st.update(sub_index=3, node="plan:3", sub_step_index=1, held_for_gate=True)
+        (wf_repo / SEG_META / "state.json").write_text(json.dumps(st), encoding="utf-8")
+        return ("advanced", "", None)
+
+    monkeypatch.setattr(engine, "gate_sub_step_at_stop", fake_gate)
+    calls = _run_session_stub(drv, monkeypatch, [])
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 11  # 推进后撞 held_for_gate 退 11
+    assert art_calls == [("plan.md", None)]
+    assert calls == []  # 全程零模型会话
+    recs = _read_evidence_recs(wf_repo)
+    assert any(r.get("skill") == "confirm-readback" for r in recs)

@@ -404,8 +404,9 @@ class TestStep456Redesign:
     def test_step6_readback_with_evidence_gate_none(self):
         s6 = self._steps()[5]
         assert s6.gate is None  # 交互步不跑 judge（trace 存在即过）
-        assert "证据指针" in s6.purpose
-        assert "证据不足" in s6.purpose  # 不确定性须显式暴露给用户裁决
+        assert s6.tier == "confirm"  # P3-1 读回降确认级（2026-08-13 用户裁决）
+        assert "静默通过" in s6.purpose and "state-reset" in s6.purpose
+        # 原「证据指针/证据不足呈现」归 render-readback 机械装配（见该函数测试）
 
     def test_all_six_steps_record_true(self):
         # 末步 record=True 是 Stop 门控的完成触发信号（3a 潜在洞修复）
@@ -1218,7 +1219,8 @@ class TestUnderstand2Orchestration:
         s5 = self._steps()[4]
         assert s5.gate is None  # 交互步，trace 存在即过
         assert s5.record is True
-        assert "用户裁决 must/nice" in s5.purpose
+        assert s5.tier == "confirm"  # P3-1 读回降确认级（2026-08-13 用户裁决）
+        assert "静默通过" in s5.purpose and "state-reset" in s5.purpose
 
     def test_selfcheck_no_quality_criteria_leak(self):
         # Goodhart 分层守卫（同 understand:1）：gate 黑盒措辞不得进 checklist
@@ -1307,7 +1309,8 @@ class TestUnderstand3Orchestration:
         s5 = self._steps()[4]
         assert s5.gate is None  # 交互步，trace 存在即过
         assert s5.record is True
-        assert "假设的接受" in s5.purpose  # 第二规范裁决点
+        assert s5.tier == "confirm"  # P3-1 读回降确认级（2026-08-13 用户裁决）
+        assert "静默通过" in s5.purpose and "state-reset" in s5.purpose
 
     def test_selfcheck_no_quality_criteria_leak(self):
         # Goodhart 分层守卫（同 understand:1/2）：gate 黑盒措辞不得进 checklist
@@ -1847,7 +1850,8 @@ class TestUnderstand4Orchestration:
         s5 = self._steps()[4]
         assert s5.gate is None  # 交互步，trace 存在即过
         assert s5.record is True
-        assert "阈值拍板" in s5.purpose and "验收方式认可" in s5.purpose
+        assert s5.tier == "confirm"  # P3-1 读回降确认级（2026-08-13 用户裁决）
+        assert "静默通过" in s5.purpose and "state-reset" in s5.purpose
 
     def test_selfcheck_no_quality_criteria_leak(self):
         # Goodhart 分层守卫（同前三个节点）：gate 黑盒措辞不得进 checklist
@@ -2009,16 +2013,9 @@ class TestPlan1Orchestration:
         s6 = self._steps()[5]
         assert s6.gate is None  # 交互步，trace 存在即过
         assert s6.record is True
-        for needle in (
-            "选型拍板",
-            "权重",
-            "假设接受",
-            "design.md",
-            "render-artifact",
-            "--slug",
-            "禁手写产物",
-        ):  # v2.62 design.md 进机械装配，防二次创作由脚本结构性保证
-            assert needle in s6.purpose, f"子6 purpose 缺 {needle}"
+        assert s6.tier == "confirm"  # P3-1 读回降确认级（2026-08-13 用户裁决）
+        assert "静默通过" in s6.purpose and "state-reset" in s6.purpose
+        # design.md 装配映射归 engine.confirm_artifact pin（test_dl_drive）
 
     def test_selfcheck_no_quality_criteria_leak(self):
         # Goodhart 分层守卫（同前四个节点）：gate 黑盒措辞不得进 checklist
@@ -2188,14 +2185,8 @@ class TestPlan2Orchestration:
         s5 = self._steps()[4]
         assert s5.gate is None  # 交互步，trace 存在即过
         assert s5.record is True
-        for needle in (
-            "阶段/粒度拍板",
-            "假设接受",
-            "plan.md",
-            "render-artifact",
-            "禁手写产物",
-        ):
-            assert needle in s5.purpose, f"子5 purpose 缺 {needle}"
+        assert s5.tier == "confirm"  # P3-1 读回降确认级（2026-08-13 用户裁决）
+        assert "静默通过" in s5.purpose and "state-reset" in s5.purpose
 
     def test_selfcheck_no_quality_criteria_leak(self):
         # Goodhart 分层守卫（同前五个节点）：gate 黑盒措辞不得进 checklist
@@ -2408,14 +2399,8 @@ class TestPlan3Orchestration:
         s6 = self._steps()[5]
         assert s6.gate is None  # 交互步，trace 存在即过
         assert s6.record is True
-        for needle in (
-            "映射拍板",
-            "假设接受",
-            "plan.md",
-            "render-artifact",
-            "禁手写产物",
-        ):
-            assert needle in s6.purpose, f"子6 purpose 缺 {needle}"
+        assert s6.tier == "confirm"  # P3-1 读回降确认级（2026-08-13 用户裁决）
+        assert "静默通过" in s6.purpose and "state-reset" in s6.purpose
 
     def test_selfcheck_no_quality_criteria_leak(self):
         # Goodhart 分层守卫（同前六个节点）：gate 黑盒措辞不得进 checklist
@@ -2615,15 +2600,8 @@ class TestPlan4Orchestration:
         s5 = self._steps()[4]
         assert s5.gate is None  # 交互步，trace 存在即过
         assert s5.record is True
-        for needle in (
-            "密度与类型拍板",
-            "假设接受",
-            "冻结策略",
-            "plan.md",
-            "render-artifact",
-            "禁手写产物",
-        ):
-            assert needle in s5.purpose, f"子5 purpose 缺 {needle}"
+        assert s5.tier == "confirm"  # P3-1 读回降确认级（2026-08-13 用户裁决）
+        assert "静默通过" in s5.purpose and "state-reset" in s5.purpose
 
     def test_selfcheck_no_quality_criteria_leak(self):
         # Goodhart 分层守卫（同前七个节点）：gate 黑盒措辞不得进 checklist
@@ -9686,7 +9664,7 @@ class TestRenderReadback:
             node = eng.get_node(phase, sub)
             last = node.sub_steps[-1]
             assert "render-readback" in last.purpose, f"{phase}:{sub} 末步"
-            assert "禁手抄" in last.purpose, f"{phase}:{sub} 末步"
+            assert last.tier == "confirm", f"{phase}:{sub} 末步（P3-1 确认级）"
 
 
 class TestRenderArtifactDesignMd:

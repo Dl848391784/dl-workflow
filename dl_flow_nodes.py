@@ -13,6 +13,7 @@ re-export（hooks/tests 经 engine.* 访问面不变）。
 
 from __future__ import annotations
 
+import dataclasses
 import enum
 from dataclasses import dataclass
 
@@ -90,6 +91,12 @@ class Step:
     # False=非交互步，headless `claude -p` 段。声明式单源——禁从 purpose
     # 文本嗅探（词形漂移病根，症状 M 同型）。TUI hook 编排不读此字段。
     interactive: bool = False
+    # P3-1 读回分级（v4-cost-latency-optimization-design §2 P3，2026-08-13
+    # 用户裁决：8 个读回步全降确认级）：仅 interactive=True 时有意义——
+    # "decision"（默认）= 弹卡片问用户；"confirm" = 确认级：driver 机械展示
+    # （render-readback）+ 装配（render-artifact）+ 静默通过落 trace，不弹卡片；
+    # 异议走 /dl state-reset 回上一步。TUI hook 编排（WF_TUI=1 回滚面）不读此字段。
+    tier: str = "decision"
 
 
 @dataclass(frozen=True)
@@ -3690,6 +3697,41 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
         advance="done",
     ),
 }
+
+
+# ---------- P3-1 读回分级（2026-08-13 用户裁决，v4-cost-latency-optimization-design §2 P3）----------
+#
+# 8 个读回步（short=读回确认/读回装配 且 interactive=True）全降确认级：
+# driver 机械展示（render-readback）+ 装配（render-artifact）+ 静默通过落 trace，
+# 不弹卡片（实测 17 次提问 11 次 <1min 秒点——读回卡片的边际信息≈0，而每次
+# 1-2min 交互延迟+前后段启动是真成本）；异议走 /dl state-reset 回上一步重做。
+# 单点补丁而非逐 Step 改声明：原 purpose 是交互读回的长文案（逐问规则/裁决记录
+# 规则），确认级语义一处单源，防 8 处文案漂移（改语义只改这里）。
+_CONFIRM_READBACK_PURPOSE = (
+    "确认级读回（P3-1 分级）：本步无模型会话——driver 机械展示本节点归一化内容"
+    "（render-readback 装配）+ 装配产物（render-artifact）+ 以「确认级·静默通过」"
+    "落 trace 后自动推进，不弹卡片问用户。用户异议走 /dl state-reset 回上一步重做。"
+)
+
+
+def _apply_confirm_readback_tier(nodes: "dict[str, Node]") -> None:
+    for _key, _node in list(nodes.items()):
+        if not _node.sub_steps:
+            continue
+        new_steps = tuple(
+            dataclasses.replace(_s, tier="confirm", purpose=_CONFIRM_READBACK_PURPOSE)
+            if (
+                getattr(_s, "interactive", False)
+                and _s.short in ("读回确认", "读回装配")
+            )
+            else _s
+            for _s in _node.sub_steps
+        )
+        if new_steps != tuple(_node.sub_steps):
+            nodes[_key] = dataclasses.replace(_node, sub_steps=new_steps)
+
+
+_apply_confirm_readback_tier(_NODES)
 
 
 # 大阶段顺序（英文标识;与 dl-lib.sh:37 WF_PHASES 同源,收口到 engine 一份）。

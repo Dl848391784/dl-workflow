@@ -103,10 +103,11 @@
 
 ### P3 交互侧（用户裁决项，UX 契约变更）
 
-**P3-1 读回分级**。实测 17 次提问 11 次 <1 min 秒点。提案两级：
-- **裁决级**（涉方案选择/取舍/方向）：维持弹卡片；
-- **确认级**（机械读回、无非标内容）：静默通过 + trace 可查 + 事后 `/dl dispute` 兜底（通道已存在）。
-省用户 ~8 min/run，消除边界两连问长间隔。分级标准（哪些步属确认级）需用户逐节点拍板，落定前不动。
+**P3-1 读回分级（已落地，2026-08-13 用户裁决：8 个读回步全降确认级）**。实测 17 次提问 11 次 <1 min 秒点。
+- **裁决级**（涉方案选择/取舍/方向）：维持弹卡片——u:1-4#1 引出步 + plan:1#2 方案发散 + plan:4 门栏（不动）；
+- **确认级**（机械读回、无非标内容）：u:1#6 / u:2-4#5 / plan:1#6 / plan:2#5 / plan:3#6 / plan:4#5 共 8 步——`Step.tier="confirm"`（dl_flow_nodes 末尾单点补丁），driver 机械展示（render-readback）+ 装配（render-artifact；plan:1 的 design.md slug=工作流名）+ `write_confirm_trace` 静默通过落 trace（形状对齐 user_decision_recorded/render-artifact 收录约定），**无模型会话、无 prep 段、无 TUI 问答**；异议走 `/dl state-reset` 回上一步重做。
+- 连带：NEXT_PREP（P2-1）适用面收窄到 decision 级交互步（现仅 plan:1#1→#2 场景触发）；旧交互读回 purpose pin 全部改钉确认级语义（9 处）；node-design.md 第三通道摘要已同步。
+- 预期：省用户 ~8-10 min/run + 8 个交互段会话（含 prep）的启动+产出成本。
 
 ## 3. 验证方法
 

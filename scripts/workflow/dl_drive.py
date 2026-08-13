@@ -1370,8 +1370,13 @@ def _run_boundary_loop(
                 )
                 prep_next = None  # P2-1：下一步为交互步时 = 该 Step（仅工作段赋值）
                 out = ""
+                confirm_readback = (
+                    getattr(step, "interactive", False)
+                    and getattr(step, "tier", "decision") == "confirm"
+                )
                 prep_done = (
                     getattr(step, "interactive", False)
+                    and not confirm_readback
                     and not bare_open
                     and _consume_next_prep(
                         project_root,
@@ -1379,7 +1384,42 @@ def _run_boundary_loop(
                         f"{engine.node_id(node.phase, node.sub)}#{cur}",
                     )
                 )
-                if prep_done:
+                if confirm_readback:
+                    # P3-1 确认级读回：无 prep/TUI 段——机械展示 + 装配 + 静默通过。
+                    disp.log(f"  ≡ 读回确认级（{node.label}）——机械展示+静默通过")
+                    ok_rb, text_rb = engine.render_readback(project_root, name)
+                    if ok_rb:
+                        for _ln in text_rb.splitlines():
+                            disp.log(f"  {_ln}")
+                    else:
+                        # 展示降级不阻断（内容在 evidence/产物，宁纵勿枉）
+                        disp.log(f"  ⚠ render-readback 降级：{text_rb[:120]}")
+                    art = engine.confirm_artifact(node)
+                    if art is not None:
+                        _base, _slug = art
+                        ok_a, msg_a = engine.render_artifact(
+                            project_root,
+                            name,
+                            _base,
+                            slug=(name if _slug == "USE_WORKFLOW_NAME" else _slug),
+                        )
+                        if ok_a:
+                            disp.log(f"  ✓ 产物装配：{msg_a[:120]}")
+                        else:
+                            # fail loud：下游步骤读该产物——断点等裁决
+                            if (
+                                on_breakpoint(
+                                    f"⛔ 确认级产物装配失败（{_base}）：{msg_a[:150]}——"
+                                    f"回车重试 / step-pass / state-reset / q 退出。",
+                                    SEG_BREAKPOINT,
+                                )
+                                == "quit"
+                            ):
+                                return 0
+                            continue
+                    engine.write_confirm_trace(project_root, name, node, cur)
+                    rc, sid, seg_kind = 0, "confirm", "confirm-readback"
+                elif prep_done:
                     # P2-1：问题清单已由前序工作段顺带备妥（need_user.json 在位）——
                     # 省独立 prep 段，直接转前台问答
                     disp.log("  ⚑ 问题清单前序段已备（P2-1 合并段）——转前台问答")
@@ -1465,11 +1505,16 @@ def _run_boundary_loop(
                     )
                 else:
                     rules = ensure_node_rules(project_root, name, node)
-                    # P2-1：下一步是交互步 -> 本段顺带备其问题清单（NEXT_PREP 通道）
+                    # P2-1：下一步是交互步 -> 本段顺带备其问题清单（NEXT_PREP 通道）；
+                    # 确认级读回步无问答（P3-1），不备
                     nxt = engine.sub_step_at(node, cur + 1) if cur < total else None
                     prep_next = (
                         nxt
-                        if (nxt is not None and getattr(nxt, "interactive", False))
+                        if (
+                            nxt is not None
+                            and getattr(nxt, "interactive", False)
+                            and getattr(nxt, "tier", "decision") == "decision"
+                        )
                         else None
                     )
                     prompt = build_step_prompt(
