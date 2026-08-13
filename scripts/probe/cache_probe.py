@@ -14,7 +14,11 @@ token 只走环境变量，禁止落盘/打印。
 
 已知结果：deepseek（2026-08-12）：C1 命中 / C2 部分命中 / C3 零命中（会话级隔离）。
 """
-import json, os, subprocess, sys, time, urllib.request
+import json
+import os
+import subprocess
+import time
+import urllib.request
 
 BASE = os.environ["PROBE_BASE_URL"].rstrip("/")
 MODEL = os.environ["PROBE_MODEL"]

@@ -1218,6 +1218,51 @@ def render_readback(project_root: Path, name: str) -> tuple[bool, str]:
     return True, "\n".join(parts)
 
 
+# ---------- P3-1 确认级读回（2026-08-13 用户裁决，设计文档 §2 P3）----------
+
+
+def confirm_artifact(node: "Node") -> "tuple[str, str | None] | None":
+    """确认级读回步的装配产物声明：(basename, slug|None)；无产物 -> None。
+
+    映射：node.artifact（understand.md/plan.md）直出；plan:1 读回确认装配
+    design.md（v2.62 起脚本装配），slug 原归模型命名——确认级无模型会话，
+    取工作流名（name 本身即主题 slug，确定性零发明）。其余节点无装配。
+    """
+    art = getattr(node, "artifact", None)
+    if art in ("understand.md", "plan.md"):
+        return (art, None)
+    if node.phase == "plan" and node.sub == 1:
+        return ("design.md", "USE_WORKFLOW_NAME")
+    return None
+
+
+def write_confirm_trace(project_root: Path, name: str, node: "Node", cur: int) -> None:
+    """确认级读回步的机械 trace（无模型会话，driver 直写）。
+
+    形状对齐交互读回：q 标题含「读回」+ a ≥50 字（user_decision_recorded 同形，
+    render-artifact 的 decision_steps 按标题词收录）；内容声明静默通过语义与
+    异议通道（/clear 交接后新会话只能从 trace 还原拍板——v2.45 同一前提）。
+    """
+    rec = {
+        "kind": "skill-trace",
+        "major_stage": node.phase.capitalize(),
+        "minor_stage": node.minor_key,
+        "sub_step": cur,
+        "skill": "confirm-readback",
+        "purpose": "P3-1 确认级读回（机械落库，无模型会话）",
+        "q": [f"读回（确认级·静默通过）：{node.label} 归一化内容与装配产物"],
+        "a": [
+            "确认级静默通过（P3-1 读回分级，2026-08-13 用户裁决）：归一化内容经 "
+            "render-readback 机械展示、产物经 render-artifact 机械装配，未逐项弹卡片；"
+            "按提案直接生效。异议走 /dl state-reset 回上一步重做后重新读回。"
+        ],
+    }
+    p = _evidence_path(project_root, name)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with open(p, "a", encoding="utf-8") as f:
+        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+
 def estimate_context_tokens(transcript_path: str | Path) -> int | None:
     """从 session transcript 尾部最近一条 assistant usage 估算当前上下文 tokens。
 
