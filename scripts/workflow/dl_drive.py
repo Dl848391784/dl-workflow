@@ -1629,6 +1629,10 @@ def _run_boundary_loop(
                         rework=pending_rework,
                         prep_next=prep_next,
                     )
+                    nid = engine.node_id(node.phase, node.sub)
+                    resume_sid = _chain_resume_sid(state, nid, cur)
+                    if resume_sid:
+                        disp.log(f"  ⟂ 段链续跑（{nid} 链，子{cur}）——同会话 --resume")
                     rc, out, sid = run_session(
                         prompt,
                         cwd=wt,
@@ -1636,11 +1640,35 @@ def _run_boundary_loop(
                         sys_prompt_file=rules,
                         meta=meta,
                         debug=debug,
-                        note=f"{engine.node_id(node.phase, node.sub)}#{cur}",
+                        note=f"{nid}#{cur}",
                         verbose=verbose,
                         disp=disp,
+                        resume_sid=resume_sid,
                     )
                     seg_kind = "headless-step"
+                    if (
+                        resume_sid
+                        and rc != RC_INTERRUPTED
+                        and rc != 0
+                        and not out.strip()
+                    ):
+                        # 续链失败兜底（transcript 缺失/损坏——设计期冒烟：坏 sid
+                        # = rc 1 + 零 assistant 事件）：降级新会话重发，留痕
+                        disp.log(
+                            "  ⚠ 续链失败——降级新会话重发（chain_broken_fallback）"
+                        )
+                        _chain_clear(project_root, name)
+                        rc, out, sid = run_session(
+                            prompt,
+                            cwd=wt,
+                            settings=settings,
+                            sys_prompt_file=rules,
+                            meta=meta,
+                            debug=debug,
+                            note=f"{nid}#{cur}",
+                            verbose=verbose,
+                            disp=disp,
+                        )
                     if NEED_USER_RE.search(out):
                         # 动态交互 fallback（§2.3）：模型非预期需要用户输入——
                         # drive 当场重分类起 TUI 段；--segment 抛 _SegmentExit(13)。
@@ -1665,6 +1693,9 @@ def _run_boundary_loop(
                     # autodone：落共享门控（advanced 续跑 / block 自动返工 / escalate 断点）
                 if rc == RC_INTERRUPTED:
                     # 单击中断子会话（§2.6）——断点等裁决，不自动重发
+                    _chain_clear(
+                        project_root, name
+                    )  # P2-4：杀中段 transcript 尾或残半 turn——断链
                     if (
                         on_breakpoint(
                             f"⛔ 子步骤 {cur} 子会话已被用户中断（单击）——"
@@ -1682,6 +1713,16 @@ def _run_boundary_loop(
                 if action == "advanced":
                     none_retries = 0
                     disp.log(f"  ✓ 子步骤 {cur} 通过门控")
+                    if seg_kind == "headless-step":
+                        # P2-4：落链（白名单外节点 = 链作废，见 _chain_update）；
+                        # block/none 不落——last_step 停 cur-1，下轮自然续链返工
+                        _chain_update(
+                            project_root,
+                            name,
+                            engine.node_id(node.phase, node.sub),
+                            cur,
+                            sid,
+                        )
                     if prep_next is not None and _NEXT_PREP_JSON_RE.search(out):
                         # P2-1：只在门控通过后落标记——被 block 的内容备的问题
                         # 不得转前台（返工段会重新输出，覆盖更新）
