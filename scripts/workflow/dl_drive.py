@@ -258,7 +258,10 @@ def ensure_node_rules(project_root: Path, name: str, node: "engine.Node") -> Pat
         f"- 完成后必须 append-trace 落库（--scaffold 生成骨架 → Edit 填「待填」→ --from-file）\n"
         f"- 禁输出 ### STEP_DONE / ### PHASE_DONE 标记（外部编排，标记无效）\n"
         f"- 当前阶段「{phase_label}」的写权限由 S11 硬约束执行（禁写范围见 phase-rules）\n"
-        f"- 禁静默兜底：捕获异常必 log，默认值必标记，缺数据必暴露\n\n"
+        f"- 禁静默兜底：捕获异常必 log，默认值必标记，缺数据必暴露\n"
+        f"- 取证去冗余：grep 用一条 compound 命令覆盖所有近义关键词和路径"
+        f"（例 `grep -rnE 'annual|annualized|年化|ann_pct' 路径1 路径2`），"
+        f"禁对同一关键词反复发 grep 变体；先列需查证据清单再逐项读，禁读一个再想下一个\n\n"
         f"## 本节点子步骤清单\n\n"
         f"{section}\n"
     )
