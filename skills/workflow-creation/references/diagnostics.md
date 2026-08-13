@@ -406,3 +406,11 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 - **「段在跑但没动静，是否卡死？」判读 runbook**（2026-08-12 dogfood 三连问实证）：四件套按序查——①`state.json` 的 `segment_sessions` 台账（**每子步骤一个独立 headless 会话进程**，driver 进程同一个；kind/rc 逐条）；②`front_segment.json` 的 pid → `/proc/<pid>` 验活（文件在 ≠ 段活着，它只是起跑锁）；③`drive-stream.jsonl` 的 **mtime**（thinking 心跳保新鲜——**>3-5 分钟不动才疑似卡死**；十几分钟无步进 ≠ 卡死，外部取证步 agent 4-8min 是设计内最长杆，full 升档再翻倍）；④`cc_sdk.log`（headless 会话 stderr，秒退类故障的唯一信息源）。日常观测已根治 = statusLine 进度栏（v4-statusline-progress-design，refreshInterval=10 空闲也刷）；本 runbook 留给「状态栏也异常/想深挖」时。
 - **headless 会话 ~2 秒秒退 rc=1 + drive-stream.jsonl 0 字节**：看 `cc_sdk.log` 的 stderr。`Error: Input must be provided either through stdin or as a prompt argument` = **CLI 变长参数吞位置参数**（`--disallowedTools/--allowedTools <tools...>` 后直接跟 prompt，prompt 被吞成工具名）——旗标后必须再跟一个 `--xxx` 旗标截断（2026-08-12 merge cc62acd）。连带：prep 3 连 none 退 12 = L3 保险丝按设计接住（断点等用户），不是第二重故障，别当两个 bug 修。
 - **前台模型在非交互位置自行干活（抢活）**：先 grep fence 留痕确认「尝试了被拦」而非「不会做」（troubleshooting #14 同法）——`.wf_fence.log` 的 `front_fence_deny` / S15 deny 行 + `cc_debug.log` 的 `permissionDecision.*deny`。根因高发 = 路由判定两侧副本不同步（症状 M checklist 末条专项）；模型把 deny 文案误读成「交回本会话」是本症状的放大器。
+- **段工人结构性故障时前台接管无合法出口（设计缺口，2026-08-12 ARG_MAX 案实证）**：段工人起不来（如 E2BIG）→ TUI 模型给用户恢复选项、用户批准「fence off 后手动续跑」→ **front_mode 白名单（独立于 S10 开关的第三道机制）照样 deny**——fence off 只关 S10，front 防抢活不受其控，用户批准的 fallback 被系统挡死（transcript 实证 3 分钟 5+ 次尝试全拦 → 用户中断 → 流程停滞 1.5h）。判读：「fence off 了仍被拦」≠ fence 失效，是独立机制；鉴别 grep `.wf_fence.log` deny 行的机制标记。当前唯一合法出口 = `/dl state-reset`；「段工人故障时允许前台接管」的显式开关（/dl takeover 类）= 待用户裁决的设计项，未做。
+
+### 症状 AA：段异常「OSError: Argument list too long: 'claude'」（ARG_MAX/E2BIG）
+
+- **根因**：driver 把 prompt 作为命令行**位置参数**传给 `claude -p`——交接包随步数单调涨 × 中文 1.68 bytes/char 放大，超内核 **MAX_ARG_STRLEN（131,072 bytes/单参数，不是 ~2MB 的总 ARG_MAX）** 即 Popen 直接 OSError，段根本不起。早期步骤包小贴线通过，后期步骤越线——**「最后阶段才爆」是体积曲线的必然形态，不是偶发**。
+- **判读**：`segment_summary.json` 记 `code:1 段异常：OSError: [Errno 7]`；前兆 = 首调 fresh 随步数单调涨（P1-2 告警口径）；drive-stream 停在最后成功段、之后无任何 stream 行（段没起来=无输出，与症状 Z「卡死」判读区分：mtime 死 + segment_summary 有异常记录）。
+- **修复**：prompt 走 **stdin**（merge 4f6e716，2026-08-13；实测 stream-json+verbose+大 prompt 正常；TUI 段不动——交互式 claude stdin 语义不同且其 prompt 不含交接包）。pin 测试=200KB 级 prompt 不进 argv。
+- **教训**：轻任务测不出体积型 bug（v3 dogfood 轻内容全程无恙，首个重取证 run 即死）；构造消除 > 监控 > 缩输入（§3.6 #38）。
