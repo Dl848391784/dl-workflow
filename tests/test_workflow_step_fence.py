@@ -96,11 +96,19 @@ def _write_trace(repo: Path, sub_step: int) -> None:
         f.write(trace + "\n")
 
 
-def _run_hook(mod, repo: Path, monkeypatch, capsys, tool: str, tool_input: dict):
+def _run_hook(
+    mod,
+    repo: Path,
+    monkeypatch,
+    capsys,
+    tool: str,
+    tool_input: dict,
+    session_id: str = "s",
+):
     """喂 PreToolUse payload 跑 hook main()，返回 (decision|None, reason)。"""
     payload = {
         "cwd": str(repo / ".claude" / "worktrees" / "t"),
-        "session_id": "s",
+        "session_id": session_id,
         "tool_name": tool,
         "tool_input": tool_input,
     }
@@ -665,3 +673,164 @@ class TestSkeletonWriteFallback:
         )
         assert decision == "deny"
         assert skel.read_text(encoding="utf-8").startswith("SKELETON_BODY")
+
+
+def _write_front_state(
+    repo: Path, *, drive_mode: bool, front_mode: bool, session_id: str = "s"
+) -> None:
+    """写带 front_mode/drive_mode 的 state（session_id 可变，模拟前台 vs 段工人）。"""
+    state = {
+        "name": "t",
+        "phase": "understand",
+        "index": 1,
+        "sub_index": 1,
+        "sub_total": 4,
+        "sub_step_index": 1,
+        "gate": "pending",
+        "node_attempts": 0,
+        "enforce_step_fence": True,
+        "session_id": session_id,
+        "drive_mode": drive_mode,
+        "front_mode": front_mode,
+        "branch": "wf/t",
+        "worktree_path": str(repo / ".claude" / "worktrees" / "t"),
+        "created_at": "x",
+        "updated_at": "x",
+        "history": [],
+    }
+    (repo / ".claude" / "workflows" / "t" / "state.json").write_text(
+        json.dumps(state), encoding="utf-8"
+    )
+
+
+class TestFrontSegmentRunFence:
+    """段跑期间（drive_mode=on + front_mode=on）前台会话白名单收紧。
+
+    触发 = 2026-08-13 amplitude_annualized 抢活实证：段工人跑 understand:1 时，
+    前台会话并行 grep/Read 源码。修法 = drive_mode 早退区分前台(session_id==
+    state.session_id) vs 段工人(session_id≠)，前台收紧为「只交互+记账+/dl」。
+    """
+
+    def test_front_grep_denied(self, wf_repo, monkeypatch, capsys):
+        _write_front_state(wf_repo, drive_mode=True, front_mode=True)
+        mod = _load_hook()
+        decision, reason = _run_hook(
+            mod,
+            wf_repo,
+            monkeypatch,
+            capsys,
+            "Bash",
+            {"command": "grep -rn annual --include=*.py ."},
+        )
+        assert decision == "deny"
+        assert "后台" in reason or "段" in reason
+
+    def test_front_read_source_denied(self, wf_repo, monkeypatch, capsys):
+        _write_front_state(wf_repo, drive_mode=True, front_mode=True)
+        mod = _load_hook()
+        decision, _ = _run_hook(
+            mod,
+            wf_repo,
+            monkeypatch,
+            capsys,
+            "Read",
+            {"file_path": str(wf_repo / "f")},
+        )
+        assert decision == "deny"
+
+    def test_front_skill_denied(self, wf_repo, monkeypatch, capsys):
+        _write_front_state(wf_repo, drive_mode=True, front_mode=True)
+        mod = _load_hook()
+        decision, _ = _run_hook(
+            mod, wf_repo, monkeypatch, capsys, "Skill", {"skill": "define-problem"}
+        )
+        assert decision == "deny"
+
+    def test_front_agent_denied(self, wf_repo, monkeypatch, capsys):
+        _write_front_state(wf_repo, drive_mode=True, front_mode=True)
+        mod = _load_hook()
+        decision, _ = _run_hook(
+            mod,
+            wf_repo,
+            monkeypatch,
+            capsys,
+            "Agent",
+            {"description": "x", "prompt": "y"},
+        )
+        assert decision == "deny"
+
+    def test_front_ask_user_allowed(self, wf_repo, monkeypatch, capsys):
+        _write_front_state(wf_repo, drive_mode=True, front_mode=True)
+        mod = _load_hook()
+        decision, _ = _run_hook(
+            mod,
+            wf_repo,
+            monkeypatch,
+            capsys,
+            "AskUserQuestion",
+            {"questions": []},
+        )
+        assert decision is None  # 放行：无 deny 输出
+
+    def test_front_task_allowed(self, wf_repo, monkeypatch, capsys):
+        _write_front_state(wf_repo, drive_mode=True, front_mode=True)
+        mod = _load_hook()
+        decision, _ = _run_hook(
+            mod, wf_repo, monkeypatch, capsys, "TaskCreate", {"subject": "x"}
+        )
+        assert decision is None
+
+    def test_front_slash_dl_allowed(self, wf_repo, monkeypatch, capsys):
+        _write_front_state(wf_repo, drive_mode=True, front_mode=True)
+        mod = _load_hook()
+        decision, _ = _run_hook(
+            mod, wf_repo, monkeypatch, capsys, "SlashCommand", {"command": "/dl status"}
+        )
+        assert decision is None
+
+    def test_segment_worker_full_access(self, wf_repo, monkeypatch, capsys):
+        # 段工人 session_id != state.session_id -> 全放行（return 0，无 deny）
+        _write_front_state(wf_repo, drive_mode=True, front_mode=True, session_id="s")
+        mod = _load_hook()
+        decision, _ = _run_hook(
+            mod,
+            wf_repo,
+            monkeypatch,
+            capsys,
+            "Bash",
+            {"command": "grep -rn annual --include=*.py ."},
+            session_id="seg-worker",
+        )
+        assert decision is None
+
+    def test_segment_worker_session_id_missing_defensive(
+        self, wf_repo, monkeypatch, capsys
+    ):
+        # state.session_id 空 -> 不收紧（防误伤段工人）
+        _write_front_state(wf_repo, drive_mode=True, front_mode=True, session_id="")
+        mod = _load_hook()
+        decision, _ = _run_hook(
+            mod,
+            wf_repo,
+            monkeypatch,
+            capsys,
+            "Bash",
+            {"command": "grep -rn annual --include=*.py ."},
+            session_id="",
+        )
+        assert decision is None
+
+    def test_v3_drive_no_front_allow_all(self, wf_repo, monkeypatch, capsys):
+        # v3 headless：front_mode=False，drive_mode 早退照旧全放行
+        _write_front_state(wf_repo, drive_mode=True, front_mode=False)
+        mod = _load_hook()
+        decision, _ = _run_hook(
+            mod,
+            wf_repo,
+            monkeypatch,
+            capsys,
+            "Bash",
+            {"command": "grep -rn annual --include=*.py ."},
+            session_id="s",
+        )
+        assert decision is None

@@ -31,6 +31,7 @@ deny 留痕 <project>/.claude/.wf_fence.log（观测性）。
 """
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -295,6 +296,22 @@ def _payload_transcript(payload: dict) -> str:
     return ""
 
 
+def _session_id(payload: dict) -> str:
+    """会话标识（v2.69，同 design_gate/codegraph_gate）：payload session_id（真源）
+    → transcript_path 文件名 stem（双保险）→ env CLAUDE_SESSION_ID（向后兼容）
+    → "_fallback"。用于区分 front 前台会话（session_id == state.session_id）与
+    drive 段工人 headless 会话（session_id ≠）。"""
+    sid = str(payload.get("session_id") or "").strip()
+    if sid:
+        return sid
+    tp = str(payload.get("transcript_path") or "").strip()
+    if tp:
+        stem = Path(tp).stem
+        if stem:
+            return stem
+    return os.environ.get("CLAUDE_SESSION_ID", "").strip() or "_fallback"
+
+
 def _pending_background_agent_count(transcript_path: str) -> int:
     """未归的后台 Agent 数（v2.118；判据实证见 workflow_advance 同名函数）。
 
@@ -430,6 +447,38 @@ def _front_fence_verdict(
         "派发用 Bash（run_in_background=true，逐字照抄）：\n"
         f"  {engine.front_segment_command(name)}\n"
         "要与用户交互请直接对话（AskUserQuestion 可用）；看进度用 /dl status。"
+    )
+
+
+# v4 前台混合段跑期间前台会话白名单（front-segment-run-fence-design）：比
+# _FRONT_WHITELIST_TOOLS 更窄——段跑期间前台唯一合法动作 = 交互 + 清单记账 +
+# /dl 只读裁决。禁 Read（含源码与元数据——前台读 segment_summary/need_user
+# 只在段退出后、drive_mode=off 时，落下方 _front_fence_verdict 的 Read 放行）。
+_FRONT_SEGMENT_RUN_TOOLS = frozenset(
+    {"AskUserQuestion", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet"}
+)
+
+
+def _front_segment_run_verdict(
+    project_root: Path, name: str, tool: str, payload: dict
+) -> int:
+    """段跑期间前台会话白名单：只交互（AskUserQuestion）+ 记账（Task*）+ /dl。
+
+    触发 = 2026-08-13 amplitude_annualized 抢活实证：段工人跑 understand:1 时，
+    前台会话并行 grep/Read 源码。drive_mode 早退原先对前台 + 段工人全放行（return
+    0），前台抢活无围栏（front-tui-hybrid-design §2.5「接受」的残余风险落地）。
+    """
+    ti = payload.get("tool_input") or {}
+    if tool in _FRONT_SEGMENT_RUN_TOOLS:
+        return 0
+    if tool == "SlashCommand":  # 用户手敲 /dl status 等的执行通道
+        if str(ti.get("command") or "").startswith("/dl"):
+            return 0
+    _log_deny(project_root, name, "front_segment_run_deny", f"tool={tool}")
+    return _deny(
+        "段正在后台跑，本会话只等待与交互。\n"
+        "不要在本会话探查源码/调用工具（Read/grep/Skill/Agent 等）——活归后台段工人。\n"
+        "要与用户交流请直接对话（AskUserQuestion 可用）；看进度用 /dl status。"
     )
 
 
@@ -585,8 +634,20 @@ def main() -> int:
     # 门控/续轮归外部 driver，会话内没有回合纪律可守（禁标记、单步会话）。
     # 上方 S14（evidence 收编）/ S11（阶段写围栏）/ plan-mode 封堵与编排者无关，
     # 全部保留。放 S15 前短路：少两次 state 读 + 无 deny 文案误导。
+    #
+    # v4 前台混合（front-segment-run-fence-design）：drive_mode 期间段工人
+    # （headless claude -p，session_id ≠ state.session_id）与前台会话并存——
+    # 段工人全放行（干活）；前台会话（session_id == state.session_id）收紧为
+    # 段跑期间白名单（防抢活——2026-08-13 amplitude_annualized 实证：前台在段
+    # 跑期间并行 grep/Read 源码）。state.session_id 为空则防御性放行（不误伤段工人）。
     _st = engine.load_state(project_root, name)
     if _st and _st.get("drive_mode"):
+        if (
+            _st.get("front_mode")
+            and _st.get("session_id")
+            and _session_id(payload) == _st.get("session_id")
+        ):
+            return _front_segment_run_verdict(project_root, name, tool, payload)
         return 0
 
     # ---- v4 前台混合（front-tui-hybrid-design §2.3）：非交互位置白名单 ----

@@ -407,7 +407,8 @@ def _front_dispatch_continue(name: str, node, n: int) -> int:
         "的活归后台工人，本会话不执行。\n"
         "立即用 Bash 运行（run_in_background=true，逐字照抄）：\n"
         f"  {engine.front_segment_command(name)}\n"
-        "段跑完会自动回到本会话；等待期间可与用户自由交流。"
+        "段跑完会自动回到本会话；等待期间只回应用户，"
+        "不要主动探查源码或调用工具（活归后台段工人）。"
     )
 
 

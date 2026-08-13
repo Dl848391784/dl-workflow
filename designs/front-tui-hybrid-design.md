@@ -103,7 +103,7 @@ state 新增 `front_mode: true`（launcher 置；engine `set_front_mode` 单源�
 
 ### 2.5 段跑期间前台会话的状态
 
-段跑期间（drive_mode=on）前台 hooks 全静默，用户可与会话自由交流（问进度、闲聊、甚至干别的活）——这是本架构的**附带卖点**：等待时间用户手里有一个可用的 claude 会话。风险面：模型此时无围栏（fence 在 drive_mode 下跳 S15/S10），但段内活有 headless 子会话自己的 hooks（S11/S14 保留）守，前台模型干活的唯一持久化通道是写文件——与 v2.x 时期「用户在工作流会话里插队干别的」风险同级，接受。
+段跑期间（drive_mode=on）前台会话收紧为「只交互 + 记账 + /dl」白名单（`front-segment-run-fence-design.md`，2026-08-13 `amplitude_annualized` 抢活实证后落地）：fence 在 drive_mode 早退处区分前台会话（`session_id == state.session_id`）与段工人（`session_id ≠`）——前台 Read/Bash/Skill/Agent 等探查通道全 deny，段工人照旧全放行。用户仍可与会话自由**对话**（问进度、闲聊、AskUserQuestion），但模型不能再顺手探查源码/干非交互步的活（原「干别的活」卖点收回，被 fence 硬拦）。段内活仍由 headless 子会话自己的 hooks（S11/S14 保留）守。
 
 ## 3. 关键机制设计
 
@@ -121,7 +121,7 @@ state 新增 `front_mode: true`（launcher 置；engine `set_front_mode` 单源�
 | 风险 | 对策 | 残余度 |
 |---|---|---|
 | stall：模型不敲派发命令 | Stop 重提示 ×3 → 停轮等用户（用户回「继续」即恢复） | 低：最坏退化为一键催促 |
-| 模型抢干非交互步的活 | fence 白名单硬拦（§2.3） | 低 |
+| 模型抢干非交互步的活 | fence 白名单硬拦（§2.3）+ 段跑期间收紧（front-segment-run-fence-design，session_id 区分前台/段工人） | 低→已根治 |
 | 注入抵达率（v3.0 起因） | 薄上下文改善 + Stop 兜底牙齿（v2.1-2.122 全套 enforcement 栈原样继承） | **中：dogfood 实测点** |
 | 前台会话退出杀后台段 | 锁死检测 + 幂等重派（§2.2） | 低 |
 | 前台会话长寿命 cache 失效 | 薄会话下每步边界一次 cache miss ≈ 几千 token 重读 | 低 |
