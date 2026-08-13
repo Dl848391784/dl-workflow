@@ -95,6 +95,7 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
 - "TUI 段没 TaskList / 没横幅像普通聊天 / 裸开场条款丢失 / 模型闷头探查不提问" → references/diagnostics.md 症状 X
 - "Ctrl+C 不退出 / 退出还继续流程 / 连按好几下才退出" → references/diagnostics.md 症状 Y
 - "段在跑没动静 / 是否卡死 / headless 秒退 rc=1 / Input must be provided / 前台模型非交互位置自行干活抢活" → references/diagnostics.md 症状 Z
+- "Argument list too long / E2BIG / 段异常起不来 / fence off 了仍被拦 / 段工人故障接管" → references/diagnostics.md 症状 AA + 症状 Z 末条
 - "审计这轮运行 / 符合预期吗 / 哪些 error 返工可避免 / judge 输入膨胀 / 重建丢弃" → references/rubric-design.md §3.6
 - "设计新编排节点 / 拆几个子步骤 / 每步什么目的 / 要不要取证步 / 步数怎么定 / 代码设计拆步 / 拆解任务 / 任务切分 / 执行计划 plan.md" → references/node-design.md §3.8
 - "另一会话在改同仓库 / 文件被外部修改 / 两批改动怎么分开 commit / 测试全红是不是我的问题" → references/collab.md
