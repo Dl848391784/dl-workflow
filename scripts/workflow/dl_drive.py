@@ -365,7 +365,11 @@ def _ctx_size(ev: dict) -> "int | None":
         return None
     vals = [
         u.get(k)
-        for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
+        for k in (
+            "input_tokens",
+            "cache_read_input_tokens",
+            "cache_creation_input_tokens",
+        )
     ]
     vals = [v for v in vals if isinstance(v, int)]
     return sum(vals) if vals else None
