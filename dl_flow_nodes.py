@@ -795,12 +795,12 @@ _NODES: dict[str, Node] = {
                 purpose=(
                     "拆解深挖：①单一/复合判定——复合痛点按 MECE 拆成原子问题清单"
                     "（互不重叠、合起来覆盖全部痛点；单一则声明「无复合」理由）；"
-                    f"②每个原子问题定取证深度档——{_FETCH_TIER_RULE}；"
-                    "③每个原子问题沿因果链挖到根因（invoke causal-inference-root-cause，"
+                    "②每个原子问题沿因果链挖到根因（invoke causal-inference-root-cause，"
                     "5 Whys/鱼骨/时序分析），每环必须有可观察证据，禁纯叙事——"
                     f"{_CAUSAL_CHAIN_EVIDENCE_RULE}；"
-                    "④每个问题 ≥1 个竞争假设 + 排除理由（或当前假设为何最可能）；"
-                    "⑤区分近因与根因，标注置信度。"
+                    "③每个问题 ≥1 个竞争假设 + 排除理由（或当前假设为何最可能）；"
+                    "④区分近因与根因，标注置信度；"
+                    f"⑤每个原子问题定取证深度档——{_FETCH_TIER_RULE}。"
                     "原子问题清单连档作为载荷顶层 atomic_questions 键提交"
                     "（逐项 "
                     '{"q":<原子问题>, "tier":"none|light|full", "tier_reason":<分档理由>}，'

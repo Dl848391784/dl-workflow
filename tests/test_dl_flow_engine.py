@@ -417,19 +417,19 @@ class TestEvidenceTierRedesign:
     """2026-08-13 取证深度档与取证策略重设计
     （designs/evidence-gathering-tier-redesign-design.md）：sub3 审计实证 light+full
     两 agent 17 curl 仅 4 次有效（24%）。A1 light 例错删；A2 值不值得取证判据；
-    A3 tier 前置到因果链前；B1/B2 权威源注册表定点抓 + 术语翻译 + 泛搜兜底。"""
+    B1/B2 权威源注册表定点抓 + 术语翻译 + 泛搜兜底。
+    （A3 tier 前置已回退——真实 sub2 从 55 轮爆炸到 152 轮：定「none 仓内可达」
+    本身依赖因果链的探索，前置导致双倍探索。）"""
 
     def _steps(self):
         node = eng.get_node("understand", 1)
         assert node.sub_steps is not None and len(node.sub_steps) == 6
         return node.sub_steps
 
-    def test_sub2_tier_rule_value_check_and_order(self):
+    def test_sub2_tier_rule_value_check(self):
         p2 = self._steps()[1].purpose  # sub2 拆解深挖
         # A2：值不值得取证判据（外部取证是否改变结论方向）
         assert "值不值得" in p2 or "是否改变「问题是否成立」" in p2
-        # A3：tier 前置——取证深度档 在 因果链 之前（避免因果链锚定误判）
-        assert p2.index("取证深度档") < p2.index("因果链")
         # A1：light 旧例子「年化量级合理性」移除、换成「有具体公认一次即得」
         assert "（如年化量级合理性判断）" not in p2
         assert "有具体、公认、一次即得" in p2
