@@ -118,6 +118,64 @@ def _record_segment(
     engine.save_state(project_root, name, state)
 
 
+# ---------- P2-4 段链合并（designs/segment-chain-resume-design.md） ----------
+# 会话合并非派发合并：逐步派发 + 步间 gate 不变，仅「下一步新会话」改
+# 「--resume 同会话续跑」。链粒度 = minor_state。
+
+
+def _chain_resume_sid(state: dict, node_id: str, cur: int) -> "str | None":
+    """当前 headless-step 可续链则返回链 session_id，否则 None（新会话）。
+
+    不变式三条件：节点在白名单（试点纪律，空名单 = 全局关 = 回滚面）+ 链属
+    当前节点（node-rules system prompt 同节点恒定 = 缓存前缀保真）+
+    last_step == cur-1（序列连续——state-reset/back/jump/step-pass/TUI 段
+    天然失配断链，无需显式清）。
+    """
+    if node_id not in engine.SEGMENT_CHAIN_NODES:
+        return None
+    chain = state.get("segment_chain")
+    if not isinstance(chain, dict):
+        return None
+    if chain.get("node") != node_id or chain.get("last_step") != cur - 1:
+        return None
+    sid = chain.get("sid")
+    return sid if isinstance(sid, str) and sid else None
+
+
+def _chain_update(
+    project_root: Path, name: str, node_id: str, cur: int, sid: str
+) -> None:
+    """gate advanced 后落链；推进出白名单节点 = 链作废（防陈旧残留误导审计）。"""
+    st = _load(project_root, name)
+    if node_id in engine.SEGMENT_CHAIN_NODES:
+        st["segment_chain"] = {
+            "node": node_id,
+            "sid": sid,
+            "last_step": cur,
+            "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }
+    else:
+        st.pop("segment_chain", None)
+    engine.save_state(project_root, name, st)
+
+
+def _chain_clear(project_root: Path, name: str) -> None:
+    """显式断链（RC_INTERRUPTED 杀中段——transcript 尾部可能残留半个 turn）。"""
+    st = _load(project_root, name)
+    if st.pop("segment_chain", None) is not None:
+        engine.save_state(project_root, name, st)
+
+
+def _chain_warn_line(last_ctx: "int | None", note: str) -> "str | None":
+    """链上下文峰值告警行；未超/无数据返回 None（宁纵勿枉只告警）。"""
+    if last_ctx is None or last_ctx <= CHAIN_CONTEXT_WARN:
+        return None
+    return (
+        f"  ⚠ 链会话上下文 {last_ctx:,} tok 超阈值 {CHAIN_CONTEXT_WARN:,}"
+        f"（{note}）——链内膨胀，查交接包/步产出体积"
+    )
+
+
 def _rewrite_hook_paths(data: dict) -> dict:
     """hook 命令路径重写到与 driver 同仓的 hooks/（版本一致性）。
 
@@ -294,6 +352,24 @@ def ensure_tui_rules(
 # judge 侧、2026-08-12 交接包侧均靠事后审计抓），把斜率钉成可观察信号。
 SEG_FIRST_FRESH_WARN = 35_000
 
+# P2-4 链上下文峰值告警阈值（segment-chain-resume-design §3.4）：链内续轮
+# 上下文单调涨，超阈值告警（宁纵勿枉只告不拦）——v2 单会话 485k 零锯齿的
+# 平方膨胀边界在 30+ 步，链内 3-5 步峰值估 150-250k，250k 起告。
+CHAIN_CONTEXT_WARN = 250_000
+
+
+def _ctx_size(ev: dict) -> "int | None":
+    """assistant 事件的上下文体量代理 = input + cache_read + cache_creation。"""
+    u = (ev.get("message") or {}).get("usage")
+    if not isinstance(u, dict):
+        return None
+    vals = [
+        u.get(k)
+        for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
+    ]
+    vals = [v for v in vals if isinstance(v, int)]
+    return sum(vals) if vals else None
+
 
 def _first_call_fresh(ev: dict) -> "int | None":
     """assistant 事件的本次调用未缓存输入（fresh）；无 usage 返回 None。"""
@@ -335,6 +411,7 @@ def run_session(
     verbose: bool = False,
     disp: "LiveProgress | None" = None,
     disallow_ask: bool = False,
+    resume_sid: "str | None" = None,
 ) -> tuple[int, str, str]:
     """一次 headless `claude -p` 会话。返回 (rc, assistant 全文, session_id)。
 
@@ -347,8 +424,10 @@ def run_session(
     disallow_ask=True（交互步 prep 会话）：--disallowedTools AskUserQuestion
     权限层堵入口（interactive-step-headless-prep §4.2 L1——调了必吃 denial，
     配合 _session_called_ask_user L2 嗅探，NEED_USER 标记不作承重墙）。
+    resume_sid（P2-4 段链）：续链走 --resume（与 --session-id 互斥），返回
+    sid = 链 sid；None = 新会话（现状）。
     """
-    sid = str(uuid.uuid4())
+    sid = resume_sid or str(uuid.uuid4())
     cmd = [
         "claude",
         "-p",
@@ -368,9 +447,13 @@ def run_session(
         str(settings),
         "--append-system-prompt-file",
         str(sys_prompt_file),
-        "--session-id",
-        sid,
     ]
+    if resume_sid:
+        # P2-4 续链：--resume 与 --session-id 互斥（设计期冒烟：全旗标组合
+        # + --resume 跨进程续会话实测通过，记忆保留）
+        cmd += ["--resume", resume_sid]
+    else:
+        cmd += ["--session-id", sid]
     if debug:
         cmd += [
             "--debug",
@@ -405,6 +488,7 @@ def run_session(
         proc.stdin.close()  # 关闭触发子进程读入（EOF），勿 flush 后留开（挂起）
         interrupted = False
         first_fresh: "int | None" = None
+        last_ctx: "int | None" = None
         try:
             assert proc.stdout is not None
             for line in proc.stdout:
@@ -417,6 +501,7 @@ def run_session(
                 if etype == "assistant":
                     if first_fresh is None:
                         first_fresh = _first_call_fresh(ev)
+                    last_ctx = _ctx_size(ev) or last_ctx
                     for blk in (ev.get("message") or {}).get("content") or []:
                         if not isinstance(blk, dict):
                             continue
@@ -449,6 +534,12 @@ def run_session(
                             disp.log(warn)
                         else:
                             print(warn)
+                    cwarn = _chain_warn_line(last_ctx, note)
+                    if cwarn:
+                        if disp is not None:
+                            disp.log(cwarn)
+                        else:
+                            print(cwarn)
         except KeyboardInterrupt:
             # 单击=中断子任务：杀子会话，段以「中断」收场（drive 进断点裁决；
             # 再按 Ctrl+C = 双击退出，由下方 _pwait_interruptible 处理）

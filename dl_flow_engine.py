@@ -67,6 +67,13 @@ from dl_flow_nodes import (
 # rubric 对用户是黑盒，升级出口是「用户裁决」而非「放宽判据」。
 SUB_STEP_BLOCK_ESCALATE = 3
 
+# P2-4 段链合并试点节点白名单（designs/segment-chain-resume-design.md）：
+# 仅这些节点的连续 headless-step 以 --resume 同会话续跑（会话合并非派发合并，
+# 逐步派发+步间 gate 不变）。链粒度=minor_state：node-rules system prompt 按
+# 节点生成（跨节点续跑前缀缓存即失效）+ handoff 交接在 minor_state 边界重置。
+# **置空 frozenset() = 全局关（回滚面）**；护栏达标后扩 plan 族。
+SEGMENT_CHAIN_NODES = frozenset({"understand:2", "understand:3", "understand:4"})
+
 # per-wf settings.json 模板版本戳（v2.35，症状 R 防静默权限税）：dl-lib.sh
 # wf_write_settings 写 settings 时盖章 wf_settings_template_version；workflow_phase
 # 注入与 /dl status 比对本常量，落后即警告 `dl <name> --resume` 刷新——

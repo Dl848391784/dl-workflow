@@ -1980,3 +1980,176 @@ def test_run_session_prompt_via_stdin_not_argv(wf_repo, monkeypatch, tmp_path):
     assert rc == 0
     assert big not in " ".join(procs[0].cmd)  # prompt 不在 argv
     assert procs[0].stdin.getvalue() == big  # 全量走 stdin
+
+
+# ---------- P2-4 段链合并（designs/segment-chain-resume-design.md） ----------
+# 会话合并非派发合并：逐步派发+步间 gate 不变，仅「下一步新会话」改「--resume
+# 同会话续跑」。链粒度=minor_state（node-rules system prompt 边界 + handoff
+# 交接边界 + 交互/确认步天然断链）。续链不变式：白名单节点 + 链属当前节点 +
+# last_step == cur-1（序列连续——state-reset/back/jump/TUI 段天然失配断链）。
+
+
+def test_chain_resume_on_match(wf_repo):
+    drv = _load(DRIVER, "drv_chain_match")
+    state = _write_state(
+        wf_repo,
+        segment_chain={"node": "understand:2", "sid": "abc", "last_step": 2},
+    )
+    assert drv._chain_resume_sid(state, "understand:2", 3) == "abc"
+
+
+def test_chain_resume_rejects_non_whitelist_node(wf_repo):
+    """试点纪律：白名单（u:2/3/4）外节点不续链；空名单=全局关（回滚面）。"""
+    drv = _load(DRIVER, "drv_chain_wl")
+    state = _write_state(
+        wf_repo,
+        segment_chain={"node": "plan:1", "sid": "abc", "last_step": 1},
+    )
+    assert drv._chain_resume_sid(state, "plan:1", 2) is None
+
+
+def test_chain_resume_rejects_step_gap(wf_repo):
+    """last_step != cur-1 = 序列断（state-reset/back/jump/step-pass/TUI 段后）。"""
+    drv = _load(DRIVER, "drv_chain_gap")
+    state = _write_state(
+        wf_repo,
+        segment_chain={"node": "understand:2", "sid": "abc", "last_step": 4},
+    )
+    assert drv._chain_resume_sid(state, "understand:2", 3) is None
+
+
+def test_chain_resume_rejects_node_mismatch(wf_repo):
+    """跨节点不续链：node-rules system prompt 变 = 前缀缓存失效边界。"""
+    drv = _load(DRIVER, "drv_chain_node")
+    state = _write_state(
+        wf_repo,
+        segment_chain={"node": "understand:2", "sid": "abc", "last_step": 4},
+    )
+    assert drv._chain_resume_sid(state, "understand:3", 2) is None
+
+
+def test_chain_resume_no_chain(wf_repo):
+    drv = _load(DRIVER, "drv_chain_none")
+    state = _write_state(wf_repo)
+    assert drv._chain_resume_sid(state, "understand:2", 2) is None
+
+
+def test_chain_update_on_whitelisted_node(wf_repo):
+    drv = _load(DRIVER, "drv_chain_upd")
+    _write_state(wf_repo)
+    drv._chain_update(wf_repo, "t", "understand:2", 2, "sid-x")
+    chain = _read_state(wf_repo)["segment_chain"]
+    assert chain["node"] == "understand:2"
+    assert chain["sid"] == "sid-x"
+    assert chain["last_step"] == 2
+    assert chain["ts"]
+
+
+def test_chain_update_clears_on_non_whitelist_node(wf_repo):
+    """推进出白名单节点 = 链作废（防陈旧链残留误导后续审计）。"""
+    drv = _load(DRIVER, "drv_chain_upd2")
+    _write_state(
+        wf_repo,
+        segment_chain={"node": "understand:2", "sid": "abc", "last_step": 4},
+    )
+    drv._chain_update(wf_repo, "t", "plan:1", 1, "sid-y")
+    assert "segment_chain" not in _read_state(wf_repo)
+
+
+def test_chain_clear(wf_repo):
+    """显式断链（RC_INTERRUPTED 杀中段——transcript 尾可能半个 turn）。"""
+    drv = _load(DRIVER, "drv_chain_clr")
+    _write_state(
+        wf_repo,
+        segment_chain={"node": "understand:2", "sid": "abc", "last_step": 2},
+    )
+    drv._chain_clear(wf_repo, "t")
+    assert "segment_chain" not in _read_state(wf_repo)
+
+
+def test_run_session_resume_flag_replaces_session_id(wf_repo, monkeypatch):
+    """--resume 与 --session-id 互斥：续链走 --resume，返回 sid = 链 sid。"""
+    drv = _load(DRIVER, "drv_chain_rs")
+    captured = {}
+
+    class _FakeProc:
+        stdout = iter([])
+        stdin = io.StringIO()
+
+        def wait(self):
+            return 0
+
+        def terminate(self):
+            pass
+
+        def kill(self):
+            pass
+
+    def fake_popen(cmd, **kw):
+        captured["cmd"] = cmd
+        return _FakeProc()
+
+    monkeypatch.setattr(drv.subprocess, "Popen", fake_popen)
+    meta = wf_repo / SEG_META
+    rc, _out, sid = drv.run_session(
+        "提示词正文",
+        cwd=wf_repo,
+        settings=meta / "settings.json",
+        sys_prompt_file=meta / "rules.md",
+        meta=meta,
+        debug=False,
+        note="t",
+        resume_sid="chain-sid-1",
+    )
+    cmd = captured["cmd"]
+    assert cmd[cmd.index("--resume") + 1] == "chain-sid-1"
+    assert "--session-id" not in cmd
+    assert sid == "chain-sid-1"
+    assert rc == 0
+
+
+def test_run_session_fresh_uses_session_id_no_resume(wf_repo, monkeypatch):
+    """现状不回归：无 resume_sid 走 --session-id 新会话，cmd 无 --resume。"""
+    drv = _load(DRIVER, "drv_chain_fresh")
+    captured = {}
+
+    class _FakeProc:
+        stdout = iter([])
+        stdin = io.StringIO()
+
+        def wait(self):
+            return 0
+
+        def terminate(self):
+            pass
+
+        def kill(self):
+            pass
+
+    def fake_popen(cmd, **kw):
+        captured["cmd"] = cmd
+        return _FakeProc()
+
+    monkeypatch.setattr(drv.subprocess, "Popen", fake_popen)
+    meta = wf_repo / SEG_META
+    _rc, _out, sid = drv.run_session(
+        "提示词正文",
+        cwd=wf_repo,
+        settings=meta / "settings.json",
+        sys_prompt_file=meta / "rules.md",
+        meta=meta,
+        debug=False,
+        note="t",
+    )
+    cmd = captured["cmd"]
+    assert "--resume" not in cmd
+    assert cmd[cmd.index("--session-id") + 1] == sid
+
+
+def test_chain_context_warn_line(wf_repo):
+    """链上下文峰值监控（宁纵勿枉只告警）：超 250k 出告警行，未超/None 静默。"""
+    drv = _load(DRIVER, "drv_chain_warn")
+    assert drv._chain_warn_line(None, "n") is None
+    assert drv._chain_warn_line(100_000, "n") is None
+    line = drv._chain_warn_line(300_000, "u:2#3")
+    assert "300,000" in line and "u:2#3" in line
