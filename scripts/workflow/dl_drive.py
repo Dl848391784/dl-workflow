@@ -350,7 +350,11 @@ def ensure_tui_rules(
 # P1-2 首调 fresh 监控（v4-cost-latency-optimization-design §2）：段首调未缓存
 # 输入超阈值告警（宁纵勿枉，只告不拦）——交接包静默膨胀的历史教训（v2.12
 # judge 侧、2026-08-12 交接包侧均靠事后审计抓），把斜率钉成可观察信号。
-SEG_FIRST_FRESH_WARN = 35_000
+# 阈值校准（2026-08-13，35k→50k）：地板实测 = harness ~22.5k（裸 claude -p）
+# + node-rules ~2-3k，交接包本体 ~14k（分节实测）+ step prompt ~2k——正常首调
+# 即 40-56k，35k 下告警每段都响 = 告警疲劳（症状 W：全响=没有）。告警对象 =
+# 交接包膨胀斜率（47k→73k 类单调涨），不是正常水位。
+SEG_FIRST_FRESH_WARN = 50_000
 
 # P2-4 链上下文峰值告警阈值（segment-chain-resume-design §3.4）：链内续轮
 # 上下文单调涨，超阈值告警（宁纵勿枉只告不拦）——v2 单会话 485k 零锯齿的
