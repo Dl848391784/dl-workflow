@@ -8,6 +8,7 @@
 系统文档写「单人维护直接在 main 开发」，但**单人 ≠ 单会话**：两个 Claude 会话可在同一 `~/.dl-workflow` 并行作业。当日实测：一方 `git reset --hard`/restore 把另一方**未提交**的改动抹掉（两文件全失），残留文件与新状态不一致（tests 期待新节点而节点树被回退，46 failed）。
 
 - **防御**：未提交工作 = 丢失面 + hunk 混合冲突源。**完成一个逻辑单元就 commit**（frequent small commits 对共享 repo 是防撞保护，不只是整洁）；知道另一会话在同 repo 作业时更要即改即提——攒到「划分 commit」才提就是给冲突留窗口。
+- **worktree 起点核对**（2026-08-13 实例）：并发活跃期 main 分钟级前进（一查一建之间另一会话 merge 两笔）——`git worktree add` 后先 `git log --oneline -1 main` 比对分支起点，落后则 reset --hard main 再开工，防在旧基线上叠改动、收口时撞意料外冲突。
 - **诊断**（发现改动消失，别急着重做）：`git status`（文件还在不在 M 列表）→ `git log`（**HEAD 前进 = 对方已提交你的工作，转验收；HEAD 不动 = 被回退**）→ `git reflog`（reset 事件留痕）→ grep 文件内容确认。关键分叉：被提交（好消息）vs 被回退（需裁决）。
 - **恢复纪律**：先 surface 给用户——回退可能是对方有意，盲目重做会制造第二轮冲突；若对方已提交，**全量验收代替重做**（pytest 全绿 + ruff + grep 关键标识 + install copy diff + render/注入冒烟）。
 
