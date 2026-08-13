@@ -1006,6 +1006,34 @@ class TestSubagentRetryStats:
         )
         assert "subagent_retry" not in rec
 
+    def test_finds_segment_worker_dir(self, tmp_path, monkeypatch):
+        # v4 前台混合回归：agent 由段工人派发，transcript 在段工人 session 目录
+        # （非 state.session_id="s" 的前台会话）。glob 定位须命中段工人目录
+        # （2026-08-13 amplitude_annualized 实证：state.session_id 恒指前台，
+        # 台账在 driver 模式静默返 None）。
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        home = tmp_path / "home"
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+        enc = "".join(c if c.isalnum() else "-" for c in str(tmp_path))
+        d = home / ".claude" / "projects" / enc / "seg-sid" / "subagents"
+        d.mkdir(parents=True)
+        with (d / "agent-a1.jsonl").open("w", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "usage": {"input_tokens": 5000, "output_tokens": 0}
+                        },
+                    }
+                )
+                + "\n"
+            )
+        stats = eng._subagent_retry_stats(tmp_path, "t")
+        assert stats is not None
+        assert stats["agents"] == 1
+        assert stats["empty_responses"] == 1
+
 
 # ---------- §orchestration v2：understand:1 子步骤编排（替代过渡「≥3 Q/A」） ----------
 
@@ -9574,6 +9602,34 @@ class TestIngestAgentReport:
         self._scaffold(tmp_path)
         ok, msg = eng.ingest_agent_report(tmp_path, "t", "zzz999")
         assert not ok and "找不到子代理 transcript" in msg
+
+    def test_ingest_finds_segment_worker_transcript(self, tmp_path, monkeypatch):
+        # v4 前台混合回归：agent 由段工人派发，transcript 在段工人 session 目录
+        # （非 state.session_id="s" 的前台会话）。ingest 须 glob 找到
+        # （2026-08-13 amplitude_annualized sub3 实证：62 轮逆向源码的根因）。
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=3)
+        home = tmp_path / "home"
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+        enc = "".join(c if c.isalnum() else "-" for c in str(tmp_path))
+        d = home / ".claude" / "projects" / enc / "seg-sid" / "subagents"
+        d.mkdir(parents=True)
+        with (d / "agent-abc123.jsonl").open("w", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "content": [{"type": "text", "text": "蒸馏报告正文"}]
+                        },
+                    }
+                )
+                + "\n"
+            )
+        self._scaffold(tmp_path)
+        ok, msg = eng.ingest_agent_report(tmp_path, "t", "abc123")
+        assert ok, msg
+        text = (tmp_path / ".trace-payload-t.md").read_text(encoding="utf-8")
+        assert "蒸馏报告原文收录（task-id abc123）" in text
 
 
 class TestRenderReadback:

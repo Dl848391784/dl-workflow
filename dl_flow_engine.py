@@ -401,16 +401,8 @@ def _subagent_retry_stats(project_root: Path, name: str) -> dict | None:
     混合行=模型未按纪律裁剪，tiers 记全部命中、违例判定只认纯 light）；
     light 档 >4 curl 记 light_tier_violations（分档轮次上限的机械台账）。
     """
-    state = load_state(project_root, name)
-    if not state:
-        return None
-    sid, wt = state.get("session_id"), state.get("worktree_path")
-    if not sid or not wt:
-        return None
-    # Claude Code 项目目录编码：路径非字母数字字符一律转 '-'
-    enc = "".join(c if c.isalnum() else "-" for c in str(wt))
-    d = Path.home() / ".claude" / "projects" / enc / sid / "subagents"
-    if not d.is_dir():
+    d = _subagent_dir(project_root, name)
+    if d is None:
         return None
     agents = empty = burned = 0
     per_agent = []
@@ -4944,16 +4936,31 @@ def _parse_trace_md(raw: str, step) -> tuple[dict | None, str | None]:
 
 
 def _subagent_dir(project_root: Path, name: str) -> Path | None:
-    """子代理 transcript 目录（v2.39 台账同款定位，抽出共用）。"""
+    """子代理 transcript 目录（v2.39 台账同款定位，抽出共用）。
+
+    v4 前台混合修复（2026-08-13 amplitude_annualized sub3 实证）：agent 由
+    段工人（headless claude -p）派发，其 transcript 落在段工人的 session 目录下；
+    state.session_id 恒指前台 TUI 会话（driver 从未按 headless-driver-arch-design
+    §2.6「session_id 语义=最近段 session」落地更新）——只信 state.session_id 会
+    指向前台目录（不存在），--ingest-agent 报「找不到子代理 transcript」，模型
+    被迫 62 轮逆向源码手工兜底。改为 glob 遍历项目目录下所有 session 子目录，
+    返回含 subagents/ 的那个（v2 单 TUI 会话下前台目录同样命中）。
+    """
     state = load_state(project_root, name)
     if not state:
         return None
-    sid, wt = state.get("session_id"), state.get("worktree_path")
-    if not sid or not wt:
+    wt = state.get("worktree_path")
+    if not wt:
         return None
     enc = "".join(c if c.isalnum() else "-" for c in str(wt))
-    d = Path.home() / ".claude" / "projects" / enc / sid / "subagents"
-    return d if d.is_dir() else None
+    base = Path.home() / ".claude" / "projects" / enc
+    if not base.is_dir():
+        return None
+    for d in sorted(base.iterdir()):
+        sd = d / "subagents"
+        if sd.is_dir():
+            return sd
+    return None
 
 
 def ingest_agent_report(
