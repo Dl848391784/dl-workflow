@@ -1309,6 +1309,7 @@ def test_run_session_disallow_ask_flag_order(wf_repo, monkeypatch):
 
     class _FakeProc:
         stdout = iter([])
+        stdin = io.StringIO()
 
         def wait(self):
             return 0
@@ -1336,10 +1337,12 @@ def test_run_session_disallow_ask_flag_order(wf_repo, monkeypatch):
         disallow_ask=True,
     )
     cmd = captured["cmd"]
-    assert cmd[-1] == "提示词正文"  # prompt 仍是位置参数（未被吞）
+    # prompt 已改走 stdin（ARG_MAX 修复）——断言旗标语义：--disallowedTools
+    # 变长参数后必跟旗标（不再有 prompt 位置参数，吞名风险按构造消失）
+    assert "提示词正文" not in cmd
     i = cmd.index("--disallowedTools")
     assert cmd[i + 1] == "AskUserQuestion"
-    assert cmd[i + 2].startswith("--")  # 变长参数后必跟旗标
+    assert cmd[i + 2].startswith("--")
 
 
 def test_phase_front_dispatch_block_on_noninteractive_step(wf_repo):
@@ -1926,3 +1929,54 @@ def test_segment_confirm_readback_assembles_artifact(wf_repo, monkeypatch):
     assert calls == []  # 全程零模型会话
     recs = _read_evidence_recs(wf_repo)
     assert any(r.get("skill") == "confirm-readback" for r in recs)
+
+
+# ---------- ARG_MAX 修复（2026-08-12 interaction run plan:2#子5 E2BIG 实爆） ----------
+
+
+class _NoCloseStringIO(io.StringIO):
+    """close 后仍可 getvalue（生产侧 close 触发子进程 EOF，测试侧要回看内容）。"""
+
+    def close(self):
+        self._closed_marker = True
+
+
+def test_run_session_prompt_via_stdin_not_argv(wf_repo, monkeypatch, tmp_path):
+    """prompt 走 stdin（无 128KB 单参数上限），不进 argv（中文交接包放大实爆）。"""
+    drv = _load(DRIVER, "drv_stdin")
+    procs = []
+
+    class _P:
+        def __init__(self, cmd, **kw):
+            self.cmd = cmd
+            self.stdin = _NoCloseStringIO()
+            self.stdout = io.StringIO(
+                '{"type":"result","subtype":"success","session_id":"s1",'
+                '"duration_ms":1,"num_turns":1,"total_cost_usd":0,"usage":{}}\n'
+            )
+
+        def wait(self):
+            return 0
+
+        def terminate(self):
+            pass
+
+        def kill(self):
+            pass
+
+    monkeypatch.setattr(
+        drv.subprocess, "Popen", lambda cmd, **kw: procs.append(_P(cmd)) or procs[-1]
+    )
+    big = "交接包" * 50000  # 200k 字节级，argv 必 E2BIG 的量级
+    rc, out, sid = drv.run_session(
+        big,
+        cwd=tmp_path,
+        settings=tmp_path / "s.json",
+        sys_prompt_file=tmp_path / "r.md",
+        meta=tmp_path / "meta",
+        debug=False,
+        note="t",
+    )
+    assert rc == 0
+    assert big not in " ".join(procs[0].cmd)  # prompt 不在 argv
+    assert procs[0].stdin.getvalue() == big  # 全量走 stdin

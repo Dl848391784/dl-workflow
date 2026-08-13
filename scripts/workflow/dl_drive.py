@@ -378,7 +378,10 @@ def run_session(
             "--debug-file",
             str(meta / f"cc_debug.{sid[:8]}.log"),
         ]
-    cmd.append(prompt)
+    # prompt 走 stdin 不走 argv（2026-08-12 interaction run plan:2#子5 实爆）：
+    # 交接包随步数增长 + 中文 1.68 bytes/char 放大，prompt 超 MAX_ARG_STRLEN
+    # （131,072 bytes/单参数）→ Popen OSError E2BIG「Argument list too long」，
+    # 段结构性卡死。stdin 无此上限（实测 stream-json+verbose+大 prompt 正常）。
     meta.mkdir(parents=True, exist_ok=True)
     texts: list[str] = []
     with (
@@ -388,6 +391,7 @@ def run_session(
         proc = subprocess.Popen(
             cmd,
             cwd=str(cwd),
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=err_f,
             text=True,
@@ -396,6 +400,9 @@ def run_session(
             # 统一裁决（防 child 先收 SIGINT 自杀、driver 读 EOF 当正常收段的竞态）
             start_new_session=True,
         )
+        assert proc.stdin is not None
+        proc.stdin.write(prompt)
+        proc.stdin.close()  # 关闭触发子进程读入（EOF），勿 flush 后留开（挂起）
         interrupted = False
         first_fresh: "int | None" = None
         try:
