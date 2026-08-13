@@ -118,6 +118,64 @@ def _record_segment(
     engine.save_state(project_root, name, state)
 
 
+# ---------- P2-4 段链合并（designs/segment-chain-resume-design.md） ----------
+# 会话合并非派发合并：逐步派发 + 步间 gate 不变，仅「下一步新会话」改
+# 「--resume 同会话续跑」。链粒度 = minor_state。
+
+
+def _chain_resume_sid(state: dict, node_id: str, cur: int) -> "str | None":
+    """当前 headless-step 可续链则返回链 session_id，否则 None（新会话）。
+
+    不变式三条件：节点在白名单（试点纪律，空名单 = 全局关 = 回滚面）+ 链属
+    当前节点（node-rules system prompt 同节点恒定 = 缓存前缀保真）+
+    last_step == cur-1（序列连续——state-reset/back/jump/step-pass/TUI 段
+    天然失配断链，无需显式清）。
+    """
+    if node_id not in engine.SEGMENT_CHAIN_NODES:
+        return None
+    chain = state.get("segment_chain")
+    if not isinstance(chain, dict):
+        return None
+    if chain.get("node") != node_id or chain.get("last_step") != cur - 1:
+        return None
+    sid = chain.get("sid")
+    return sid if isinstance(sid, str) and sid else None
+
+
+def _chain_update(
+    project_root: Path, name: str, node_id: str, cur: int, sid: str
+) -> None:
+    """gate advanced 后落链；推进出白名单节点 = 链作废（防陈旧残留误导审计）。"""
+    st = _load(project_root, name)
+    if node_id in engine.SEGMENT_CHAIN_NODES:
+        st["segment_chain"] = {
+            "node": node_id,
+            "sid": sid,
+            "last_step": cur,
+            "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }
+    else:
+        st.pop("segment_chain", None)
+    engine.save_state(project_root, name, st)
+
+
+def _chain_clear(project_root: Path, name: str) -> None:
+    """显式断链（RC_INTERRUPTED 杀中段——transcript 尾部可能残留半个 turn）。"""
+    st = _load(project_root, name)
+    if st.pop("segment_chain", None) is not None:
+        engine.save_state(project_root, name, st)
+
+
+def _chain_warn_line(last_ctx: "int | None", note: str) -> "str | None":
+    """链上下文峰值告警行；未超/无数据返回 None（宁纵勿枉只告警）。"""
+    if last_ctx is None or last_ctx <= CHAIN_CONTEXT_WARN:
+        return None
+    return (
+        f"  ⚠ 链会话上下文 {last_ctx:,} tok 超阈值 {CHAIN_CONTEXT_WARN:,}"
+        f"（{note}）——链内膨胀，查交接包/步产出体积"
+    )
+
+
 def _rewrite_hook_paths(data: dict) -> dict:
     """hook 命令路径重写到与 driver 同仓的 hooks/（版本一致性）。
 
@@ -193,8 +251,8 @@ def ensure_node_rules(project_root: Path, name: str, node: "engine.Node") -> Pat
     phase_label = engine.PHASE_LABELS.get(node.phase, node.phase)
     text = (
         f"# WORKFLOW 节点规则（driver 装配瘦版——全量 phase-rules 不注入）\n\n"
-        f"你在外部 driver 编排的工作流会话中执行子步骤。**每个会话只做当前一个子步骤**；"
-        f"后续步骤由 driver 另起全新会话，与你无关。门控只认 evidence trace"
+        f"你在外部 driver 编排的工作流会话中执行子步骤。**每次派发只做当前一个子步骤**；"
+        f"后续步骤由 driver 另行派发，与你无关。门控只认 evidence trace"
         f"（append-trace 落库），不认可完成标记。\n\n"
         f"## 通用纪律\n"
         f"- 完成后必须 append-trace 落库（--scaffold 生成骨架 → Edit 填「待填」→ --from-file）\n"
@@ -294,6 +352,28 @@ def ensure_tui_rules(
 # judge 侧、2026-08-12 交接包侧均靠事后审计抓），把斜率钉成可观察信号。
 SEG_FIRST_FRESH_WARN = 35_000
 
+# P2-4 链上下文峰值告警阈值（segment-chain-resume-design §3.4）：链内续轮
+# 上下文单调涨，超阈值告警（宁纵勿枉只告不拦）——v2 单会话 485k 零锯齿的
+# 平方膨胀边界在 30+ 步，链内 3-5 步峰值估 150-250k，250k 起告。
+CHAIN_CONTEXT_WARN = 250_000
+
+
+def _ctx_size(ev: dict) -> "int | None":
+    """assistant 事件的上下文体量代理 = input + cache_read + cache_creation。"""
+    u = (ev.get("message") or {}).get("usage")
+    if not isinstance(u, dict):
+        return None
+    vals = [
+        u.get(k)
+        for k in (
+            "input_tokens",
+            "cache_read_input_tokens",
+            "cache_creation_input_tokens",
+        )
+    ]
+    vals = [v for v in vals if isinstance(v, int)]
+    return sum(vals) if vals else None
+
 
 def _first_call_fresh(ev: dict) -> "int | None":
     """assistant 事件的本次调用未缓存输入（fresh）；无 usage 返回 None。"""
@@ -335,6 +415,7 @@ def run_session(
     verbose: bool = False,
     disp: "LiveProgress | None" = None,
     disallow_ask: bool = False,
+    resume_sid: "str | None" = None,
 ) -> tuple[int, str, str]:
     """一次 headless `claude -p` 会话。返回 (rc, assistant 全文, session_id)。
 
@@ -347,8 +428,10 @@ def run_session(
     disallow_ask=True（交互步 prep 会话）：--disallowedTools AskUserQuestion
     权限层堵入口（interactive-step-headless-prep §4.2 L1——调了必吃 denial，
     配合 _session_called_ask_user L2 嗅探，NEED_USER 标记不作承重墙）。
+    resume_sid（P2-4 段链）：续链走 --resume（与 --session-id 互斥），返回
+    sid = 链 sid；None = 新会话（现状）。
     """
-    sid = str(uuid.uuid4())
+    sid = resume_sid or str(uuid.uuid4())
     cmd = [
         "claude",
         "-p",
@@ -368,9 +451,13 @@ def run_session(
         str(settings),
         "--append-system-prompt-file",
         str(sys_prompt_file),
-        "--session-id",
-        sid,
     ]
+    if resume_sid:
+        # P2-4 续链：--resume 与 --session-id 互斥（设计期冒烟：全旗标组合
+        # + --resume 跨进程续会话实测通过，记忆保留）
+        cmd += ["--resume", resume_sid]
+    else:
+        cmd += ["--session-id", sid]
     if debug:
         cmd += [
             "--debug",
@@ -405,6 +492,7 @@ def run_session(
         proc.stdin.close()  # 关闭触发子进程读入（EOF），勿 flush 后留开（挂起）
         interrupted = False
         first_fresh: "int | None" = None
+        last_ctx: "int | None" = None
         try:
             assert proc.stdout is not None
             for line in proc.stdout:
@@ -417,6 +505,7 @@ def run_session(
                 if etype == "assistant":
                     if first_fresh is None:
                         first_fresh = _first_call_fresh(ev)
+                    last_ctx = _ctx_size(ev) or last_ctx
                     for blk in (ev.get("message") or {}).get("content") or []:
                         if not isinstance(blk, dict):
                             continue
@@ -449,6 +538,12 @@ def run_session(
                             disp.log(warn)
                         else:
                             print(warn)
+                    cwarn = _chain_warn_line(last_ctx, note)
+                    if cwarn:
+                        if disp is not None:
+                            disp.log(cwarn)
+                        else:
+                            print(cwarn)
         except KeyboardInterrupt:
             # 单击=中断子任务：杀子会话，段以「中断」收场（drive 进断点裁决；
             # 再按 Ctrl+C = 双击退出，由下方 _pwait_interruptible 处理）
@@ -812,7 +907,7 @@ def build_step_prompt(
         )
         rules_block = (
             "铁律：\n"
-            "- 只做这一个子步骤——后续步骤由 driver 另起会话，与你无关\n"
+            "- 只做这一个子步骤——后续步骤由 driver 另行派发，与你无关\n"
             "- 禁输出 ### STEP_DONE / ### PHASE_DONE 标记（外部编排，标记无效）\n"
             f"{_bash_shape_rules(project_root)}\n"
             f"{tail}\n" + engine.selfcheck_hint(step)
@@ -1534,6 +1629,10 @@ def _run_boundary_loop(
                         rework=pending_rework,
                         prep_next=prep_next,
                     )
+                    nid = engine.node_id(node.phase, node.sub)
+                    resume_sid = _chain_resume_sid(state, nid, cur)
+                    if resume_sid:
+                        disp.log(f"  ⟂ 段链续跑（{nid} 链，子{cur}）——同会话 --resume")
                     rc, out, sid = run_session(
                         prompt,
                         cwd=wt,
@@ -1541,11 +1640,35 @@ def _run_boundary_loop(
                         sys_prompt_file=rules,
                         meta=meta,
                         debug=debug,
-                        note=f"{engine.node_id(node.phase, node.sub)}#{cur}",
+                        note=f"{nid}#{cur}",
                         verbose=verbose,
                         disp=disp,
+                        resume_sid=resume_sid,
                     )
                     seg_kind = "headless-step"
+                    if (
+                        resume_sid
+                        and rc != RC_INTERRUPTED
+                        and rc != 0
+                        and not out.strip()
+                    ):
+                        # 续链失败兜底（transcript 缺失/损坏——设计期冒烟：坏 sid
+                        # = rc 1 + 零 assistant 事件）：降级新会话重发，留痕
+                        disp.log(
+                            "  ⚠ 续链失败——降级新会话重发（chain_broken_fallback）"
+                        )
+                        _chain_clear(project_root, name)
+                        rc, out, sid = run_session(
+                            prompt,
+                            cwd=wt,
+                            settings=settings,
+                            sys_prompt_file=rules,
+                            meta=meta,
+                            debug=debug,
+                            note=f"{nid}#{cur}",
+                            verbose=verbose,
+                            disp=disp,
+                        )
                     if NEED_USER_RE.search(out):
                         # 动态交互 fallback（§2.3）：模型非预期需要用户输入——
                         # drive 当场重分类起 TUI 段；--segment 抛 _SegmentExit(13)。
@@ -1570,6 +1693,9 @@ def _run_boundary_loop(
                     # autodone：落共享门控（advanced 续跑 / block 自动返工 / escalate 断点）
                 if rc == RC_INTERRUPTED:
                     # 单击中断子会话（§2.6）——断点等裁决，不自动重发
+                    _chain_clear(
+                        project_root, name
+                    )  # P2-4：杀中段 transcript 尾或残半 turn——断链
                     if (
                         on_breakpoint(
                             f"⛔ 子步骤 {cur} 子会话已被用户中断（单击）——"
@@ -1587,6 +1713,16 @@ def _run_boundary_loop(
                 if action == "advanced":
                     none_retries = 0
                     disp.log(f"  ✓ 子步骤 {cur} 通过门控")
+                    if seg_kind == "headless-step":
+                        # P2-4：落链（白名单外节点 = 链作废，见 _chain_update）；
+                        # block/none 不落——last_step 停 cur-1，下轮自然续链返工
+                        _chain_update(
+                            project_root,
+                            name,
+                            engine.node_id(node.phase, node.sub),
+                            cur,
+                            sid,
+                        )
                     if prep_next is not None and _NEXT_PREP_JSON_RE.search(out):
                         # P2-1：只在门控通过后落标记——被 block 的内容备的问题
                         # 不得转前台（返工段会重新输出，覆盖更新）
