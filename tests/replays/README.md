@@ -35,9 +35,10 @@ python3 tests/replays/replay_p1_sub1.py
 | 脚本 | 节点 | 载荷 |
 |---|---|---|
 | replay_u1_sub1.py | understand:1 子1 逼问定义 | clean / real_borderline(软依赖) / vio_fixreq / vio_fabricate |
-| replay_u1_sub2.py | understand:1 子2 拆解深挖 | clean / vio1 同义反复 / vio2 稻草人 / vio3 none 档 |
-| replay_u1_sub3.py | understand:1 子3 双向取证 | clean / vio1 编造 / vio2 脱靶 / vio3 降档 / vio4 none派发 / vio5 转述 / vio6 未升档 |
-| replay_u1_sub5.py | understand:1 子5 归一化陈述 | clean / vio1 证伪混入 / vio2 边界超出 / vio3 复合句 / vio4 实现名词 |
+| replay_u1_sub2a.py | understand:1 子2a 规划拆解（plan-first 拆步 2026-08-14） | clean / vio_missing_atom(MECE 穷尽) / vio_overlap(MECE 互斥) |
+| replay_u1_sub2.py | understand:1 子2b 因果链挖掘（plan-first 拆步前旧子2） | clean / vio1 同义反复 / vio2 稻草人 / vio3 none 档 |
+| replay_u1_sub3.py | understand:1 子4 双向取证（plan-first 拆步前旧子3） | clean / vio1 编造 / vio2 脱靶 / vio3 降档 / vio4 none派发 / vio5 转述 / vio6 未升档 |
+| replay_u1_sub5.py | understand:1 子6 归一化陈述（plan-first 拆步前旧子5） | clean / vio1 证伪混入 / vio2 边界超出 / vio3 复合句 / vio4 实现名词 |
 | replay_u2_sub1.py | understand:2 子1 目标引出 | clean / vio1 孤儿目标 / vio2 空泛复述 / vio3 ②偷懒 / vio4 ②未问先引 |
 | replay_u2_sub2.py | understand:2 子2 对齐质检 | clean / vio1 同义反复 / vio2 矩阵放水 / vio3 汇总无矩阵 |
 | replay_u2_sub3.py | understand:2 子3 价值论证 | clean / vio1 空泛复述 / vio2 基线编造(mech墙) / vio3 全must / vio4 无理由 / vio5 拍板 |
