@@ -2280,3 +2280,13 @@ def test_node_rules_injects_discovery_ledger_hint(wf_repo):
     text = out.read_text(encoding="utf-8")
     assert "## 发现台账" in text
     assert "discoveries.jsonl" in text
+
+
+def test_node_rules_has_arch_route(wf_repo):
+    """understand:1 子2 段落含通用取证路线（trace/string/history/Read）。"""
+    drv = _load(DRIVER, "drv_under_test")
+    node = engine.get_node("understand", 1)
+    out = drv.ensure_node_rules(wf_repo, "t", node)
+    text = out.read_text(encoding="utf-8")
+    assert "dl codebase trace" in text
+    assert "取证路线" in text

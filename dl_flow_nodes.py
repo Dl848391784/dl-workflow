@@ -511,6 +511,19 @@ _FETCH_AUTHORITY_REGISTRY = (
     "时的兜底。"
 )
 
+# 通用代码考古取证路线（杠杆 2，code-archaeology-three-levers-design §2）：
+# 单层取证「决定下一步查哪」从开放式推理降级为模板跟随；symbol 关系查询优先
+# trace，grep 只做正则/字符串，历史走 --history。dl codebase 自动落账去重。
+_CODE_ARCH_ROUTE = (
+    "单个原子问题取证路线（按需跳步）："
+    "1. symbol 关系查询优先走 `dl codebase trace <symbol>`（一次拿定义+调用者"
+    "+被调+影响面+git 历史，勿逐条 grep）；"
+    "2. 字符串/正则定位走 `dl codebase query --string`；"
+    "3. 某行何时引入走 `dl codebase query --history <file>:<line>`；"
+    "4. 读关键文件正文用 Read。"
+    "`dl codebase` 自动落账去重，重复查询零成本。"
+)
+
 # 交互读回步的提问拆分规则（2026-07-30 tail_volume understand:4 子5 审计）：
 # 模型把 4 个裁决问题捆绑一轮 AskUserQuestion，回答时长由最难项决定
 # （实测 370s > 300s prompt-cache TTL）——下一轮 255,670 token 上下文
@@ -809,6 +822,7 @@ _NODES: dict[str, Node] = {
                     "首字母标签与 MECE 声明「原子 X」集合对齐"
                     "（未声明标签/同标签重复当场拒））。"
                     "输出走 evidence skill-trace（q/a 数组），不建单独 md。"
+                    f"{_CODE_ARCH_ROUTE}"
                 ),
                 input="step1.real_problem",
                 record=True,
