@@ -268,8 +268,9 @@ def ensure_node_rules(project_root: Path, name: str, node: "engine.Node") -> Pat
         f"{section}\n"
     )
     # 项目注册工具注入（组件 B）：只读发现类命令，可直接用 Bash 调用。
-    # load_project_tools 只校验键存在不校验值类型——command/description 可能为
-    # None，`or ''` 兜底防渲染出字面 "None"；arg_hint 空/None 则不挂参数标注。
+    # name 是「给模型看的名字」必须渲染；load_project_tools 只校验键存在不校验值
+    # 类型——name/command/description 可能为 None，`or ''` 兜底防渲染出字面 "None"；
+    # arg_hint 空/None 则不挂参数标注。
     tools = project_tools.load_project_tools(project_root)
     if tools:
         lines = [
@@ -278,7 +279,8 @@ def ensure_node_rules(project_root: Path, name: str, node: "engine.Node") -> Pat
         for t in tools:
             hint = f"（参数：{t['arg_hint']}）" if t.get("arg_hint") else ""
             lines.append(
-                f"- `{t['command'] or ''}` {hint} — {t.get('description') or ''}"
+                f"- {t['name'] or ''}：`{t['command'] or ''}` {hint}"
+                f" — {t.get('description') or ''}"
             )
         text += "\n".join(lines) + "\n"
     if not out.exists() or out.read_text(encoding="utf-8") != text:

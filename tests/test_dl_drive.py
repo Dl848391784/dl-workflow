@@ -185,6 +185,7 @@ def test_node_rules_injects_project_tools(wf_repo, monkeypatch):
     out = drv.ensure_node_rules(wf_repo, "t", node)
     text = out.read_text(encoding="utf-8")
     assert "## 本项目工具" in text
+    assert "inspect-backtest-result" in text  # name（设计意图「给模型看的名字」）
     assert "scripts/inspect.py --factor {factor}" in text  # command
     assert "--factor <f>" in text  # arg_hint
     assert "读回测" in text  # description
