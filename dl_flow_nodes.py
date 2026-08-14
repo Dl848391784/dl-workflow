@@ -719,7 +719,7 @@ _NODES: dict[str, Node] = {
         # 5 子步骤逐步 STEP_DONE gate；目的 engine 声明，注入 phase-rules + gate 兜底。
         # skill 内部 Q/A 不门控，record 步落 evidence（step_needs_evidence 读文件喂 judge）。
         gate_rubric=None,  # 子阶段级 rubric 删除（被 sub_steps 逐步门控取代）
-        advance="sub",  # 末子步骤 STEP_DONE:6 通过即推进 sub_index（_handle_step_done 调 advance_state）
+        advance="sub",  # 末子步骤 STEP_DONE:7 通过即推进 sub_index（_handle_step_done 调 advance_state）
         sub_steps=(
             Step(
                 kind="skill",
@@ -803,20 +803,19 @@ _NODES: dict[str, Node] = {
             Step(
                 kind="skill",
                 ref="causal-inference-root-cause",
-                short="拆解深挖",
-                # 拆解深挖（2026-07-25 设计决议）：逼问出的是「用户声称的问题」，
-                # 须先横向拆（复合痛点 MECE 切分，防一捆问题混进后续）再纵向挖（因果链到根因，
-                # 防拿症状当问题）。拆解必须在验真之前——拿一捆问题/症状去搜证据 = 白搜。
-                # 复合问题的其余项不丢弃：带已验证陈述落 evidence，供后续 dl 实例接续。
+                short="规划拆解",
+                # 拆解深挖·规划（2026-07-25 设计决议 + plan-first 拆步 2026-08-14）：
+                # 逼问出的是「用户声称的问题」，须先横向拆（复合痛点 MECE 切分，防一捆
+                # 问题混进后续）再纵向挖（因果链到根因，防拿症状当问题）。拆解必须在验真
+                # 之前——拿一捆问题/症状去搜证据 = 白搜。复合问题的其余项不丢弃：带已
+                # 验证陈述落 evidence，供后续 dl 实例接续。
+                # plan-first：子2 一拆二——本步只规划（MECE 拆解 + 定档 → atomic_questions），
+                # 无搜索（不设 deny_readonly）；因果链挖掘 + 取证路线归子2b。
                 purpose=(
-                    "拆解深挖：①单一/复合判定——复合痛点按 MECE 拆成原子问题清单"
+                    "拆解深挖·规划：①单一/复合判定——复合痛点按 MECE 拆成原子问题清单"
                     "（互不重叠、合起来覆盖全部痛点；单一则声明「无复合」理由）；"
-                    "②每个原子问题沿因果链挖到根因（invoke causal-inference-root-cause，"
-                    "5 Whys/鱼骨/时序分析），每环必须有可观察证据，禁纯叙事——"
-                    f"{_CAUSAL_CHAIN_EVIDENCE_RULE}；"
-                    "③每个问题 ≥1 个竞争假设 + 排除理由（或当前假设为何最可能）；"
-                    "④区分近因与根因，标注置信度；"
-                    f"⑤每个原子问题定取证深度档——{_FETCH_TIER_RULE}。"
+                    "②每个原子问题定取证深度档——" f"{_FETCH_TIER_RULE}。"
+                    "本步**只规划不挖链**——因果链挖掘是子2b 的活。"
                     "原子问题清单连档作为载荷顶层 atomic_questions 键提交"
                     "（逐项 "
                     '{"q":<原子问题>, "tier":"none|light|full", "tier_reason":<分档理由>}，'
@@ -825,53 +824,101 @@ _NODES: dict[str, Node] = {
                     "首字母标签与 MECE 声明「原子 X」集合对齐"
                     "（未声明标签/同标签重复当场拒））。"
                     "输出走 evidence skill-trace（q/a 数组），不建单独 md。"
-                    f"{_CODE_ARCH_ROUTE}"
                 ),
                 input="step1.real_problem",
                 record=True,
                 selfcheck=(
                     "单一/复合判定了吗（复合→MECE 原子清单合起来覆盖全部痛点；"
-                    "单一→附「无复合」理由）？每个原子问题 ≥2 环因果链、"
-                    "主链每环是实际证据指针吗（「未实测/推断」标注不算出处，"
-                    "只允许出现在竞争假设分支——"
-                    f"{_CAUSAL_CHAIN_EVIDENCE_RULE}）？"
-                    "每环回答的是「异常数值如何形成」还是「谁调用谁/产物路径/"
-                    "schema 描述」（后者有 file:line 也不算因果环）？"
-                    "每个问题有 ≥1 竞争假设+排除/保留理由吗？近因/根因区分和置信度标了吗？"
+                    "单一→附「无复合」理由）？"
                     "每个原子问题定档了吗（atomic_questions 逐项 q/tier/tier_reason，"
                     "拿不准标 light；none 档理由含仓内路径；你的论证用到的公式/"
                     "量级锚点都在仓内吗——在仓外=含外部知识依赖，不得标 none）？"
                     "atomic_questions 与 MECE 声明原子一一对应吗"
                     "（标签一致、一原子恰好一条）？"
                 ),
-                # 门控分工：judge 只判结构完整性（清单/链/竞争假设/出处），
-                # 根因对不对归子3验真 + 子5用户认可（§3.5 三层分工）。
-                # v2.72（2026-08-04，designs/u1-sub2-gate-framing-design.md）：
-                # §3.5 #28 泛化——framing 反转（从严→默认-PASS + 方框化真值
-                # 判据）。基线 n=6：2397 字从严版 clean 0/6 全误伤（judge 发明
-                # 「原话不是因果环/无复合理由位置/排除须证伪/置信度标注=占环位」
-                # 要件），vio1-3 牙齿 6/6。两个内联常量撤出 gate——长度是弱
-                # judge 稳定性独立变量，模型侧 purpose/selfcheck 保留全文
-                # （单源不变）；_FETCH_TIER_RULE 双侧钉死意图由方框第四条
-                # 压缩条款承接（测试改钉压缩条款）。
-                # v2.73：framing 反转后 clean 仍 1/6——方框条款成新磁铁，
-                # 弱 judge 单向模式匹配过度适用（仓内统计当外部知识/因果推进
-                # 当同义反复/有留痕排除当稻草人）。按 §3.5 #12 双侧钉死：
-                # 每条方框判据近端附合法形态（词形取三轮误判判词逐字），
-                # 合法形态在场不得判。
-                # v2.74：v2.73 clean 4/6 但 vio2 牙齿掉 4/6——「用户没有
-                # 表达过」缺席断言被当成留痕放过（vio2 逐字），补「缺席断言
-                # ≠证据指针，具体选择记录才算」；clean 残余误判=「IC 概念本身
-                # 是行业常识」扩判，补「领域概念提问+仓内计数答案=仓内可达」。
+                # 门控分工：子2a 只判「规划」结构完整性（MECE 互斥穷尽 + tier 档合理性），
+                # 因果链证据真值归子2b，根因对不对归子4/子5 验真 + 子7 用户认可。
+                # v2.72-v2.75（2026-08-04，designs/u1-sub2-gate-framing-design.md）：
+                # §3.5 #28 泛化——framing 反转（从严→默认-PASS + 方框化真值判据）。
+                # plan-first 拆步：原子2 gate 四方框按职责切分——方框四（none 档漏取证）
+                # + MECE 原子清单结构归子2a gate；方框一/二/三（因果链证据）归子2b gate。
+                # 两侧各保留「默认 pass」字面 + 合法正例段（§3.5 #28 牙齿不丢）。
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace 且 sub_step==2 的记录。"
                     "形式要件：①原子问题清单（≥1 个；单问题附「无复合」理由，"
-                    "位置不限）；②每问题 ≥2 环因果链到根因；③每问题 ≥1 竞争"
-                    "假设+排除/保留理由；④近因与根因区分+置信度；⑤每原子已定"
-                    "取证深度档。"
-                    "（链环禁词/占环位/行号跨度/全局否定扫描留痕/档枚举/理由"
-                    "非空/none 档仓内路径/MECE 标签对齐 已由 append-trace 机械"
-                    "校验通过--你不得以这些形式要件为由 block，只判下面四件事"
+                    "位置不限）；②每原子已定取证深度档。"
+                    "（档枚举/理由非空/none 档仓内路径/MECE 标签对齐 已由 "
+                    "append-trace 机械校验通过--你不得以这些形式要件为由 block，"
+                    "只判下面两件事的真实性。）\n"
+                    "默认 pass--仅当以下成立才判 block（每条附合法形态，"
+                    "合法形态在场不得判）：\n"
+                    "一、MECE 互斥穷尽：复合痛点拆出的原子清单互不重叠（互斥）、"
+                    "合起来覆盖全部痛点（穷尽）——明显漏项或重叠=拆解未完成判 "
+                    "block；单一痛点未附「无复合」理由判 block。单问题在 purpose "
+                    "或 q/a 任一处附「无复合」理由即合规，不得要求拆成多原子或"
+                    "指定理由位置。\n"
+                    "二、none 档漏取证：论证含外部知识依赖（行业常识/第三方库"
+                    "行为/方法论/数值合理性公式）却标 none 判 block；论证只用"
+                    "仓内产物（仓内目录/报告/统计仓内数据得数量）=仓内可达，"
+                    "问题用领域概念（如 IC/因子）提问但答案只是仓内计数/统计"
+                    "同为仓内可达，标 none 合法不得判；该 full（开放设计问题）"
+                    "标 light 且无升档空间论证判 block。\n"
+                    "【合法正例】单问题在 purpose 或 q/a 任一处附「无复合」理由"
+                    "即合规，不得要求拆成多原子或指定理由位置。方框以外一律不判。\n"
+                    "judge 判 block 须在 reason 引用判据条款并附 1 个正确改写"
+                    "范例（指模式不指实例位置）。"
+                ),
+                # v2.40：原子问题分档清单（逐项 q/tier/tier_reason JSON 校验，
+                # spec=engine._MECH_EXTRA_ITEM_CHECKS 注册名）——分类纠偏前置
+                # 到规划步 gate（便宜环节），执行步子2b/子4 只执行不重新定档（禁降档）。
+                # v2.50：+atomic_mece_alignment——aq 首字母标签与 MECE 声明
+                # 「原子 X」集合对齐（att1 声明 3 原子交 5 条，judge 判两轮且
+                # 判词搬旧计数失真；集合运算下沉后 judge 不再碰计数）。
+                extra_payload_keys=(
+                    ("atomic_questions", "fetch_tier_items"),
+                    ("atomic_questions", "atomic_mece_alignment"),
+                ),
+            ),
+            Step(
+                kind="skill",
+                ref="causal-inference-root-cause",
+                short="因果链挖掘",
+                # 拆解深挖·执行（plan-first 拆步 2026-08-14）：子2a 产出 atomic_questions
+                # 分档清单后，本步按档逐原子沿因果链挖到根因（原「拆解深挖」的纵向挖链
+                # 部分）。只执行不重定档；发现子2a 漏原子/档错就地补并留痕，不回退 2a。
+                purpose=(
+                    "拆解深挖·执行：按子2a 的 atomic_questions 逐原子挖因果链到根因"
+                    "（invoke causal-inference-root-cause，5 Whys/鱼骨/时序分析），"
+                    "每环必须有可观察证据，禁纯叙事——" f"{_CAUSAL_CHAIN_EVIDENCE_RULE}；"
+                    "每个问题 ≥1 个竞争假设 + 排除/保留理由；区分近因与根因，标注置信度。"
+                    "**按子2a 的档执行，不重定档**（发现子2a 漏原子/档错→就地补并在 "
+                    "trace 标「执行期补规划」+原因，留痕即可，不回退子2a）。"
+                    "输出走 evidence skill-trace（q/a 数组），不建单独 md。"
+                    f"{_CODE_ARCH_ROUTE}"
+                ),
+                input="step2.atomic_questions",
+                record=True,
+                selfcheck=(
+                    "每个原子问题 ≥2 环因果链、"
+                    "主链每环是实际证据指针吗（「未实测/推断」标注不算出处，"
+                    "只允许出现在竞争假设分支——"
+                    f"{_CAUSAL_CHAIN_EVIDENCE_RULE}）？"
+                    "每环回答的是「异常数值如何形成」还是「谁调用谁/产物路径/"
+                    "schema 描述」（后者有 file:line 也不算因果环）？"
+                    "每个问题有 ≥1 竞争假设+排除/保留理由吗？近因/根因区分和置信度标了吗？"
+                    "按子2a 的档执行、未重定档吗（就地补原子/改档须标「执行期补规划」+原因）？"
+                ),
+                # 门控分工：子2b 只判「因果链证据」质量（编造/同义反复/稻草人），
+                # 根因对不对归子4/子5 验真 + 子7 用户认可（§3.5 三层分工）。
+                # v2.72-v2.75 framing 反转（见子2a 注释）：本 gate 承接原原子2 gate
+                # 方框一/二/三（证据编造/根因=症状换说法/竞争假设非稻草人），
+                # 保留「默认 pass」字面 + 合法正例段（§3.5 #28 牙齿不丢）。
+                gate=(
+                    "evidence/<name>.jsonl 含 kind=skill-trace 且 sub_step==3 的记录。"
+                    "形式要件：①每问题 ≥2 环因果链到根因；②每问题 ≥1 竞争"
+                    "假设+排除/保留理由；③近因与根因区分+置信度。"
+                    "（链环禁词/占环位/行号跨度/全局否定扫描留痕 已由 append-trace "
+                    "机械校验通过--你不得以这些形式要件为由 block，只判下面三件事"
                     "的真实性。）\n"
                     "默认 pass--仅当以下成立才判 block（每条附合法形态，"
                     "合法形态在场不得判）：\n"
@@ -886,20 +933,12 @@ _NODES: dict[str, Node] = {
                     "AskUserQuestion 选中项）=非凑数，不得以「假设本身看起来"
                     "不可能」单独判稻草人（「用户没有表达过/没说过」式缺席"
                     "断言已由 append-trace 机械拒，你不再判排除理由的指针形态）。\n"
-                    "四、none 档漏取证：论证含外部知识依赖（行业常识/第三方库"
-                    "行为/方法论/数值合理性公式）却标 none 判 block；论证只用"
-                    "仓内产物（仓内目录/报告/统计仓内数据得数量）=仓内可达，"
-                    "问题用领域概念（如 IC/因子）提问但答案只是仓内计数/统计"
-                    "同为仓内可达，标 none 合法不得判；该 full（开放设计问题）"
-                    "标 light 且无升档空间论证判 block。\n"
                     "【合法正例】用户原话/会话事实是合法环证据指针（判据明文"
                     "枚举）--用户决策瓶颈类问题的因果环以用户原话为环合法，不得"
-                    "发明「原话不是因果机制/必须 file:line」要件；单问题在 "
-                    "purpose 或 q/a 任一处附「无复合」理由即合规，不得要求拆成"
-                    "多原子或指定理由位置；「排除」以用户选择/原话留痕为证据"
-                    "指针合法；置信度说明中「待子3验证」是合法标注不算占环位；"
-                    "根因未证明不判--根因对不对归子3/子4 验真与子5 用户认可，"
-                    "方框以外一律不判。\n"
+                    "发明「原话不是因果机制/必须 file:line」要件；「排除」以用户"
+                    "选择/原话留痕为证据指针合法；置信度说明中「待子3验证」是"
+                    "合法标注不算占环位；根因未证明不判--根因对不对归子4/子5 "
+                    "验真与子7 用户认可，方框以外一律不判。\n"
                     "judge 判 block 须在 reason 引用判据条款并附 1 个正确改写"
                     "范例（指模式不指实例位置）。"
                 ),
@@ -914,25 +953,17 @@ _NODES: dict[str, Node] = {
                     "causal_ring_no_untested",
                     "hypothesis_exclude_no_absence",
                 ),
-                # v2.40：原子问题分档清单（逐项 q/tier/tier_reason JSON 校验，
-                # spec=engine._MECH_EXTRA_ITEM_CHECKS 注册名）——分类纠偏前置
-                # 到本子步 gate（便宜环节），子3 只执行不重新定档（禁降档）。
-                # v2.50：+atomic_mece_alignment——aq 首字母标签与 MECE 声明
-                # 「原子 X」集合对齐（att1 声明 3 原子交 5 条，judge 判两轮且
-                # 判词搬旧计数失真；集合运算下沉后 judge 不再碰计数）。
-                extra_payload_keys=(
-                    ("atomic_questions", "fetch_tier_items"),
-                    ("atomic_questions", "atomic_mece_alignment"),
-                ),
-                # 子2 禁 raw grep/rg：symbol 关系查询只能走 dl codebase trace，
+                # 执行步禁 raw grep/rg：symbol 关系查询只能走 dl codebase trace，
                 # 字符串搜索走 dl codebase query --string（grep 的"堵入口"正治，
-                # 弱模型无视软建议、只能硬围栏逼）。
+                # 弱模型无视软建议、只能硬围栏逼）。规划步子2a 无搜索不设。
                 deny_readonly=("grep", "rg"),
             ),
-            # 子3/子4（2026-07-26 重设计，designs/step3-verify-redesign-design.md）：
+            # 子4/子5（2026-07-26 重设计，designs/step3-verify-redesign-design.md）：
             # 旧单步「验真」对 F1 主张不可检验/F2 确认偏误/F5 证据不可追溯/F7 单视角
-            # 四类失效无防御。按失效模式族拆两步：子3 管取证过程（双向+多源），
-            # 子4 管判断质量（质检+对抗+裁决）。用户硬约束：禁 tavily/WebSearch。
+            # 四类失效无防御。按失效模式族拆两步：子4 管取证过程（双向+多源），
+            # 子5 管判断质量（质检+对抗+裁决）。用户硬约束：禁 tavily/WebSearch。
+            # plan-first 拆步（2026-08-14）：原子2 一拆二后全重编号，原子3/4/5/6
+            # 顺延为子4/5/6/7；本步（双向取证）input 仍指 step2（子2a atomic_questions）。
             Step(
                 kind="tool",
                 ref="Agent(外部取证子代理,每原子一个并行) / codegraph impact {sym}",
@@ -1036,7 +1067,7 @@ _NODES: dict[str, Node] = {
                 # 结论是否触及谓词的推理底分歧（判词自洽无发明要件），
                 # prior_verdicts+escalate 兜底。
                 gate=(
-                    "evidence/<name>.jsonl 含 kind=skill-trace 且 sub_step==3 的记录。"
+                    "evidence/<name>.jsonl 含 kind=skill-trace 且 sub_step==4 的记录。"
                     "形式要件：每个 tier≠none 的原子问题有可检验化 claim（含证实/"
                     "证伪判定标准）；light 档报告为锚点值+来源+量级对比；codegraph "
                     "新鲜度查询留痕。（报告收录项数按档核验/骨架 --out 落盘存在性与"
@@ -1120,7 +1151,7 @@ _NODES: dict[str, Node] = {
                     "④按 verdict 处置问题集——证伪项剔除（留剔除理由）/部分成立项收窄到"
                     "已证实边界/证据不足项带标记进入读回；处置后问题集 = 子5 唯一输入。"
                 ),
-                input="step3.traces",
+                input="step4.traces",
                 record=True,
                 selfcheck=(
                     "每条计数证据逐条列出三关质检结果了吗（E1…En × 三关，汇总声明不算记录）？"
@@ -1151,7 +1182,7 @@ _NODES: dict[str, Node] = {
                 # vs 原文」+ 判据三钉死「触及 claim 方向（检索含 claim 关键词）即算
                 # 针对、概念定义=脱靶」（治 clean#4 E2 误伤 + vio3 漏判，撤 v2.82 反伤）。
                 gate=(
-                    "evidence/<name>.jsonl 含 kind=skill-trace 且 sub_step==4 的记录。"
+                    "evidence/<name>.jsonl 含 kind=skill-trace 且 sub_step==5 的记录。"
                     "形式要件：每条计数证据有三关质检记录（逐条列出针对性/独立性/"
                     "可追溯三关结果，✓标记即记录）；每个原子问题有四态 verdict"
                     "+ 推理链 + 置信度（四态=verdict 取值域，每问题给一个：证实/"
@@ -1220,7 +1251,7 @@ _NODES: dict[str, Node] = {
                     '"fields":{"confidence":置信度}}——text 只许 outcome-level 概念，'
                     "实现侧名词/file:line 只能进 boundary（append-trace 机械扫描，命中即拒）。"
                 ),
-                input="step4.disposed_problem_set",
+                input="step5.disposed_problem_set",
                 record=True,
                 record_format="statements",
                 statement_fields=("confidence",),
@@ -1308,7 +1339,7 @@ _NODES: dict[str, Node] = {
                     "用户对各项的认/否/搁置记入 trace（用户认可本身是裁决留痕）；"
                     f"{_INTERACTIVE_CHUNKING_RULE}。{_USER_DECISION_RECORD_RULE}"
                 ),
-                input="step5.statements",
+                input="step6.statements",
                 # §substep-gate-at-stop：record=True——Stop 门控以「新 trace」为唯一
                 # 完成触发，record=False 的末步永无触发信号、子阶段永远卡住（3a 潜在洞）。
                 # 确认内容本身也是裁决留痕（用户认可了问题陈述）。
