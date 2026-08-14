@@ -305,12 +305,15 @@ def _split_shell_segments(cmd: str) -> list[str]:
     return [s for s in segs if s.strip()]
 
 
-def _s15_bash_readonly_discovery(cmd: str) -> bool:
+def _s15_bash_readonly_discovery(cmd: str, deny_readonly: tuple[str, ...] = ()) -> bool:
     """Bash 只读发现命令判定（v2.53）：find/ls/grep/cat/head/git log 等。
 
     全命令按段（管道/&&/;/换行）校验，段段只读才放行；写意图信号
     （输出重定向/命令替换/xargs/tee）一票否决。引号感知（v2.xx）：
     python3 -c 代码内的 ;/> 不触发拆段/写意图（引号内替换为空格再检测）。
+
+    deny_readonly：per-step 从只读发现通道额外 deny 的命令首 token（如子2
+    禁 grep/rg 逼走 dl codebase trace——"堵入口"正治，rubric §3.5 #39）。
     """
     outside = _outside_quotes(cmd)
     if re.search(r"`|\$\(|\bxargs\b|\btee\b", outside):
@@ -322,6 +325,8 @@ def _s15_bash_readonly_discovery(cmd: str) -> bool:
         if not seg:
             continue
         if _S15_READONLY_CMD_RE.match(seg) or _S15_GIT_READONLY_RE.match(seg):
+            if deny_readonly and seg.split()[0] in deny_readonly:
+                return False
             continue
         if _s15_python_readonly(seg):
             continue
@@ -453,7 +458,7 @@ def _s15_allowed(
         return bool(fp) and rp.parent == ev_file.parent
     if tool == "Bash":
         cmd = str(tool_input.get("command") or "")
-        if _s15_bash_orchestration(cmd, ev_file) or _s15_bash_readonly_discovery(cmd):
+        if _s15_bash_orchestration(cmd, ev_file) or _s15_bash_readonly_discovery(cmd, step.deny_readonly):
             return True
         # 组件 B：项目工具 command 头白名单（只读发现类，弱模型幻觉刹车保留）
         return project_root is not None and _s15_project_tool_command(cmd, project_root)

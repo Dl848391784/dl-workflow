@@ -60,6 +60,9 @@ class Step:
     # §step-engage-prefence S15：零 trace 窗口（PreToolUse 前置围栏）内，
     # 除常驻编排工具外本步额外放行的工具名（如 "Bash"/"WebFetch"/"Agent"）。
     fence_allow: tuple[str, ...] = ()
+    # S15 只读发现通道的 per-step 命令窄化（如子2 禁 grep/rg 逼走 dl codebase
+    # trace——"堵入口"正治，rubric §3.5 #39 v2.66 三层之第二道硬围栏）。
+    deny_readonly: tuple[str, ...] = ()
     # §step-selfcheck 步级化：提交前自查的本步 checklist（selfcheck_hint 拼接到通用段后）。
     # 只列 purpose 已披露的形式要件——质量判据仍只在 gate 黑盒（Goodhart 分层不破）。
     # None -> 仅用通用段。
@@ -512,13 +515,13 @@ _FETCH_AUTHORITY_REGISTRY = (
 )
 
 # 通用代码考古取证路线（杠杆 2，code-archaeology-three-levers-design §2）：
-# 单层取证「决定下一步查哪」从开放式推理降级为模板跟随；symbol 关系查询优先
-# trace，grep 只做正则/字符串，历史走 --history。dl codebase 自动落账去重。
+# 单层取证「决定下一步查哪」从开放式推理降级为模板跟随；本步 raw grep/rg 已被
+# 围栏 deny（deny_readonly），symbol 关系只能走 trace、字符串走 --string。
 _CODE_ARCH_ROUTE = (
     "单个原子问题取证路线（按需跳步）："
-    "1. symbol 关系查询优先走 `dl codebase trace <symbol>`（一次拿定义+调用者"
-    "+被调+影响面+git 历史，勿逐条 grep）；"
-    "2. 字符串/正则定位走 `dl codebase query --string`；"
+    "1. symbol 关系查询**只能**走 `dl codebase trace <symbol>`（一次拿定义+调用者"
+    "+被调+影响面+git 历史；本步 raw grep/rg 已被围栏禁，勿尝试 grep 定义/调用）；"
+    "2. 字符串/正则定位走 `dl codebase query --string`（本步唯一字符串搜索通道）；"
     "3. 某行何时引入走 `dl codebase query --history <file>:<line>`；"
     "4. 读关键文件正文用 Read。"
     "`dl codebase` 自动落账去重，重复查询零成本。"
@@ -921,6 +924,10 @@ _NODES: dict[str, Node] = {
                     ("atomic_questions", "fetch_tier_items"),
                     ("atomic_questions", "atomic_mece_alignment"),
                 ),
+                # 子2 禁 raw grep/rg：symbol 关系查询只能走 dl codebase trace，
+                # 字符串搜索走 dl codebase query --string（grep 的"堵入口"正治，
+                # 弱模型无视软建议、只能硬围栏逼）。
+                deny_readonly=("grep", "rg"),
             ),
             # 子3/子4（2026-07-26 重设计，designs/step3-verify-redesign-design.md）：
             # 旧单步「验真」对 F1 主张不可检验/F2 确认偏误/F5 证据不可追溯/F7 单视角

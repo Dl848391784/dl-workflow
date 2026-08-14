@@ -1065,3 +1065,26 @@ class TestS15ProjectToolBypassVectors:
         assert h("cmd > out")
         assert h("cmd >> out")
         assert h("cmd 3> out")  # 任意非 2 fd 写重定向 = 写信号
+
+
+def test_deny_readonly_narrows_grep():
+    """per-step deny_readonly 从只读发现通道窄化 grep/rg（堵入口，§3.5 #39）。"""
+    mod = _load_hook()
+    ok = mod._s15_bash_readonly_discovery
+    # 默认（无 deny_readonly）grep 放行
+    assert ok("grep -rn 'x' .")
+    # deny grep/rg 后 grep/rg 拒，ls / git log 仍放行
+    deny = ("grep", "rg")
+    assert not ok("grep -rn 'x' .", deny_readonly=deny)
+    assert not ok("rg -n 'x' .", deny_readonly=deny)
+    assert ok("ls -la", deny_readonly=deny)
+    assert ok("git log --oneline", deny_readonly=deny)
+
+
+def test_understand1_sub2_deny_readonly():
+    """understand:1 子2 声明 deny_readonly=("grep","rg")。"""
+    import dl_flow_engine as eng
+
+    node = eng.get_node("understand", 1)
+    step = node.sub_steps[1]  # 子2 = causal-inference-root-cause
+    assert step.deny_readonly == ("grep", "rg")
