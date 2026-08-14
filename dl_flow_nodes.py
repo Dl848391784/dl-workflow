@@ -559,10 +559,10 @@ _USER_DECISION_RECORD_RULE = (
 # 连接、括号枚举、多项「、」罗列）判复合，与同项携带八字段/五字段的形式要件
 # 自相矛盾（字段全带必产出枚举形态，枚举形态必被判复合，判到升级死路）；
 # 且判词失真（att1 称「数十个『。』断句」，重放实际条目 ≤1 个「。」）。
-# 通过的 ProblemContext 子5 trace 实证：合法形态本来就是「单句决策 + 字段
+# 通过的 ProblemContext 子6 trace 实证：合法形态本来就是「单句决策 + 字段
 # 键值枚举」。原子性按独立性判、不按词形判（与 _SCOPE_VERB_RULE 同构）。
 # 只适用 DesignSolution 子5 / TaskBreakdown 子4（字段携带型归一化步）：
-# ProblemContext 子5 等痛点陈述步的「和/以及/同时」多痛点判据不动。
+# ProblemContext 子6 等痛点陈述步的「和/以及/同时」多痛点判据不动。
 # 单源常量：两个 Step 的 purpose/selfcheck（模型侧）与 gate（judge 侧）引用。
 _ATOMIC_ITEM_RULE = (
     "原子性按独立性判、不按词形判：字段键值枚举（「字段名=值」以「；」「+」"
