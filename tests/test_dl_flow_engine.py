@@ -8201,8 +8201,8 @@ class TestV237FirstPassRate:
     # ---- FP 面：无 mech_checks 声明的步不受链环扫描影响 ----
 
     def test_causal_scan_only_where_declared(self, tmp_path):
-        # 子4 未声明 causal_ring_no_untested——含「未实测/可能」字样不受禁词扫描
-        _write_state_full(tmp_path, "t", "understand", 1, sub_step=4)
+        # 子5 未声明 causal_ring_no_untested——含「未实测/可能」字样不受禁词扫描
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=5)
         qa = [
             {
                 "q": "原子 A 四态裁决",
@@ -8345,17 +8345,18 @@ class TestFetchPromptOut:
 
 
 class TestFetchSkeletonOut:
-    """v2.43 fetch_skeleton_out：子3 骨架 --out 落盘机械核验（EXISTS+新鲜度）。
+    """v2.43 fetch_skeleton_out：子4 骨架 --out 落盘机械核验（EXISTS+新鲜度）。
 
     v2.42 把路径钉死 per-workflow 目录，但「模型是否真的用了 --out」仍靠
     文案——模型重定向 stdout 自选路径则形同虚设。下沉机械层（§8.3 产物门
     同范式）：骨架文件须存在于 .claude/workflows/<name>/ 且 mtime 不早于
     本节点 entered_at（残留防御；entered_at 不可考 -> 降级仅存在性，
     宁纵勿枉）。全 none 档短路消息同样经 --out 落盘，检查口径一致。
+    plan-first 拆步后双向取证顺延为子4。
     """
 
-    def _setup_sub3(self, tmp_path):
-        _write_state_full(tmp_path, "t", "understand", 1, sub_step=3)
+    def _setup_sub4(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=4)
         qa = [
             {"q": "原子 A 可检验 claim", "a": "claim：X；证实：Y；证伪：Z"},
             {
@@ -8371,18 +8372,18 @@ class TestFetchSkeletonOut:
         return tmp_path / ".claude" / "workflows" / "t" / "fetch-prompt-skeleton.md"
 
     def test_missing_skeleton_blocked(self, tmp_path):
-        self._setup_sub3(tmp_path)
+        self._setup_sub4(tmp_path)
         ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
         assert not ok and "骨架未落盘" in msg and "fetch-prompt --out" in msg
 
     def test_fresh_skeleton_passes(self, tmp_path):
-        self._setup_sub3(tmp_path)
+        self._setup_sub4(tmp_path)
         self._skeleton_path(tmp_path).write_text("骨架", encoding="utf-8")
         ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
         assert ok, msg
 
     def test_stale_skeleton_blocked(self, tmp_path):
-        self._setup_sub3(tmp_path)
+        self._setup_sub4(tmp_path)
         self._skeleton_path(tmp_path).write_text("骨架", encoding="utf-8")
         st = eng.load_state(tmp_path, "t")
         st["history"] = [
@@ -8400,7 +8401,7 @@ class TestFetchSkeletonOut:
 
     def test_no_entered_at_degrades_to_existence(self, tmp_path):
         # 降级纪律（宁纵勿枉）：history 无 entered_at -> 仅存在性检查
-        self._setup_sub3(tmp_path)
+        self._setup_sub4(tmp_path)
         self._skeleton_path(tmp_path).write_text("骨架", encoding="utf-8")
         st = eng.load_state(tmp_path, "t")
         assert not st["history"]  # _write_state_full 默认空 history
@@ -8409,14 +8410,15 @@ class TestFetchSkeletonOut:
 
 
 class TestFetchReportRecorded:
-    """v2.38 fetch_report_recorded：子3 报告收录形式要件机械化。
+    """v2.38 fetch_report_recorded：子4 报告收录形式要件机械化。
 
     实证依据：v2.38 落地验证时 judge 重放旧形态（无报告项）被判 PASS——
     「报告原文收录」形式要件被 judge 裁量放过，故下沉机械层。
+    plan-first 拆步后双向取证顺延为子4。
     """
 
     def test_missing_report_item_blocked(self, tmp_path):
-        _write_state_full(tmp_path, "t", "understand", 1, sub_step=3)
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=4)
         qa = [
             {"q": "原子 A 可检验 claim", "a": "claim：X；证实：Y；证伪：Z"},
             {"q": "原子 A 反证查询（先）", "a": "SE 0 items；HN 未取证+无相关"},
@@ -8429,7 +8431,7 @@ class TestFetchReportRecorded:
         assert not ok and "蒸馏报告" in msg and "fetch-prompt" in msg
 
     def test_report_item_present_accepted(self, tmp_path):
-        _write_state_full(tmp_path, "t", "understand", 1, sub_step=3)
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=4)
         qa = [
             {"q": "原子 A 可检验 claim", "a": "claim：X；证实：Y；证伪：Z"},
             {
@@ -8441,7 +8443,7 @@ class TestFetchReportRecorded:
         (tmp_path / "payload.json").write_text(
             json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
         )
-        # v2.43 起子3 append-trace 前置：骨架 --out 落盘（本测试报告收录，
+        # v2.43 起子4 append-trace 前置：骨架 --out 落盘（本测试报告收录，
         # 骨架存在性是正交前置）
         (
             tmp_path / ".claude" / "workflows" / "t" / "fetch-prompt-skeleton.md"
@@ -8451,7 +8453,7 @@ class TestFetchReportRecorded:
 
 
 class TestRedteamReportRecorded:
-    """v2.44 redteam_report_recorded：子4 红队输出原文收录机械核验（u:1 子4 专属）。
+    """v2.44 redteam_report_recorded：子5 红队输出原文收录机械核验（u:1 子5 专属）。
 
     实证（2026-08-02 tail_volume u:1 子4）：模型先撞占位符扫描（「待补」机械拒、
     判词已指路「等红队归位再提交」），改写措辞绕开扫描（「未归/仍在跑中」）
@@ -8460,10 +8462,11 @@ class TestRedteamReportRecorded:
     「task-id 出现 = 已派发」×「收录项标题含「红队」「原文收录」」——
     被 block 载荷 = 有 task-id 无收录项；通过载荷 = 两者皆有；
     未触发/未派发 = 无 task-id 放行交 judge（宁纵勿枉）。
+    plan-first 拆步后质检裁决顺延为子5。
     """
 
-    def _append_s4(self, tmp_path, qa):
-        _write_state_full(tmp_path, "t", "understand", 1, sub_step=4)
+    def _append_s5(self, tmp_path, qa):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=5)
         (tmp_path / "payload.json").write_text(
             json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
         )
@@ -8485,7 +8488,7 @@ class TestRedteamReportRecorded:
             },
             {"q": "③ 四态结论合成", "a": "初步 verdict：Q1 部分成立"},
         ]
-        ok, msg = self._append_s4(tmp_path, qa)
+        ok, msg = self._append_s5(tmp_path, qa)
         assert not ok and "红队" in msg and "原文收录" in msg
 
     def test_dispatched_and_recorded_accepted(self, tmp_path):
@@ -8502,7 +8505,7 @@ class TestRedteamReportRecorded:
             },
             {"q": "③ 四态结论合成", "a": "按红队修订：Q1 部分成立"},
         ]
-        ok, msg = self._append_s4(tmp_path, qa)
+        ok, msg = self._append_s5(tmp_path, qa)
         assert ok, msg
 
     def test_not_triggered_accepted(self, tmp_path):
@@ -8515,20 +8518,21 @@ class TestRedteamReportRecorded:
             },
             {"q": "③ 四态结论合成", "a": "Q1 部分成立，推理链…"},
         ]
-        ok, msg = self._append_s4(tmp_path, qa)
+        ok, msg = self._append_s5(tmp_path, qa)
         assert ok, msg
 
 
 class TestRedteamThreePiece:
-    """v2.83 redteam_three_piece：子4 红队收录项三件套完整性（verdict/推理链/置信度）。
+    """v2.83 redteam_three_piece：子5 红队收录项三件套完整性（verdict/推理链/置信度）。
 
     #4 vio1（红队转述冒充原文收录）在默认-PASS framing 下 judge 漏判（转述 vs
     原文语义判据方差大）；三件套缺失是词形可判部分，下沉 mech 零方差（#2 缺席
     断言同范式，§3.5 #13）。收录项 a 须含「推理链」「置信度」关键词；缺任一->拒。
+    plan-first 拆步后质检裁决顺延为子5。
     """
 
-    def _append_s4(self, tmp_path, qa):
-        _write_state_full(tmp_path, "t", "understand", 1, sub_step=4)
+    def _append_s5(self, tmp_path, qa):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=5)
         (tmp_path / "payload.json").write_text(
             json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
         )
@@ -8544,7 +8548,7 @@ class TestRedteamThreePiece:
             },
             {"q": "③ 四态结论合成", "a": "Q1 部分成立"},
         ]
-        ok, msg = self._append_s4(tmp_path, qa)
+        ok, msg = self._append_s5(tmp_path, qa)
         assert ok, msg
 
     def test_missing_piece_blocked(self, tmp_path):
@@ -8557,7 +8561,7 @@ class TestRedteamThreePiece:
             },
             {"q": "③ 四态结论合成", "a": "Q1 部分成立"},
         ]
-        ok, msg = self._append_s4(tmp_path, qa)
+        ok, msg = self._append_s5(tmp_path, qa)
         assert not ok and "推理链" in msg and "置信度" in msg
 
     def test_no_redteam_accepted(self, tmp_path):
@@ -8566,7 +8570,7 @@ class TestRedteamThreePiece:
             {"q": "① 三关质检", "a": "E1 针对性 pass"},
             {"q": "② 对抗复核", "a": "触发条件不满足，未起红队"},
         ]
-        ok, msg = self._append_s4(tmp_path, qa)
+        ok, msg = self._append_s5(tmp_path, qa)
         assert ok, msg
 
 
@@ -8576,20 +8580,20 @@ class TestUserDecisionRecorded:
     交接架构（designs/context-handoff-design.md §4）正确性前提：8 个读回步
     全部 gate=None（trace 存在即过，无 judge），用户裁决此前只承诺进对话
     ——/clear 换会话后新上下文只能从 trace 读裁决，漏记 = 重问用户或编造。
-    分隔度：真实 u:1 子6（裁决项 a=699 字）/u:2 子5（543 字）通过；
+    分隔度：真实 u:1 子7（旧子6，裁决项 a=699 字）/u:2 子5（543 字）通过；
     「用户已确认」式空记录（<50 字）与无裁决项两形态拦截——margin 两个
-    数量级，非调参数式阈值（§3.5 #15）。
+    数量级，非调参数式阈值（§3.5 #15）。plan-first 拆步后读回顺延为子7。
     """
 
     def _append_readback(self, tmp_path, qa):
-        _write_state_full(tmp_path, "t", "understand", 1, sub_step=6)
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=7)
         (tmp_path / "payload.json").write_text(
             json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
         )
         return eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
 
     def test_decision_item_present_accepted(self, tmp_path):
-        # 真实 u:1 子6 形态：标题含「裁决」+ 逐项拍板内容
+        # 真实 u:1 子7 形态：标题含「裁决」+ 逐项拍板内容
         qa = [
             {
                 "q": "快答轮结果（用户对各 statement 认可）",
@@ -8654,9 +8658,9 @@ class TestHandoffPack:
         assert eng.handoff_pack(tmp_path, "t") is None
 
     def test_pack_contents_and_trimming(self, tmp_path):
-        # u:1 全 6 步 + u:2 子1-2（各含返工历史一条），当前 u:2 子3
+        # u:1 全 7 步 + u:2 子1-2（各含返工历史一条），当前 u:2 子3
         recs = []
-        for step in range(1, 7):
+        for step in range(1, 8):
             recs.append(self._trace("ProblemContext", step, f"_u1s{step}_old"))
             recs.append(self._trace("ProblemContext", step, f"_u1s{step}_new"))
         for step in (1, 2):
@@ -8681,11 +8685,11 @@ class TestHandoffPack:
         assert "understand:2" in pack and "子步骤 3" in pack
         # 当前节点已完成步最新 trace（不含返工历史）
         assert "_u2s1" in pack and "_u2s2" in pack
-        # 前序节点只带归一化（子5）+读回（子6）的最新 trace
-        assert "_u1s5_new" in pack and "_u1s6_new" in pack
-        assert "_u1s5_old" not in pack and "_u1s6_old" not in pack
-        # 前序节点的中间步（子1-4）不进交接包
-        for step in range(1, 5):
+        # 前序节点只带归一化（子6）+读回（子7）的最新 trace
+        assert "_u1s6_new" in pack and "_u1s7_new" in pack
+        assert "_u1s6_old" not in pack and "_u1s7_old" not in pack
+        # 前序节点的中间步（子1-5）不进交接包
+        for step in range(1, 6):
             assert f"_u1s{step}_new" not in pack
         # 当前步最新 block 判词
         assert "缺 X 条款" in pack
@@ -8712,7 +8716,7 @@ class TestHandoffPackSlim:
                 "kind": "skill-trace",
                 "major_stage": "Understand",
                 "minor_stage": "ProblemContext",
-                "sub_step": 5,
+                "sub_step": 6,
                 "skill": "s_marker",
                 "purpose": "purpose_marker",
                 "statements": [
@@ -8723,7 +8727,7 @@ class TestHandoffPackSlim:
                 "kind": "skill-trace",
                 "major_stage": "Understand",
                 "minor_stage": "ProblemContext",
-                "sub_step": 6,
+                "sub_step": 7,
                 "skill": "s",
                 "purpose": "p",
                 "q": [long_q],
@@ -8966,10 +8970,10 @@ class TestFetchTier:
         )
         _write_evidence(tmp_path, "t", [rec])
 
-    def _append_s3_reports(self, tmp_path, n_reports):
-        _write_state_full(tmp_path, "t", "understand", 1, sub_step=3)
-        # v2.43 起子3 append-trace 前置：骨架 --out 落盘（本类测报告计数，
-        # 骨架存在性是正交前置）
+    def _append_s4_reports(self, tmp_path, n_reports):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=4)
+        # v2.43 起双向取证（旧子3，plan-first 拆步后顺延为子4）append-trace
+        # 前置：骨架 --out 落盘（本类测报告计数，骨架存在性是正交前置）
         (
             tmp_path / ".claude" / "workflows" / "t" / "fetch-prompt-skeleton.md"
         ).write_text("骨架", encoding="utf-8")
@@ -8993,7 +8997,7 @@ class TestFetchTier:
                 {"q": "B", "tier": "light", "tier_reason": "r"},
             ],
         )
-        ok, msg = self._append_s3_reports(tmp_path, 1)
+        ok, msg = self._append_s4_reports(tmp_path, 1)
         assert not ok and "2 个" in msg and "仅 1 个" in msg
 
     def test_none_atom_exempt_from_report(self, tmp_path):
@@ -9004,7 +9008,7 @@ class TestFetchTier:
                 {"q": "B", "tier": "full", "tier_reason": "r"},
             ],
         )
-        ok, msg = self._append_s3_reports(tmp_path, 1)
+        ok, msg = self._append_s4_reports(tmp_path, 1)
         assert ok, msg
 
     def test_reports_covering_non_none_accepted(self, tmp_path):
@@ -9015,7 +9019,7 @@ class TestFetchTier:
                 {"q": "B", "tier": "light", "tier_reason": "r"},
             ],
         )
-        ok, msg = self._append_s3_reports(tmp_path, 2)
+        ok, msg = self._append_s4_reports(tmp_path, 2)
         assert ok, msg
 
     # ---- fetch_prompt 分档骨架 ----
@@ -9435,12 +9439,12 @@ class TestRenderArtifact:
 
     def _full_understand_evidence(self, tmp_path):
         recs = [
-            self._stmt_trace("ProblemContext", 5, ["年化显示 9529.8% 异常"]),
+            self._stmt_trace("ProblemContext", 6, ["年化显示 9529.8% 异常"]),
             self._stmt_trace("GoalsAndValue", 4, ["修正显示防误决策"]),
             self._stmt_trace("ScopeAndConstraints", 4, ["允许改模板层"]),
             self._stmt_trace("SuccessCriteria", 4, ["年化显示=95.3%"]),
-            self._qa_trace("ProblemContext", 6, [("裁决：who 与目标", "用户认可")]),
-            self._qa_trace("ProblemContext", 4, [("处置后问题集", "H3 剔除：无证据")]),
+            self._qa_trace("ProblemContext", 7, [("裁决：who 与目标", "用户认可")]),
+            self._qa_trace("ProblemContext", 5, [("处置后问题集", "H3 剔除：无证据")]),
         ]
         _write_evidence(tmp_path, "t", recs)
 
@@ -9460,7 +9464,7 @@ class TestRenderArtifact:
             assert sec in text
 
     def test_understand_md_missing_source_rejected(self, tmp_path):
-        _write_evidence(tmp_path, "t", [self._stmt_trace("ProblemContext", 5, ["x"])])
+        _write_evidence(tmp_path, "t", [self._stmt_trace("ProblemContext", 6, ["x"])])
         ok, msg = eng.render_artifact(tmp_path, "t", "understand.md")
         assert not ok and "GoalsAndValue" in msg and "装配源" in msg
         assert not (tmp_path / ".claude" / "understands" / "t.md").exists()
@@ -10030,16 +10034,16 @@ class TestProgressRows:
 
     def test_initial_state_expands_only_current_node(self):
         rows = eng.progress_rows(_mem_state("understand", 1, 1))
-        # 5 阶段 + understand 4 子阶段 + plan 4 子阶段 + 当前节点 6 子步骤
-        assert len(rows) == 5 + 4 + 4 + 6
+        # 5 阶段 + understand 4 子阶段 + plan 4 子阶段 + 当前节点 7 子步骤
+        assert len(rows) == 5 + 4 + 4 + 7
         p1 = self._by_label(rows, "1. 理解和求证问题")
         assert p1["depth"] == 0 and p1["status"] == "current"
         assert p1["extra"] == "gate: pending"
         assert self._by_label(rows, "1.1 理解问题和背景")["status"] == "current"
         assert self._by_label(rows, "1.2 明确目标和价值")["status"] == "todo"
         assert self._by_label(rows, "1 逼问定义")["status"] == "current"
-        assert self._by_label(rows, "2 拆解深挖")["status"] == "todo"
-        assert self._by_label(rows, "6 读回确认")["status"] == "todo"
+        assert self._by_label(rows, "2 规划拆解")["status"] == "todo"
+        assert self._by_label(rows, "7 读回确认")["status"] == "todo"
         assert self._by_label(rows, "2. 生成执行计划")["status"] == "todo"
         assert self._by_label(rows, "2.1 设计解决方案")["status"] == "todo"
         assert self._by_label(rows, "5. 进化")["status"] == "todo"
@@ -10047,9 +10051,9 @@ class TestProgressRows:
     def test_mid_node_substep_progress(self):
         rows = eng.progress_rows(_mem_state("understand", 1, 3))
         assert self._by_label(rows, "1 逼问定义")["status"] == "done"
-        assert self._by_label(rows, "2 拆解深挖")["status"] == "done"
-        assert self._by_label(rows, "3 双向取证")["status"] == "current"
-        assert self._by_label(rows, "4 质检裁决")["status"] == "todo"
+        assert self._by_label(rows, "2 规划拆解")["status"] == "done"
+        assert self._by_label(rows, "3 因果链挖掘")["status"] == "current"
+        assert self._by_label(rows, "4 双向取证")["status"] == "todo"
 
     def test_later_node_collapses_prior_substeps(self):
         rows = eng.progress_rows(_mem_state("understand", 3, 2))
