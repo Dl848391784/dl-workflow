@@ -154,6 +154,32 @@ def query_history(target: str, max_count: int) -> dict:
     return {**payload, "source": "fresh"}
 
 
+def _git_log_symbol(symbol: str) -> dict:
+    """git log -S <symbol>：该符号被增删的提交历史（单层取证"何时引入/改动"）。"""
+    r = _run(["git", "-C", ".", "log", "--oneline", "-S", symbol, "--max-count", "50"])
+    return {"commits": r.stdout.strip().splitlines() if r.returncode == 0 else []}
+
+
+def query_trace(symbol: str) -> dict:
+    """符号关系全景：定义+调用者+被调+影响面+git 历史（单层取证一次拿全）。"""
+    path = _resolve_ledger_path()
+    if path is not None:
+        cached = _ledger_get(path, f"trace:{symbol}")
+        if cached is not None:
+            return {**cached["result"], "source": "discovery-ledger"}
+    payload = {
+        "symbol": symbol,
+        "definition": _codegraph_json("query", symbol),
+        "callers": _codegraph_json("callers", symbol),
+        "callees": _codegraph_json("callees", symbol),
+        "impact": _codegraph_json("impact", symbol),
+        "history": _git_log_symbol(symbol),
+    }
+    if path is not None:
+        _ledger_append(path, f"trace:{symbol}", "trace", symbol, payload)
+    return {**payload, "source": "fresh"}
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="dl codebase", description="通用代码考古工具箱")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -163,16 +189,20 @@ def main(argv: list[str] | None = None) -> int:
     q.add_argument("--history", help="<file>:<line>（git blame + log）")
     q.add_argument("--type", help="grep --include 类型过滤（py/html/js/ts，仅 --string）")
     q.add_argument("--max-count", type=int, default=50)
+    t = sub.add_parser("trace", help="符号关系全景（def+callers+callees+impact+history）")
+    t.add_argument("symbol", help="符号名")
     args = p.parse_args(argv)
 
-    if args.symbol:
+    if args.cmd == "trace":
+        out = query_trace(args.symbol)
+    elif args.symbol:
         out = query_symbol(args.symbol)
     elif args.string:
         out = query_string(args.string, args.type, args.max_count)
     elif args.history:
         out = query_history(args.history, args.max_count)
     else:
-        print("✗ 需指定 --symbol / --string / --history 之一", file=sys.stderr)
+        print("✗ 需指定 --symbol / --string / --history 之一，或 trace <symbol>", file=sys.stderr)
         return 2
     print(json.dumps(out, ensure_ascii=False, indent=2))
     return 0

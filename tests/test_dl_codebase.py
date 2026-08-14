@@ -135,3 +135,33 @@ def test_corrupt_ledger_silently_degrades(monkeypatch, tmp_path):
     monkeypatch.setattr(cb, "_codegraph_json", lambda sub, sym: {"ok": []})
     out = cb.query_symbol("foo")
     assert out["source"] == "fresh"
+
+
+def test_query_trace_bundles_and_dedups(monkeypatch, tmp_path):
+    """trace 一次返回 5 段 + source；二次命中缓存不重跑。"""
+    monkeypatch.setattr(cb, "_resolve_ledger_path", lambda: tmp_path / "discoveries.jsonl")
+    calls = {"codegraph": 0, "git": 0}
+
+    def fake_codegraph_json(sub, symbol):
+        calls["codegraph"] += 1
+        return {"ok": []}
+
+    def fake_run(cmd):
+        if cmd[0] == "git":
+            calls["git"] += 1
+            return subprocess.CompletedProcess(cmd, 0, "abc1234 fix\n", "")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(cb, "_codegraph_json", fake_codegraph_json)
+    monkeypatch.setattr(cb, "_run", fake_run)
+    monkeypatch.setattr(cb, "_current_step", lambda p: "understand:1#2")
+
+    out1 = cb.query_trace("foo")
+    assert set(out1) >= {"symbol", "definition", "callers", "callees", "impact", "history"}
+    assert out1["source"] == "fresh"
+    assert calls["codegraph"] == 4  # query/callers/callees/impact 各一次
+    assert calls["git"] == 1        # git log -S 一次
+
+    out2 = cb.query_trace("foo")
+    assert out2["source"] == "discovery-ledger"
+    assert calls["codegraph"] == 4  # 二次命中，不重跑
