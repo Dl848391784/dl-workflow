@@ -964,14 +964,14 @@ _ARTIFACT_RENDER_SOURCES: dict[str, dict] = {
     "understand.md": {
         # 节名 = ARTIFACT_SECTIONS 单源；源 = (minor_stage, 归一化步 sub_step)。
         "sections": {
-            "真实问题重述": ("ProblemContext", 5),
+            "真实问题重述": ("ProblemContext", 6),
             "目标价值": ("GoalsAndValue", 4),
             "范围约束": ("ScopeAndConstraints", 4),
             "成功标准验收包": ("SuccessCriteria", 4),
         },
         # 读回步（裁决记录源：qa 标题含「裁决」/「读回」的项原文收录）。
         "decision_steps": (
-            ("ProblemContext", 6),
+            ("ProblemContext", 7),
             ("GoalsAndValue", 5),
             ("ScopeAndConstraints", 5),
             ("SuccessCriteria", 5),
@@ -5466,18 +5466,18 @@ def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool
 
 
 def redteam_prompt(project_root: Path, name: str) -> str | None:
-    """组装子4 红队子代理 prompt（证据+纪律归脚本，Agent 调用归模型）。
+    """组装子5 红队子代理 prompt（证据+纪律归脚本，Agent 调用归模型）。
 
-    证据取 read_evidence_for_step(≤3)：含子1-3 最新 trace、**不含子4 结论**
-    （只给证据不给结论）。无子3 trace -> None（调用方 exit 1 暴露：
-    红队无证据可审，先回补子3）。
-    minor_stage 限定 ProblemContext（本函数是 understand:1 子4 专属；
+    证据取 read_evidence_for_step(≤4)：含子1-4 最新 trace、**不含子5 结论**
+    （只给证据不给结论）。无子4 trace -> None（调用方 exit 1 暴露：
+    红队无证据可审，先回补子4）。
+    minor_stage 限定 ProblemContext（本函数是 understand:1 子5 专属；
     不限定会读到 GoalsAndValue 的同号子步骤 trace——跨节点串号）。
     """
     pc_minor = _NODES["understand:1"].minor_key
-    if not sub_step_has_trace(project_root, name, 3, pc_minor):
+    if not sub_step_has_trace(project_root, name, 4, pc_minor):
         return None
-    evidence = read_evidence_for_step(project_root, name, 3, pc_minor)
+    evidence = read_evidence_for_step(project_root, name, 4, pc_minor)
     if evidence is None:
         return None
     return (
