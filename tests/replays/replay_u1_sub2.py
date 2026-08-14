@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""u:1#2 拆解深挖 gate 回归重放（v2.72-v2.75 反转的回归资产）。
+"""u:1#2 因果链挖掘 gate 回归重放（v2.72-v2.75 反转的回归资产，
+plan-first 拆步后归子2b）。
 
 clean(demo 真实合规现代化) / vio1 同义反复 / vio2 稻草人 / vio3 none 档外部依赖。
-artifact=子1+子2 最新 trace 拼合（生产 read_evidence_for_step(2) 同形——
+artifact=子1+子2b 最新 trace 拼合（生产 read_evidence_for_step(3) 同形——
 fixture 保真度第四实例：harness 注声明产物组成后，fixture 必须匹配，§3.5 #30 ⑨）。
 vio2 读数口径：生产墙=mech（hypothesis_exclude_no_absence）100% 先拒，
 judge 侧 3-6/6 均为已知裁量面。
@@ -16,8 +17,8 @@ import sys
 
 from _common import run_cases, setup_env, sub_step
 
-LABEL = "理解问题和背景 · 子步骤2"
-STEP = sub_step("understand:1", 1)
+LABEL = "理解问题和背景 · 子步骤2（因果链挖掘）"
+STEP = sub_step("understand:1", 2)
 
 # 子1 trace（生产形态 fixture 的前序锚点）
 S1 = {
@@ -40,7 +41,7 @@ BASE = {
     "kind": "skill-trace",
     "major_stage": "Understand",
     "minor_stage": "ProblemContext",
-    "sub_step": 2,
+    "sub_step": 3,
     "skill": "causal-inference-root-cause",
     "purpose": "拆解深挖。单一/复合判定：单一问题，无复合；理由是用户的「候选太多」「没有缩减规则」「决定筛选门槛」共同描述同一个筛选决策瓶颈，没有第二个独立痛点。",
     "q": [

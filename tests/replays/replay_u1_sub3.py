@@ -2,10 +2,10 @@
 """u:1#3 双向取证 gate 回归重放（v2.77-v2.79 反转的回归资产，
 designs/u1-sub3-gate-framing-design.md）。
 
-clean(demo 真实子3 trace 现代化：蒸馏报告项/tier/codegraph 留痕) /
+clean(demo 真实子4 trace 现代化：蒸馏报告项/tier/codegraph 留痕) /
 vio1 训练记忆冒充 / vio2 泛泛常识不针对 claim / vio3 降档(full按light跑) /
 vio4 none 档违规派发 / vio5 转述冒充原文收录 / vio6 升档未补派。
-artifact=子2+子3 最新 trace 拼合（生产 read_evidence_for_step(3) 同形——
+artifact=子2b+子4 最新 trace 拼合（生产 read_evidence_for_step(4) 同形——
 判据五「执行档与标称档逐项一致」的对照基准在子2 atomic_questions）。
 
 用法: python3 tests/replays/replay_u1_sub3.py [N] [gate_file]
@@ -17,15 +17,15 @@ import sys
 
 from _common import run_cases, setup_env, sub_step
 
-LABEL = "理解问题和背景 · 子步骤3"
-STEP = sub_step("understand:1", 2)
+LABEL = "理解问题和背景 · 子步骤4（双向取证）"
+STEP = sub_step("understand:1", 3)
 
 # ---- 子2 trace（生产 artifact 含前序各步最新 trace；标称档来源）----
 S2_BASE = {
     "kind": "skill-trace",
     "major_stage": "Understand",
     "minor_stage": "ProblemContext",
-    "sub_step": 2,
+    "sub_step": 3,
     "skill": "causal-inference-root-cause",
     "purpose": "拆解深挖。复合痛点 MECE 拆为 2 个原子问题（互不重叠、合起来覆盖全部痛点）。",
     "q": [
@@ -57,7 +57,7 @@ S3_BASE = {
     "kind": "skill-trace",
     "major_stage": "Understand",
     "minor_stage": "ProblemContext",
-    "sub_step": 3,
+    "sub_step": 4,
     "skill": "Agent(外部取证子代理,每原子一个并行) / codegraph impact {sym}",
     "purpose": "按档取证：A=none 仅③内查不派发；B=light 派 1 个子代理（≤2 层源/≤4 curl/单向锚点）。骨架经 fetch-prompt --out 落盘本工作流目录，只补 claim 区其余未动。",
     "q": [

@@ -2,11 +2,11 @@
 """u:1#5 归一化陈述 gate 回归重放（v2.85 反转的回归资产，
 designs/u1-sub5-gate-framing-design.md）。
 
-clean(demo 真实子5 现代化：子4 处置后问题集→statements 归一化，四态传导齐备) /
+clean(demo 真实子6 现代化：子5 处置后问题集→statements 归一化，四态传导齐备) /
 vio1 证伪项混入陈述集 / vio2 部分成立项超出已证实边界 /
 vio3 复合句（「和」连接两个独立痛点） / vio4 text 含实现侧名词/file:line。
-artifact=子4+子5 最新 trace 拼合（生产 read_evidence_for_step(5) 同形——
-判据「裁决不传导」的对照基准在子4 verdict/处置后问题集）。
+artifact=子5+子6 最新 trace 拼合（生产 read_evidence_for_step(6) 同形——
+判据「裁决不传导」的对照基准在子5 verdict/处置后问题集）。
 
 用法: python3 tests/replays/replay_u1_sub5.py [N] [gate_file]
 """
@@ -17,15 +17,15 @@ import sys
 
 from _common import run_cases, setup_env, sub_step
 
-LABEL = "理解问题和背景 · 子步骤5"
-STEP = sub_step("understand:1", 4)
+LABEL = "理解问题和背景 · 子步骤6（归一化陈述）"
+STEP = sub_step("understand:1", 5)
 
 # ---- 子4 trace（生产 artifact 含前序各步最新 trace；verdict/处置后问题集是对照基准）----
 S4_BASE = {
     "kind": "skill-trace",
     "major_stage": "Understand",
     "minor_stage": "ProblemContext",
-    "sub_step": 4,
+    "sub_step": 5,
     "skill": "推理(三关质检+四态合成) / Agent(红队子代理,条件触发)",
     "purpose": "质检裁决（不做新搜索，只审子3证据+下结论）。证据三关质检逐项。",
     "q": [
@@ -49,9 +49,9 @@ S5_CLEAN = {
     "kind": "skill-trace",
     "major_stage": "Understand",
     "minor_stage": "ProblemContext",
-    "sub_step": 5,
+    "sub_step": 6,
     "skill": "define-problem",
-    "purpose": "归一化陈述：对子4处置后问题集产出归一化问题陈述。P1 归一化，P2-P4 背景链不进入陈述集。",
+    "purpose": "归一化陈述：对子5处置后问题集产出归一化问题陈述。P1 归一化，P2-P4 背景链不进入陈述集。",
     "statements": [
         {
             "text": "统计 default 管线最新报告中严格 IC 均值大于 0 的因子数量",
