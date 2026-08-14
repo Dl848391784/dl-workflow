@@ -1088,3 +1088,52 @@ def test_understand1_sub2_deny_readonly():
     node = eng.get_node("understand", 1)
     step = node.sub_steps[1]  # 子2 = causal-inference-root-cause
     assert step.deny_readonly == ("grep", "rg")
+
+
+def test_drive_mode_denies_grep_sub2(wf_repo, monkeypatch, capsys):
+    """drive_mode 段工人：子2 的 deny_readonly 独立生效（S15 跳过不豁免 grep）。"""
+    _write_state(wf_repo, sub_step=2)
+    sp = wf_repo / ".claude" / "workflows" / "t" / "state.json"
+    s = json.loads(sp.read_text(encoding="utf-8"))
+    s["drive_mode"] = True
+    sp.write_text(json.dumps(s), encoding="utf-8")
+
+    mod = _load_hook()
+    # 段工人 session_id != state.session_id（"worker" vs "s"）→ 走段工人分支
+    decision, reason = _run_hook(
+        mod, wf_repo, monkeypatch, capsys,
+        "Bash", {"command": "grep -rn 'x' ."}, session_id="worker",
+    )
+    assert decision == "deny"
+    assert "dl codebase" in reason
+
+    # rg 同拒
+    decision, _ = _run_hook(
+        mod, wf_repo, monkeypatch, capsys,
+        "Bash", {"command": "rg -n 'x' ."}, session_id="worker",
+    )
+    assert decision == "deny"
+
+    # 非 deny 命令（append-trace 编排 / Edit）仍放行
+    decision, _ = _run_hook(
+        mod, wf_repo, monkeypatch, capsys,
+        "Bash", {"command": "python3 ~/.dl-workflow/dl_flow_engine.py append-trace --scaffold"},
+        session_id="worker",
+    )
+    assert decision != "deny"
+
+
+def test_drive_mode_grep_allowed_other_substep(wf_repo, monkeypatch, capsys):
+    """非子2（如子3）无 deny_readonly，drive_mode 段工人 grep 放行。"""
+    _write_state(wf_repo, sub_step=3)
+    sp = wf_repo / ".claude" / "workflows" / "t" / "state.json"
+    s = json.loads(sp.read_text(encoding="utf-8"))
+    s["drive_mode"] = True
+    sp.write_text(json.dumps(s), encoding="utf-8")
+
+    mod = _load_hook()
+    decision, _ = _run_hook(
+        mod, wf_repo, monkeypatch, capsys,
+        "Bash", {"command": "grep -rn 'x' ."}, session_id="worker",
+    )
+    assert decision != "deny"

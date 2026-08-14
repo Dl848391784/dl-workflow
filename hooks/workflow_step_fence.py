@@ -334,6 +334,24 @@ def _s15_bash_readonly_discovery(cmd: str, deny_readonly: tuple[str, ...] = ()) 
     return True
 
 
+def _deny_readonly_hit(cmd: str, deny_readonly: tuple[str, ...]) -> bool:
+    """per-step 只读发现窄化：命令任一段首 token 命中 deny_readonly。
+
+    与 _s15_bash_readonly_discovery 的 deny_readonly 参数同口径，但**只查 deny
+    集、不查整条只读白名单**——drive_mode 段工人全放行写操作，这里不能套只读
+    白名单（会误伤段工人的 Edit/Write/append-trace），只窄化禁用的命令头。
+    """
+    if not deny_readonly:
+        return False
+    for seg in _split_shell_segments(cmd):
+        seg = seg.strip()
+        if not seg:
+            continue
+        if seg.split()[0] in deny_readonly:
+            return True
+    return False
+
+
 # 取证命令模板形态的 curl（fetch-prompt 骨架逐字规定：curl -sS -m <n> "<url>"）。
 # 仅在有在跑的取证子代理时放行（见 _s15_allowed 的 fetch curl 分支）。
 _S15_FETCH_CURL_RE = re.compile(r"^\s*curl\s+(?=(?:-\S+\s+|\S+=\S+\s+)*-)")
@@ -712,6 +730,26 @@ def main() -> int:
             and _session_id(payload) == _st.get("session_id")
         ):
             return _front_segment_run_verdict(project_root, name, tool, payload)
+        # 段工人 per-step 只读发现窄化（deny_readonly）：drive_mode 跳过 S15/S10，
+        # 但 deny_readonly 是「堵入口」硬约束（rubric §3.5 #39），必须在此独立
+        # 生效——否则子2 禁 grep 只对前台会话有效、段工人照旧 raw grep。
+        if tool == "Bash":
+            cmd = str((payload.get("tool_input") or {}).get("command") or "")
+            try:
+                node = engine.get_node(_st["phase"], _st["sub_index"])
+                step = engine.sub_step_at(node, _st.get("sub_step_index", 1))
+            except (KeyError, TypeError, ValueError):
+                step = None
+            if step is not None and _deny_readonly_hit(cmd, step.deny_readonly):
+                denied = " / ".join(step.deny_readonly)
+                _log_deny(
+                    project_root, name, "drive_deny_readonly",
+                    f"step={_st.get('sub_step_index')}|denied={denied}",
+                )
+                return _deny(
+                    f"本子步骤禁 raw {denied}：代码搜索走 `dl codebase`"
+                    f"（symbol 关系用 trace，字符串用 --string）。"
+                )
         return 0
 
     # ---- v4 前台混合（front-tui-hybrid-design §2.3）：非交互位置白名单 ----
