@@ -4450,7 +4450,7 @@ def _dispatched_vs_unrecorded_task_ids(qa: list) -> list[str]:
 
 
 def _check_fetch_report_recorded(qa: list, *_ctx) -> str | None:
-    """fetch_report_recorded：子3 蒸馏报告原文收录机械核验（u:1 子3 专属）。
+    """fetch_report_recorded：子4 蒸馏报告原文收录机械核验（u:1 子4 专属）。
 
     judge 重放实证（2026-08-01 v2.38 落地验证）：无子代理报告的旧形态 trace
     过新 gate 被判 PASS——judge 把内容丰富的留痕当实质满足，「报告原文收录」
@@ -4500,7 +4500,7 @@ def _check_fetch_report_recorded(qa: list, *_ctx) -> str | None:
 
 
 def _check_fetch_skeleton_out(qa, project_root, name):
-    """fetch_skeleton_out：子3 骨架 --out 落盘机械核验（u:1 子3 专属，v2.43）。
+    """fetch_skeleton_out：子4 骨架 --out 落盘机械核验（u:1 子4 专属，v2.43）。
 
     v2.42 把骨架路径钉死 per-workflow 目录，但「模型是否真的用了 --out」
     仍靠文案——模型重定向 stdout 自选路径则钉死形同虚设。下沉机械层
@@ -4513,7 +4513,7 @@ def _check_fetch_skeleton_out(qa, project_root, name):
     f = project_root / ".claude" / "workflows" / name / "fetch-prompt-skeleton.md"
     if not f.is_file():
         return (
-            f"骨架未落盘：{f} 不存在——子3 派发取证子代理前须先跑 "
+            f"骨架未落盘：{f} 不存在——子4 派发取证子代理前须先跑 "
             "`python3 ~/.dl-workflow/dl_flow_engine.py fetch-prompt --out`"
             "（骨架路径钉死 per-workflow 目录，禁 stdout 重定向自选路径），"
             "落盘后重试"
@@ -4536,7 +4536,7 @@ def _check_fetch_skeleton_out(qa, project_root, name):
 
 
 def _check_redteam_report_recorded(qa: list, *_ctx) -> str | None:
-    """redteam_report_recorded：子4 红队输出原文收录机械核验（u:1 子4 专属，v2.44）。
+    """redteam_report_recorded：子5 红队输出原文收录机械核验（u:1 子5 专属，v2.44）。
 
     实证（2026-08-02 tail_volume u:1 子4）：模型先撞占位符扫描（「待补」机械拒、
     拒绝消息已指路「等红队归位再提交」），改写措辞绕开扫描（「未归/仍在跑中」
@@ -4546,12 +4546,12 @@ def _check_redteam_report_recorded(qa: list, *_ctx) -> str | None:
     信号分隔度经全量历史子4 trace 重放验证（7 条真实载荷）：
     「task-id 出现 = 红队已派发」（红队经 Agent 工具单发起，派发即有 task-id；
     未触发合法分支无 agent 可引，两条真实未派发载荷均无 task-id）×
-    收录项 = 标题含「红队」且含「原文收录」的 qa 项（与子3「蒸馏报告」标题
+    收录项 = 标题含「红队」且含「原文收录」的 qa 项（与子4「蒸馏报告」标题
     承诺装置同范式）。被 block 载荷 = 有 task-id 无收录项；通过载荷 = 两者皆有。
     未派发（含未触发声明、触发满足但未起）-> None 交 judge 判真值（宁纵勿枉）。
 
     v2.118 补派发配对（修 B）：标题存在性之外，另查「派发的 task-id 是否都有
-    收录项」——子4 可同时有取证 agent（子3 升档补派、跨步归位）与红队 agent，
+    收录项」——子5 可同时有取证 agent（子4 升档补派、跨步归位）与红队 agent，
     仅判「有没有红队收录项」逮不住其中一个缺席（类型无关配对见
     _dispatched_vs_unrecorded_task_ids）。
     """
@@ -4569,10 +4569,10 @@ def _check_redteam_report_recorded(qa: list, *_ctx) -> str | None:
             "脚本提取报告原文落载荷，禁手工粘贴）。"
             "等 Agent 归位收录原文后再提交；agent 失败/空结果则重派或升级用户裁决"
             "——「已派发等归位」式状态说明不算记录（提前提交 = 红队结论缺席的裁决，"
-            "下游子5 会拿到未经对抗复核的问题集）"
+            "下游子6 会拿到未经对抗复核的问题集）"
         )
-    # 红队收录项在场后，再查是否有**其它**派发的 agent 缺席（子3 升档补派的
-    # 取证 agent 可跨步归位到子4——仅判「有没有红队收录项」逮不住它）。
+    # 红队收录项在场后，再查是否有**其它**派发的 agent 缺席（子4 升档补派的
+    # 取证 agent 可跨步归位到子5——仅判「有没有红队收录项」逮不住它）。
     missing = _dispatched_vs_unrecorded_task_ids(qa)
     if missing:
         return (
@@ -4581,13 +4581,13 @@ def _check_redteam_report_recorded(qa: list, *_ctx) -> str | None:
             "脚本提取报告原文落载荷、标题自动带 task-id，禁手工粘贴）。"
             "等 Agent 归位收录原文后再提交；agent 失败/空结果则重派或升级用户"
             "裁决——「已派发等归位」式状态说明不算记录（提前提交 = 对抗复核"
-            "缺席的裁决，下游子5 会拿到未经复核的问题集）"
+            "缺席的裁决，下游子6 会拿到未经复核的问题集）"
         )
     return None
 
 
 def _check_redteam_three_piece(qa: list, *_ctx) -> str | None:
-    """redteam_three_piece：子4 红队收录项三件套完整性机械核验（v2.83，u:1 子4 专属）。
+    """redteam_three_piece：子5 红队收录项三件套完整性机械核验（v2.83，u:1 子5 专属）。
 
     v2.83（designs/u1-sub4-gate-framing-design.md）：#4 vio1（红队转述冒充原文
     收录）在默认-PASS framing 下 judge 漏判 4/6--红队收录项缺推理链/置信度是
@@ -4625,7 +4625,7 @@ def _check_user_decision_recorded(qa: list, *_ctx) -> str | None:
     /clear 换会话后新上下文只能从 trace 还原拍板内容，漏记 = 重问用户或编造。
     操作化：标题带「裁决」或「读回」的 qa 项（承诺装置同「蒸馏报告」先例）
     + 内容 ≥50 字（「用户已确认」式空记录交接后无法还原拍板）。
-    分隔度：真实 u:1 子6（699 字）/u:2 子5（543 字）通过；空记录（<10 字）
+    分隔度：真实 u:1 子7（699 字）/u:2 子5（543 字）通过；空记录（<10 字）
     与缺项两形态拦截——margin 两个数量级，非调参数式阈值（§3.5 #15）。
     """
     titled = [

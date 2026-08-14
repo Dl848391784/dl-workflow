@@ -1598,7 +1598,7 @@ _NODES: dict[str, Node] = {
                 kind="skill",
                 ref="define-problem",
                 short="归一化陈述",
-                # claim normalization 职能同构 ProblemContext 子5（同一 skill 承担）；
+                # claim normalization 职能同构 ProblemContext 子6（同一 skill 承担）；
                 # 可消费陈述三属性 = atomic / decontextualized / check-worthy
                 # （Deng et al. 2024，见 goals-and-value-substeps-design §4）。
                 purpose=(
@@ -1607,7 +1607,7 @@ _NODES: dict[str, Node] = {
                     "回子1 重引）；"
                     "②去上下文（脱离本会话可独立理解：主语+动词+约束自包含）；"
                     "③携带 must/nice 提案与 verdict 边界（部分成立问题的目标只覆盖"
-                    "已证实边界——裁决传导，同构 ProblemContext 子5）；"
+                    "已证实边界——裁决传导，同构 ProblemContext 子6）；"
                     f"④solution-free 复核（归一化后仍含方案名词=子2 剥离不净，回子2；"
                     f"{_SOLUTION_FREE_SUBJECT_RULE}）；"
                     "放不进一句=未定义完。"
@@ -1642,7 +1642,7 @@ _NODES: dict[str, Node] = {
                 ref="define-problem / AskUserQuestion",
                 short="读回确认",
                 interactive=True,
-                # 带证据读回（同构 ProblemContext 子6）：只给结论不给依据地「通知」用户
+                # 带证据读回（同构 ProblemContext 子7）：只给结论不给依据地「通知」用户
                 # = 不信任甚至 backfire effect；本步是本子阶段唯一规范裁决点
                 # （must/nice 分层真值归用户，四桶分工）。
                 purpose=(
@@ -1770,7 +1770,7 @@ _NODES: dict[str, Node] = {
                 kind="tool",
                 ref="Bash(本地验证) / codegraph(结构约束) / Read",
                 short="约束验证标注",
-                # ProblemContext 子3+子4 的压缩版：约束是项目内部事实（非外部五层源），
+                # ProblemContext 子4+子5 的压缩版：约束是项目内部事实（非外部五层源），
                 # 本地单层取证 + 真伪判断浅，一步完成，无独立质检裁决步。
                 purpose=(
                     "约束验证与假设标注：对子1 约束候选逐条定真伪，三态输出——"
@@ -1855,7 +1855,7 @@ _NODES: dict[str, Node] = {
                 kind="skill",
                 ref="define-problem",
                 short="归一化陈述",
-                # claim normalization 职能第三次复用（ProblemContext 子5 /
+                # claim normalization 职能第三次复用（ProblemContext 子6 /
                 # GoalsAndValue 子4 同构）。
                 purpose=(
                     "归一化陈述：对子3 范围与约束集逐项装配归一化陈述"
@@ -1867,7 +1867,7 @@ _NODES: dict[str, Node] = {
                     "②去上下文（脱离本会话可独立理解：主语+动词+约束自包含）；"
                     "③携带类型标签（约束=已验证 or 假设+置信度；范围=in or out）"
                     "与 verdict 边界（部分成立目标的范围只覆盖已证实边界——"
-                    "裁决传导，同构 ProblemContext 子5）；"
+                    "裁决传导，同构 ProblemContext 子6）；"
                     f"④solution-free 复核（范围项含方案名词 = GoalsAndValue 子2 "
                     f"剥离不净残留；{_SOLUTION_FREE_SUBJECT_RULE}；{_SCOPE_VERB_RULE}）。"
                     "放不进一句=未定义完。"
@@ -1905,7 +1905,7 @@ _NODES: dict[str, Node] = {
                 ref="define-problem / AskUserQuestion",
                 short="读回确认",
                 interactive=True,
-                # 带证据读回（同构 ProblemContext 子6 / GoalsAndValue 子5）。
+                # 带证据读回（同构 ProblemContext 子7 / GoalsAndValue 子5）。
                 # 本子阶段两个规范裁决点都在此：范围边界拍板 + 假设接受（风险承担）。
                 purpose=(
                     "带证据的读回确认：材料 = 运行 `python3 ~/.dl-workflow/dl_flow_engine.py render-readback` 机械装配逐字呈现（本节点归一化+假设/不确定性 traces，禁手抄；Bash 输出即呈现）。呈现内容 = 归一化范围双侧清单+约束集"
@@ -2132,7 +2132,7 @@ _NODES: dict[str, Node] = {
                 kind="skill",
                 ref="define-problem",
                 short="归一化陈述",
-                # claim normalization 职能第四次复用（ProblemContext 子5 /
+                # claim normalization 职能第四次复用（ProblemContext 子6 /
                 # GoalsAndValue 子4 / ScopeAndConstraints 子4 同构）。
                 purpose=(
                     "归一化陈述：对子3 标准集逐项产出归一化成功标准陈述——"
@@ -2141,7 +2141,7 @@ _NODES: dict[str, Node] = {
                     "②去上下文（脱离本会话可独立理解：主语+动词+约束自包含）；"
                     "③携带完整验收包（指标+基线+阈值提案+验收方法+时机+证据形式）"
                     "与 verdict 边界（部分成立目标的标准只覆盖已证实边界——"
-                    "裁决传导，同构 ProblemContext 子5）；"
+                    "裁决传导，同构 ProblemContext 子6）；"
                     f"④solution-free 复核（含方案名词 = 子1 剥离不净残留；"
                     f"{_SOLUTION_FREE_SUBJECT_RULE}）。"
                     "放不进一句 = 未定义完。"
@@ -2460,7 +2460,7 @@ _NODES: dict[str, Node] = {
                 kind="skill",
                 ref="define-problem",
                 short="归一化陈述",
-                # claim normalization 职能第六次复用（ProblemContext 子5 /
+                # claim normalization 职能第六次复用（ProblemContext 子6 /
                 # GoalsAndValue 子4 / ScopeAndConstraints 子4 / SuccessCriteria 子4 同构）。
                 # v2.33 迁 statements+statement_fields（tail_volume plan:1 子5 三连
                 # block 审计，designs/plan-normalization-statements-migration-design.md）：
@@ -2625,7 +2625,7 @@ _NODES: dict[str, Node] = {
                 ref="define-problem / AskUserQuestion / render-artifact(design.md)",
                 short="读回确认",
                 interactive=True,
-                # 带证据读回（同构 ProblemContext 子6）：只给结论不给依据地「通知」
+                # 带证据读回（同构 ProblemContext 子7）：只给结论不给依据地「通知」
                 # 用户 = 无依据确认；design.md 装配 = render-artifact 脚本装配
                 # （v2.62，同 understand.md/plan.md）。
                 purpose=(
@@ -2919,7 +2919,7 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                 kind="skill",
                 ref="define-problem(归一化) / superpowers:writing-plans(Task Structure 形式真源)",
                 short="归一化步骤",
-                # claim normalization 职能第七次复用（ProblemContext 子5 /
+                # claim normalization 职能第七次复用（ProblemContext 子6 /
                 # GoalsAndValue 子4 / ScopeAndConstraints 子4 / SuccessCriteria 子4 /
                 # DesignSolution 子5 同构）。
                 # v2.33 迁 statements+statement_fields（同 DesignSolution 子5，
@@ -3269,7 +3269,7 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                 kind="skill",
                 ref="define-problem(归一化)",
                 short="归一化能力包",
-                # claim normalization 职能第八次复用（ProblemContext 子5 /
+                # claim normalization 职能第八次复用（ProblemContext 子6 /
                 # GoalsAndValue 子4 / ScopeAndConstraints 子4 / SuccessCriteria 子4 /
                 # DesignSolution 子5 / TaskBreakdown 子4 同构）。
                 # 能力包五字段倒推自消费契约（design §0 表）：execute:0 逐条核 /
@@ -3613,7 +3613,7 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                 kind="skill",
                 ref="define-problem(归一化)",
                 short="归一化计划包",
-                # claim normalization 职能第九次复用（ProblemContext 子5 /
+                # claim normalization 职能第九次复用（ProblemContext 子6 /
                 # GoalsAndValue 子4 / ScopeAndConstraints 子4 / SuccessCriteria
                 # 子4 / DesignSolution 子5 / TaskBreakdown 子4 /
                 # CapabilityToolSelection 子5 同构）。
