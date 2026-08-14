@@ -75,7 +75,7 @@ SUB_STEP_BLOCK_ESCALATE = 3
 # gate 不变）。链粒度=minor_state：node-rules system prompt 按节点生成（跨节点
 # 续跑前缀缓存即失效）+ handoff 交接在 minor_state 边界重置。
 # **置空 frozenset() = 全局关（回滚面）**。
-# 2026-08-14 用户裁决：u:1 纳入段链（子2-子5 连续 headless 重步，此前单步实测
+# 2026-08-14 用户裁决：u:1 纳入段链（子2-子6 连续 headless 重步，此前单步实测
 # 168k 上下文；链化收益最大但峰值风险同大，首飞需监控链峰值）。u:2/3/4 与
 # plan:1-4 护栏数据见 2026-08-13 试点（22/22 一次过、链峰值 111-149k << 250k、
 # 零 chain_broken_fallback）。链峰值监控阈值 250k 不变。
@@ -341,8 +341,8 @@ def advance_state(project_root: Path, name: str, via: str = "auto") -> dict[str,
         state["gate"] = "pending"
     state["node_attempts"] = 0  # 新节点重试计数归零
     # 跨节点重置 sub_step_index（2026-07-27）：门栏移出 understand:1 后，
-    # 编排节点末步会经本函数直接推进到下一个编排节点（understand:1 子6 ->
-    # understand:2）——不重置会把 sub_step_index=6 带进只有 5 步的
+    # 编排节点末步会经本函数直接推进到下一个编排节点（understand:1 子7 ->
+    # understand:2）——不重置会把 sub_step_index=7 带进只有 5 步的
     # understand:2，下次 normalize_state 范围校验即 ValueError 卡死工作流。
     # （此前无害纯属侥幸：understand:2 当时无编排，sub_step_index 不被读。）
     nxt_node = get_node(nxt_phase, nxt_sub)
