@@ -34,6 +34,7 @@ from pathlib import Path
 _DLWF_ROOT = Path(__file__).resolve().parents[2]  # ~/.dl-workflow/
 sys.path.insert(0, str(_DLWF_ROOT))
 import dl_flow_engine as engine  # noqa: E402
+from scripts.workflow import project_tools  # noqa: E402
 
 try:  # 常驻进度区依赖（drive-tasklist-render-design §2.1）；缺失时降级事件打印
     from rich.live import Live
@@ -266,6 +267,20 @@ def ensure_node_rules(project_root: Path, name: str, node: "engine.Node") -> Pat
         f"## 本节点子步骤清单\n\n"
         f"{section}\n"
     )
+    # 项目注册工具注入（组件 B）：只读发现类命令，可直接用 Bash 调用。
+    # load_project_tools 只校验键存在不校验值类型——command/description 可能为
+    # None，`or ''` 兜底防渲染出字面 "None"；arg_hint 空/None 则不挂参数标注。
+    tools = project_tools.load_project_tools(project_root)
+    if tools:
+        lines = [
+            "## 本项目工具\n\n以下命令由项目注册（只读发现类），可直接用 Bash 调用：\n"
+        ]
+        for t in tools:
+            hint = f"（参数：{t['arg_hint']}）" if t.get("arg_hint") else ""
+            lines.append(
+                f"- `{t['command'] or ''}` {hint} — {t.get('description') or ''}"
+            )
+        text += "\n".join(lines) + "\n"
     if not out.exists() or out.read_text(encoding="utf-8") != text:
         out.write_text(text, encoding="utf-8")
     return out

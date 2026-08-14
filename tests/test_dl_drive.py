@@ -164,6 +164,66 @@ def test_node_rules_is_node_scoped_not_full_template(wf_repo):
     assert "sub_steps understand:2" not in text
 
 
+def test_node_rules_injects_project_tools(wf_repo, monkeypatch):
+    """注册工具后，node-rules 含「本项目工具」段（组件 B 注入）。"""
+    drv = _load(DRIVER, "drv_under_test")
+    from scripts.workflow import project_tools as pt
+
+    monkeypatch.setattr(
+        pt,
+        "load_project_tools",
+        lambda pr: [
+            {
+                "name": "inspect-backtest-result",
+                "command": "scripts/inspect.py --factor {factor}",
+                "description": "读回测",
+                "arg_hint": "--factor <f>",
+            }
+        ],
+    )
+    node = engine.get_node("understand", 1)
+    out = drv.ensure_node_rules(wf_repo, "t", node)
+    text = out.read_text(encoding="utf-8")
+    assert "## 本项目工具" in text
+    assert "scripts/inspect.py --factor {factor}" in text  # command
+    assert "--factor <f>" in text  # arg_hint
+    assert "读回测" in text  # description
+
+
+def test_node_rules_omits_project_tools_section_without_tools(wf_repo):
+    """无工具（无 workflow-tools.yaml）时，node-rules 不含「本项目工具」段。"""
+    drv = _load(DRIVER, "drv_under_test")
+    node = engine.get_node("understand", 1)
+    out = drv.ensure_node_rules(wf_repo, "t", node)
+    text = out.read_text(encoding="utf-8")
+    assert "## 本项目工具" not in text
+    assert "inspect-backtest-result" not in text
+
+
+def test_node_rules_injection_handles_null_fields(wf_repo, monkeypatch):
+    """注入对 None command/description/arg_hint 安全（不渲染字面 "None"）。"""
+    drv = _load(DRIVER, "drv_under_test")
+    from scripts.workflow import project_tools as pt
+
+    monkeypatch.setattr(
+        pt,
+        "load_project_tools",
+        lambda pr: [
+            {
+                "name": "flaky-tool",
+                "command": None,
+                "description": None,
+                "arg_hint": None,
+            }
+        ],
+    )
+    node = engine.get_node("understand", 1)
+    out = drv.ensure_node_rules(wf_repo, "t", node)
+    text = out.read_text(encoding="utf-8")
+    assert "## 本项目工具" in text
+    assert "None" not in text
+
+
 # ---------- build_step_prompt ----------
 
 
