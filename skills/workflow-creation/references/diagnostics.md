@@ -421,3 +421,27 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 - **判读**：改了围栏/加了硬约束，但行为零变化 = 先核「目标会话跑在哪个 mode」。看 `state.json` 的 `drive_mode`/`front_mode` 字段 + 段工人 `session_id != state.session_id`；grep `.wf_fence.log` 有没有对应 deny 行——**没有 deny 行 = 围栏分支根本没执行**（区别于"有 deny 但模型硬闯"）。
 - **修复**：硬约束要落在目标会话**真的执行**的分支。drive_mode 段工人的 readonly 窄化（`deny_readonly`）要在 drive_mode 早退**之前**独立判定（v4 front 段工人分支），不是塞进 S15（`_s15_allowed` 只对 front 会话调用）。
 - **教训**：改围栏/加硬约束前先问「这条约束作用在哪个会话、那个会话走不走这个分支」。放错 mode = 零效果且无报错，只能靠「改了没用」才发现——与症状 O（工具被围栏拒绝）是对偶：O 是"该放的没放"，本条是"该拦的没拦"。
+
+### 症状 AC：文案指路的命令在非交互 shell 里必败（shell function 未加载）
+
+- **特征**：模型被 deny 后按 deny 文案/节点规则里的命令操作，返回 "needs approval" 或 "command not found"；同一命令在交互终端里却能跑。典型：fence deny 文案教 `dl codebase trace <symbol>`，模型在 headless 段工人里跑被拒；换成交互 TUI 里手输 `dl codebase trace x` 却成功。
+- **根因**（2026-08-14 amplitude_annualized 实测）：`dl` / `ac-*` / `codegraph` 等命令是 `.bashrc` 里定义的 **shell function / alias / PATH 扩展**，非交互 shell（`subprocess.Popen`、`cron`、systemd、`nohup bash -c`）默认不加载 `.bashrc` 或函数定义不导出 → 文案指的路在目标执行环境里不存在。这与症状 T「命令模板有 bug」不同：模板本身没写错，是**它依赖的 shell 环境在目标会话里不存在**。
+- **判读**：在目标会话的同构 shell 里逐字重放（`bash -c 'source ~/.bashrc; <command>'` vs `bash -c '<command>'`）；看 deny 日志里模型尝试的命令形态；对照 `settings.drive.json` / allowlist 里真正放行的前缀。
+- **修复**：文案指向的命令必须是在目标执行环境里**真实可跑**的形态。headless 段工人应指 `bash <wrapper.sh> ...`（显式 wrapper 路径）或已放行的裸 CLI 绝对路径；不要指依赖 `.bashrc` 函数/alias 的短命令。文案与 allowlist 一起审计：allowlist 放行的前缀必须覆盖文案教的写法。
+- **教训**：「这条命令在终端能跑」不等于「这条命令在脚本/子进程/ headless 会话能跑」。写 deny 文案、usage、selfcheck 时，先问目标会话是不是交互式 bash。
+
+### 症状 AD：工具打通后模型探索面扩大（通不等于快）
+
+- **特征**：修复工具通道后，模型确实按新工具操作了，但墙钟/轮次/token 不降反升；产出内容更全，但超出当前步所需。
+- **根因**（2026-08-14 amplitude_annualized step3 A/B 实测）：旧跑法因 grep 被禁 + `dl codebase` 不可跑，被迫聚焦在少数已知文件；新跑法 `bash dl-cmd.sh codebase` 通了，模型顺着 `dl codebase trace <symbol>` 返回的关联代码继续追（数据层 parquet、历史版本、跨 pipeline 对比），探索面扩大 39%，轮次 +23 轮。这是**通用现象**——高层工具降低单次查询成本，但没给模型停止条件，它会把「能查」当成「都要查」。
+- **判读**：对比修复前后同一步的 transcript tool_use 序列——若新工具调用占比高、但轮次/墙钟也更高，且新增调用集中在「延伸探索」而非「直接命中」，即为本症状。
+- **应对**：不删工具，而是在该步 purpose/selfcheck 里加**通用停止条件**（「挖到能解释现象的代码/数据层即可」「外部验证归下一步」），或把延伸探索拆到后续步骤；项目专属的细节阈值（如「不逐层 NaN 计数」）不进框架，只进项目级 node-rules。
+- **教训**：修工具通道解决的是「能不能查到」，不解决「该不该查到这」。提效要同时评估：单次查询成本 × 查询次数 × 探索面。
+
+### 症状 AE：跨步骤复用账本空转（`dl codebase` 台账未生成）
+
+- **特征**：设计了 discoveries.jsonl / 查询台账用于「排查过的不要再排查」，但后续步骤打开是空的，或各步骤重复做同类查询。
+- **根因**：台账依赖模型主动调用 `dl codebase` / `bash dl-cmd.sh codebase ...`。若模型用 raw grep、裸 codegraph、或直接 Read 文件，查询就不进账本；headless 段工人里若文案仍指 shell function 短命令，模型更走不通 `dl codebase`。
+- **判读**：工作流目录下 `discoveries.jsonl` 不存在/体积极小，但 transcript 里大量 grep/Read；或 steps 之间重复 trace 同一 symbol。
+- **修复**：让 `dl codebase` 在目标会话里真正可跑（症状 AC），并把「同类查询走 dl codebase」写进该步 purpose/selfcheck；台账才有数据可复用。
+- **教训**：去重机制不是「台账文件在就行」，是「模型必须实际走这条通道」。改工具/文案后，检查下一个 run 的 `discoveries.jsonl` 是否真的被写入。
