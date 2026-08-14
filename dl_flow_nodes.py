@@ -516,15 +516,22 @@ _FETCH_AUTHORITY_REGISTRY = (
 
 # 通用代码考古取证路线（杠杆 2，code-archaeology-three-levers-design §2）：
 # 单层取证「决定下一步查哪」从开放式推理降级为模板跟随；本步 raw grep/rg 已被
-# 围栏 deny（deny_readonly），symbol 关系只能走 trace、字符串走 --string。
+# 围栏 deny（deny_readonly），symbol 关系只能走 codebase trace、字符串走 query --string。
+# 注意：headless 段工人里裸 `dl codebase` 不可用（.bashrc shell function 未加载），
+# 须用 `bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh codebase ...`。
 _CODE_ARCH_ROUTE = (
     "单个原子问题取证路线（按需跳步）："
-    "1. symbol 关系查询**只能**走 `dl codebase trace <symbol>`（一次拿定义+调用者"
-    "+被调+影响面+git 历史；本步 raw grep/rg 已被围栏禁，勿尝试 grep 定义/调用）；"
-    "2. 字符串/正则定位走 `dl codebase query --string`（本步唯一字符串搜索通道）；"
-    "3. 某行何时引入走 `dl codebase query --history <file>:<line>`；"
+    "1. symbol 关系查询**只能**走 "
+    "`bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh codebase trace <symbol>` "
+    "（一次拿定义+调用者+被调+影响面+git 历史；本步 raw grep/rg 已被围栏禁，"
+    "勿尝试 grep 定义/调用）；"
+    "2. 字符串/正则定位走 "
+    "`bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh codebase query --string <pattern>` "
+    "（本步唯一字符串搜索通道）；"
+    "3. 某行何时引入走 "
+    "`bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh codebase query --history <file>:<line>`；"
     "4. 读关键文件正文用 Read。"
-    "`dl codebase` 自动落账去重，重复查询零成本。"
+    "上述 `codebase` 命令会自动落账去重，重复查询零成本。"
 )
 
 # 交互读回步的提问拆分规则（2026-07-30 tail_volume understand:4 子5 审计）：

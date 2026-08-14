@@ -2288,5 +2288,5 @@ def test_node_rules_has_arch_route(wf_repo):
     node = engine.get_node("understand", 1)
     out = drv.ensure_node_rules(wf_repo, "t", node)
     text = out.read_text(encoding="utf-8")
-    assert "dl codebase trace" in text
+    assert "dl-cmd.sh codebase trace" in text
     assert "取证路线" in text
