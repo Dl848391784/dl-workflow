@@ -878,6 +878,9 @@ _NODES: dict[str, Node] = {
                     ("atomic_questions", "fetch_tier_items"),
                     ("atomic_questions", "atomic_mece_alignment"),
                 ),
+                # 子2a 也禁 raw grep/rg：规划步的轻量侦察（定档需判"仓内可达"）走
+                # dl codebase（结构化+落账去重），防"规划思考被搜索打断"重演。
+                deny_readonly=("grep", "rg"),
             ),
             Step(
                 kind="skill",

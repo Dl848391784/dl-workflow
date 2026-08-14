@@ -1090,6 +1090,15 @@ def test_understand1_sub3_deny_readonly():
     assert step.deny_readonly == ("grep", "rg")
 
 
+def test_understand1_sub2a_deny_readonly():
+    """understand:1 子2（规划拆解）也声明 deny_readonly=("grep","rg")——规划步轻量侦察走结构化工具+落账。"""
+    import dl_flow_engine as eng
+
+    node = eng.get_node("understand", 1)
+    step = node.sub_steps[1]  # 子2 = 规划拆解
+    assert step.deny_readonly == ("grep", "rg")
+
+
 def test_drive_mode_denies_grep_sub3(wf_repo, monkeypatch, capsys):
     """drive_mode 段工人：子3（因果链挖掘）的 deny_readonly 独立生效（S15 跳过不豁免 grep）。"""
     _write_state(wf_repo, sub_step=3)
