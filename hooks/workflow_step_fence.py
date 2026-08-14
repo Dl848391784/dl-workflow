@@ -42,6 +42,7 @@ from pathlib import Path
 _DLWF_ROOT = Path(__file__).resolve().parents[1]  # ~/.dl-workflow/
 sys.path.insert(0, str(_DLWF_ROOT))
 import dl_flow_engine as engine  # noqa: E402
+from scripts.workflow import project_tools  # noqa: E402
 
 
 def _resolve_project_root(cwd: str) -> Path | None:
@@ -193,6 +194,66 @@ def _s15_python_readonly(seg: str) -> bool:
     if not re.match(r"^\s*python3?\s+-c\s+", seg):
         return False
     return _S15_PYTHON_WRITE_SIGNAL_RE.search(seg) is None
+
+
+# 项目工具 command 头白名单（组件 B，codebase-archaeology-toolbox-design §3.3）：
+# 只加只读发现类（find/ls/grep/cat/head/git log/python 脚本）——破坏性/远程写命令头
+# （rm/dd/sudo/mv/touch/curl/wget 等）不进白名单，保留「弱模型幻觉刹车」（正向名单可
+# 收敛，deny 反向名单是打地鼠）。注册工具本身安全由项目自担（脚本在项目仓、走 code
+# review）——这里只拦「工具 + shell 写走私」与破坏性头。
+_PROJECT_TOOL_DESTRUCTIVE_HEAD_RE = re.compile(
+    r"^(?:rm|dd|sudo|mv|touch|mkdir|rmdir|chmod|chown|ln|truncate|"
+    r"mount|umount|mkfs|shutdown|reboot|kill|pkill|killall|tee|"
+    r"curl|wget|ssh|scp|rsync|"
+    # 通用解释器头：注册「python3 脚本」会把任意 python3 命令放进白名单
+    # （含 -c 内联写），白名单降级为全放行——工具头须是项目脚本路径。
+    r"python3?|bash|sh|zsh|fish|node|perl|ruby|php|lua|env|timeout|nohup|docker)\b"
+)
+
+
+def _project_tool_heads(project_root: Path) -> set[str]:
+    """注册项目工具的非破坏性 command 头集合（空 = 无工具 / 全被拒）。"""
+    heads: set[str] = set()
+    for t in project_tools.load_project_tools(project_root):
+        cmd_str = str(t.get("command") or "").strip()
+        if not cmd_str:
+            continue
+        head = cmd_str.split()[0]
+        if _PROJECT_TOOL_DESTRUCTIVE_HEAD_RE.match(head):
+            continue
+        heads.add(head)
+    return heads
+
+
+def _s15_project_tool_command(cmd: str, project_root: Path) -> bool:
+    """项目工具 command 头白名单（组件 B）：命令头命中注册只读工具 -> 放行。
+
+    与 _s15_bash_readonly_discovery 同构：全命令按段校验，每段须为「项目工具头
+    或只读发现命令」，任一段不满足即拒；写意图信号（输出重定向/命令替换/
+    xargs/tee）一票否决。项目工具脚本本身可能含 IO（脚本在项目仓、自担安全），
+    但 shell 层的写走私（重定向/复合破坏段）仍拦。
+    """
+    heads = _project_tool_heads(project_root)
+    if not heads:
+        return False
+    outside = _outside_quotes(cmd)
+    if re.search(r"`|\$\(|\bxargs\b|\btee\b", outside):
+        return False
+    if re.search(r"(?<![0-9>])>", outside):  # 输出重定向（2>/dev/null 豁免）
+        return False
+    for seg in _split_shell_segments(cmd):
+        seg = seg.strip()
+        if not seg:
+            continue
+        toks = seg.split()
+        if toks and toks[0] in heads:
+            continue
+        if _S15_READONLY_CMD_RE.match(seg) or _S15_GIT_READONLY_RE.match(seg):
+            continue
+        if _s15_python_readonly(seg):
+            continue
+        return False
+    return True
 
 
 def _outside_quotes(cmd: str) -> str:
@@ -373,8 +434,13 @@ def _s15_allowed(
     step: "engine.Step",
     cwd: str,
     payload_file: Path | None = None,
+    project_root: Path | None = None,
 ) -> bool:
-    """S15 白名单判定：常驻集 / Write 系仅 evidence+载荷 / Bash 编排模式 / 步骤声明。"""
+    """S15 白名单判定：常驻集 / Write 系仅 evidence+载荷 / Bash 编排模式 / 步骤声明。
+
+    project_root：项目工具（组件 B）command 头白名单需要；None = 不启用该项目分支
+    （默认不宽松——调用方显式传 project_root 才放行注册工具）。
+    """
     if tool in _S15_BASE_TOOLS:
         return True
     if tool in step.fence_allow:
@@ -395,9 +461,10 @@ def _s15_allowed(
         return bool(fp) and rp.parent == ev_file.parent
     if tool == "Bash":
         cmd = str(tool_input.get("command") or "")
-        return _s15_bash_orchestration(cmd, ev_file) or _s15_bash_readonly_discovery(
-            cmd
-        )
+        if _s15_bash_orchestration(cmd, ev_file) or _s15_bash_readonly_discovery(cmd):
+            return True
+        # 组件 B：项目工具 command 头白名单（只读发现类，弱模型幻觉刹车保留）
+        return project_root is not None and _s15_project_tool_command(cmd, project_root)
     return False
 
 
@@ -690,6 +757,7 @@ def main() -> int:
             step_obj,
             cwd,
             engine.trace_payload_path(project_root, name),
+            project_root,
         ):
             # v2.118 修 D：有在跑的取证子代理时放行其进程内取证 curl。
             # 子3 派的 agent 可跨步存活到子4（实测 full agent 15:24:44 才归），

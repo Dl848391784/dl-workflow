@@ -834,3 +834,113 @@ class TestFrontSegmentRunFence:
             session_id="s",
         )
         assert decision is None
+
+
+class TestS15ProjectToolAllow:
+    """组件 B：注册项目工具 command 头进 S15 白名单。
+
+    codebase-archaeology-toolbox-design §3.3：工具 command 头并入 S15 Bash 白名单，
+    但只放行只读发现类——破坏性命令头（rm/dd/sudo）不进白名单（弱模型幻觉刹车）；
+    工具 + shell 写走私（重定向/命令替换/复合破坏段）一票否决；未注册命令不因
+    白名单存在而放行。注册工具本身安全由项目自担（脚本在项目仓、走 code review）。
+    """
+
+    _YAML = (
+        "tools:\n"
+        "  - name: inspect-backtest-result\n"
+        "    command: scripts/inspect_backtest_result.py --factor {factor}\n"
+        "    description: 读回测结果元数据\n"
+    )
+
+    def _register(self, wf_repo: Path, text: str) -> None:
+        (wf_repo / ".claude" / "workflow-tools.yaml").write_text(text, encoding="utf-8")
+
+    def test_registered_project_tool_allowed(self, wf_repo, monkeypatch, capsys):
+        _write_state(wf_repo, sub_step=1)
+        self._register(wf_repo, self._YAML)
+        mod = _load_hook()
+        decision, _ = _run_hook(
+            mod,
+            wf_repo,
+            monkeypatch,
+            capsys,
+            "Bash",
+            {"command": "scripts/inspect_backtest_result.py --factor momentum"},
+        )
+        assert decision is None  # 放行：无 deny 输出
+
+    def test_project_tool_with_pipe_allowed(self, wf_repo, monkeypatch, capsys):
+        _write_state(wf_repo, sub_step=1)
+        self._register(wf_repo, self._YAML)
+        mod = _load_hook()
+        decision, _ = _run_hook(
+            mod,
+            wf_repo,
+            monkeypatch,
+            capsys,
+            "Bash",
+            {
+                "command": "scripts/inspect_backtest_result.py --factor momentum | head -20"
+            },
+        )
+        assert decision is None
+
+    def test_project_tool_write_intent_denied(self, wf_repo, monkeypatch, capsys):
+        _write_state(wf_repo, sub_step=1)
+        self._register(wf_repo, self._YAML)
+        mod = _load_hook()
+        for cmd in (
+            "scripts/inspect_backtest_result.py --factor x > /tmp/out",  # 输出重定向
+            "scripts/inspect_backtest_result.py --factor $(rm -rf /)",  # 命令替换走私
+            "scripts/inspect_backtest_result.py --factor x; rm -rf /tmp/x",  # 复合破坏段
+        ):
+            decision, reason = _run_hook(
+                mod, wf_repo, monkeypatch, capsys, "Bash", {"command": cmd}
+            )
+            assert decision == "deny", f"{cmd} 应 deny"
+            assert "S15" in reason
+
+    def test_destructive_tool_head_not_whitelisted(self, wf_repo, monkeypatch, capsys):
+        # 注册破坏性命令头（rm）不进白名单——弱模型幻觉刹车保留
+        _write_state(wf_repo, sub_step=1)
+        self._register(wf_repo, "tools:\n  - name: wipe\n    command: rm -rf /tmp/x\n")
+        mod = _load_hook()
+        decision, _ = _run_hook(
+            mod, wf_repo, monkeypatch, capsys, "Bash", {"command": "rm -rf /tmp/x"}
+        )
+        assert decision == "deny"
+
+    def test_unregistered_command_still_denied(self, wf_repo, monkeypatch, capsys):
+        # 白名单只放行注册头；未注册的其它脚本仍 deny
+        _write_state(wf_repo, sub_step=1)
+        self._register(wf_repo, self._YAML)
+        mod = _load_hook()
+        decision, _ = _run_hook(
+            mod,
+            wf_repo,
+            monkeypatch,
+            capsys,
+            "Bash",
+            {"command": "scripts/other.py --x 1"},
+        )
+        assert decision == "deny"
+
+    def test_interpreter_head_not_whitelisted(self, wf_repo, monkeypatch, capsys):
+        # 通用解释器头（python3/bash）不当工具头——否则注册「python3 脚本」后
+        # 任意 python3 命令都命中头白名单放行（含 -c 内联写），白名单降级为
+        # 全放行，弱模型幻觉刹车失效。工具头须是项目脚本路径，非解释器。
+        _write_state(wf_repo, sub_step=1)
+        self._register(
+            wf_repo, "tools:\n  - name: run\n    command: python3 scripts/inspect.py\n"
+        )
+        mod = _load_hook()
+        for cmd in (
+            "python3 scripts/inspect.py --factor x",  # 注册形态本身不进白名单
+            "python3 -c \"import os; os.system('rm -rf /')\"",  # 解释器走私
+            "bash scripts/inspect.py",  # 另一解释器同理
+        ):
+            decision, reason = _run_hook(
+                mod, wf_repo, monkeypatch, capsys, "Bash", {"command": cmd}
+            )
+            assert decision == "deny", f"{cmd} 应 deny"
+            assert "S15" in reason
