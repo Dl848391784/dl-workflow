@@ -132,9 +132,9 @@ def test_build_info_reads_live_position(tmp_path: Path):
     _mk_wf(tmp_path)
     info = sl.build_info(tmp_path, "t", NOW)
     assert info["sub_label"] == "理解问题和背景"
-    assert (info["sub_step"], info["sub_steps_total"]) == (4, 6)
+    assert (info["sub_step"], info["sub_steps_total"]) == (4, 7)
     assert info["interactive"] is False  # understand:1#4 红队步非交互
-    assert sl.render_line(info) == "▸ 理解问题和背景 子4/6 · 待派发段"
+    assert sl.render_line(info) == "▸ 理解问题和背景 子4/7 · 待派发段"
 
 
 def test_build_info_interactive_step_detected(tmp_path: Path):

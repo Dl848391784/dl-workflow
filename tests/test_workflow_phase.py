@@ -51,7 +51,7 @@ class TestCurrentStepFirst:
 
     def test_current_step_block_before_chain(self):
         ctx = wp._format_injection(_state(3), PROJECT_ROOT)
-        i_cur = ctx.index("▶ 当前子步骤 3/6")
+        i_cur = ctx.index("▶ 当前子步骤 3/7")
         i_chain = ctx.index("子步骤链")
         assert i_cur < i_chain
 
@@ -72,14 +72,15 @@ class TestCurrentStepFirst:
         chain_line = next(line for line in ctx.splitlines() if "子步骤链" in line)
         for short in (
             "逼问定义",
-            "拆解深挖",
+            "规划拆解",
+            "因果链挖掘",
             "双向取证",
             "质检裁决",
             "归一化陈述",
             "读回确认",
         ):
             assert short in chain_line
-        assert "3.双向取证【当前】" in chain_line
+        assert "3.因果链挖掘【当前】" in chain_line
         assert "1.逼问定义 ✓" in chain_line  # 已完成步标 ✓
 
     def test_tasklist_instruction_prose_removed(self):
@@ -156,9 +157,10 @@ class TestSelfcheckStepSpecific:
         assert "本步自查：" in ctx
         assert "who/pain/why-now ≥3 类都覆盖了吗" in ctx
 
-    def test_step3_injection_carries_step3_not_step1(self):
-        # v2.38：子3 注入携带 fetch-prompt 子代理编排（selfcheck 披露），不带别步 checklist
-        ctx = wp._format_injection(_state(3), PROJECT_ROOT)
+    def test_step4_injection_carries_step4_not_step1(self):
+        # v2.38：子4（双向取证，plan-first 拆步前旧子3）注入携带 fetch-prompt
+        # 子代理编排（selfcheck 披露），不带别步 checklist
+        ctx = wp._format_injection(_state(4), PROJECT_ROOT)
         assert "fetch-prompt" in ctx
         assert "who/pain/why-now ≥3 类都覆盖了吗" not in ctx  # 不带别步 checklist
 

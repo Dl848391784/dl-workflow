@@ -174,7 +174,7 @@ class TestStopStdoutPureJson:
         out, err = _run_hook(mod, wf_repo, monkeypatch, capsys, judge=(True, ""))
         directive = json.loads(out.strip())  # 整体可解析 = 纯 JSON（核心防回归）
         ctx = directive["hookSpecificOutput"]["additionalContext"]
-        assert "子步骤 2/6" in ctx
+        assert "子步骤 2/7" in ctx
         assert "causal-inference-root-cause" in ctx
         assert "✓" not in out  # ✓ 行不许混进 stdout
         assert "自动续轮" in err  # ✓ 行走 stderr
@@ -201,9 +201,9 @@ class TestStopStdoutPureJson:
 
     def test_cross_subphase_auto_continue(self, wf_repo, monkeypatch, capsys):
         # 无门栏的子阶段边界不是检查点（2026-07-27 用户预期「跑到门栏再停」）：
-        # understand:1 末步（子6）pass -> 自动续轮进 understand:2 子1（纯 JSON 指令）
-        _write_state(wf_repo, sub_step=6, sub_index=1)
-        _write_trace(wf_repo, sub_step=6, sub_index=1)
+        # understand:1 末步（子7）pass -> 自动续轮进 understand:2 子1（纯 JSON 指令）
+        _write_state(wf_repo, sub_step=7, sub_index=1)
+        _write_trace(wf_repo, sub_step=7, sub_index=1)
         mod = _load_hook()
         out, _err = _run_hook(mod, wf_repo, monkeypatch, capsys, judge=(True, ""))
         directive = json.loads(out.strip())  # 整体可解析 = 纯 JSON（症状 Q 契约）
@@ -235,22 +235,22 @@ class TestContinueCarriesFenceNotice:
     fence_allow 豁免）——防模型只在子1 见过无豁免版提示，到后续步骤臆断
     工具被 deny（demo 121320fe：子4 未试先称 Agent 被 S15 拦）。"""
 
-    def test_pass_to_step4_notice_declares_agent(self, wf_repo, monkeypatch, capsys):
-        # 子3 pass -> 续轮子4：additionalContext 须含「额外放行：Agent」
-        _write_state(wf_repo, sub_step=3)
-        _write_trace(wf_repo, sub_step=3)
+    def test_pass_to_step5_notice_declares_agent(self, wf_repo, monkeypatch, capsys):
+        # 子4 pass -> 续轮子5：additionalContext 须含「额外放行：Agent」
+        _write_state(wf_repo, sub_step=4)
+        _write_trace(wf_repo, sub_step=4)
         mod = _load_hook()
         out, _err = _run_hook(mod, wf_repo, monkeypatch, capsys, judge=(True, ""))
         directive = json.loads(out.strip())  # 纯 JSON 回归不变
         ctx = directive["hookSpecificOutput"]["additionalContext"]
-        assert "子步骤 4/6" in ctx
+        assert "子步骤 5/7" in ctx
         assert "前置参与围栏" in ctx
         assert "额外放行：Agent" in ctx
 
-    def test_block_at_step4_notice_declares_agent(self, wf_repo, monkeypatch, capsys):
-        # 子4 block 返工：豁免文案纠正「Agent 被拦」假信念
-        _write_state(wf_repo, sub_step=4)
-        _write_trace(wf_repo, sub_step=4)
+    def test_block_at_step5_notice_declares_agent(self, wf_repo, monkeypatch, capsys):
+        # 子5 block 返工：豁免文案纠正「Agent 被拦」假信念
+        _write_state(wf_repo, sub_step=5)
+        _write_trace(wf_repo, sub_step=5)
         mod = _load_hook()
         out, _err = _run_hook(
             mod, wf_repo, monkeypatch, capsys, judge=(False, "缺独立红队")
