@@ -364,6 +364,15 @@ def _evidence_path(project_root: Path, name: str) -> Path:
     return project_root / ".claude" / "evidence" / (name + ".jsonl")
 
 
+def _clear_workflow_discoveries(project_root: Path, name: str) -> None:
+    """state-reset 清账：删除 discoveries.jsonl（回滚后旧发现基于作废结论）；缺失/失败非错误。"""
+    p = project_root / ".claude" / "workflows" / name / "discoveries.jsonl"
+    try:
+        p.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 def trace_payload_path(
     project_root: Path, name: str, state: dict | None = None
 ) -> Path:
@@ -2103,6 +2112,9 @@ def reset_state(project_root: Path, name: str, target: str) -> tuple[bool, str]:
                     deleted_files.append(key)
             except OSError as e:
                 return False, f"产物删除失败 {p}: {e}（state 已回滚，产物残留需手工清）"
+
+    # 4. 发现台账清账（回滚后旧发现基于作废结论；缺失非错误）
+    _clear_workflow_discoveries(project_root, name)
 
     total = len(t_node.sub_steps or [])
     step_desc = f"子步骤 {step}/{total}" if total else "（无子步骤节点）"

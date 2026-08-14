@@ -2270,3 +2270,13 @@ def test_chain_context_warn_line(wf_repo):
     assert drv._chain_warn_line(100_000, "n") is None
     line = drv._chain_warn_line(300_000, "u:2#3")
     assert "300,000" in line and "u:2#3" in line
+
+
+def test_node_rules_injects_discovery_ledger_hint(wf_repo):
+    """ensure_node_rules 含「发现台账」提示（工具级去重告知）。"""
+    drv = _load(DRIVER, "drv_under_test")
+    node = engine.get_node("understand", 1)
+    out = drv.ensure_node_rules(wf_repo, "t", node)
+    text = out.read_text(encoding="utf-8")
+    assert "## 发现台账" in text
+    assert "discoveries.jsonl" in text

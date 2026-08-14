@@ -283,6 +283,13 @@ def ensure_node_rules(project_root: Path, name: str, node: "engine.Node") -> Pat
                 f" — {t.get('description') or ''}"
             )
         text += "\n".join(lines) + "\n"
+    # 发现台账提示（discovery-ledger）：dl codebase query 工具级去重，模型无需手工查账
+    ledger = project_root / ".claude" / "workflows" / name / "discoveries.jsonl"
+    text += (
+        f"\n## 发现台账\n"
+        f"`dl codebase query --symbol/--history` 会自动落账去重到 {ledger}；"
+        f"重查同一 symbol/history 返回缓存（source=discovery-ledger），无需手工查账。\n"
+    )
     if not out.exists() or out.read_text(encoding="utf-8") != text:
         out.write_text(text, encoding="utf-8")
     return out

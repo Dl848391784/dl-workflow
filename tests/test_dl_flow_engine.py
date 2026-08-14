@@ -10147,3 +10147,14 @@ class TestListTools:
         rc = eng.main(["list-tools", "--cwd", str(tmp_path)])
         assert rc == 0
         assert "无注册工具" in capsys.readouterr().out
+
+
+def test_clear_workflow_discoveries(tmp_path):
+    """state-reset 清账：删除 discoveries.jsonl；缺失非错误。"""
+    meta = tmp_path / ".claude" / "workflows" / "t"
+    meta.mkdir(parents=True)
+    disc = meta / "discoveries.jsonl"
+    disc.write_text('{"key":"symbol:x","kind":"symbol"}\n', encoding="utf-8")
+    eng._clear_workflow_discoveries(tmp_path, "t")
+    assert not disc.exists()
+    eng._clear_workflow_discoveries(tmp_path, "t")  # 缺失时也非错误
