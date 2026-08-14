@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""u:1#2 因果链挖掘 gate 回归重放（v2.72-v2.75 反转的回归资产，
-plan-first 拆步后归子2b）。
+"""u:1#2b 因果链挖掘 gate 回归重放（v2.72-v2.75 反转的回归资产，
+plan-first 拆步后归子2b，sub_step=3；none 档漏取证牙齿已随拆步迁子2a
+replay_u1_sub2a.py）。
 
-clean(demo 真实合规现代化) / vio1 同义反复 / vio2 稻草人 / vio3 none 档外部依赖。
+clean(demo 真实合规现代化) / vio1 同义反复 / vio2 稻草人。
 artifact=子1+子2b 最新 trace 拼合（生产 read_evidence_for_step(3) 同形——
 fixture 保真度第四实例：harness 注声明产物组成后，fixture 必须匹配，§3.5 #30 ⑨）。
 vio2 读数口径：生产墙=mech（hypothesis_exclude_no_absence）100% 先拒，
@@ -17,7 +18,7 @@ import sys
 
 from _common import run_cases, setup_env, sub_step
 
-LABEL = "理解问题和背景 · 子步骤2（因果链挖掘）"
+LABEL = "理解问题和背景 · 子步骤3（因果链挖掘）"
 STEP = sub_step("understand:1", 2)
 
 # 子1 trace（生产形态 fixture 的前序锚点）
@@ -96,36 +97,15 @@ VIO2["a"][4] = (
     "H1=用户其实想删除整个因子池、以后不再需要任何因子。排除理由：用户没有表达过这个意思，故排除 H1。"
 )
 
-VIO3 = copy.deepcopy(BASE)  # none 档外部知识依赖漏取证
-VIO3["purpose"] = "拆解深挖。单一问题，无复合。P1=IC 均值 0.03 的因子是否值得纳入筛选。"
-VIO3["a"][0] = "单一，无复合。P1=IC 均值 0.03 的因子是否达到有效水平、值得纳入筛选。"
-VIO3["a"][1] = (
-    "量化行业一般认为 IC 均值 >0.05 才算有效因子（行业常识），0.03 低于该水平。"
-)
-VIO3["a"][2] = (
-    "该因子 IC 均值 0.03（backtest/result/default/summary_report.json 字段值，读出即事实）。"
-)
-VIO3["a"][3] = "IC 低于行业有效线导致因子预测力不足，纳入筛选会拉低组合表现。"
-VIO3["a"][5] = "近因=「IC 0.03 低于行业有效线」；根因=「因子预测力不足」；置信度=中。"
-VIO3["atomic_questions"] = [
-    {
-        "q": "P1 IC 均值 0.03 的因子是否达到有效水平",
-        "tier": "none",
-        "tier_reason": "答案仓内可达：IC 数值在仓内报告产物 backtest/result/default/summary_report.json，仅内查即可",
-    }
-]
-
 CASES = {
     "clean": CLEAN,
     "vio1_tautology": VIO1,
     "vio2_strawman": VIO2,
-    "vio3_tier_none": VIO3,
 }
 EXPECT = {
     "clean": True,
     "vio1_tautology": False,
     "vio2_strawman": False,
-    "vio3_tier_none": False,
 }
 
 
@@ -135,7 +115,7 @@ def main():
     gate = open(sys.argv[2]).read() if len(sys.argv) > 2 else None
     s1 = json.dumps(S1, ensure_ascii=False)
     arts = {k: s1 + "\n" + json.dumps(v, ensure_ascii=False) for k, v in CASES.items()}
-    run_cases("u:1#2 replay", STEP, LABEL, arts, EXPECT, n=n, gate=gate)
+    run_cases("u:1#2b replay", STEP, LABEL, arts, EXPECT, n=n, gate=gate)
 
 
 if __name__ == "__main__":

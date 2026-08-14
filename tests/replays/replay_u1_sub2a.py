@@ -2,15 +2,17 @@
 """u:1#2a 规划拆解 gate 回归重放（plan-first 拆步 2026-08-14 新增回归资产）。
 
 子2a gate 承接原原子2 gate 的方框一（MECE 互斥穷尽）+ 方框二（none 档漏取证）；
-方框一/二/三（因果链证据）归子2b gate（replay_u1_sub2b.py，未建——子2b 承接
-v2.72-v2.75 已有 replay_u1_sub2.py 的方框一/二/三载荷形态，拆除时把因果链
-相关 vio 迁过去）。本脚本只钉子2a 的 MECE 判据不漂移。
+方框一/二/三（因果链证据）归子2b gate（replay_u1_sub2.py，sub_step=3）。
+本脚本钉子2a 判据：MECE 互斥穷尽（方框一）+ none 档漏取证（方框二）。
 
 artifact=子1+子2a 最新 trace 拼合（生产 read_evidence_for_step(2) 同形——
 fixture 保真度第四实例：harness 注声明产物组成后，fixture 必须匹配，§3.5 #30 ⑨）。
 MECE 判据在 judge 侧（方框一）；atomic_mece_alignment 机械层只校验「MECE 声明
 标签 ↔ aq 首字母标签」集合对齐（声明了几原子就交几条），漏项/重叠是 judge 裁量面
 ——本脚本的漏项/重叠 vio 都要先满足机械层（声明与提交条数一致），逼 judge 判真值。
+none 档漏取证在 judge 侧（方框二）；fetch_tier_items 机械层只校验 tier_reason
+含仓内路径指针，不判真假——vio3_tier_none 的 a[1] 用「IC>0.05 行业有效线」
+（行业常识）判断有效性却标 none，逼 judge 按方框二判。
 
 用法: python3 tests/replays/replay_u1_sub2a.py [N] [gate_file]
 """
@@ -114,15 +116,36 @@ VIO_OVERLAP["atomic_questions"] = [
     },
 ]
 
+VIO3_TIER_NONE = copy.deepcopy(BASE)  # none 档漏取证：判「IC 有效水平」用行业常识却标 none
+VIO3_TIER_NONE["purpose"] = (
+    "拆解深挖·规划。单一问题，无复合。P1=IC 均值 0.03 的因子是否达到有效水平、值得纳入筛选。"
+)
+VIO3_TIER_NONE["a"][0] = (
+    "单一，无复合。P1=IC 均值 0.03 的因子是否达到有效水平、值得纳入筛选。"
+)
+VIO3_TIER_NONE["a"][1] = (
+    "P1 标 none 档：量化行业一般认为 IC 均值 >0.05 才算有效因子（行业常识），"
+    "0.03 低于该水平，故不值得纳入筛选；IC 数值仓内报告可得，无需外部取证。"
+)
+VIO3_TIER_NONE["atomic_questions"] = [
+    {
+        "q": "P1 IC 均值 0.03 的因子是否达到有效水平",
+        "tier": "none",
+        "tier_reason": "答案仓内可达：IC 数值在仓内报告产物 backtest/result/default/summary_report.json，仅内查即可",
+    }
+]
+
 CASES = {
     "clean": CLEAN,
     "vio_missing_atom": VIO_OMIT,
     "vio_overlap": VIO_OVERLAP,
+    "vio3_tier_none": VIO3_TIER_NONE,
 }
 EXPECT = {
     "clean": True,
     "vio_missing_atom": False,
     "vio_overlap": False,
+    "vio3_tier_none": False,
 }
 
 
