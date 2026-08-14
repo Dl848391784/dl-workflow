@@ -29,3 +29,18 @@ def test_query_symbol_shapes(monkeypatch):
     assert set(out) == {"symbol", "definition", "callers", "impact"}
     assert out["definition"]["ok"][0]["node"]["name"] == "f"
     assert out["callers"]["ok"]["callers"][0]["name"] == "g"
+
+
+def test_query_symbol_codegraph_missing(monkeypatch):
+    """codegraph 缺失时 _run 捕获 OSError，返回结构化 error 而非裸栈。"""
+    err = FileNotFoundError(2, "No such file or directory", "codegraph")
+
+    def raise_not_found(cmd, **kwargs):
+        raise err
+
+    monkeypatch.setattr(cb.subprocess, "run", raise_not_found)
+    out = cb.query_symbol("x")
+    expected = {"error": f"codegraph 不存在或不可执行: {err}"}
+    assert out["definition"] == expected
+    assert out["callers"] == expected
+    assert out["impact"] == expected

@@ -12,7 +12,10 @@ import sys
 
 
 def _run(cmd: list[str]) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True)
+    except OSError as e:
+        return subprocess.CompletedProcess(cmd, 1, "", f"{cmd[0]} 不存在或不可执行: {e}")
 
 
 def _codegraph_json(sub: str, symbol: str) -> dict:
