@@ -271,16 +271,16 @@ class TestNormalizeState:
         assert norm_tb["sub_step_index"] == 1
 
     def test_sub_step_index_out_of_range_raises(self):
-        # §orchestration v2 + 2026-07-26 重设计：understand:1 有 6 子步骤，越界 -> 报错暴露
-        for bad in (0, 7):
+        # §orchestration v2 + 2026-07-26 重设计：understand:1 有 7 子步骤，越界 -> 报错暴露
+        for bad in (0, 8):
             with pytest.raises(ValueError, match="越界"):
                 eng.normalize_state(
                     {"phase": "understand", "sub_index": 1, "sub_step_index": bad}
                 )
 
     def test_sub_step_index_in_range_ok(self):
-        # 1..6 合法范围不报错
-        for ok in (1, 2, 3, 4, 5, 6):
+        # 1..7 合法范围不报错
+        for ok in (1, 2, 3, 4, 5, 6, 7):
             norm = eng.normalize_state(
                 {"phase": "understand", "sub_index": 1, "sub_step_index": ok}
             )
@@ -369,43 +369,44 @@ class TestNodeSubStepsField:
 
 class TestStep456Redesign:
     """2026-07-26 重设计（designs/step5-step6-statement-readback-redesign-design.md）：
-    子4 加④处置问题集；子5 一句话陈述→归一化陈述（裁决传导）；子6→带证据读回确认。"""
+    子4 加④处置问题集；子5 一句话陈述→归一化陈述（裁决传导）；子6→带证据读回确认。
+    plan-first 拆步（2026-08-14）：子2 一拆二后全重编号，原子4/5/6 顺延为子5/6/7。"""
 
     def _steps(self):
         node = eng.get_node("understand", 1)
-        assert node.sub_steps is not None and len(node.sub_steps) == 6
+        assert node.sub_steps is not None and len(node.sub_steps) == 7
         return node.sub_steps
 
-    def test_step4_disposition_in_purpose_and_gate(self):
-        s4 = self._steps()[3]
-        assert "处置问题集" in s4.purpose
-        assert "处置后问题集与 verdict 逐项一致" in s4.gate
-
-    def test_step5_normalization_verdict_consistency(self):
+    def test_step5_disposition_in_purpose_and_gate(self):
         s5 = self._steps()[4]
-        assert "归一化陈述" in s5.purpose
-        assert s5.input == "step4.disposed_problem_set"
-        # 裁决不传导判 block：陈述集与 verdict 一致性是质量判据
-        assert "裁决不传导" in s5.gate
-        assert "证伪项不得出现在" in s5.gate
+        assert "处置问题集" in s5.purpose
+        assert "处置后问题集与 verdict 逐项一致" in s5.gate
 
-    def test_step5_no_grammatical_subject_requirement_all_layers(self):
+    def test_step6_normalization_verdict_consistency(self):
+        s6 = self._steps()[5]
+        assert "归一化陈述" in s6.purpose
+        assert s6.input == "step5.disposed_problem_set"
+        # 裁决不传导判 block：陈述集与 verdict 一致性是质量判据
+        assert "裁决不传导" in s6.gate
+        assert "证伪项不得出现在" in s6.gate
+
+    def test_step6_no_grammatical_subject_requirement_all_layers(self):
         """v2.85 #29 跨层同向：「主语+动词+约束」词形是 clean 1/6 的最高频误伤源
         （judge 照字面索取语法主语，判中文合法动宾短语「统计 X 的数量」缺主语）。
         修文本而非站队（#23），且 purpose/selfcheck/gate 三层齐改——只改 gate
         则 judge 放行而模型仍被 purpose 指使去凑主语，一次通过率不升。"""
-        s5 = self._steps()[4]
-        for layer in (s5.purpose, s5.selfcheck):
+        s6 = self._steps()[5]
+        for layer in (s6.purpose, s6.selfcheck):
             assert "主语+动词+约束" not in layer, "旧词形回潮：judge/模型会索取语法主语"
             assert "省略主语合法" in layer, "缺「省略主语合法」钉死"
-        assert "对象+动作+约束自包含" in s5.gate
-        assert "不得判「缺主语/非陈述式/祈使短语」" in s5.gate
+        assert "对象+动作+约束自包含" in s6.gate
+        assert "不得判「缺主语/非陈述式/祈使短语」" in s6.gate
 
-    def test_step6_readback_with_evidence_gate_none(self):
-        s6 = self._steps()[5]
-        assert s6.gate is None  # 交互步不跑 judge（trace 存在即过）
-        assert s6.tier == "confirm"  # P3-1 读回降确认级（2026-08-13 用户裁决）
-        assert "静默通过" in s6.purpose and "state-reset" in s6.purpose
+    def test_step7_readback_with_evidence_gate_none(self):
+        s7 = self._steps()[6]
+        assert s7.gate is None  # 交互步不跑 judge（trace 存在即过）
+        assert s7.tier == "confirm"  # P3-1 读回降确认级（2026-08-13 用户裁决）
+        assert "静默通过" in s7.purpose and "state-reset" in s7.purpose
         # 原「证据指针/证据不足呈现」归 render-readback 机械装配（见该函数测试）
 
     def test_all_six_steps_record_true(self):
@@ -423,24 +424,24 @@ class TestEvidenceTierRedesign:
 
     def _steps(self):
         node = eng.get_node("understand", 1)
-        assert node.sub_steps is not None and len(node.sub_steps) == 6
+        assert node.sub_steps is not None and len(node.sub_steps) == 7
         return node.sub_steps
 
-    def test_sub2_tier_rule_value_check(self):
-        p2 = self._steps()[1].purpose  # sub2 拆解深挖
+    def test_sub2a_tier_rule_value_check(self):
+        p2 = self._steps()[1].purpose  # sub2a 规划拆解
         # A2：值不值得取证判据（外部取证是否改变结论方向）
         assert "值不值得" in p2 or "是否改变「问题是否成立」" in p2
         # A1：light 旧例子「年化量级合理性」移除、换成「有具体公认一次即得」
         assert "（如年化量级合理性判断）" not in p2
         assert "有具体、公认、一次即得" in p2
 
-    def test_sub3_authority_registry_and_targeted_fetch(self):
-        p3 = self._steps()[2].purpose  # sub3 双向取证
+    def test_sub4_authority_registry_and_targeted_fetch(self):
+        p4 = self._steps()[3].purpose  # sub4 双向取证
         # B1：权威源注册表（按 claim 类型定点抓）
-        assert "权威源注册表" in p3
+        assert "权威源注册表" in p4
         # B2：定点抓权威源 + 术语翻译 + 泛搜兜底
-        assert "定点抓" in p3
-        assert "业界术语" in p3
+        assert "定点抓" in p4
+        assert "业界术语" in p4
 
 
 class TestHarnessPromptOptimization:
@@ -454,11 +455,12 @@ class TestHarnessPromptOptimization:
         return node.sub_steps
 
     # ----- P0：short 字段 -----
-    def test_six_steps_short_labels(self):
+    def test_seven_steps_short_labels(self):
         shorts = [s.short for s in self._steps()]
         assert shorts == [
             "逼问定义",
-            "拆解深挖",
+            "规划拆解",
+            "因果链挖掘",
             "双向取证",
             "质检裁决",
             "归一化陈述",
@@ -482,33 +484,33 @@ class TestHarnessPromptOptimization:
         assert "「未提及」" in s[0].gate
         assert "角色类选项" in s[0].purpose
         assert "who_no_repo_fact" in s[0].mech_checks
-        # 子2：反同义反复 + 反稻草人
-        assert "同义反复判 block" in s[1].gate
-        assert "竞争假设非稻草人" in s[1].gate
-        # 子3：可追溯指针 + 反训练记忆冒充
-        assert "可追溯指针" in s[2].gate
-        assert "用训练记忆冒充外部证据 = 编造" in s[2].gate
-        # 子4：三关质检 + 红队触发强制
-        assert "三关质检记录" in s[3].gate
-        assert "只给证据不给结论" in s[3].gate
-        # 子5：裁决传导
-        assert "裁决不传导判 block" in s[4].gate
+        # 子2b：反同义反复 + 反稻草人（原子2 方框一/二/三顺延）
+        assert "同义反复判 block" in s[2].gate
+        assert "竞争假设非稻草人" in s[2].gate
+        # 子4：可追溯指针 + 反训练记忆冒充
+        assert "可追溯指针" in s[3].gate
+        assert "用训练记忆冒充外部证据 = 编造" in s[3].gate
+        # 子5：三关质检 + 红队触发强制
+        assert "三关质检记录" in s[4].gate
+        assert "只给证据不给结论" in s[4].gate
+        # 子6：裁决传导
+        assert "裁决不传导判 block" in s[5].gate
 
     def test_purpose_keywords_regression(self):
         s = self._steps()
-        # 子3（v2.38 子代理化）：禁 tavily/WebSearch/WebFetch + fetch-prompt 骨架 +
+        # 子4（v2.38 子代理化）：禁 tavily/WebSearch/WebFetch + fetch-prompt 骨架 +
         # 反证先/支持后时序披露（证伪优先纪律移入子代理返回契约，禁探查凭证同移）
-        assert "反证先/支持后" in s[2].purpose
-        assert "禁 tavily_search/WebSearch/WebFetch" in s[2].purpose
-        assert "fetch-prompt" in s[2].purpose
-        # 子4：红队触发条件 + redteam-prompt 生成器（纪律 a-d 已机械化进模板）
+        assert "反证先/支持后" in s[3].purpose
+        assert "禁 tavily_search/WebSearch/WebFetch" in s[3].purpose
+        assert "fetch-prompt" in s[3].purpose
+        # 子5：红队触发条件 + redteam-prompt 生成器（纪律 a-d 已机械化进模板）
         for frag in (
             "条件触发对抗复核",
             "只给证据不给结论",
             "redteam-prompt",
             "触发条件写死",
         ):
-            assert frag in s[3].purpose
+            assert frag in s[4].purpose
 
     # ----- P1：render-phase-rules -----
     def test_render_substeps_section(self):
@@ -519,7 +521,7 @@ class TestHarnessPromptOptimization:
         s1 = self._steps()[0]
         assert f"- **子步骤1 = {s1.ref}**：{s1.purpose}" in out
         # gate=None 标自动过
-        assert "**子步骤6 = define-problem**（自动过）" in out
+        assert "**子步骤7 = define-problem**（自动过）" in out
 
     def test_render_phase_rules_replaces_marker(self):
         tpl = (
@@ -555,8 +557,9 @@ class TestSubStepHelpers:
     def test_sub_step_total_no_steps(self):
         assert eng.sub_step_total(eng.get_node("execute", 0)) == 0
         assert eng.sub_step_total(eng.get_node("review", 0)) == 0  # 无编排节点
-        # understand:1 有 6 子步骤（2026-07-26 重设计：验真拆双向取证+质检裁决）
-        assert eng.sub_step_total(eng.get_node("understand", 1)) == 6
+        # understand:1 有 7 子步骤（2026-07-26 重设计：验真拆双向取证+质检裁决；
+        # 2026-08-14 plan-first：子2 一拆二规划+执行）
+        assert eng.sub_step_total(eng.get_node("understand", 1)) == 7
         # understand:2 有 5 子步骤（2026-07-26 goals-and-value-substeps-design）
         assert eng.sub_step_total(eng.get_node("understand", 2)) == 5
         # understand:3/4 各 5 子步骤（2026-07-27 scope / success-criteria designs）
@@ -1069,75 +1072,79 @@ class TestSubagentRetryStats:
 
 
 class TestUnderstand1Orchestration:
-    """understand:1 纯子步骤门控（删过渡 gate_rubric，6 子步骤逐步 STEP_DONE gate）。
+    """understand:1 纯子步骤门控（删过渡 gate_rubric，7 子步骤逐步 STEP_DONE gate）。
 
     2026-07-26 重设计（designs/step3-verify-redesign-design.md）：旧子3「验真」拆为
     子3 双向取证 + 子4 质检裁决（5 步 -> 6 步），原子4/5 顺移为子5/6。
+    2026-08-14 plan-first 拆步：子2 一拆二（子2a 规划拆解 + 子2b 因果链挖掘），
+    全重编号 2..7（6 步 -> 7 步），原子3/4/5/6 顺延为子4/5/6/7。
     """
 
     def test_gate_rubric_none(self):
         # 子阶段级 rubric 删除（被 sub_steps 逐步门控取代，Q4=删）
         assert eng.get_node("understand", 1).gate_rubric is None
 
-    def test_has_6_sub_steps(self):
+    def test_has_7_sub_steps(self):
         node = eng.get_node("understand", 1)
         assert node.sub_steps is not None
-        assert len(node.sub_steps) == 6
+        assert len(node.sub_steps) == 7
 
     def test_sub_steps_kinds(self):
         node = eng.get_node("understand", 1)
         kinds = [s.kind for s in node.sub_steps]
-        assert kinds == ["skill", "skill", "tool", "tool", "skill", "skill"]
+        assert kinds == ["skill", "skill", "skill", "tool", "tool", "skill", "skill"]
 
-    def test_step2_refs_causal_inference(self):
-        # 子步骤2（拆解深挖）invoke causal-inference-root-cause（2026-07-25 设计决议）
+    def test_step2a_step2b_refs_causal_inference(self):
+        # 子步骤2a（规划拆解）/子2b（因果链挖掘）invoke causal-inference-root-cause
         node = eng.get_node("understand", 1)
         assert node.sub_steps[1].ref == "causal-inference-root-cause"
+        assert node.sub_steps[2].ref == "causal-inference-root-cause"
 
     def test_last_step_gate_none_autopass(self):
-        # 子步骤6（读回确认）gate=None 自动过（trace 存在即过，不跑 judge）
+        # 子步骤7（读回确认）gate=None 自动过（trace 存在即过，不跑 judge）
         node = eng.get_node("understand", 1)
-        assert node.sub_steps[5].gate is None
+        assert node.sub_steps[6].gate is None
         # §substep-gate-at-stop：record=True——Stop 门控以新 trace 为唯一完成触发，
         # record=False 的末步永无触发信号、子阶段卡死（3a 潜在洞）
-        assert node.sub_steps[5].record is True
+        assert node.sub_steps[6].record is True
 
     def test_record_steps(self):
-        # 子步骤1-6 全 record=True（子6 记用户确认，作完成触发 + 裁决留痕）
+        # 子步骤1-7 全 record=True（子7 记用户确认，作完成触发 + 裁决留痕）
         node = eng.get_node("understand", 1)
         records = [s.record for s in node.sub_steps]
-        assert records == [True, True, True, True, True, True]
+        assert records == [True, True, True, True, True, True, True]
 
     def test_first_step_no_input(self):
         node = eng.get_node("understand", 1)
         assert node.sub_steps[0].input is None  # 首步无依赖
 
-    def test_step2_input_refs_step1(self):
+    def test_step2a_input_refs_step1(self):
         node = eng.get_node("understand", 1)
         assert node.sub_steps[1].input == "step1.real_problem"
 
-    def test_step3_input_refs_step2(self):
-        # 双向取证针对子2 拆出的原子问题清单
+    def test_step4_input_refs_step2(self):
+        # 双向取证针对子2a 拆出的原子问题清单
         node = eng.get_node("understand", 1)
-        assert node.sub_steps[2].input == "step2.problem_list"
+        assert node.sub_steps[3].input == "step2.problem_list"
 
     def test_input_chain_after_redesign(self):
-        # 2026-07-26 重设计输入链：子4 吃子3 取证记录，
-        # 子5 归一化陈述只吃子4 处置后问题集（v2.8 收窄，原 step2+step4），子6 确认吃子5
+        # 2026-07-26 重设计输入链（plan-first 拆步后子5 质检/子6 归一化/子7 读回）：
+        # 子5 吃子4 取证记录，子6 归一化陈述只吃子5 处置后问题集（v2.8 收窄，
+        # 原 step2+step4），子7 确认吃子6
         node = eng.get_node("understand", 1)
-        assert node.sub_steps[3].input == "step3.traces"
-        assert node.sub_steps[4].input == "step4.disposed_problem_set"
-        assert node.sub_steps[5].input == "step5.statements"
+        assert node.sub_steps[4].input == "step4.traces"
+        assert node.sub_steps[5].input == "step5.disposed_problem_set"
+        assert node.sub_steps[6].input == "step6.statements"
 
-    def test_step3_bidirectional_evidence(self):
-        # 子3 双向取证（v2.38 子代理化，designs/step3-fetch-subagent-design.md）：
+    def test_step4_bidirectional_evidence(self):
+        # 子4 双向取证（v2.38 子代理化，designs/step3-fetch-subagent-design.md）：
         # 外部层卸 fetch-prompt 子代理（蒸馏报告原文收录）+ 内部仓库层主会话自查
         # + 禁 tavily/WebSearch/WebFetch（2026-08-01 用户复核维持禁令）
-        # v2.40 分档（designs/fetch-depth-tiering-design.md）：标称档来自子2
+        # v2.40 分档（designs/fetch-depth-tiering-design.md）：标称档来自子2a
         # atomic_questions——none 禁派发 / 禁降档 / 升档留痕 / [tier=X] 归属标记。
         node = eng.get_node("understand", 1)
-        s3 = node.sub_steps[2]
-        assert s3.kind == "tool"
+        s4 = node.sub_steps[3]
+        assert s4.kind == "tool"
         for needle in (
             "可检验化",
             "五层源",
@@ -1150,9 +1157,9 @@ class TestUnderstand1Orchestration:
             "建议升档 full",
             "none 档原子禁派发",
         ):
-            assert needle in s3.purpose, f"子3 purpose 缺 {needle}"
+            assert needle in s4.purpose, f"子4 purpose 缺 {needle}"
         for needle in (
-            "sub_step==3",
+            "sub_step==4",
             "反证查询（先）→支持证据（后）分段",
             "训练记忆冒充外部证据",
             "蒸馏报告原文收录",
@@ -1160,18 +1167,18 @@ class TestUnderstand1Orchestration:
             "建议升档 full",
             "none 档",
         ):
-            assert needle in s3.gate, f"子3 gate 缺 {needle}"
-        assert "tavily" not in s3.ref
-
-    def test_step4_quality_verdict(self):
-        # 子4 质检裁决：三关质检 + 条件触发红队（独立上下文）+ 四态 verdict（证据不足合法）
-        node = eng.get_node("understand", 1)
-        s4 = node.sub_steps[3]
-        assert s4.kind == "tool"
-        for needle in ("三关质检", "红队", "独立上下文", "四态", "证据不足"):
-            assert needle in s4.purpose, f"子4 purpose 缺 {needle}"
-        for needle in ("sub_step==4", "红队触发条件", "推理链"):
             assert needle in s4.gate, f"子4 gate 缺 {needle}"
+        assert "tavily" not in s4.ref
+
+    def test_step5_quality_verdict(self):
+        # 子5 质检裁决：三关质检 + 条件触发红队（独立上下文）+ 四态 verdict（证据不足合法）
+        node = eng.get_node("understand", 1)
+        s5 = node.sub_steps[4]
+        assert s5.kind == "tool"
+        for needle in ("三关质检", "红队", "独立上下文", "四态", "证据不足"):
+            assert needle in s5.purpose, f"子5 purpose 缺 {needle}"
+        for needle in ("sub_step==5", "红队触发条件", "推理链"):
+            assert needle in s5.gate, f"子5 gate 缺 {needle}"
 
     def test_skill_still_define_problem(self):
         assert eng.get_node("understand", 1).skill == "define-problem"
