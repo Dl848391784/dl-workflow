@@ -10116,3 +10116,34 @@ class TestProblemStatement:
     def test_first_launch_without_statement_still_none(self, tmp_path):
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
         assert eng.handoff_pack(tmp_path, "t") is None
+
+
+class TestListTools:
+    """组件 B：`dl list-tools` 打印当前项目注册的工具清单。
+
+    codebase-archaeology-toolbox-design §3.2：发现层读
+    <项目>/.claude/workflow-tools.yaml；list-tools 需 git repo（反查 project_root）
+    但不需工作流 worktree（dl-cmd.sh 早路由，无 state 依赖）。
+    """
+
+    def test_prints_registered_tools(self, tmp_path, capsys):
+        _init_git(tmp_path)
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".claude" / "workflow-tools.yaml").write_text(
+            "tools:\n"
+            "  - name: inspect-backtest-result\n"
+            "    command: scripts/inspect_backtest_result.py --factor {factor}\n"
+            "    description: 读回测结果元数据\n",
+            encoding="utf-8",
+        )
+        rc = eng.main(["list-tools", "--cwd", str(tmp_path)])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "inspect-backtest-result" in out
+        assert "scripts/inspect_backtest_result.py" in out
+
+    def test_no_tools_prints_notice(self, tmp_path, capsys):
+        _init_git(tmp_path)
+        rc = eng.main(["list-tools", "--cwd", str(tmp_path)])
+        assert rc == 0
+        assert "无注册工具" in capsys.readouterr().out

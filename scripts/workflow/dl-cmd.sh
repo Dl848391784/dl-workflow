@@ -44,6 +44,9 @@ shift || true
 if [ "$SUB" = "codebase" ]; then
   exec python3 "$LIB_DIR/dl_codebase.py" "$@"
 fi
+if [ "$SUB" = "list-tools" ]; then
+  exec python3 "$WF_ENGINE" list-tools --cwd "$(git -C "$(pwd)" rev-parse --show-toplevel 2>/dev/null || pwd)"
+fi
 
 NAME="$(resolve_name || true)"
 if [ -z "$NAME" ]; then

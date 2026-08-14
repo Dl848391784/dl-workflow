@@ -62,6 +62,9 @@ from dl_flow_nodes import (
     subphase_labels,
 )
 
+# 组件 B：项目工具注册发现（list-tools / S15 白名单用；scripts 为命名空间包）。
+from scripts.workflow import project_tools  # noqa: E402
+
 # 子步骤门控连续 block 升级阈值：达到后不再让模型盲目重做，
 # 注入提示请用户裁决（补充信息 / /dl step-pass 强制放行 / /dl back 回退）。
 # rubric 对用户是黑盒，升级出口是「用户裁决」而非「放宽判据」。
@@ -5958,6 +5961,7 @@ def main(argv: list[str] | None = None) -> int:
             "fetch-prompt",
             "render-artifact",
             "render-readback",
+            "list-tools",
         ],
     )
     parser.add_argument(
@@ -6033,6 +6037,17 @@ def main(argv: list[str] | None = None) -> int:
     if project_root is None:
         print("✗ 不在 git 仓库内", file=sys.stderr)
         return 1
+
+    # list-tools（组件 B 发现入口）：只需 project_root，不需工作流 worktree
+    # （dl-cmd.sh 早路由，任意 git repo 内可用）。
+    if args.cmd == "list-tools":
+        tools = project_tools.load_project_tools(project_root)
+        if not tools:
+            print("（本项目无注册工具）")
+        for t in tools:
+            print(f"- {t['name']}: {t['command']} — {t.get('description', '')}")
+        return 0
+
     name = args.name or resolve_workflow_name(cwd)
     if not name:
         print(
