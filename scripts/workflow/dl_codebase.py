@@ -77,7 +77,27 @@ def query_history(target: str, max_count: int) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
-    raise NotImplementedError  # Task 3
+    p = argparse.ArgumentParser(prog="dl codebase", description="通用代码考古工具箱")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    q = sub.add_parser("query", help="查符号/字符串/git 历史")
+    q.add_argument("--symbol", help="符号名（codegraph query/callers/impact）")
+    q.add_argument("--string", help="字符串/正则（grep -rn）")
+    q.add_argument("--history", help="<file>:<line>（git blame + log）")
+    q.add_argument("--type", help="grep --include 类型过滤（py/html/js/ts，仅 --string）")
+    q.add_argument("--max-count", type=int, default=50)
+    args = p.parse_args(argv)
+
+    if args.symbol:
+        out = query_symbol(args.symbol)
+    elif args.string:
+        out = query_string(args.string, args.type, args.max_count)
+    elif args.history:
+        out = query_history(args.history, args.max_count)
+    else:
+        print("✗ 需指定 --symbol / --string / --history 之一", file=sys.stderr)
+        return 2
+    print(json.dumps(out, ensure_ascii=False, indent=2))
+    return 0
 
 
 if __name__ == "__main__":

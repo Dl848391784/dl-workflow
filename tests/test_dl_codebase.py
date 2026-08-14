@@ -4,8 +4,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "workflow"))
 import dl_codebase as cb  # noqa: E402
 
@@ -83,3 +81,16 @@ def test_query_history_bad_target():
     """缺 : 的目标报结构化 error，不抛异常。"""
     out = cb.query_history("noline", 50)
     assert "error" in out
+
+
+def test_main_symbol_json(capsys, monkeypatch):
+    monkeypatch.setattr(cb, "query_symbol", lambda s: {"symbol": s, "definition": {}, "callers": {}, "impact": {}})
+    rc = cb.main(["query", "--symbol", "foo"])
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["symbol"] == "foo"
+
+
+def test_main_no_flag_returns_2(capsys):
+    rc = cb.main(["query"])
+    assert rc == 2

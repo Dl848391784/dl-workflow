@@ -36,6 +36,15 @@ resolve_name() {
   return 1
 }
 
+SUB="${1:-status}"
+shift || true
+
+# 通用工具（不依赖工作流 state）：codebase / list-tools 早路由
+# 必须在 resolve_name 之前（非 worktree 目录 resolve_name 会报错退出）
+if [ "$SUB" = "codebase" ]; then
+  exec python3 "$LIB_DIR/dl_codebase.py" "$@"
+fi
+
 NAME="$(resolve_name || true)"
 if [ -z "$NAME" ]; then
   echo "✗ 当前不在工作流 worktree 内（cwd 不含 .claude/worktrees/<name>）。" >&2
@@ -48,9 +57,6 @@ if [ ! -f "$STATE_FILE" ]; then
   echo "✗ 工作流 '$NAME' 的 state.json 缺失（$STATE_FILE）。" >&2
   exit 1
 fi
-
-SUB="${1:-status}"
-shift || true
 
 cur_phase() { wf_state_get "$NAME" phase; }
 cur_idx()   { wf_state_get "$NAME" index; }
