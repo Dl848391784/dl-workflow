@@ -1730,6 +1730,38 @@ def test_settings_allowlist_covers_segment_dispatch(wf_repo):
     assert data["wf_settings_template_version"] == engine.SETTINGS_TEMPLATE_VERSION
 
 
+def test_settings_allowlist_covers_project_tool_heads(wf_repo):
+    """组件 B：注册项目工具 command 头并入 per-wf settings allowlist
+    （codebase-archaeology-toolbox-design §3.2 action 3 / §4 row 5）——否则前台
+    TUI 段调用缴 auto 权限税。破坏性/解释器头不放行（与 S15 围栏同口径）。"""
+    (wf_repo / ".claude" / "workflow-tools.yaml").write_text(
+        "tools:\n"
+        "  - name: inspect-backtest-result\n"
+        "    command: scripts/inspect_backtest_result.py --factor {factor}\n"
+        "  - name: wipe\n    command: rm -rf /tmp/x\n"
+        "  - name: run-sh\n    command: bash scripts/inspect.py\n",
+        encoding="utf-8",
+    )
+    r = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f"source {DLWF_ROOT}/scripts/workflow/dl-lib.sh && wf_write_settings t",
+        ],
+        cwd=wf_repo,
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0, r.stderr
+    data = json.loads((wf_repo / SEG_META / "settings.json").read_text())
+    allow = data["permissions"]["allow"]
+    # 只读发现类工具头并入
+    assert "Bash(scripts/inspect_backtest_result.py:*)" in allow
+    # 破坏性（rm）/解释器（bash）头不放行（与 S15 围栏同口径）
+    assert "Bash(rm:*)" not in allow
+    assert "Bash(bash:*)" not in allow
+
+
 def test_settings_template_contains_statusline(wf_repo):
     """v4 statusLine 进度栏入 per-wf settings 模板（v4-statusline-progress-design
     §5.2）：命令烧死 --project/--name，refreshInterval=10（空闲也刷新）。"""

@@ -377,6 +377,32 @@ wf_write_settings() {
   }
 }
 JSON
+  # v10：项目工具 command 头并入 allowlist（组件 B，codebase-archaeology-toolbox-design
+  # §3.2 action 3 / §4 row 5）：前台 auto 权限税防重。过滤逻辑单源
+  # scripts/workflow/project_tools.py project_tool_heads()（与 S15 围栏同口径）——
+  # 只放行只读发现类，破坏性/解释器头（git/python3/bash/sed 等）不放行；无工具 = 零改动。
+  # 失败不阻断 settings 生成（工具头只是优化非必要），但留痕（no silent fallback）。
+  if ! python3 - "$dir/settings.json" "$WF_REPO_ROOT" "$WF_LIB_DIR" <<'PY'
+import json, sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[3]).parents[1]))
+from scripts.workflow.project_tools import project_tool_heads
+sf, project_root = sys.argv[1], Path(sys.argv[2])
+heads = sorted(project_tool_heads(project_root))
+if heads:
+    with open(sf, encoding="utf-8") as f:
+        settings = json.load(f)
+    allow = settings["permissions"]["allow"]
+    for h in heads:
+        entry = f"Bash({h}:*)"
+        if entry not in allow:
+            allow.append(entry)
+    with open(sf, "w", encoding="utf-8") as f:
+        json.dump(settings, f, ensure_ascii=False, indent=2)
+PY
+  then
+    echo "⚠ wf_write_settings: 项目工具头并入 allowlist 失败（settings.json 已生成，工具头未并入）" >&2
+  fi
 }
 
 # v2.35 症状 R：per-wf settings 模板版本落后检测（settings resume 不刷新，
