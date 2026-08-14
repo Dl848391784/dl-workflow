@@ -607,6 +607,22 @@ class TestS15ReadonlyDiscovery:
         assert not ok("python3 -c \"open('x','w').write('y')\"")  # 写信号拒
         assert not ok("xxd -r f.md > out")  # -r 反向写但 > 已挡
 
+    def test_single_amp_background_denied(self, wf_repo, monkeypatch, capsys):
+        # 拆段器共享（_s15_bash_readonly_discovery 同用 _split_shell_segments）：
+        # `grep x & rm` 原整段以 grep 头命中放行 + rm 后台跑——单 & 拆段后
+        # 破坏段被拦（审计 Important #2 同根因，只读发现通道同样受影响）。
+        _write_state(wf_repo, sub_step=1)
+        mod = _load_hook()
+        for cmd in (
+            "grep -rn 'x' . & rm -rf /tmp/y",
+            "ls /x & git clean -f",
+        ):
+            decision, reason = _run_hook(
+                mod, wf_repo, monkeypatch, capsys, "Bash", {"command": cmd}
+            )
+            assert decision == "deny", f"{cmd} 应 deny（单& 后台走私）"
+            assert "S15" in reason
+
 
 class TestSkeletonWriteFallback:
     """Q1a：模型 Write/Edit fetch-prompt-skeleton.md -> deny + 副作用 --out 刷新。
@@ -944,3 +960,108 @@ class TestS15ProjectToolAllow:
             )
             assert decision == "deny", f"{cmd} 应 deny"
             assert "S15" in reason
+
+    def test_git_head_not_whitelisted(self, wf_repo, monkeypatch, capsys):
+        # 审计 Critical：注册只读工具 `git log` 头是 git，而头匹配短路在
+        # _S15_GIT_READONLY_RE 之前——git reset --hard / clean -f / push 全过
+        # 围栏。git 进破坏性头黑名单（写能力通用二进制），只读 git log 仍经
+        # _S15_GIT_READONLY_RE 放行（不误伤）。
+        _write_state(wf_repo, sub_step=1)
+        self._register(
+            wf_repo, "tools:\n  - name: glog\n    command: git log --oneline -20\n"
+        )
+        mod = _load_hook()
+        for cmd in (
+            "git reset --hard HEAD~1",
+            "git clean -f",
+            "git push origin main",
+        ):
+            decision, reason = _run_hook(
+                mod, wf_repo, monkeypatch, capsys, "Bash", {"command": cmd}
+            )
+            assert decision == "deny", f"{cmd} 应 deny（git 头不进白名单）"
+            assert "S15" in reason
+        # 只读 git log 仍放行（走 readonly 正则，非工具头）
+        decision, _ = _run_hook(
+            mod,
+            wf_repo,
+            monkeypatch,
+            capsys,
+            "Bash",
+            {"command": "git log --oneline -20"},
+        )
+        assert decision is None
+
+    def test_project_tool_stdout_redirect_denied(self, wf_repo, monkeypatch, capsys):
+        # 审计 Important #1：旧 lookbehind (?<![0-9>])> 豁免任意 fd 前缀——
+        # `1> file` 是完整 stdout→文件写却被放行。只 2>（stderr）豁免。
+        _write_state(wf_repo, sub_step=1)
+        self._register(wf_repo, self._YAML)
+        mod = _load_hook()
+        for cmd in (
+            "scripts/inspect_backtest_result.py --factor x 1> /tmp/out",
+            "scripts/inspect_backtest_result.py --factor x 1>> /tmp/out",
+            "scripts/inspect_backtest_result.py --factor x 3> /tmp/out",
+        ):
+            decision, reason = _run_hook(
+                mod, wf_repo, monkeypatch, capsys, "Bash", {"command": cmd}
+            )
+            assert decision == "deny", f"{cmd} 应 deny（stdout 重定向=写）"
+            assert "S15" in reason
+        # stderr 重定向仍豁免（2>/dev/null 不写文件）
+        decision, _ = _run_hook(
+            mod,
+            wf_repo,
+            monkeypatch,
+            capsys,
+            "Bash",
+            {"command": "scripts/inspect_backtest_result.py --factor x 2>/dev/null"},
+        )
+        assert decision is None
+
+    def test_project_tool_single_amp_background_denied(
+        self, wf_repo, monkeypatch, capsys
+    ):
+        # 审计 Important #2：拆段器不拆单 &，`tool & rm -rf /` 一整段、头匹配
+        # 放行 + rm 后台跑。单 & 是命令分隔符，须拆段后每段校验。
+        _write_state(wf_repo, sub_step=1)
+        self._register(wf_repo, self._YAML)
+        mod = _load_hook()
+        for cmd in (
+            "scripts/inspect_backtest_result.py --factor x & rm -rf /tmp/x",
+            "scripts/inspect_backtest_result.py --factor x & git reset --hard",
+        ):
+            decision, reason = _run_hook(
+                mod, wf_repo, monkeypatch, capsys, "Bash", {"command": cmd}
+            )
+            assert decision == "deny", f"{cmd} 应 deny（单& 拆段后破坏段被拦）"
+            assert "S15" in reason
+
+
+class TestS15ProjectToolBypassVectors:
+    """审计三向量的单元级 matcher 测试（拆段器 / 重定向豁免）。
+
+    task-6 安全审查三个绕过向量的机械层验证：git 头、1> 重定向、单 & 后台。
+    直接打 matcher，不经 hook 全链路，便于精确定位。
+    """
+
+    def test_splitter_single_amp(self):
+        mod = _load_hook()
+        split = mod._split_shell_segments
+        assert split("a && b") == ["a ", " b"]  # && 仍是单段分隔（不误伤）
+        assert split("a & b") == ["a ", " b"]  # 单 & 拆段
+        assert split("a & rm -rf /") == ["a ", " rm -rf /"]
+        assert split("echo 'a&b' & echo c") == ["echo 'a&b' ", " echo c"]  # 引号保护
+        assert split("git log --oneline & grep x") == ["git log --oneline ", " grep x"]
+
+    def test_redirect_helper_only_2_exempt(self):
+        mod = _load_hook()
+        h = mod._has_write_redirect
+        assert not h("cmd 2>/dev/null")  # stderr 豁免
+        assert not h("cmd 2>>err.log")  # stderr append 豁免
+        assert not h("cmd 2>&1")  # stderr→stdout 不写文件，豁免
+        assert h("cmd 1> out")  # stdout→文件 = 写信号
+        assert h("cmd 1>> out")
+        assert h("cmd > out")
+        assert h("cmd >> out")
+        assert h("cmd 3> out")  # 任意非 2 fd 写重定向 = 写信号

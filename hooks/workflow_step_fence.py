@@ -205,6 +205,12 @@ _PROJECT_TOOL_DESTRUCTIVE_HEAD_RE = re.compile(
     r"^(?:rm|dd|sudo|mv|touch|mkdir|rmdir|chmod|chown|ln|truncate|"
     r"mount|umount|mkfs|shutdown|reboot|kill|pkill|killall|tee|"
     r"curl|wget|ssh|scp|rsync|"
+    # 写能力通用二进制（审计 Critical）：注册只读工具如 `git log` 头是 git，
+    # 而头匹配短路在 _S15_GIT_READONLY_RE 之前——git reset --hard / clean -f /
+    # push 全过围栏。git/sed/cp/tar 等可写/动作二进制一律不进「工具头」白名单；
+    # 只读形态（git log/sed 打印/…）仍经 _S15_READONLY_CMD_RE /
+    # _S15_GIT_READONLY_RE 放行，不误伤。
+    r"git|sed|cp|install|tar|zip|"
     # 通用解释器头：注册「python3 脚本」会把任意 python3 命令放进白名单
     # （含 -c 内联写），白名单降级为全放行——工具头须是项目脚本路径。
     r"python3?|bash|sh|zsh|fish|node|perl|ruby|php|lua|env|timeout|nohup|docker)\b"
@@ -239,7 +245,7 @@ def _s15_project_tool_command(cmd: str, project_root: Path) -> bool:
     outside = _outside_quotes(cmd)
     if re.search(r"`|\$\(|\bxargs\b|\btee\b", outside):
         return False
-    if re.search(r"(?<![0-9>])>", outside):  # 输出重定向（2>/dev/null 豁免）
+    if _has_write_redirect(outside):  # 输出重定向（仅 2> 系 stderr 豁免）
         return False
     for seg in _split_shell_segments(cmd):
         seg = seg.strip()
@@ -277,6 +283,17 @@ def _outside_quotes(cmd: str) -> str:
     return "".join(out)
 
 
+def _has_write_redirect(outside: str) -> bool:
+    """引号外含输出重定向写信号？（仅 2> 系 stderr 重定向豁免）。
+
+    审计 Important #1：旧 lookbehind `(?<![0-9>])>` 把任意 fd 前缀豁免
+    （1>/3>/…）——`1> file` 是完整 stdout→文件写却放行。正治：先剥 2 系
+    stderr 重定向（2>>/2>&N/2>，不写文件），剩余任何 > 均视为写信号。
+    """
+    stripped = re.sub(r"2>>|2>&\d+|2>", "", outside)
+    return ">" in stripped
+
+
 def _split_shell_segments(cmd: str) -> list[str]:
     """按引号外 shell 分隔符拆段（保护引号内的 ;|& --python3 -c 代码）。
 
@@ -303,6 +320,11 @@ def _split_shell_segments(cmd: str) -> list[str]:
             segs.append("".join(cur))
             cur = []
             i += 1
+        elif c == "&":  # 单 &（后台符）也是命令分隔符（审计 Important #2）
+            # 旧版不拆单 &：`tool & rm -rf /` 一整段 -> 头匹配放行 + rm 后台跑。
+            # && 已在上方整对消费（i+1 跳两格），此处只落到「后一位非 &」的单 &。
+            segs.append("".join(cur))
+            cur = []
         elif c in ("|", ";", "\n"):
             segs.append("".join(cur))
             cur = []
@@ -323,7 +345,7 @@ def _s15_bash_readonly_discovery(cmd: str) -> bool:
     outside = _outside_quotes(cmd)
     if re.search(r"`|\$\(|\bxargs\b|\btee\b", outside):
         return False
-    if re.search(r"(?<![0-9>])>", outside):  # 输出重定向（2>/dev/null 豁免）
+    if _has_write_redirect(outside):  # 输出重定向（仅 2> 系 stderr 豁免）
         return False
     for seg in _split_shell_segments(cmd):
         seg = seg.strip()
@@ -411,7 +433,7 @@ def _s15_fetch_curl(cmd: str) -> bool:
     outside = _outside_quotes(cmd)
     if re.search(r"`|\$\(|\bxargs\b|\btee\b", outside):
         return False
-    if re.search(r"(?<![0-9>])>", outside):  # 输出重定向（2>/dev/null 豁免）
+    if _has_write_redirect(outside):  # 输出重定向（仅 2> 系 stderr 豁免）
         return False
     saw_curl = False
     for seg in _split_shell_segments(cmd):
