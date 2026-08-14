@@ -486,7 +486,7 @@ def test_tui_rules_carry_opening_discipline(wf_repo):
         encoding="utf-8"
     )
     assert "TUI 交互段开场纪律" in tui_rules
-    assert "TaskCreate 一条消息批量建齐以下 19 项" in tui_rules  # 13+当前节点 6 子步骤
+    assert "TaskCreate 一条消息批量建齐以下 20 项" in tui_rules  # 13+当前节点 7 子步骤
     assert "## PHASE: 理解和求证问题 [1/5]" in tui_rules
     assert "禁闷头连翻十几轮仓库零提问" in tui_rules
     assert "## 本节点子步骤清单" in tui_rules  # node-rules 本体仍在
@@ -512,7 +512,7 @@ def test_tui_rules_tasklist_same_source_as_driver(wf_repo):
         encoding="utf-8"
     )
     rows = engine.progress_rows(state)
-    assert len(rows) == 19  # 13（5 阶段+u4 子+plan4 子）+ understand:1 展开 6 子步骤
+    assert len(rows) == 20  # 13（5 阶段+u4 子+plan4 子）+ understand:1 展开 7 子步骤
     status_map = {"done": "completed", "current": "in_progress", "todo": "pending"}
     for r in rows:
         assert f'"{r["label"]}"（{status_map[r["status"]]}）' in text
@@ -521,7 +521,7 @@ def test_tui_rules_tasklist_same_source_as_driver(wf_repo):
     assert '"2. 生成执行计划"（pending）' in text
     # 子步骤维度：当前步 in_progress、后续步 pending（与 driver 进度区同粒度）
     assert '"1 逼问定义"（in_progress）' in text
-    assert '"2 拆解深挖"（pending）' in text
+    assert '"2 规划拆解"（pending）' in text
 
 
 def test_interactive_prompt_tasklist_clause(wf_repo):
@@ -996,18 +996,18 @@ def test_step_prompt_prep_variant(wf_repo):
 
 
 def test_segment_runs_headless_steps_then_prep_exits_13(wf_repo, monkeypatch):
-    """u:1#2 起跑：子2-5 各一个 headless 会话，子6（读回=交互步）跑 prep 后退出 13。"""
+    """u:1#2 起跑：子2-6 各一个 headless 会话，子7（读回=交互步）跑 prep 后退出 13。"""
     drv = _load(DRIVER, "drv_seg")
     _seg_write_state(wf_repo, sub_step_index=2)
     need_out = 'ok\n### NEED_USER\n```json\n{"questions": [{"question": "q"}]}\n```'
     calls = _run_session_stub(
-        drv, monkeypatch, [(0, "", "s")] * 4 + [(0, need_out, "s")]
+        drv, monkeypatch, [(0, "", "s")] * 5 + [(0, need_out, "s")]
     )
     monkeypatch.setattr(engine, "gate_sub_step_at_stop", _gate_advancing(wf_repo))
     rc = drv.run_segment(wf_repo, "t")
     assert rc == 13
-    # u:1 子2..5 headless + u:2#1 prep（P3-1：子6 读回降确认级，无 prep 段直通）
-    assert len(calls) == 5
+    # u:1 子2..6 headless + u:2#1 prep（P3-1：子7 读回降确认级，无 prep 段直通）
+    assert len(calls) == 6
     st = _read_state(wf_repo)
     assert st["node"] == "understand:2" and st["sub_step_index"] == 1
 
@@ -1339,7 +1339,7 @@ def test_phase_capture_v2_mode_keeps_work_here(wf_repo):
     """v2 模式（无 front_mode）：捕获照做但路由不变——step1 仍前台干（无段概念）。"""
     text = _phase_injection_prompt(wf_repo, "我的问题是X123")
     assert _read_state(wf_repo)["problem_statement"] == "我的问题是X123"
-    assert "当前子步骤 1/6" in text
+    assert "当前子步骤 1/7" in text
     assert "活归后台工人" not in text
 
 
@@ -1423,7 +1423,7 @@ def test_phase_front_dispatch_block_on_noninteractive_step(wf_repo):
 def test_phase_front_no_dispatch_on_interactive_step(wf_repo):
     text = _phase_injection(wf_repo, front_mode=True, sub_step_index=1)  # u:1#1 交互
     assert "活归后台工人" not in text
-    assert "当前子步骤 1/6" in text  # v2 干活块照常
+    assert "当前子步骤 1/7" in text  # v2 干活块照常
 
 
 def test_phase_front_segment_alive_announces_no_dispatch(wf_repo):
@@ -1955,11 +1955,11 @@ def test_confirm_artifact_mapping():
 
 def test_write_confirm_trace_shape(wf_repo):
     node = engine.get_node("understand", 1)
-    engine.write_confirm_trace(wf_repo, "t", node, 6)
+    engine.write_confirm_trace(wf_repo, "t", node, 7)
     recs = _read_evidence_recs(wf_repo)
     assert len(recs) == 1
     r = recs[0]
-    assert r["kind"] == "skill-trace" and r["sub_step"] == 6
+    assert r["kind"] == "skill-trace" and r["sub_step"] == 7
     assert r["minor_stage"] == node.minor_key
     # user_decision_recorded 同形：q 含「读回」+ a ≥50 字（交接后可还原拍板语义）
     assert "读回" in r["q"][0] and len(r["a"][0]) >= 50
@@ -1967,10 +1967,10 @@ def test_write_confirm_trace_shape(wf_repo):
 
 
 def test_segment_confirm_readback_no_session(wf_repo, monkeypatch):
-    """确认级读回（u:1#6）：不起任何模型段——机械展示+落 trace+推进，
+    """确认级读回（u:1#7）：不起任何模型段——机械展示+落 trace+推进，
     直通 u:2#1（decision 级）prep 退 13。"""
     drv = _load(DRIVER, "drv_seg")
-    _seg_write_state(wf_repo, sub_step_index=6)
+    _seg_write_state(wf_repo, sub_step_index=7)
     rb_calls = []
 
     def fake_rb(project_root, name):
@@ -1990,7 +1990,7 @@ def test_segment_confirm_readback_no_session(wf_repo, monkeypatch):
     assert len(calls) == 1  # 只有 u:2#1 的 prep 段——读回步零会话
     recs = _read_evidence_recs(wf_repo)
     assert any(
-        r.get("skill") == "confirm-readback" and r.get("sub_step") == 6 for r in recs
+        r.get("skill") == "confirm-readback" and r.get("sub_step") == 7 for r in recs
     )
 
 

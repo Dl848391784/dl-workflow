@@ -363,9 +363,9 @@ class TestS15EngagePreFence:
         )
         assert decision == "deny"
 
-    def test_step3_fence_allow_bash_agent(self, wf_repo, monkeypatch, capsys):
-        # v2.38：子3 fence_allow=("Bash","Agent")——内部仓库层 Bash + 取证子代理放行
-        _write_state(wf_repo, sub_step=3)
+    def test_step4_fence_allow_bash_agent(self, wf_repo, monkeypatch, capsys):
+        # v2.38：子4（双向取证）fence_allow=("Bash","Agent")——内部仓库层 Bash + 取证子代理放行
+        _write_state(wf_repo, sub_step=4)
         mod = _load_hook()
         decision, _ = _run_hook(
             mod,
@@ -396,11 +396,11 @@ class TestS15EngagePreFence:
             "TaskOutput",
             {"task_id": "call_x"},
         )
-        assert decision is None, "子3 TaskOutput 应放行（等后台 agent 结果）"
+        assert decision is None, "子4 TaskOutput 应放行（等后台 agent 结果）"
 
-    def test_step3_taskoutput_allowed(self, wf_repo, monkeypatch, capsys):
-        # 显式：子3 零 trace 窗口内 TaskOutput 放行（与 Agent 配套）
-        _write_state(wf_repo, sub_step=3)
+    def test_step4_taskoutput_allowed(self, wf_repo, monkeypatch, capsys):
+        # 显式：子4（双向取证）零 trace 窗口内 TaskOutput 放行（与 Agent 配套）
+        _write_state(wf_repo, sub_step=4)
         mod = _load_hook()
         decision, _ = _run_hook(
             mod,
@@ -412,9 +412,9 @@ class TestS15EngagePreFence:
         )
         assert decision is None
 
-    def test_step4_taskoutput_allowed(self, wf_repo, monkeypatch, capsys):
-        # 子4 红队 Agent 同样需要 TaskOutput 等结果
-        _write_state(wf_repo, sub_step=4)
+    def test_step5_taskoutput_allowed(self, wf_repo, monkeypatch, capsys):
+        # 子5（质检裁决）红队 Agent 同样需要 TaskOutput 等结果
+        _write_state(wf_repo, sub_step=5)
         mod = _load_hook()
         decision, _ = _run_hook(
             mod,
@@ -440,9 +440,9 @@ class TestS15EngagePreFence:
         )
         assert decision == "deny"
 
-    def test_step3_webfetch_denied(self, wf_repo, monkeypatch, capsys):
-        # v2.38：WebFetch 环境性弃用（域验证全挂）移出子3 fence_allow，窗口内拦
-        _write_state(wf_repo, sub_step=3)
+    def test_step4_webfetch_denied(self, wf_repo, monkeypatch, capsys):
+        # v2.38：WebFetch 环境性弃用（域验证全挂）移出子4（双向取证）fence_allow，窗口内拦
+        _write_state(wf_repo, sub_step=4)
         mod = _load_hook()
         decision, _ = _run_hook(
             mod,
@@ -454,8 +454,8 @@ class TestS15EngagePreFence:
         )
         assert decision == "deny"
 
-    def test_step4_agent_allowed(self, wf_repo, monkeypatch, capsys):
-        _write_state(wf_repo, sub_step=4)
+    def test_step5_agent_allowed(self, wf_repo, monkeypatch, capsys):
+        _write_state(wf_repo, sub_step=5)
         mod = _load_hook()
         decision, _ = _run_hook(
             mod, wf_repo, monkeypatch, capsys, "Agent", {"prompt": "红队"}
@@ -1081,18 +1081,18 @@ def test_deny_readonly_narrows_grep():
     assert ok("git log --oneline", deny_readonly=deny)
 
 
-def test_understand1_sub2_deny_readonly():
-    """understand:1 子2 声明 deny_readonly=("grep","rg")。"""
+def test_understand1_sub3_deny_readonly():
+    """understand:1 子3（因果链挖掘，plan-first 拆步前旧子2）声明 deny_readonly=("grep","rg")。"""
     import dl_flow_engine as eng
 
     node = eng.get_node("understand", 1)
-    step = node.sub_steps[1]  # 子2 = causal-inference-root-cause
+    step = node.sub_steps[2]  # 子3 = causal-inference-root-cause
     assert step.deny_readonly == ("grep", "rg")
 
 
-def test_drive_mode_denies_grep_sub2(wf_repo, monkeypatch, capsys):
-    """drive_mode 段工人：子2 的 deny_readonly 独立生效（S15 跳过不豁免 grep）。"""
-    _write_state(wf_repo, sub_step=2)
+def test_drive_mode_denies_grep_sub3(wf_repo, monkeypatch, capsys):
+    """drive_mode 段工人：子3（因果链挖掘）的 deny_readonly 独立生效（S15 跳过不豁免 grep）。"""
+    _write_state(wf_repo, sub_step=3)
     sp = wf_repo / ".claude" / "workflows" / "t" / "state.json"
     s = json.loads(sp.read_text(encoding="utf-8"))
     s["drive_mode"] = True
@@ -1124,8 +1124,8 @@ def test_drive_mode_denies_grep_sub2(wf_repo, monkeypatch, capsys):
 
 
 def test_drive_mode_grep_allowed_other_substep(wf_repo, monkeypatch, capsys):
-    """非子2（如子3）无 deny_readonly，drive_mode 段工人 grep 放行。"""
-    _write_state(wf_repo, sub_step=3)
+    """非子3（如子4）无 deny_readonly，drive_mode 段工人 grep 放行。"""
+    _write_state(wf_repo, sub_step=4)
     sp = wf_repo / ".claude" / "workflows" / "t" / "state.json"
     s = json.loads(sp.read_text(encoding="utf-8"))
     s["drive_mode"] = True
