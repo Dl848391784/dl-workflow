@@ -1219,9 +1219,9 @@ class TestUnderstand2Orchestration:
         assert eng.get_node("understand", 1).hold_for_gate is False
 
     def test_problem_context_last_step_advances_without_hold(self, tmp_path):
-        # 2026-07-27 决议：ProblemContext 末步（子6）过后**不扣留**，直接推进 understand:2
-        _write_state_full(tmp_path, "t", "understand", 1, sub_step=6)
-        _write_evidence(tmp_path, "t", [_trace_line(6)])
+        # 2026-07-27 决议：ProblemContext 末步（子7）过后**不扣留**，直接推进 understand:2
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=7)
+        _write_evidence(tmp_path, "t", [_trace_line(7)])
         action, _, _ = eng.gate_sub_step_at_stop(tmp_path, "t", str(tmp_path))
         assert action == "advanced"
         st = eng.load_state(tmp_path, "t")
@@ -1239,7 +1239,7 @@ class TestUnderstand2Orchestration:
 
     def test_input_chain(self):
         steps = self._steps()
-        assert steps[0].input == "ProblemContext.step5.statements"  # 跨节点吃子1 输出
+        assert steps[0].input == "ProblemContext.step6.statements"  # 跨节点吃子1 输出
         assert steps[1].input == "step1.goal_candidates"
         assert steps[2].input == "step2.aligned_goals"
         assert steps[3].input == "step3.valued_goals"
@@ -1498,18 +1498,18 @@ class TestRubricNeedsEvidence:
 
 
 class TestStepNeedsEvidenceForU1:
-    """understand:1 子步骤1-5 gate 含 evidence/ -> step_needs_evidence=True；子6 gate=None -> False。"""
+    """understand:1 子步骤1-6 gate 含 evidence/ -> step_needs_evidence=True；子7 gate=None -> False。"""
 
     def test_record_steps_need_evidence(self):
         node = eng.get_node("understand", 1)
-        # 子1/2/3/4/5 gate 含 "evidence/" -> True
-        for i in range(5):
+        # 子1/2a/2b/4/5/6 gate 含 "evidence/" -> True
+        for i in range(6):
             assert eng.step_needs_evidence(node.sub_steps[i]) is True
 
     def test_last_step_no_evidence(self):
         node = eng.get_node("understand", 1)
-        # 子6 gate=None -> False
-        assert eng.step_needs_evidence(node.sub_steps[5]) is False
+        # 子7 gate=None -> False
+        assert eng.step_needs_evidence(node.sub_steps[6]) is False
 
 
 # ---------- §step-advance-on-submit：sub_step_has_trace + gate_and_advance_sub_step ----------
@@ -2984,7 +2984,7 @@ class TestStateReset:
 
     def test_reset_rejects_out_of_range(self, tmp_path):
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
-        for bad in ("0", "7"):
+        for bad in ("0", "8"):
             ok, msg = eng.reset_state(tmp_path, "t", bad)
             assert ok is False
             assert "越界" in msg
@@ -3989,18 +3989,18 @@ class TestEngagementFenceState:
         assert step.ref == "define-problem"
         assert step.fence_allow == ()
 
-    def test_step3_declares_bash_agent(self, tmp_path):
-        # v2.38：子3 fence_allow=("Bash","Agent")——内部仓库层 + 取证子代理；
+    def test_step4_declares_bash_agent(self, tmp_path):
+        # v2.38：子4 fence_allow=("Bash","Agent")——内部仓库层 + 取证子代理；
         # WebFetch 环境性弃用移出声明
-        _write_state_full(tmp_path, "t", "understand", 1, sub_step=3)
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=4)
         got = eng.engagement_fence_state(tmp_path, "t")
         assert got is not None
         n, step = got
-        assert n == 3
+        assert n == 4
         assert step.fence_allow == ("Bash", "Agent", "TaskOutput")
 
-    def test_step4_declares_agent(self, tmp_path):
-        _write_state_full(tmp_path, "t", "understand", 1, sub_step=4)
+    def test_step5_declares_agent(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=5)
         got = eng.engagement_fence_state(tmp_path, "t")
         assert got is not None
         assert got[1].fence_allow == ("Agent", "TaskOutput")
@@ -4028,22 +4028,22 @@ class TestEngagementFenceNotice:
         assert "前置参与围栏" in notice
         assert "额外放行" not in notice  # 子1 fence_allow=() -> 无豁免行
 
-    def test_step4_notice_declares_agent(self):
-        step = eng.sub_step_at(eng.get_node("understand", 1), 4)
+    def test_step5_notice_declares_agent(self):
+        step = eng.sub_step_at(eng.get_node("understand", 1), 5)
         notice = eng.engagement_fence_notice(step)
         assert "额外放行：Agent" in notice
 
-    def test_step3_notice_declares_bash_agent(self):
-        step = eng.sub_step_at(eng.get_node("understand", 1), 3)
+    def test_step4_notice_declares_bash_agent(self):
+        step = eng.sub_step_at(eng.get_node("understand", 1), 4)
         notice = eng.engagement_fence_notice(step)
         assert "额外放行：Bash / Agent" in notice
 
-    def test_step4_purpose_guides_redteam_prompt_tools(self):
+    def test_step5_purpose_guides_redteam_prompt_tools(self):
         # v2.14：红队纪律 a-d 从 purpose 机械化进 redteam_prompt() 模板
         # （demo 121320fe 子代理 104 报错根因链：Glob 不存在(11) + Bash 空拒(21)
         # + 盲猜路径(61 Read 全空)——现场拼 prompt 的事故类，脚本组 prompt 根治）。
         # purpose 只留触发条件 + 调用方式（判断归模型，prompt 内容归脚本）。
-        step = eng.sub_step_at(eng.get_node("understand", 1), 4)
+        step = eng.sub_step_at(eng.get_node("understand", 1), 5)
         assert "redteam-prompt" in step.purpose  # 生成器调用
         assert "禁止手拼" in step.purpose
         assert "只给证据不给结论" in step.purpose  # 独立上下文契约（gate 判）
@@ -4053,14 +4053,14 @@ class TestEngagementFenceNotice:
         assert "逐项可验证" in step.purpose
         assert "汇总声明不算记录" in step.purpose
 
-    def test_step4_redteam_disambiguation_nailed(self):
+    def test_step5_redteam_disambiguation_nailed(self):
         # v2.36（2026-08-01 tail_volume_acceleration_annualized 子4 三连 block
         # 复盘，§3.5 #4/#12 裁量点双侧钉死）：judge 把「只给证据不给结论」
         # 裁量到红队**输出**方向，与 redteam_prompt 纪律 4（输出必含四态
         # verdict）自相矛盾——照模板执行必被 block，判据无通过路径。
         # 钉死：输入方向约束（机械保证不重复判）+ 输出含 verdict 合规 +
-        # 红队输出须原文收录进子4 trace（提及/转述不算记录）。
-        step = eng.sub_step_at(eng.get_node("understand", 1), 4)
+        # 红队输出须原文收录进子5 trace（提及/转述不算记录）。
+        step = eng.sub_step_at(eng.get_node("understand", 1), 5)
         assert "红队**输入**" in step.purpose
         assert "属合规非违规" in step.purpose
         assert "原文收录" in step.purpose
@@ -4069,7 +4069,7 @@ class TestEngagementFenceNotice:
         assert "不重复判" in step.gate
         assert "未原文收录其输出判 block" in step.gate
 
-    def test_step2_causal_chain_evidence_rule_nailed(self):
+    def test_step2b_causal_chain_evidence_rule_nailed(self):
         # v2.36（2026-08-01 tail_volume_acceleration_annualized 子2 两连 block
         # 复盘，§3.5 #9 第三形态=操作化分歧）：模型主链每环标【evidence：未实测】
         # 并答自查「是」——把取证状态标注当合法出处；且被 engage 围栏 deny 一次
@@ -4082,7 +4082,8 @@ class TestEngagementFenceNotice:
         # 方框一（编造/虚构指针）+ 合法正例（原话=合法环指针）+ 方框三
         # （稻草人）；「未实测不算出处」由 causal_ring_no_untested 机械层
         # 当场拒（比 judge 裁量更硬）。
-        step = eng.sub_step_at(eng.get_node("understand", 1), 2)
+        # plan-first 拆步（2026-08-14）：因果链证据规则随挖链归子2b（原子2 方框一/二/三）。
+        step = eng.sub_step_at(eng.get_node("understand", 1), 3)
         for frag in ("实际证据指针", "不算证据出处", "竞争假设"):
             assert frag in step.purpose, f"purpose 缺「{frag}」（模型侧未钉死）"
             assert frag in step.selfcheck
@@ -4791,16 +4792,16 @@ class TestReadEvidenceForStep:
 
 
 class TestStep3FalsificationOrderDisclosure:
-    """子3 purpose 披露反证时序留痕形式要件（2026-07-26，demo fbdb6ebd 子3 实录：
+    """子4 purpose 披露反证时序留痕形式要件（2026-07-26，demo fbdb6ebd 子3 实录：
     模型执行了反证但留痕看不出先后被判 block；形式要件进 purpose 降形式性返工，
-    §3.5 #2——质量判据仍只在 gate 黑盒）。"""
+    §3.5 #2——质量判据仍只在 gate 黑盒）。plan-first 拆步后旧子3 顺延为子4。"""
 
-    def test_step3_purpose_discloses_order_requirement(self):
+    def test_step4_purpose_discloses_order_requirement(self):
         # v2.38：时序要求经子代理返回契约结构保证，purpose 披露该机制
         node = eng.get_node("understand", 1)
-        step3 = eng.sub_step_at(node, 3)
-        assert "反证先/支持后" in step3.purpose
-        assert "时序" in step3.purpose
+        step4 = eng.sub_step_at(node, 4)
+        assert "反证先/支持后" in step4.purpose
+        assert "时序" in step4.purpose
 
 
 class TestStepSelfcheck:
@@ -5101,21 +5102,22 @@ class TestStatementsRecordFormat:
 
     def test_three_normalization_steps_declare_statements(self):
         for phase, sub, step_no in (
-            ("understand", 1, 5),
+            ("understand", 1, 6),
             ("understand", 2, 4),
             ("understand", 3, 4),
             ("understand", 4, 4),
         ):
             stp = eng.get_node(phase, sub).sub_steps[step_no - 1]
             assert stp.record_format == "statements", f"{phase}:{sub} 子{step_no}"
-        # v2.36：understand:1 子5 是 v2.33 迁移漏网（当时只迁 plan 三步，
-        # 而 understand:2/3/4 在 v2.27 已迁）——qa 格式导致方案名词机械扫描
-        # 空转（tail_volume_acceleration_annualized 子5 实测：陈述1/2 含
-        # _section_backtest.html/layered_backtest.py 连通过轮都未被拦）。
-        st5 = eng.get_node("understand", 1).sub_steps[4]
-        assert st5.statement_fields == ("confidence",)
-        assert "机械扫描" in st5.purpose
-        assert "未挪 boundary" in st5.gate
+        # v2.36：understand:1 子6（旧子5，plan-first 拆步后顺延）是 v2.33
+        # 迁移漏网（当时只迁 plan 三步，而 understand:2/3/4 在 v2.27 已迁）——
+        # qa 格式导致方案名词机械扫描空转（tail_volume_acceleration_annualized
+        # 子5 实测：陈述1/2 含 _section_backtest.html/layered_backtest.py 连过
+        # 通过轮都未被拦）。
+        st6 = eng.get_node("understand", 1).sub_steps[5]
+        assert st6.statement_fields == ("confidence",)
+        assert "机械扫描" in st6.purpose
+        assert "未挪 boundary" in st6.gate
 
     def test_statements_happy_path(self, tmp_path):
         payload = self._setup_sc4(tmp_path)
@@ -5533,7 +5535,7 @@ class TestHypothesisExcludeNoAbsence:
         assert "hypothesis_exclude_no_absence" in eng._MECH_QA_CHECKS, (
             "hypothesis_exclude_no_absence 未注册 _MECH_QA_CHECKS（engine/nodes 漂移）"
         )
-        step = eng.get_node("understand", 1).sub_steps[1]
+        step = eng.get_node("understand", 1).sub_steps[2]
         assert "hypothesis_exclude_no_absence" in step.mech_checks
 
     def test_absence_assertion_blocked(self):
@@ -5901,7 +5903,8 @@ class TestAppendTrace:
     """v2.14 append-trace（「AI 定写什么，脚本定怎么写」A 级）：
     载荷 purpose/q/a + state 结构字段 -> 校验 -> 单行 append。fail loud 即时暴露。"""
 
-    def _setup(self, tmp_path, sub_step=4):
+    def _setup(self, tmp_path, sub_step=5):
+        # plan-first 拆步后质检裁决顺延为子5（plain qa 可过的步作通用测试底）
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=sub_step)
         payload = tmp_path / "payload.json"
         return payload
@@ -5914,7 +5917,7 @@ class TestAppendTrace:
         self._write_payload(
             payload,
             {
-                "purpose": "双向取证",
+                "purpose": "质检裁决",
                 "qa": [{"q": "q1", "a": "a1"}, {"q": "q2", "a": "a2"}],
             },
         )
@@ -5929,20 +5932,20 @@ class TestAppendTrace:
         assert rec["kind"] == "skill-trace"
         assert rec["major_stage"] == "Understand"
         assert rec["minor_stage"] == "ProblemContext"
-        assert rec["sub_step"] == 4
+        assert rec["sub_step"] == 5
         node = eng.get_node("understand", 1)
-        assert rec["skill"] == node.sub_steps[3].ref  # 从 state 当前步推导，非模型给
+        assert rec["skill"] == node.sub_steps[4].ref  # 从 state 当前步推导，非模型给
         assert rec["q"] == ["q1", "q2"] and rec["a"] == ["a1", "a2"]
         assert not payload.exists()  # 落库后删载荷防重复 append
 
     def test_gate_sees_appended_trace(self, tmp_path):
         # 与门控集成：append-trace 落库后 latest_trace_sha1 变化（Stop 门控可触发）
         payload = self._setup(tmp_path)
-        assert eng.latest_trace_sha1(tmp_path, "t", 4) is None
+        assert eng.latest_trace_sha1(tmp_path, "t", 5) is None
         self._write_payload(payload, {"purpose": "p", "qa": [{"q": "q", "a": "a"}]})
         ok, _ = eng.append_trace(tmp_path, "t", str(payload))
         assert ok
-        assert eng.latest_trace_sha1(tmp_path, "t", 4) is not None
+        assert eng.latest_trace_sha1(tmp_path, "t", 5) is not None
 
     def test_struct_fields_leak_rejected(self, tmp_path):
         payload = self._setup(tmp_path)
@@ -6046,10 +6049,10 @@ class TestRedteamPrompt:
     """v2.14 redteam-prompt（B 级）：证据+纪律归脚本，Agent 调用归模型。"""
 
     def test_contains_evidence_and_discipline(self, tmp_path):
-        _write_evidence(tmp_path, "t", [_trace_line(3, "ev3")])
+        _write_evidence(tmp_path, "t", [_trace_line(4, "ev4")])
         prompt = eng.redteam_prompt(tmp_path, "t")
         assert prompt is not None
-        assert "q-ev3" in prompt  # 子3 证据嵌入（只给证据不给结论）
+        assert "q-ev4" in prompt  # 子4 证据嵌入（只给证据不给结论）
         assert "单层" in prompt and "禁止再 spawn 子代理" in prompt  # b
         assert "Read 工具为主" in prompt  # c
         assert "证据不足" in prompt  # d
@@ -6073,7 +6076,8 @@ class TestV237FirstPassRate:
 
     def test_replay_u1s2_att1_maybe_magnitude_blocked(self, tmp_path):
         # att1 真实形态：Why4「过滤 NaN 后可能剩 1-5 天」推断量级带 file:line 背书
-        _write_state_full(tmp_path, "t", "understand", 1, sub_step=2)
+        # plan-first 拆步：因果链禁词归子2b（sub_step=3）
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=3)
         qa = [
             {"q": "单一/复合判定", "a": "复合：量级 + 精度两条 pain，MECE 拆为原子A/B"},
             {
@@ -6100,7 +6104,8 @@ class TestV237FirstPassRate:
     def test_chain_detected_by_content_not_title_blocked(self, tmp_path):
         # v2.46：2026-08-02 真实形态——模型用「Q4=…」式标题、链写进 a（Why/→），
         # 旧标题锚定空转禁词漏到 judge。链识别 = 标题或 a 结构标记。
-        _write_state_full(tmp_path, "t", "understand", 1, sub_step=2)
+        # plan-first 拆步：因果链禁词归子2b（sub_step=3）
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=3)
         qa = [
             {
                 "q": "Q0=单一/复合判定？",
@@ -6147,7 +6152,8 @@ class TestV237FirstPassRate:
 
     def test_replay_u1s2_att2_untested_label_blocked(self, tmp_path):
         # att2 真实形态：Why5 贴「未实测/推断」标签当出处
-        _write_state_full(tmp_path, "t", "understand", 1, sub_step=2)
+        # plan-first 拆步：因果链禁词归子2b（sub_step=3）
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=3)
         qa = [
             {
                 "q": "原子 B=展示精度 → 5Whys 因果链（主链每环=file:line）",
