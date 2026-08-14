@@ -24,7 +24,7 @@ def test_query_symbol_shapes(monkeypatch):
 
     monkeypatch.setattr(cb, "_run", fake_run)
     out = cb.query_symbol("convert_return_to_percentage")
-    assert set(out) == {"symbol", "definition", "callers", "impact"}
+    assert set(out) >= {"symbol", "definition", "callers", "impact"}
     assert out["definition"]["ok"][0]["node"]["name"] == "f"
     assert out["callers"]["ok"]["callers"][0]["name"] == "g"
 
@@ -97,3 +97,41 @@ def test_main_symbol_json(capsys, monkeypatch):
 def test_main_no_flag_returns_2(capsys):
     rc = cb.main(["query"])
     assert rc == 2
+
+
+def test_symbol_dedup_returns_cached(monkeypatch, tmp_path):
+    """worktree 内同 symbol 二次查询返回缓存 + source=discovery-ledger，不重跑 codegraph。"""
+    monkeypatch.setattr(cb, "_resolve_ledger_path", lambda: tmp_path / "discoveries.jsonl")
+    calls = {"n": 0}
+
+    def fake_codegraph_json(sub, symbol):
+        calls["n"] += 1
+        return {"ok": [{"node": {"name": "f", "filePath": "a.py", "startLine": 1}}]}
+
+    monkeypatch.setattr(cb, "_codegraph_json", fake_codegraph_json)
+    monkeypatch.setattr(cb, "_current_step", lambda p: "understand:1#2")
+
+    out1 = cb.query_symbol("foo")
+    out2 = cb.query_symbol("foo")
+    assert out1["source"] == "fresh"
+    assert out2["source"] == "discovery-ledger"
+    assert calls["n"] == 3  # query+callers+impact 只跑一次，第二次命中缓存
+    lines = (tmp_path / "discoveries.jsonl").read_text().splitlines()
+    assert len(lines) == 1
+
+
+def test_string_not_recorded(monkeypatch, tmp_path):
+    """--string 不落账。"""
+    monkeypatch.setattr(cb, "_resolve_ledger_path", lambda: tmp_path / "discoveries.jsonl")
+    monkeypatch.setattr(cb, "_run", lambda cmd: subprocess.CompletedProcess(cmd, 0, "a.py:1:x\n", ""))
+    cb.query_string("x", None, 5)
+    assert not (tmp_path / "discoveries.jsonl").exists()
+
+
+def test_corrupt_ledger_silently_degrades(monkeypatch, tmp_path):
+    """台账损坏 → 正常查询，不抛异常，视为无账。"""
+    (tmp_path / "discoveries.jsonl").write_text("{bad json\n", encoding="utf-8")
+    monkeypatch.setattr(cb, "_resolve_ledger_path", lambda: tmp_path / "discoveries.jsonl")
+    monkeypatch.setattr(cb, "_codegraph_json", lambda sub, sym: {"ok": []})
+    out = cb.query_symbol("foo")
+    assert out["source"] == "fresh"

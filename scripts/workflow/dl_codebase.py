@@ -9,6 +9,8 @@ import argparse
 import json
 import subprocess
 import sys
+import time
+from pathlib import Path
 
 
 def _run(cmd: list[str]) -> subprocess.CompletedProcess:
@@ -29,14 +31,82 @@ def _codegraph_json(sub: str, symbol: str) -> dict:
         return {"error": "codegraph 输出非 JSON", "raw": r.stdout[:500]}
 
 
+def _resolve_ledger_path() -> Path | None:
+    """从 cwd 反查发现台账路径；cwd 不在 <project>/.claude/worktrees/<name> 内返回 None。
+
+    worktree 内透明去重，worktree 外保持通用工具原行为。
+    """
+    cwd = Path.cwd()
+    parts = cwd.parts
+    if "worktrees" not in parts:
+        return None
+    idx = parts.index("worktrees")
+    if idx + 1 >= len(parts):
+        return None
+    name = parts[idx + 1]
+    wt_root = Path(*parts[: idx + 2])  # 重建 worktree 根绝对路径
+    project = wt_root.parents[2]
+    return project / ".claude" / "workflows" / name / "discoveries.jsonl"
+
+
+def _load_ledger(path: Path) -> dict:
+    """读台账 → {key: entry}；缺失/损坏返回 {}（宁纵勿枉）。"""
+    if not path.exists():
+        return {}
+    ledger = {}
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            e = json.loads(line)
+            if e.get("key"):
+                ledger[e["key"]] = e
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return ledger
+
+
+def _current_step(path: Path) -> str | None:
+    """从同目录 state.json 读 node#sub_step_index；读不到返回 None。"""
+    state_path = path.parent / "state.json"
+    try:
+        s = json.loads(state_path.read_text(encoding="utf-8"))
+        return f"{s.get('node', '?')}#{s.get('sub_step_index', '?')}"
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _ledger_get(path: Path, key: str) -> dict | None:
+    return _load_ledger(path).get(key)
+
+
+def _ledger_append(path: Path, key: str, kind: str, query: str, result: dict) -> None:
+    entry = {"key": key, "kind": kind, "query": query, "result": result,
+             "step": _current_step(path), "ts": int(time.time())}
+    try:
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError:
+        pass  # 落账失败不阻断取证
+
+
 def query_symbol(symbol: str) -> dict:
     """符号三连：定义(query) + 调用者(callers) + 影响面(impact)。"""
-    return {
+    path = _resolve_ledger_path()
+    if path is not None:
+        cached = _ledger_get(path, f"symbol:{symbol}")
+        if cached is not None:
+            return {**cached["result"], "source": "discovery-ledger"}
+    payload = {
         "symbol": symbol,
         "definition": _codegraph_json("query", symbol),
         "callers": _codegraph_json("callers", symbol),
         "impact": _codegraph_json("impact", symbol),
     }
+    if path is not None:
+        _ledger_append(path, f"symbol:{symbol}", "symbol", symbol, payload)
+    return {**payload, "source": "fresh"}
 
 
 _GREP_EXCLUDES = ["--exclude-dir=.git", "--exclude-dir=.claude", "--exclude-dir=__pycache__", "--exclude-dir=node_modules", "--exclude-dir=.superpowers"]
@@ -66,14 +136,22 @@ def query_history(target: str, max_count: int) -> dict:
     file_path, _, line_str = target.rpartition(":")
     if not file_path or not line_str.isdigit():
         return {"error": f"用法: --history <file>:<line>，收到 {target!r}"}
+    path = _resolve_ledger_path()
+    if path is not None:
+        cached = _ledger_get(path, f"history:{target}")
+        if cached is not None:
+            return {**cached["result"], "source": "discovery-ledger"}
     line = int(line_str)
     blame = _run(["git", "-C", ".", "blame", "-L", f"{line},{line}", "--", file_path])
     log = _run(["git", "-C", ".", "log", "--oneline", "--max-count", str(max_count), "--", file_path])
-    return {
+    payload = {
         "target": target,
         "blame": blame.stdout.strip() if blame.returncode == 0 else f"<blame 失败: {blame.stderr.strip()}>",
         "commits": log.stdout.strip().splitlines() if log.returncode == 0 else [],
     }
+    if path is not None:
+        _ledger_append(path, f"history:{target}", "history", target, payload)
+    return {**payload, "source": "fresh"}
 
 
 def main(argv: list[str] | None = None) -> int:
