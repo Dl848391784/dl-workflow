@@ -1114,7 +1114,7 @@ def test_drive_mode_denies_grep_sub3(wf_repo, monkeypatch, capsys):
         "Bash", {"command": "grep -rn 'x' ."}, session_id="worker",
     )
     assert decision == "deny"
-    assert "dl codebase" in reason
+    assert "dl-cmd.sh codebase" in reason
 
     # rg 同拒
     decision, _ = _run_hook(

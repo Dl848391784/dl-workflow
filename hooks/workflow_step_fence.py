@@ -747,8 +747,11 @@ def main() -> int:
                     f"step={_st.get('sub_step_index')}|denied={denied}",
                 )
                 return _deny(
-                    f"本子步骤禁 raw {denied}：代码搜索走 `dl codebase`"
-                    f"（symbol 关系用 trace，字符串用 --string）。"
+                    f"本子步骤禁 raw {denied}：代码搜索走 "
+                    f"`bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh codebase trace <symbol>` "
+                    f"（symbol 关系）或 "
+                    f"`bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh codebase query --string <pattern>` "
+                    f"（字符串搜索）。"
                 )
         return 0
 
