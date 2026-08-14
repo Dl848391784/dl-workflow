@@ -58,9 +58,12 @@ def test_query_string_parses_grep(monkeypatch):
     assert out["matches"] == [
         {"file": "backtest/common/layered_backtest.py", "line": 624, "text": '    return_col="forward_return_1d",'}
     ]
-    # 关键：必须排除 .git / .claude
+    # 关键：必须排除 .git / .claude / .superpowers
     assert "--exclude-dir=.git" in captured["cmd"]
     assert "--exclude-dir=.claude" in captured["cmd"]
+    assert "--exclude-dir=.superpowers" in captured["cmd"]
+    # -H：单文件 target 时也强制输出 path:line:text（防 line.split 解包 ValueError）
+    assert "-rHn" in captured["cmd"]
 
 
 def test_query_history_parses_blame(monkeypatch):

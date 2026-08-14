@@ -39,13 +39,13 @@ def query_symbol(symbol: str) -> dict:
     }
 
 
-_GREP_EXCLUDES = ["--exclude-dir=.git", "--exclude-dir=.claude", "--exclude-dir=__pycache__", "--exclude-dir=node_modules"]
+_GREP_EXCLUDES = ["--exclude-dir=.git", "--exclude-dir=.claude", "--exclude-dir=__pycache__", "--exclude-dir=node_modules", "--exclude-dir=.superpowers"]
 _TYPE_INCLUDE = {"py": "*.py", "html": "*.html", "js": "*.js", "ts": "*.ts"}
 
 
 def query_string(pattern: str, type_filter: str | None, max_count: int) -> dict:
     """字符串/正则搜索（grep -rn，带排除目录 + 可选 --include）。"""
-    cmd = ["grep", "-rn", *_GREP_EXCLUDES]
+    cmd = ["grep", "-rHn", *_GREP_EXCLUDES]
     if type_filter and type_filter in _TYPE_INCLUDE:
         cmd += ["--include", _TYPE_INCLUDE[type_filter]]
     cmd += ["--max-count", str(max_count), pattern, "."]
