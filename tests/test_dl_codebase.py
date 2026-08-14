@@ -44,3 +44,42 @@ def test_query_symbol_codegraph_missing(monkeypatch):
     assert out["definition"] == expected
     assert out["callers"] == expected
     assert out["impact"] == expected
+
+
+def test_query_string_parses_grep(monkeypatch):
+    """grep -rn 输出解析成 matches:[{file,line,text}]，并带 exclude 参数。"""
+    captured = {}
+
+    def fake_run(cmd):
+        captured["cmd"] = cmd
+        out = "backtest/common/layered_backtest.py:624:    return_col=\"forward_return_1d\",\n"
+        return subprocess.CompletedProcess(cmd, 0, out, "")
+
+    monkeypatch.setattr(cb, "_run", fake_run)
+    out = cb.query_string("forward_return_1d", None, 50)
+    assert out["matches"] == [
+        {"file": "backtest/common/layered_backtest.py", "line": 624, "text": '    return_col="forward_return_1d",'}
+    ]
+    # 关键：必须排除 .git / .claude
+    assert "--exclude-dir=.git" in captured["cmd"]
+    assert "--exclude-dir=.claude" in captured["cmd"]
+
+
+def test_query_history_parses_blame(monkeypatch):
+    """--history <file>:<line> 返回 blame + commits。"""
+    def fake_run(cmd):
+        if cmd[0] == "git" and cmd[1] == "-C" and cmd[3] == "blame":
+            return subprocess.CompletedProcess(cmd, 0, "abc1234 (dev) line content", "")
+        return subprocess.CompletedProcess(cmd, 0, "abc1234 fix\nabc0000 init\n", "")
+
+    monkeypatch.setattr(cb, "_run", fake_run)
+    out = cb.query_history("summary/report/data_loaders.py:120", 50)
+    assert out["target"] == "summary/report/data_loaders.py:120"
+    assert "abc1234" in out["blame"]
+    assert out["commits"] == ["abc1234 fix", "abc0000 init"]
+
+
+def test_query_history_bad_target():
+    """缺 : 的目标报结构化 error，不抛异常。"""
+    out = cb.query_history("noline", 50)
+    assert "error" in out
