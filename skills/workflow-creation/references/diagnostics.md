@@ -414,3 +414,10 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 - **判读**：`segment_summary.json` 记 `code:1 段异常：OSError: [Errno 7]`；前兆 = 首调 fresh 随步数单调涨（P1-2 告警口径）；drive-stream 停在最后成功段、之后无任何 stream 行（段没起来=无输出，与症状 Z「卡死」判读区分：mtime 死 + segment_summary 有异常记录）。
 - **修复**：prompt 走 **stdin**（merge 4f6e716，2026-08-13；实测 stream-json+verbose+大 prompt 正常；TUI 段不动——交互式 claude stdin 语义不同且其 prompt 不含交接包）。pin 测试=200KB 级 prompt 不进 argv。
 - **教训**：轻任务测不出体积型 bug（v3 dogfood 轻内容全程无恙，首个重取证 run 即死）；构造消除 > 监控 > 缩输入（§3.6 #38）。
+
+### 症状 AB：围栏/硬约束加了不生效（段工人照旧绕过）
+
+- **根因**：硬约束落在了对目标会话**不执行**的围栏分支里。fence 的 `main()` 在 **drive_mode**（headless 段工人）下早退 skip S15/S10（只保留 S11 阶段写围栏 + S14 evidence 收编）——S15 的白名单/deny 只对前台 TUI 会话生效。实测：给 understand:1 子2 加 S15 的 `deny_readonly`（禁 grep 逼走 `dl codebase`），段工人（drive_mode）根本不走 S15，照旧 raw grep 22 次，白改一轮。
+- **判读**：改了围栏/加了硬约束，但行为零变化 = 先核「目标会话跑在哪个 mode」。看 `state.json` 的 `drive_mode`/`front_mode` 字段 + 段工人 `session_id != state.session_id`；grep `.wf_fence.log` 有没有对应 deny 行——**没有 deny 行 = 围栏分支根本没执行**（区别于"有 deny 但模型硬闯"）。
+- **修复**：硬约束要落在目标会话**真的执行**的分支。drive_mode 段工人的 readonly 窄化（`deny_readonly`）要在 drive_mode 早退**之前**独立判定（v4 front 段工人分支），不是塞进 S15（`_s15_allowed` 只对 front 会话调用）。
+- **教训**：改围栏/加硬约束前先问「这条约束作用在哪个会话、那个会话走不走这个分支」。放错 mode = 零效果且无报错，只能靠「改了没用」才发现——与症状 O（工具被围栏拒绝）是对偶：O 是"该放的没放"，本条是"该拦的没拦"。
