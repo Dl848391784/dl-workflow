@@ -9916,6 +9916,39 @@ class TestIngestRedteamPreDispatch:
         ok, msg = eng.ingest_redteam_report(tmp_path, "t", timeout=1, interval=0.05)
         assert not ok and "载荷不存在" in msg
 
+    def test_json_wrapped_report_extracted(self, tmp_path):
+        # --output-format json + ANTHROPIC_LOG 污染（rt_smoke 冒烟实测形态）：
+        # 前文 [log_*] 请求转储，末行 result JSON——收录须只取 result 文本
+        raw = (
+            '[log_7484e5] sending request {\n  method: "POST",\n  body: {\n'
+            '    model: "k3",\n  },\n}\n[log_7484e5] post https://… s\n'
+            + json.dumps(
+                {
+                    "type": "result",
+                    "is_error": False,
+                    "result": self._REPORT,
+                    "usage": {"input_tokens": 1},
+                },
+                ensure_ascii=False,
+            )
+        )
+        self._mk(tmp_path, report=raw)
+        ok, msg = eng.ingest_redteam_report(tmp_path, "t", timeout=1, interval=0.05)
+        assert ok, msg
+        text = (tmp_path / ".trace-payload-t.md").read_text(encoding="utf-8")
+        assert "置信度：高" in text
+        assert "[log_7484e5]" not in text
+
+    def test_is_error_report_fallback(self, tmp_path):
+        # result JSON is_error=true → 无产出，指路回退（不拿错误文本当报告收录）
+        raw = json.dumps(
+            {"type": "result", "is_error": True, "result": "provider error"},
+            ensure_ascii=False,
+        )
+        self._mk(tmp_path, report=raw)
+        ok, msg = eng.ingest_redteam_report(tmp_path, "t", timeout=1, interval=0.05)
+        assert not ok and "无产出" in msg and "ingest-agent" in msg
+
 
 class TestRenderReadback:
     """v2.61 render-readback：读回材料机械装配（审计违规③根治）。

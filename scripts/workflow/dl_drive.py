@@ -184,6 +184,8 @@ def _maybe_predispatch_redteam(
     cmd = [
         "claude",
         "-p",
+        "--output-format",
+        "json",
         "--tools",
         "Read",
         "--permission-mode",

@@ -2371,6 +2371,8 @@ class TestRedteamPreDispatch:
         cmd = proc.cmd
         assert cmd[:2] == ["claude", "-p"]
         assert cmd[cmd.index("--tools") + 1] == "Read"
+        # result-JSON 输出（ANTHROPIC_LOG 污染下末行可解析，judge 同款）
+        assert cmd[cmd.index("--output-format") + 1] == "json"
         assert "--session-id" in cmd
         assert proc.kw.get("start_new_session") is True
         # prompt 走 stdin（E2BIG 纪律）；报告落 meta/redteam_report.md

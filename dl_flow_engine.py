@@ -5080,6 +5080,26 @@ def _insert_report_item(
     return True, ""
 
 
+def _extract_predispatch_report(raw: str) -> str:
+    """预派发 worker stdout → 报告文本（judge result-JSON 同款末行提取）。
+
+    claude -p --output-format json：stdout 末行 = {"is_error":...,"result":"..."}
+    （包装器/ANTHROPIC_LOG 调试输出混入前文是生产常态，judge 注释同款）；
+    is_error → ""（调用方按无产出回退）；无 result JSON → 原文返回（宁纵勿枉）。
+    """
+    for line in reversed(raw.splitlines()):
+        line = line.strip()
+        if line.startswith("{") and '"result"' in line:
+            try:
+                ev = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if ev.get("is_error"):
+                return ""
+            return str(ev.get("result", ""))
+    return raw
+
+
 def pid_alive(pid) -> bool:
     """跨进程 pid 活性探测（driver 预派发/ingest 阻塞等待共用，u1-sub5-cost 修3）。
 
@@ -5252,6 +5272,17 @@ def ingest_redteam_report(
                 f"完成后重跑本命令；多次超时则 {_fallback}"
             )
         time.sleep(interval)
+
+    # --output-format json 的 stdout → 报告文本（judge result-JSON 同款提取）：
+    # 末行 {"is_error":...,"result":"..."}（ANTHROPIC_LOG 调试输出会混入前文——
+    # rt_smoke 冒烟实测 report 11.9KB 大头是 [log_*] 请求转储，真实报告在末尾）；
+    # is_error → 无产出回退；找不到 result JSON → 原文兜底（宁纵勿枉）。
+    report = _extract_predispatch_report(report)
+    if not report.strip():
+        return False, (
+            "预派发红队无产出（claude 会话 is_error 或空 result）——"
+            f"{_fallback}（worker stderr 见 {meta / 'cc_sdk.log'}）"
+        )
 
     state = load_state(project_root, name)
     if state is None:
