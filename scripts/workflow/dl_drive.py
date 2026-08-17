@@ -290,6 +290,22 @@ def ensure_node_rules(project_root: Path, name: str, node: "engine.Node") -> Pat
         f"`dl codebase query --symbol/--history` 会自动落账去重到 {ledger}；"
         f"重查同一 symbol/history 返回缓存（source=discovery-ledger），无需手工查账。\n"
     )
+    # u:1 子2b 注入子2a atomic_questions（「查什么」；designs/u1-sub2b-mechanical-
+    # symbol-extraction-design.md v2）。v1 教训：string-files 全量命中注入 350 文件
+    # 噪音（grep 命中面≠取证起点），且逼子2a 重探索（16→61 轮）。v2：只注入
+    # atomic_questions（聚焦计划），不注入 grep 命中面；符号/文件让子2b 按 atomic
+    # 现场用 trace/history 取（结构查询的 file:line 才是真实起点）。
+    if nid == "understand:1":
+        aq = engine._load_atomic_questions(project_root, name)
+        if aq:
+            text += (
+                "\n## 子2a atomic_questions（已自动注入，子2b 必须按此清单执行）\n\n"
+                "以下 JSON 是子2a 最新 trace 的 atomic_questions。子2b 启动时必须按此"
+                "清单逐项挖因果链，不重新拆解问题、不重新定档。按每个原子的问题指向"
+                "用 `dl codebase trace <symbol>` / `dl codebase query --history <file>:<line>`"
+                " 定位因果环，不必再做 broad string search。\n\n"
+                f"```json\n{json.dumps(aq, ensure_ascii=False, indent=2)}\n```\n"
+            )
     if not out.exists() or out.read_text(encoding="utf-8") != text:
         out.write_text(text, encoding="utf-8")
     return out

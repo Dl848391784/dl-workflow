@@ -63,6 +63,13 @@ class Step:
     # S15 只读发现通道的 per-step 命令窄化（如子2 禁 grep/rg 逼走 dl codebase
     # trace——"堵入口"正治，rubric §3.5 #39 v2.66 三层之第二道硬围栏）。
     deny_readonly: tuple[str, ...] = ()
+    # 探索预算（2026-08-17 u1-step2-explosion 诊断）：规划步被弱模型当执行步用——
+    # iter4 子2a 跑 38 次 codebase/find 探索（56 轮、上下文胀到 114k、子2b --resume
+    # 继承后首调 fresh 124k）。文案约束（「只规划不挖链」）对弱模型无效——它该做
+    # 概念层 MECE+定档却去定位实现符号。机制杠杆：drive_mode 段工人对 Bash 的
+    # codebase/find/python 探索命令计数，超本阈值一律 deny（堵入口，不是劝模型）。
+    # 0 = 不限制（默认，向后兼容）。
+    max_explore_calls: int = 0
     # §step-selfcheck 步级化：提交前自查的本步 checklist（selfcheck_hint 拼接到通用段后）。
     # 只列 purpose 已披露的形式要件——质量判据仍只在 gate 黑盒（Goodhart 分层不破）。
     # None -> 仅用通用段。
@@ -821,7 +828,8 @@ _NODES: dict[str, Node] = {
                 purpose=(
                     "拆解深挖·规划：①单一/复合判定——复合痛点按 MECE 拆成原子问题清单"
                     "（互不重叠、合起来覆盖全部痛点；单一则声明「无复合」理由）；"
-                    "②每个原子问题定取证深度档——" f"{_FETCH_TIER_RULE}。"
+                    "②每个原子问题定取证深度档——"
+                    f"{_FETCH_TIER_RULE}。"
                     "本步**只规划不挖链**——因果链挖掘是子2b 的活。"
                     "原子问题清单连档作为载荷顶层 atomic_questions 键提交"
                     "（逐项 "
@@ -888,6 +896,11 @@ _NODES: dict[str, Node] = {
                 # 子2a 也禁 raw grep/rg：规划步的轻量侦察（定档需判"仓内可达"）走
                 # dl codebase（结构化+落账去重），防"规划思考被搜索打断"重演。
                 deny_readonly=("grep", "rg"),
+                # 探索预算：规划步只做概念层 MECE+定档，定位实现符号是子2b 的活。
+                # iter4 实证（2026-08-17）：子2a 跑 38 次 codebase/find 探索、56 轮、
+                # 上下文胀到 114k——弱模型把执行冲动提前到规划步。机械堵入口：
+                # codebase/find/python 探索命令超预算即 deny（见 Step.max_explore_calls）。
+                max_explore_calls=8,
             ),
             Step(
                 kind="skill",
@@ -899,7 +912,8 @@ _NODES: dict[str, Node] = {
                 purpose=(
                     "拆解深挖·执行：按子2a 的 atomic_questions 逐原子挖因果链到根因"
                     "（invoke causal-inference-root-cause，5 Whys/鱼骨/时序分析），"
-                    "每环必须有可观察证据，禁纯叙事——" f"{_CAUSAL_CHAIN_EVIDENCE_RULE}；"
+                    "每环必须有可观察证据，禁纯叙事——"
+                    f"{_CAUSAL_CHAIN_EVIDENCE_RULE}；"
                     "每个问题 ≥1 个竞争假设 + 排除/保留理由；区分近因与根因，标注置信度。"
                     "**按子2a 的档执行，不重定档**（发现子2a 漏原子/档错→就地补并在 "
                     "trace 标「执行期补规划」+原因，留痕即可，不回退子2a）。"

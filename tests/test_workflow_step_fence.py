@@ -852,6 +852,91 @@ class TestFrontSegmentRunFence:
         assert decision is None
 
 
+class TestExploreBudget:
+    """探索预算（drive_mode 段工人，max_explore_calls>0 的步）。
+
+    u1-step2-explosion（2026-08-17）：iter4 子2a（规划步）跑 38 次 codebase/find
+    探索、56 轮、上下文胀到 114k——弱模型把执行冲动提前到规划步。文案约束
+    （「只规划不挖链」）无效，机制堵入口：探索命令超 Step.max_explore_calls 即 deny。
+    """
+
+    def _seg_worker(self, wf_repo, monkeypatch, capsys, cmd, step=2):
+        _write_front_state(wf_repo, drive_mode=True, front_mode=False)
+        # 写到子2（max_explore_calls=8 的步）
+        st_path = wf_repo / ".claude" / "workflows" / "t" / "state.json"
+        st = json.loads(st_path.read_text(encoding="utf-8"))
+        st["sub_step_index"] = step
+        st_path.write_text(json.dumps(st), encoding="utf-8")
+        mod = _load_hook()
+        return _run_hook(
+            mod,
+            wf_repo,
+            monkeypatch,
+            capsys,
+            "Bash",
+            {"command": cmd},
+            session_id="seg-worker",
+        )
+
+    def test_explore_cmd_under_budget_allowed(self, wf_repo, monkeypatch, capsys):
+        # 预算内（<8）探索命令放行
+        decision, _ = self._seg_worker(
+            wf_repo,
+            monkeypatch,
+            capsys,
+            'bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh codebase query --string "annual"',
+        )
+        assert decision is None
+
+    def test_explore_cmd_over_budget_denied(self, wf_repo, monkeypatch, capsys):
+        # 预置计数到上限，再跑探索命令 → deny
+        p = wf_repo / ".claude" / "workflows" / "t" / ".explore-count"
+        p.write_text(json.dumps({"step": 2, "count": 8}), encoding="utf-8")
+        decision, reason = self._seg_worker(
+            wf_repo,
+            monkeypatch,
+            capsys,
+            "bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh codebase trace load_x",
+        )
+        assert decision == "deny"
+        assert "探索命令预算已用完" in reason
+        assert "atomic_questions" in reason  # 指路回规划交付
+
+    def test_explore_cmd_counter_increments(self, wf_repo, monkeypatch, capsys):
+        # 探索命令每次计数 +1
+        self._seg_worker(
+            wf_repo,
+            monkeypatch,
+            capsys,
+            'bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh codebase query --string "x"',
+        )
+        p = wf_repo / ".claude" / "workflows" / "t" / ".explore-count"
+        data = json.loads(p.read_text(encoding="utf-8"))
+        assert data["count"] == 1 and data["step"] == 2
+
+    def test_non_explore_cmd_not_counted(self, wf_repo, monkeypatch, capsys):
+        # append-trace / dl-cmd status / cat 不计数（非探索）
+        for cmd in [
+            "python3 ~/.dl-workflow/dl_flow_engine.py append-trace --scaffold",
+            "bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh status",
+            "cat some/file.py",
+        ]:
+            self._seg_worker(wf_repo, monkeypatch, capsys, cmd)
+        p = wf_repo / ".claude" / "workflows" / "t" / ".explore-count"
+        assert not p.exists() or json.loads(p.read_text())["count"] == 0
+
+    def test_step_without_budget_unlimited(self, wf_repo, monkeypatch, capsys):
+        # 子3（max_explore_calls=0 默认）不设预算 → 探索不拒
+        decision, _ = self._seg_worker(
+            wf_repo,
+            monkeypatch,
+            capsys,
+            'bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh codebase query --string "x"',
+            step=3,
+        )
+        assert decision is None
+
+
 class TestS15ProjectToolAllow:
     """组件 B：注册项目工具 command 头进 S15 白名单。
 
@@ -1110,23 +1195,37 @@ def test_drive_mode_denies_grep_sub3(wf_repo, monkeypatch, capsys):
     mod = _load_hook()
     # 段工人 session_id != state.session_id（"worker" vs "s"）→ 走段工人分支
     decision, reason = _run_hook(
-        mod, wf_repo, monkeypatch, capsys,
-        "Bash", {"command": "grep -rn 'x' ."}, session_id="worker",
+        mod,
+        wf_repo,
+        monkeypatch,
+        capsys,
+        "Bash",
+        {"command": "grep -rn 'x' ."},
+        session_id="worker",
     )
     assert decision == "deny"
     assert "dl-cmd.sh codebase" in reason
 
     # rg 同拒
     decision, _ = _run_hook(
-        mod, wf_repo, monkeypatch, capsys,
-        "Bash", {"command": "rg -n 'x' ."}, session_id="worker",
+        mod,
+        wf_repo,
+        monkeypatch,
+        capsys,
+        "Bash",
+        {"command": "rg -n 'x' ."},
+        session_id="worker",
     )
     assert decision == "deny"
 
     # 非 deny 命令（append-trace 编排 / Edit）仍放行
     decision, _ = _run_hook(
-        mod, wf_repo, monkeypatch, capsys,
-        "Bash", {"command": "python3 ~/.dl-workflow/dl_flow_engine.py append-trace --scaffold"},
+        mod,
+        wf_repo,
+        monkeypatch,
+        capsys,
+        "Bash",
+        {"command": "python3 ~/.dl-workflow/dl_flow_engine.py append-trace --scaffold"},
         session_id="worker",
     )
     assert decision != "deny"
@@ -1142,7 +1241,12 @@ def test_drive_mode_grep_allowed_other_substep(wf_repo, monkeypatch, capsys):
 
     mod = _load_hook()
     decision, _ = _run_hook(
-        mod, wf_repo, monkeypatch, capsys,
-        "Bash", {"command": "grep -rn 'x' ."}, session_id="worker",
+        mod,
+        wf_repo,
+        monkeypatch,
+        capsys,
+        "Bash",
+        {"command": "grep -rn 'x' ."},
+        session_id="worker",
     )
     assert decision != "deny"

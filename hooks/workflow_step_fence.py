@@ -145,7 +145,59 @@ def _s15_bash_orchestration(cmd: str, ev_file: Path) -> bool:
         or "progress" in cmd
     ):
         return True
-    return re.search(r"\bcodegraph\b", cmd) is not None
+    if re.search(r"\bcodegraph\b", cmd) is not None:
+        return True
+    return False
+
+
+# 探索命令判定（explore budget，u1-step2-explosion 2026-08-17）：规划步把执行冲动
+# 提前——iter4 子2a 跑 38 次 codebase/find/python 探索（56 轮、上下文 114k）。
+# 这些命令「查代码结构/数据」= 探索，与编排命令（dl-cmd status / append-trace）
+# 区分。drive_mode 段工人 Bash 对探索命令计数，超 Step.max_explore_calls 即 deny。
+# 机械计数不读模型意图（弱模型文案约束无效——"只规划不挖链"被无视的实证）。
+_EXPLORE_CMD_RE = re.compile(
+    r"\b(?:dl-cmd\.sh\s+codebase|codebase\s+query|codebase\s+trace|find\b|"
+    r"codegraph\s+(?:query|callers|callees|impact|trace))"
+)
+
+
+def _is_explore_cmd(cmd: str) -> bool:
+    """命令是否算「探索」（消耗规划步预算）。编排/落库/读文件正文不算。"""
+    if "append-trace" in cmd or "fetch-prompt" in cmd or "redteam-prompt" in cmd:
+        return False
+    if "render-artifact" in cmd or "render-readback" in cmd:
+        return False
+    if "dl-cmd.sh" in cmd and "codebase" not in cmd:
+        return False  # dl-cmd status/progress 等编排查询
+    if _S15_READONLY_CMD_RE.match(cmd.strip()):
+        # find 算探索（定位未知文件）；cat/head/ls 读已知文件不算
+        return cmd.strip().startswith("find")
+    return _EXPLORE_CMD_RE.search(cmd) is not None
+
+
+def _explore_count_path(project_root: Path, name: str) -> Path:
+    return project_root / ".claude" / "workflows" / name / ".explore-count"
+
+
+def _read_explore_count(project_root: Path, name: str, step_no: int) -> int:
+    p = _explore_count_path(project_root, name)
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return 0
+    if data.get("step") != step_no:
+        return 0  # 跨步/跨节点重置（宁纵勿枉）
+    return int(data.get("count", 0))
+
+
+def _write_explore_count(
+    project_root: Path, name: str, step_no: int, count: int
+) -> None:
+    p = _explore_count_path(project_root, name)
+    try:
+        p.write_text(json.dumps({"step": step_no, "count": count}), encoding="utf-8")
+    except OSError:
+        pass  # 计数落盘失败不阻断（宁纵勿枉）
 
 
 # S15 只读发现通道（v2.53，2026-08-02 tail_volume_acceleration_annualized
@@ -476,7 +528,9 @@ def _s15_allowed(
         return bool(fp) and rp.parent == ev_file.parent
     if tool == "Bash":
         cmd = str(tool_input.get("command") or "")
-        if _s15_bash_orchestration(cmd, ev_file) or _s15_bash_readonly_discovery(cmd, step.deny_readonly):
+        if _s15_bash_orchestration(cmd, ev_file) or _s15_bash_readonly_discovery(
+            cmd, step.deny_readonly
+        ):
             return True
         # 组件 B：项目工具 command 头白名单（只读发现类，弱模型幻觉刹车保留）
         return project_root is not None and _s15_project_tool_command(cmd, project_root)
@@ -743,7 +797,9 @@ def main() -> int:
             if step is not None and _deny_readonly_hit(cmd, step.deny_readonly):
                 denied = " / ".join(step.deny_readonly)
                 _log_deny(
-                    project_root, name, "drive_deny_readonly",
+                    project_root,
+                    name,
+                    "drive_deny_readonly",
                     f"step={_st.get('sub_step_index')}|denied={denied}",
                 )
                 return _deny(
@@ -753,6 +809,28 @@ def main() -> int:
                     f"`bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh codebase query --string <pattern>` "
                     f"（字符串搜索）。"
                 )
+            # 探索预算（u1-step2-explosion）：规划步被弱模型当执行步用——
+            # iter4 子2a 跑 38 次 codebase/find 探索、56 轮、上下文 114k。
+            # max_explore_calls>0 时对探索命令机械计数，超限即 deny（堵入口，
+            # 不是劝模型——文案约束对弱模型无效的实证）。
+            max_explore = getattr(step, "max_explore_calls", 0) if step else 0
+            if step is not None and max_explore > 0 and _is_explore_cmd(cmd):
+                step_no = _st.get("sub_step_index", 1)
+                count = _read_explore_count(project_root, name, step_no)
+                if count >= max_explore:
+                    _log_deny(
+                        project_root,
+                        name,
+                        "explore_budget_exceeded",
+                        f"step={step_no}|count={count}|max={max_explore}",
+                    )
+                    return _deny(
+                        f"本子步骤（规划步）探索命令预算已用完（{count}/{max_explore} 次 "
+                        "codebase/find 探索）——规划只需 MECE 拆解 + 定档，定位实现"
+                        "符号/文件是后续执行步（子2b）的活。请直接基于已有信息产出"
+                        " atomic_questions（q/tier/tier_reason），不要再做代码考古。"
+                    )
+                _write_explore_count(project_root, name, step_no, count + 1)
         return 0
 
     # ---- v4 前台混合（front-tui-hybrid-design §2.3）：非交互位置白名单 ----
