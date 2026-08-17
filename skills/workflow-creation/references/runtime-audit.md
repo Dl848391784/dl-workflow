@@ -91,3 +91,7 @@
 ## 22. 「跑太慢」先量化步骤轮数方差，再谈优化——弱模型的步骤耗时天然高方差，一次慢不能立优化项（原 §3..6 #40）
 
 **「跑太慢」先量化步骤轮数方差，再谈优化——弱模型的步骤耗时天然高方差，一次慢不能立优化项**（2026-08-17 amplitude_annualized 6 轮对照）：同一套代码跑同一 understand:1 step2→3，六轮子2a 轮数 10/16/20/44/17/52——5 倍方差。审计「这轮好慢」时先看是不是落在方差带内（对照历史多轮），单次离群别急着立优化项。优化有效性的判定也要**多轮连续验证**（iter5/6 两轮子2a 稳定 15-17 轮才判定探索预算机制有效）——单轮 -39% 可能是运气，两轮连续稳定才是机制起效。
+
+## 23. 成本优化的终验 = 真实 A/B 驱动在飞实例——安全检查三件套 + 生产同款 provider 环境 + `--segment` 边界收场
+
+**成本优化的终验 = 真实 A/B 驱动在飞实例**（2026-08-17 u1-sub5-cost，step5 live A/B：9轮/277s/cache_read -87%/零拒 vs 基线 15-19轮/7.2-7.4min/4.8-5.2M）：合成冒烟（scratch repo）证机制不证成本——真实问题的证据规模、模型行为方差、agent 运行时长只有真跑才有。**驱动在飞实例的安全检查三件套**（缺一不动手）：①`ps aux | grep claude` 无该 worktree 的存活会话（防双 orchestrator 抢 state）；②活性锁（front_segment.json）pid 已死/陈旧；③state.json 久未更新（小时级 idle）。**生产同款 provider 环境**：`bash -ic '<provider 函数> && python3 dl_drive.py <name> --segment'`——`.bashrc` 顶部交互守卫使 `bash -lc` 拿不到函数定义（白烧一轮 rc=1 秒退才定位到）；A/B 模型必须同 provider 同模型（k3 vs deepseek-v4-flash 的能力差会淹没优化归因）。**`--segment` 撞交互边界自动收场**：rc=13 NEED_USER = 设计内成功（问题清单已备好落 need_user.json），不是失败；确认级读回步（P3-1）段内机械通过无需用户。**读数口径**：段界 = segment_sessions ts 差；token = transcript 按 message.id 去重（#17）；**逐调用时间线分解表**（per-call +gap 秒 + tool_use 分类）把「51 轮」拆成 生产性/干等/调试死循环/脂肪 四桶——本轮 step4 round-2 的 _subagent_dir bug（15 轮 2.7min）只有这张表能拆出来，看总数会误判「优化没到位」。
