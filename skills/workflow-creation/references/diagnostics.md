@@ -344,7 +344,7 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 
 **交互步墙钟 = 用户时间，别算进系统开销**（2026-07-27，demo 2e0f41dc）：读回确认类子步骤（ProblemContext 子6/GoalsAndValue 子5，gate=None）的耗时大头是**用户看材料做裁决**——该轮子6 占 66 分钟全是用户时间，机械层与模型都在等。耗时分解先把交互步的用户等待单列，再对剩余部分按上表归集；「GoalsAndValue 5 步全自动段 10.5 分钟」这类数字才是系统水位。
 
-**交互读回步 = prompt cache TTL 击穿高发区**（2026-07-31 tail_volume understand:4 子5 实证）：模型把多个裁决问题**捆绑**一轮 AskUserQuestion，用户思考 >5min > 5min TTL → 下一轮全量非缓存重读（实测 255.7k token，占该窗口非缓存 input 一半）。**识别**：transcript 该轮 `cache_read` 从 ~25 万掉到百位 + `input_tokens` 跳到全上下文量级；**归因**：前一个 AskUserQuestion 是否捆绑多个硬核裁决（回答时长由最难项决定）。**已修**：8 个读回步 purpose 挂载 `_INTERACTIVE_CHUNKING_RULE`（快答项合并先问、预计 >4min 硬核裁决单列后问；见 node-design.md §0 摘要块「读回步通用」）；**验真**：下一轮运行看交互步后是否还出现百位 cache_read。TTL 客户端不可配（harness 不传 ttl 参数；外部无法复刻 byte-exact 前缀代暖 cache），杠杆只有三个：缩单次间隙（逐问拆分）、瘦间隙时上下文（子代理化）、少长间隙次数（提高一过率）。
+**交互读回步 = prompt cache TTL 击穿高发区**（2026-07-31 tail_volume understand:4 子5 实证）：模型把多个裁决问题**捆绑**一轮 AskUserQuestion，用户思考 >5min > 5min TTL → 下一轮全量非缓存重读（实测 255.7k token，占该窗口非缓存 input 一半）。**识别**：transcript 该轮 `cache_read` 从 ~25 万掉到百位 + `input_tokens` 跳到全上下文量级；**归因**：前一个 AskUserQuestion 是否捆绑多个硬核裁决（回答时长由最难项决定）。**已修**：8 个读回步 purpose 挂载 `_INTERACTIVE_CHUNKING_RULE`（快答项合并先问、预计 >4min 硬核裁决单列后问；见 nodes-index.md「读回步通用——逐问原则」）；**验真**：下一轮运行看交互步后是否还出现百位 cache_read。TTL 客户端不可配（harness 不传 ttl 参数；外部无法复刻 byte-exact 前缀代暖 cache），杠杆只有三个：缩单次间隙（逐问拆分）、瘦间隙时上下文（子代理化）、少长间隙次数（提高一过率）。
 
 **审计方法**：§3 #8（transcript 位置/去重/窗口归集/生成速率）+ §3 #11（报错盘点）。**优化排序**：①消浪费（假冲突循环/子代理嵌套/盲猜/撞围栏——通常占 20-30%，先于一切结构调整）；②轮数（block 循环 = +1-2 轮/次，自查提示 §3.5 #9 前移到自查抓）；③输出冗长度（墙钟 ≈ 输出 token ÷ 生成速率，线性）。**底线**：给定模型的 tok/s 与遵从率决定水位（ark 实测 6 步带门控 ~25-35m 属正常）；要数量级提速只有换更快/更强模型，不是调程序。
 

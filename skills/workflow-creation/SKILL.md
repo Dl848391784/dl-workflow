@@ -40,7 +40,7 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
 **推进**：自动 + 闸门。**唯一用户裁决点 = plan 完成**（2026-07-28 用户决议：understand->plan 闸门与 understand:2/3/4、plan:1/2/3 门栏全部撤除）——`plan:4` 末步门栏扣留等 `/dl gate`（放行 ≠ 推进），放行后 PHASE_DONE: plan 撞 `plan->execute` 大闸门需第二次 `/dl gate`；其余全部自动推进。
 **plan 含 4 子阶段**（v2.21 起全部有编排）：1.设计解决方案（6 步）/ 2.拆解任务与阶段（5 步）/ 3.选择能力与工具（6 步）/ 4.制定执行计划和检查点（5 步）；plan:1/2/3 末步过门控自动进下一子阶段，plan:4 门栏放行后输出 `### PHASE_DONE: plan` 撞 plan->execute 闸门。详见 `designs/execution-plan-checkpoints-substeps-design.md`。
 
-**各编排节点子步骤索引**（understand:1 7 步 / understand:2-4 各 5 步 / plan:1 6 步 / plan:2 5 步 / plan:3 6 步 / plan:4 5 步；purpose 第三通道）→ `references/nodes-index.md`（纯结构索引）。**拆步方法论**（第一性原理推导链）→ `references/node-design.md`（§3.8）。改 engine Step.purpose 实质内容后须手工同步 nodes-index.md 摘要块。
+**各编排节点子步骤索引**（understand:1 7 步 / understand:2-4 各 5 步 / plan:1 6 步 / plan:2 5 步 / plan:3 6 步 / plan:4 5 步；purpose 第三通道）→ `references/nodes-index.md`（纯结构索引）。**拆步方法论**（第一性原理推导链）→ `references/node-split-methodology.md`。改 engine Step.purpose 实质内容后须手工同步 nodes-index.md 摘要块。
 
 ## 路由表（触发 → Read 哪个 reference）
 
@@ -48,9 +48,14 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
 |---|---|
 | 运行出症状：注入没生效 / 阶段不推进 / 模型否认注入 / 横幅清单不显示 / 子阶段·子步骤不推进 / evidence 不落地或写错位 / 围栏 deny / judge 递归爆炸 / judge 全量超时 / 模型违规模式 / 跑太慢 / 段卡死 / 前台抢活 | `references/diagnostics.md`（按症状字母 A–Z 查，文件内 §2 节号保留） |
 | 通用排查方法论（日志三层分诊 / attachment 验真 / token 审计口径 / hook 冒烟法 / 卡住分诊 runbook） | `references/troubleshooting.md`（§3） |
-| 改判据 / 改 rubric / 一过率低 / judge 判得不对 / 审计一轮运行（可避免的 error/返工/token） | `references/rubric-design.md`（§3.5+§3.6） |
+| 改判据 / 改 rubric / 改 gate / judge 判得不对（判据怎么写：分工/披露/钉死/判词/framing） | `references/gate-rubric-design.md` |
+| 词形/结构/存在性判据下沉机械层（append-trace 当场拒、写侧校验） | `references/mechanical-checks.md` |
+| 弱模型约束（文案失效→机制堵入口、一次通过率、步骤越界） | `references/weak-model-mechanisms.md` |
+| 审计一轮运行（可避免的 error/返工/token/耗时、成本归因、方差） | `references/runtime-audit.md` |
+| 从严 gate → 默认-PASS framing 反转操作序列（逐节点 playbook） | `references/gate-framing-playbook.md` |
+| 优化耗时/token（瓶颈分层、探索预算、上下文膨胀、提效杠杆） | `references/cost-optimization.md` |
 | 写/改任何喂给模型的文案（注入块 / phase-rules / judge prompt / 让模型产出记录） | `references/prompt-engineering.md`（§3.7） |
-| 设计新编排节点 / 拆子步骤（第一性原理/失效模式族/几步怎么定） | `references/node-design.md`（§3.8 拆步方法论） |
+| 设计新编排节点 / 拆子步骤（第一性原理/失效模式族/几步怎么定） | `references/node-split-methodology.md` |
 | 查某节点有几步/每步干什么/关键不对称/消费契约 | `references/nodes-index.md`（节点结构索引） |
 | 新建/改工作流脚本·hook·command、install 机制、关键文件职责 | `references/build-and-modify.md`（§1.1–1.4） |
 | 另一会话在改同仓库 / 文件被外部修改 / 两批改动拆分 commit / 测试全红归因 | `references/collab.md`（§1.4+§3.9） |
@@ -58,7 +63,7 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
 ## 4. 不要做的事
 
 - ❌ **手改 hook 逻辑**：应直接改 `~/.dl-workflow/hooks/*.py`（git 跟踪），`git pull` 即生效，无副本同步。
-- ❌ **改 `~/.claude/` 下的 skill/commands/output-styles 副本**：真源在 `~/.dl-workflow/`，副本是 install.sh copy——改副本造成双向漂移（2026-08-02 两实例：node-design.md 先改副本再回拷真源；rubric-design.md 改副本后 cp 回真源=**把真源领先的 v2.51 段回滚了**——副本可能落后真源（install.sh 未重跑），cp 副本→真源前必须 git diff 真源确认无损，正确顺序永远是改真源→同步副本）。动手前先确认路径在 `~/.dl-workflow/` 下。
+- ❌ **改 `~/.claude/` 下的 skill/commands/output-styles 副本**：真源在 `~/.dl-workflow/`，副本是 install.sh copy——改副本造成双向漂移（2026-08-02 两实例：references 先改副本再回拷真源=**把真源领先的 v2.51 段回滚了**——副本可能落后真源（install.sh 未重跑），cp 副本→真源前必须 git diff 真源确认无损，正确顺序永远是改真源→同步副本）。动手前先确认路径在 `~/.dl-workflow/` 下。
 - ❌ **用 `-p` 验证推进**：-p 下 transcript 可能空，Stop hook 读不到 PHASE_DONE。
 - ❌ **在 user message 文本里找注入**：注入在 `hook_additional_context` attachment。
 - ❌ **用 `printf | claude` 验证交互行为**：Execution error 伪问题。
@@ -97,7 +102,7 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
 - "Ctrl+C 不退出 / 退出还继续流程 / 连按好几下才退出" → references/diagnostics.md 症状 Y
 - "段在跑没动静 / 是否卡死 / headless 秒退 rc=1 / Input must be provided / 前台模型非交互位置自行干活抢活" → references/diagnostics.md 症状 Z
 - "Argument list too long / E2BIG / 段异常起不来 / fence off 了仍被拦 / 段工人故障接管" → references/diagnostics.md 症状 AA + 症状 Z 末条
-- "审计这轮运行 / 符合预期吗 / 哪些 error 返工可避免 / judge 输入膨胀 / 重建丢弃" → references/rubric-design.md §3.6
-- "设计新编排节点 / 拆几个子步骤 / 每步什么目的 / 要不要取证步 / 步数怎么定 / 代码设计拆步 / 拆解任务 / 任务切分 / 执行计划 plan.md" → references/node-design.md §3.8（拆步方法论）；查某节点有几步/关键不对称 → references/nodes-index.md
+- "审计这轮运行 / 符合预期吗 / 哪些 error 返工可避免 / judge 输入膨胀 / 重建丢弃" → references/runtime-audit.md
+- "设计新编排节点 / 拆几个子步骤 / 每步什么目的 / 要不要取证步 / 步数怎么定 / 代码设计拆步 / 拆解任务 / 任务切分 / 执行计划 plan.md" → references/node-split-methodology.md；查某节点有几步/关键不对称 → references/nodes-index.md
 - "另一会话在改同仓库 / 文件被外部修改 / 两批改动怎么分开 commit / 测试全红是不是我的问题" → references/collab.md
 - "证据链 / evidence / no_markers / evidence.jsonl 不生成 / 证据不落地" → references/diagnostics.md 症状 I
