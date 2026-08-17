@@ -786,15 +786,32 @@ def _stash_need_user_payload(
     ):
         target.unlink(missing_ok=True)
         return False
+    payload: dict = {"questions": data["questions"]}
+    # u2-sub1-cost 修B：sources 出处包透传（prep 逐字收录的前序用户原话——
+    # 前台落 trace 直接引用，免重读 evidence 全量）；缺失不拒（宁纵勿枉，
+    # 前台退回现状自重读，_warn_sources_missing 落可观察信号）。
+    if isinstance(data.get("sources"), list) and data["sources"]:
+        payload["sources"] = data["sources"]
+    payload["ts"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     target.write_text(
-        json.dumps(
-            {"questions": data["questions"], "ts": time.strftime("%Y-%m-%dT%H:%M:%S")},
-            ensure_ascii=False,
-            indent=2,
-        ),
+        json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
     return True
+
+
+def _warn_sources_missing(meta: Path, disp) -> None:
+    """u2-sub1-cost 修B 观察性：载荷缺 sources 出处包 → 告警不阻断
+    （前台退回自重读 evidence 全量 = 现状，宁纵勿枉）。"""
+    try:
+        data = json.loads((meta / "need_user.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    if isinstance(data, dict) and not data.get("sources"):
+        disp.log(
+            "  ⚠ 问题载荷缺 sources 出处包——前台将自重读 evidence"
+            "（prep 应逐字收录前序用户原话进 sources 字段）"
+        )
 
 
 def _consume_next_prep(project_root: Path, name: str, key: str) -> bool:
@@ -957,9 +974,13 @@ class LiveProgress:
 
 
 # 问题载荷契约（prep 段与 NEXT_PREP 顺带交付共用同一形状——内容同源纪律）
+# u2-sub1-cost 修B：+sources 出处包——prep 方逐字收录「问答后落 trace 要引用的
+# 前序用户原话/会话事实」，前台零重读 evidence 全量。
 _QUESTIONS_CONTRACT = (
     '{"questions": [{"question": "...", "header": "≤12字标签", '
-    '"multiSelect": false, "options": [{"label": "...", "description": "..."}]}]}'
+    '"multiSelect": false, "options": [{"label": "...", "description": "..."}]}], '
+    '"sources": ["出处材料逐字收录：前序用户原话/会话事实（含其出处类目）——'
+    '前台落 trace 直接引用，禁编造、禁概括替换原话"]}'
 )
 
 
@@ -976,6 +997,7 @@ def build_step_prompt(
     prep: bool = False,
     needuser: bool = False,
     prep_next: "engine.Step | None" = None,
+    prep_next_key: "str | None" = None,
 ) -> str:
     """子步骤会话 prompt = 交接包 + 当前步目的 + append-trace 指引 + 铁律（+返工判词）。
 
@@ -1023,10 +1045,14 @@ def build_step_prompt(
             if _nu.exists():
                 # prep 载荷指针（interactive-step-headless-prep §4.4 前者裁决：
                 # 问题清单逐字照抄，TUI 零组织过程）
+                # u2-sub1-cost 修B：sources 出处包直接引用，免重读 evidence 全量
                 tail += (
                     f"\n- 本步问题清单已由后台预处理备好：Read `{_nu}`——"
                     "用 AskUserQuestion **逐字照抄**提问"
-                    "（禁改写/增删/换序——内容同源纪律）"
+                    "（禁改写/增删/换序——内容同源纪律）；"
+                    "载荷 sources 字段 = 本步落 trace 的出处材料"
+                    "（前序用户原话逐字）——直接引用，已覆盖处禁再 Read "
+                    "evidence 全量翻找（未覆盖才按指针补）"
                 )
     else:
         tail = (
@@ -1048,9 +1074,11 @@ def build_step_prompt(
             "（用户只在终端前回答问题），你的唯一交付 = 备好问题清单：\n"
             f"{how_prep}"
             "1. 按本步目的准备要向用户提的问题（问题/选项设计纪律 = 上方目的条款）\n"
-            "2. 输出 `### NEED_USER`，紧跟一个 ```json 代码块（问题载荷契约）：\n"
+            "2. 把问答后落 trace 要引用的出处材料（你上下文中已有的前序用户原话/"
+            "会话事实）逐字收录进载荷 sources 字段（禁编造、禁概括替换原话）\n"
+            "3. 输出 `### NEED_USER`，紧跟一个 ```json 代码块（问题载荷契约）：\n"
             f"   {_QUESTIONS_CONTRACT}\n"
-            "3. 输出完即结束本轮"
+            "4. 输出完即结束本轮"
         )
         rules_block = (
             "铁律：\n"
@@ -1088,14 +1116,19 @@ def build_step_prompt(
     if prep_next is not None:
         # P2-1 读回 prep 并入前序工作段：本段顺带备下一交互步的问题清单——
         # 模型刚产出本步内容（在context里），转问题零重读；独立 prep 段全省。
+        # u2-sub1-cost 修A：可跨节点（confirm 读回步横在中间不挡路），指名
+        # 目标步 id 防模型误解为同节点下一步。
+        _target = prep_next_key or "下一步"
         parts.append(
-            f"\n## 附带交付：为下一步「读回/问答」备问题清单（P2-1 合并段）\n"
-            f"下一步目的：{prep_next.purpose}\n"
+            f"\n## 附带交付：为下一交互步（{_target}）备问题清单（P2-1 合并段）\n"
+            f"目标步目的：{prep_next.purpose}\n"
             "1. 先完成本步 append-trace 落库（硬性交付不变）\n"
-            "2. 再按下一步目的设计要向用户提的问题（问题/选项设计纪律 = 上方目的条款）\n"
-            "3. 输出 `### NEXT_PREP`，紧跟一个 ```json 代码块（问题载荷契约）：\n"
+            "2. 再按目标步目的设计要向用户提的问题（问题/选项设计纪律 = 上方目的条款）\n"
+            "3. 把问答后落 trace 要引用的出处材料（你上下文中已有的前序用户原话/"
+            "会话事实）逐字收录进载荷 sources 字段（禁编造、禁概括替换原话）\n"
+            "4. 输出 `### NEXT_PREP`，紧跟一个 ```json 代码块（问题载荷契约）：\n"
             f"   {_QUESTIONS_CONTRACT}\n"
-            "4. 输出完即结束本轮——问答由前台会话执行，与你无关；\n"
+            "5. 输出完即结束本轮——问答由前台会话执行，与你无关；\n"
             "   `### NEXT_PREP` 是备料标记，与 `### NEED_USER`（本步需要用户）严格不同，禁混用"
         )
     if rework:
@@ -1693,6 +1726,7 @@ def _run_boundary_loop(
                     # P2-1：问题清单已由前序工作段顺带备妥（need_user.json 在位）——
                     # 省独立 prep 段，直接转前台问答
                     disp.log("  ⚑ 问题清单前序段已备（P2-1 合并段）——转前台问答")
+                    _warn_sources_missing(meta, disp)
                     rc, sid, seg_kind = on_need_user(
                         state, node, cur, step, pending_rework
                     )
@@ -1731,6 +1765,7 @@ def _run_boundary_loop(
                         )
                         if need:
                             _stash_need_user_payload(meta, out)
+                            _warn_sources_missing(meta, disp)
                             # drive 当场重分类起 TUI 段；--segment 抛 _SegmentExit(13)
                             rc, sid, seg_kind = on_need_user(
                                 state, node, cur, step, pending_rework
@@ -1786,16 +1821,19 @@ def _run_boundary_loop(
                         disp=disp,
                     )
                     rules = ensure_node_rules(project_root, name, node, cur)
-                    # P2-1：下一步是交互步 -> 本段顺带备其问题清单（NEXT_PREP 通道）；
-                    # 确认级读回步无问答（P3-1），不备
-                    nxt = engine.sub_step_at(node, cur + 1) if cur < total else None
-                    prep_next = (
-                        nxt
-                        if (
-                            nxt is not None
-                            and getattr(nxt, "interactive", False)
-                            and getattr(nxt, "tier", "decision") == "decision"
-                        )
+                    # P2-1：下一 decision 级交互步 -> 本段顺带备其问题清单（NEXT_PREP
+                    # 通道）；确认级读回步无问答（P3-1），不备。
+                    # u2-sub1-cost 修A：lookahead 跨节点——confirm 步横在中间不再挡路
+                    # （u:1#6 顺带备 u:2#1，独立 prep 段整段消失）；stash key =
+                    # 目标步全 id（消费侧本就以被消费步自身 id 查，天然对齐）。
+                    _nxt_info = engine.next_decision_interactive_step(
+                        node.phase, node.sub, cur
+                    )
+                    prep_next = _nxt_info[2] if _nxt_info else None
+                    prep_next_key = (
+                        f"{engine.node_id(_nxt_info[0].phase, _nxt_info[0].sub)}"
+                        f"#{_nxt_info[1]}"
+                        if _nxt_info
                         else None
                     )
                     prompt = build_step_prompt(
@@ -1807,6 +1845,7 @@ def _run_boundary_loop(
                         step,
                         rework=pending_rework,
                         prep_next=prep_next,
+                        prep_next_key=prep_next_key,
                     )
                     nid = engine.node_id(node.phase, node.sub)
                     resume_sid = _chain_resume_sid(state, nid, cur)
@@ -1909,8 +1948,9 @@ def _run_boundary_loop(
                             _mark_next_prep(
                                 project_root,
                                 name,
-                                f"{engine.node_id(node.phase, node.sub)}#{cur + 1}",
+                                prep_next_key,
                             )
+                            _warn_sources_missing(meta, disp)
                     continue
                 if action == "block":
                     none_retries = 0

@@ -521,10 +521,14 @@ def _format_injection(
     ):
         _nu = Path(project_root) / ".claude" / "workflows" / name / "need_user.json"
         if _nu.exists():
+            # u2-sub1-cost 修B：sources 出处包条款（与 drive needuser prompt 尾
+            # 双通道同语义）——前台落 trace 直接引用，免重读 evidence 全量
             lines.append(
                 f"- 📋 本步问题清单已由后台预处理备好：Read `{_nu}`——"
                 "用 AskUserQuestion **逐字照抄**提问（禁改写/增删/换序——"
-                "内容同源纪律）；答完按本步要求落 trace。"
+                "内容同源纪律）；载荷 sources 字段 = 本步落 trace 的出处材料"
+                "（前序用户原话逐字）——直接引用，已覆盖处禁再 Read evidence "
+                "全量翻找（未覆盖才按指针补）；答完按本步要求落 trace。"
             )
     # 子阶段块（仅当前阶段有子阶段时注入）
     if has_sub:

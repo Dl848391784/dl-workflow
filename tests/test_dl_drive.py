@@ -2025,6 +2025,123 @@ def test_segment_confirm_readback_assembles_artifact(wf_repo, monkeypatch):
     assert any(r.get("skill") == "confirm-readback" for r in recs)
 
 
+# ---------- u2-sub1-cost：NEXT_PREP 跨节点 + sources 出处包 ----------
+# （designs/u2-sub1-cost-optimization-design.md——u:1#6 顺带备 u:2#1，
+# 灭独立 prep 段 + Q&A 会话免重读 evidence 全量）
+
+
+def test_next_decision_interactive_lookahead():
+    """修A lookahead：撞工作步停 / 跳 confirm 跨节点命中 / 同节点既有行为不变。"""
+    # 撞非交互工作步即停（u:1#5 的下一步 u:1#6 是工作步——不抢，该段自己备）
+    assert engine.next_decision_interactive_step("understand", 1, 5) is None
+    # 跨 confirm 跨节点：u:1#6 →（u:1#7 confirm 跳过）→ u:2#1
+    hit = engine.next_decision_interactive_step("understand", 1, 6)
+    assert hit is not None
+    node, no, _step = hit
+    assert engine.node_id(node.phase, node.sub) == "understand:2" and no == 1
+    # 同节点既有行为（plan:1#1 → plan:1#2 方案发散，P2-1 原场景）
+    hit = engine.next_decision_interactive_step("plan", 1, 1)
+    assert hit is not None
+    assert engine.node_id(hit[0].phase, hit[0].sub) == "plan:1" and hit[1] == 2
+    # u:2#4 → u:3#1（同构 confirm 挡路场景连带生效）
+    hit = engine.next_decision_interactive_step("understand", 2, 4)
+    assert hit is not None
+    assert engine.node_id(hit[0].phase, hit[0].sub) == "understand:3" and hit[1] == 1
+    # u:4#4 →（u:4#5 confirm 跳过）→ plan:1#1 是工作步 → None
+    assert engine.next_decision_interactive_step("understand", 4, 4) is None
+    # plan:4 末工作步 →（confirm 跳过）→ execute 无子步骤编排 → None
+    assert engine.next_decision_interactive_step("plan", 4, 4) is None
+
+
+def test_next_prep_prompt_block_names_target():
+    """跨节点顺带交付：prompt 指名目标步 id + sources 出处包收录指引。"""
+    drv = _load(DRIVER, "drv_npx")
+    n1 = engine.get_node("understand", 1)
+    n2 = engine.get_node("understand", 2)
+    st = {"index": 1}
+    p = drv.build_step_prompt(
+        Path("/x"),
+        "t",
+        st,
+        n1,
+        6,
+        n1.sub_steps[5],
+        rework=None,
+        prep_next=n2.sub_steps[0],
+        prep_next_key="understand:2#1",
+    )
+    assert "understand:2#1" in p  # 目标步指名（跨节点不指名模型会误解给同节点）
+    assert n2.sub_steps[0].purpose in p
+    assert "sources" in p and "### NEXT_PREP" in p
+
+
+def test_questions_contract_has_sources():
+    """修B：载荷契约带 sources 出处包字段。"""
+    drv = _load(DRIVER, "drv_qc")
+    assert '"sources"' in drv._QUESTIONS_CONTRACT
+
+
+def test_needuser_tail_sources_clause(wf_repo):
+    """needuser 尾条款：sources 直接引用 + 已覆盖处禁重读 evidence 全量。"""
+    drv = _load(DRIVER, "drv_nu")
+    node = engine.get_node("understand", 2)
+    st = _write_state(wf_repo, sub_index=2, node="understand:2", sub_step_index=1)
+    (wf_repo / SEG_META / "need_user.json").write_text(
+        '{"questions": [], "sources": ["用户原话：x"]}', encoding="utf-8"
+    )
+    p = drv.build_step_prompt(
+        wf_repo,
+        "t",
+        st,
+        node,
+        1,
+        node.sub_steps[0],
+        rework=None,
+        interactive=True,
+        needuser=True,
+    )
+    assert "sources" in p and "evidence 全量" in p
+
+
+def test_segment_next_prep_cross_node_skips_prep(wf_repo, monkeypatch):
+    """修A 全链路：u:1#6 段输出 NEXT_PREP → stash key=understand:2#1 →
+    u:1#7 confirm 不消费 → u:2#1 直转前台退 13（零 prep 段）。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(wf_repo, sub_step_index=6)
+    monkeypatch.setattr(engine, "render_readback", lambda *a: (True, "展示"))
+    out6 = (
+        "落库完成\n### NEXT_PREP\n```json\n"
+        '{"questions": [{"question": "q"}], "sources": ["用户原话：x"]}\n```'
+    )
+    calls = _run_session_stub(drv, monkeypatch, [(0, out6, "s")])
+    monkeypatch.setattr(engine, "gate_sub_step_at_stop", _gate_advancing(wf_repo))
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 13
+    assert len(calls) == 1  # 只有 u:1#6 一段——u:2#1 无 prep 段
+    assert "understand:2#1" in calls[0]  # 顺带交付指名目标步
+    data = json.loads((wf_repo / SEG_META / "need_user.json").read_text())
+    assert data["questions"][0]["question"] == "q" and data["sources"]
+    st = _read_state(wf_repo)
+    assert st["node"] == "understand:2" and st["sub_step_index"] == 1
+    assert "next_prep_stashed" not in st  # 一次性消费
+
+
+def test_segment_u1_last_work_step_without_next_prep_output(wf_repo, monkeypatch):
+    """u:1#6 未输出 NEXT_PREP（模型忘了）→ 无 stash → u:2#1 落回独立 prep 段
+    （宁纵勿枉兜底不变）。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(wf_repo, sub_step_index=6)
+    monkeypatch.setattr(engine, "render_readback", lambda *a: (True, "展示"))
+    prep_out = 'ok\n### NEED_USER\n```json\n{"questions": []}\n```'
+    calls = _run_session_stub(
+        drv, monkeypatch, [(0, "落库完成", "s"), (0, prep_out, "s")]
+    )
+    monkeypatch.setattr(engine, "gate_sub_step_at_stop", _gate_advancing(wf_repo))
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 13
+    assert len(calls) == 2  # u:1#6 工作段 + u:2#1 独立 prep 段（现状兜底）
+
+
 # ---------- ARG_MAX 修复（2026-08-12 interaction run plan:2#子5 E2BIG 实爆） ----------
 
 

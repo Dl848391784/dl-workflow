@@ -3008,6 +3008,20 @@ class TestStateReset:
         assert ok is True
         assert eng.load_state(tmp_path, "t")["last_judged_trace"] == {}
 
+    def test_reset_clears_next_prep_stash(self, tmp_path):
+        """u2-sub1-cost 修C：回滚作废陈旧 prep 载荷——跨节点 stash 后用户异议
+        回退 u:1 重跑场景，旧 need_user.json（key=understand:2#1）不得直达前台。"""
+        _write_state_full(tmp_path, "t", "understand", 2, sub_step=1)
+        st = eng.load_state(tmp_path, "t")
+        st["next_prep_stashed"] = "understand:2#1"
+        eng.save_state(tmp_path, "t", st)
+        nu = tmp_path / ".claude" / "workflows" / "t" / "need_user.json"
+        nu.write_text('{"questions": []}', encoding="utf-8")
+        ok, _ = eng.reset_state(tmp_path, "t", "understand:1:6")
+        assert ok is True
+        assert "next_prep_stashed" not in eng.load_state(tmp_path, "t")
+        assert not nu.exists()
+
     def test_reset_to_bare_open_clears_problem_statement(self, tmp_path):
         # 回滚到 u:1#1（裸开场步）= 问题陈述同步作废（interactive-step-headless-prep
         # §8：陈述在 = step1 走后台 prep，不清则旧陈述污染重跑）；回滚到 #2 保留。
