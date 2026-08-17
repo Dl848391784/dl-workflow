@@ -3,6 +3,7 @@
 > 立项依据：`v4-cost-latency-optimization-design.md` §2 P2-4（段合并 = deepseek 类 provider 摊薄冷启动次数的唯一途径；P1/P2-1/P3-1 已落地，P2-2 已审计关闭，本项为剩余最大杠杆）+ 2026-08-13 用户裁决：杠杆一（段合并）做；杠杆二（11 步去 judge）= P2-2 今日审计已关闭（35/35 gate 含语义判据，judge 实测 8.9s/次 ≈ 4% 账单），放弃；杠杆三（任务分级 fast lane）待本项落地 + 护栏数据后评估。
 > 机制冒烟（2026-08-13 设计期实测）：`claude -p --resume <sid>` 跨进程续会话**通过**（kimi 端点，第二轮记得第一轮内容，session_id 一致）——核心机制成立；全旗标组合（--settings/--append-system-prompt-file/stream-json/stdin prompt/--resume）冒烟列实施步 0。
 > 修订（2026-08-13，用户裁决）：**扩 plan 族**——试点护栏达标（interaction run 实测：u:2/3/4 三链各覆盖子2-子4、22/22 步一次过零返工、链峰值 111-149k << 250k、零 chain_broken_fallback、fresh 省 ~270k），`SEGMENT_CHAIN_NODES` 扩入 plan:1-4。u:1 仍除外（重步链化收益最大但峰值风险同大，#4 单步实测 168k，单独评估）。
+> 修订（2026-08-17）：**回滚 u:1**——执行 08-14 裁决的预授权回滚条件：amplitude_annualized D 轮链峰值 **324k > 250k** 护栏已突破，且 deepseek-v4-flash 跨进程 --resume 前缀缓存时灵时不灵（D 轮链内 step2→5 首调 fresh 44k→109k→166k→241k 全冷、cache hit 0.9-4%；F 轮 step4 暖 158k hit）——冷轮时链是纯增税，暖轮也比 fresh 段贵 ~2 倍。u:1 移出 `SEGMENT_CHAIN_NODES`；u:2/3/4 与 plan 族链峰值未突破，保留。详见 `u1-sub4-cost-optimization-design.md` 修 3。
 > 修订（2026-08-14，用户裁决）：**扩 u:1**——`SEGMENT_CHAIN_NODES` 纳入 understand:1；子2-子5 为连续 headless 重步，首飞须监控链峰值（250k 告警阈值不变），若 u:1 链峰值突破或一过率显著下降则回滚。在飞实例兼容性：段工人按段 spawn 新进程 import engine，扩面即时生效，纯增量无断链风险。
 
 ## 0. 与 v3.0 §2.2 否「批量段」的差异（为什么本次不撞旧否决）

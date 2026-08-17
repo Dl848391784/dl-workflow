@@ -9597,7 +9597,8 @@ class TestIngestAgentReport:
         return tmp_path / ".trace-payload-t.md"
 
     def test_ingest_redteam_happy(self, tmp_path, monkeypatch):
-        self._mk(tmp_path, monkeypatch, sub_step=4)
+        # plan-first 拆步重编号（6→7 步）后：质检裁决（红队）= 子5
+        self._mk(tmp_path, monkeypatch, sub_step=5)
         self._scaffold(tmp_path)
         ok, msg = eng.ingest_agent_report(tmp_path, "t", "abc123")
         assert ok, msg
@@ -9605,19 +9606,37 @@ class TestIngestAgentReport:
         assert "红队输出原文收录（task-id abc123）" in text
         assert "verdict: 部分成立" in text
         # 收录项插在 qa 节内（解析回读自洽：进 qa 不进别的节）
-        step = eng.get_node("understand", 1).sub_steps[3]
+        step = eng.get_node("understand", 1).sub_steps[4]
         payload, err = eng._parse_trace_md(text, step)
         assert err is None
         titles = [it["q"] for it in payload["qa"]]
         assert any("红队" in q and "原文收录" in q for q in titles)
 
-    def test_ingest_fetch_title_step3(self, tmp_path, monkeypatch):
-        self._mk(tmp_path, monkeypatch, sub_step=3, report="蒸馏报告正文")
+    def test_ingest_fetch_title_step4(self, tmp_path, monkeypatch):
+        # plan-first 拆步重编号后：双向取证 = 子4（旧子3 映射是重编号漏网，
+        # amplitude_annualized D/F 两轮 step4 实爆「蒸馏报告收录项不足」）
+        self._mk(tmp_path, monkeypatch, sub_step=4, report="蒸馏报告正文")
         self._scaffold(tmp_path)
         ok, _ = eng.ingest_agent_report(tmp_path, "t", "abc123")
         assert ok
         text = (tmp_path / ".trace-payload-t.md").read_text(encoding="utf-8")
         assert "蒸馏报告原文收录（task-id abc123）" in text
+
+    def test_ingest_dispatch_note_not_duplicate(self, tmp_path, monkeypatch):
+        # 防重不得误伤派发留痕：模型在 qa 写「原子D→Agent task-id=abc123」
+        # （task-id 出场=已派发，正是 mech 台账信号）≠ 已收录——只有脚本写出的
+        # 收录项标题形态「原文收录（task-id xxx）」才算重复
+        # （amplitude_annualized D 轮 step4 实证：误报致 10 轮读源码调试死循环）。
+        self._mk(tmp_path, monkeypatch, sub_step=4, report="蒸馏报告正文")
+        payload = self._scaffold(tmp_path)
+        text = payload.read_text(encoding="utf-8")
+        text = text.replace("待填", "原子D（full）→ Agent task-id=abc123 已派发", 1)
+        payload.write_text(text, encoding="utf-8")
+        ok, msg = eng.ingest_agent_report(tmp_path, "t", "abc123")
+        assert ok, msg
+        # 真重复（脚本标题形态在场）仍拒
+        ok, msg = eng.ingest_agent_report(tmp_path, "t", "abc123")
+        assert not ok and "已收录" in msg
 
     def test_ingest_inserts_before_extra_keys_section(self, tmp_path, monkeypatch):
         # 子2 形态载荷（qa + atomic_questions 节）：收录项不得落进分档节
@@ -9654,7 +9673,7 @@ class TestIngestAgentReport:
         # v4 前台混合回归：agent 由段工人派发，transcript 在段工人 session 目录
         # （非 state.session_id="s" 的前台会话）。ingest 须 glob 找到
         # （2026-08-13 amplitude_annualized sub3 实证：62 轮逆向源码的根因）。
-        _write_state_full(tmp_path, "t", "understand", 1, sub_step=3)
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=4)
         home = tmp_path / "home"
         monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
         enc = "".join(c if c.isalnum() else "-" for c in str(tmp_path))

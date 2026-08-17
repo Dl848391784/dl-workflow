@@ -2102,15 +2102,18 @@ def test_chain_resume_rejects_non_whitelist_node(wf_repo):
     assert drv._chain_resume_sid(state, "execute:0", 2) is None
 
 
-def test_chain_resume_understand1_whitelisted(wf_repo):
-    """2026-08-14 用户裁决：u:1 纳入段链（子2-子5 连续 headless 重步）；
-    子1 交互步/子6 confirm 步由 last_step 不变式天然断链。"""
+def test_chain_resume_understand1_rolled_back(wf_repo):
+    """2026-08-17 回滚（designs/u1-sub4-cost-optimization-design.md 修 3）：
+    执行 2026-08-14 裁决的预授权回滚条件——amplitude_annualized D 轮链峰值
+    324k > 250k 护栏 + deepseek 跨进程 resume 前缀缓存时灵时不灵
+    （D 轮链内 step2→5 首调 fresh 44k→109k→166k→241k 全冷），
+    u:1 移出 SEGMENT_CHAIN_NODES（u:2/3/4 与 plan 族保留）。"""
     drv = _load(DRIVER, "drv_chain_u1")
     state = _write_state(
         wf_repo,
         segment_chain={"node": "understand:1", "sid": "abc", "last_step": 2},
     )
-    assert drv._chain_resume_sid(state, "understand:1", 3) == "abc"
+    assert drv._chain_resume_sid(state, "understand:1", 3) is None
 
 
 def test_chain_resume_plan_nodes_whitelisted(wf_repo):

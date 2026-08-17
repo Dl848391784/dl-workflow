@@ -79,9 +79,14 @@ SUB_STEP_BLOCK_ESCALATE = 3
 # 168k 上下文；链化收益最大但峰值风险同大，首飞需监控链峰值）。u:2/3/4 与
 # plan:1-4 护栏数据见 2026-08-13 试点（22/22 一次过、链峰值 111-149k << 250k、
 # 零 chain_broken_fallback）。链峰值监控阈值 250k 不变。
+# 2026-08-17 回滚 u:1（执行 08-14 裁决的预授权回滚条件，
+# designs/u1-sub4-cost-optimization-design.md 修 3）：amplitude_annualized D 轮
+# 链峰值 324k > 250k 护栏 + deepseek 跨进程 resume 前缀缓存时灵时不灵
+# （D 轮链内 step2→5 首调 fresh 44k→109k→166k→241k 全冷，F 轮暖 158k hit）——
+# 冷轮时链 = 纯增税（每步首调重付单调涨的继承上下文），暖轮也比 fresh 段贵
+# ~2 倍（每轮重读 ~160k vs ~70k）。u:2/3/4 与 plan 族链峰值未突破，保留。
 SEGMENT_CHAIN_NODES = frozenset(
     {
-        "understand:1",
         "understand:2",
         "understand:3",
         "understand:4",
@@ -4998,14 +5003,26 @@ def ingest_agent_report(
     state = load_state(project_root, name)
     if state is None:
         return False, f"工作流 {name} 的 state.json 缺失"
-    cur = normalize_state(state).get("sub_step_index", 1)
-    title = (
-        "蒸馏报告原文收录"
-        if cur == 3
-        else "红队输出原文收录"
-        if cur == 4
-        else "子代理报告原文收录"
-    )
+    state = normalize_state(state)
+    cur = state.get("sub_step_index", 1)
+    # 标题从当前步 mech_checks 派生（消费方单源：_check_fetch_report_recorded
+    # 数「蒸馏报告」标题项 / _check_redteam_report_recorded 数「红队」+「原文收录」
+    # 项），不写死步号——旧 cur==3/4 硬编码在 plan-first 6→7 步重编号后把子4
+    # fetch 报告标成「红队输出」，fetch_report_recorded 数 0 项当场拒
+    # （amplitude_annualized D/F 两轮 step4 实爆，
+    # designs/u1-sub4-cost-optimization-design.md 修 1）。查不到步则通用标题
+    # 兜底（宁纵勿枉——若该步有标题要件，下游 mech check 会拦）。
+    title = "子代理报告原文收录"
+    try:
+        node = get_node(state["phase"], state["sub_index"])
+        step = sub_step_at(node, cur) if node.sub_steps else None
+    except KeyError:
+        step = None
+    if step is not None:
+        if "fetch_report_recorded" in step.mech_checks:
+            title = "蒸馏报告原文收录"
+        elif "redteam_report_recorded" in step.mech_checks:
+            title = "红队输出原文收录"
     payload_path = trace_payload_path(project_root, name, state)
     if not payload_path.exists():
         return False, (
@@ -5016,7 +5033,11 @@ def ingest_agent_report(
         text = payload_path.read_text(encoding="utf-8")
     except OSError as e:
         return False, f"读载荷失败：{e}"
-    if task_id in text:
+    # 防重只认脚本写出的收录项标题形态「原文收录（task-id xxx）」——全载荷子串
+    # 匹配会把模型派发留痕「task-id=xxx」误报成已收录（amplitude_annualized D 轮
+    # step4 实证：误报致 ~10 轮读源码调试死循环）。宁纵勿枉：重复收录代价 <<
+    # 误报调试死循环。
+    if f"原文收录（task-id {task_id}）" in text:
         return False, f"task-id {task_id} 已收录过——同一报告不重复落（防重）"
 
     d = _subagent_dir(project_root, name)
