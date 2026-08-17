@@ -49,3 +49,7 @@
 ## 12. 预派发（子代理与主会话并行）成立两判据：输入冻结点 + prompt 100% 脚本可生成——缺一就是质量陷阱
 
 **预派发成立两判据：输入冻结点 + prompt 100% 脚本可生成**（2026-08-17 u1-sub5-cost 红队预派发落地 + u1-sub4 round-2 fetch 反例对照）：红队预派发成立因为①输入在子4 gate 通过即冻结（证据=子1-4 最新 trace，不含子5 结论=redteam-prompt 模板机械保证）②prompt 全由脚本生成（证据+纪律+输出格式，模型零补充）。fetch agent 预派发**不成立**：claim 可检验化（claim-A1「证实标准：权威库源码出现 X；证伪标准：Y」）是模型真语义工作、决定证据针对性（三关质检第一关），脚本预生成=降级取证质量；且预派发只省 setup ~1.4min（agent 运行 4-8min 才是大头）——质量风险 >> 墙钟收益。**判据形式化**：预派发省的是「setup 时间」，不是「子代理运行时间」——运行时间占大头时预派发收益天然小，先看 prompt 能否 100% 脚本生成，再看 setup 占比。**配套观察**：`claude -p --tools Read` 的工具限制**只限内置工具，不覆盖 MCP 工具**（红队 worker 经 MCP 调了 1 次 tavily_extract——未违规但超出「Read 为主」字面；要封 MCP 得靠 settings/权限层，不能靠 --tools）。
+
+## 13. provider A/B 必须 token/墙钟双轴验收——缓存红利 ≠ 墙钟红利；前缀削减要用逐调用口径读数
+
+**provider A/B 必须 token/墙钟双轴验收**（2026-08-17 u1-overall-cost 三方实测，designs/u1-overall-cost-optimization-design.md §5）：kimi k3（流式全局缓存）同问题整轮 fresh -42%/cache_read -30%/out -57%（首调 fresh 17.8-21k vs deepseek 37-60k，全局缓存命中 ~50% 前缀），**但墙钟 2.1×**（k3[1m] high-effort 段内均 31s/call vs deepseek 14.5s/call，且随上下文涨到 70s/call）——缓存红利只省 token 不省时间，单看 token 会误判「全面更优」。**配套口径**：固定前缀削减（禁 MCP schema 2.5k/调用 + node-rules 瘦渲染 25k→1.2k 字符 ≈ 9k/调用）这类**逐调用固定量**优化，总账读数会被步骤轮数方差（同步子3 30→70 calls = ±5M cr 摆幅，#22 同族）淹没——验收用**逐调用口径**（首调 fresh / cr÷calls），不用全轮总账；总账只在多轮连续下同口径比较（#40）。**MCP 纪律补丁**：`--tools` 白名单只限内置工具、限不住 MCP（红队 worker 经 MCP 调 tavily_extract 实证）——禁 MCP 要 `--strict-mcp-config --mcp-config '{"mcpServers":{}}'` 结构封死（engine.NO_MCP_ARGS 单源，段会话/TUI 段/预派发/judge 四处 spawn 统一挂）。
