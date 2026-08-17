@@ -82,6 +82,42 @@ stash key 从「当前 nid#{cur+1}」改为**目标步全 id**（如 `understand
    - 模拟用户作答（--resume 喂答案）完成落 trace + judge pass，验证全链路闭环。
 4. 验收口径纪律沿用 #22：**逐调用前缀读数归因，全轮总账只作参考**。
 
+## 6. 实施验证记录（2026-08-18，feat/u2-sub1-cost，1090 tests）
+
+- TDD 红→绿 +8 测试 + 全量 1090 passed + ruff 绿（无关文件 format 漂移按
+  filtered-patch 纪律回退，v2.119 教训）。
+- **live A/B（u2_sub1_ab 实例，ac-deepseek1/deepseek-v4-flash，种子 amplitude
+  u:1 子1-5 真实 trace 从 u:1#6 起跑，跑到 u:2#4 人工收）——验收点全中**：
+  1. u:1#6 段输出 `### NEXT_PREP` + 载荷含 sources（need_user.json：questions×3 +
+     sources×5 条逐字出处=开场原话+子1 Q1-Q4 会话事实）；段产出 4 条归一化陈述落库；
+  2. stash key=understand:2#1，u:1#7 confirm 未消费，u:2#1 到达**零 prep 段**
+     直转 Q&A（segment_sessions：confirm-readback → tui-step-needuser）；
+  3. Q&A 会话工具调用核对：**零 Read evidence 全量**（只 Read need_user.json +
+     payload 骨架；基线 3/3 会话都读了 63KB evidence，call2 +16.7k fresh 实锤）；
+  4. sources 被实际逐字引用（trace 的 who/价值答案 = 子1 Q1-Q4 会话事实原文）；
+  5. node_attempts=0（全程零 block，一过率护栏 ✓）；judge 全 pass（u:2#1 trace
+     落库→Stop hook autodone→门控 pass→自动续跑）。
+- **数字（单轮，逐调用口径）**：
+
+| 指标 | 基线（amplitude 实测） | 优化后（实测） | 变化 |
+|---|---|---|---|
+| u:2#1 fresh in 总账 | 94-125k（prep 47-65k + Q&A到提问 47-60k，未含落库轮） | 55.0k（含完整落库 11 calls） | **-45~55%** |
+| Q&A 首调 fresh | 42.9k | 40.6k | -2.3k |
+| Q&A evidence 全量读 | +16.7k fresh（call2） | 0 | 灭 |
+| prep 段 | 57-128s / 8-16k out | 0（u:1#6 顺带交付边际 +~60s/+~8k out） | 段消失 |
+| 用户等待（到达→看到问题） | 101-186s | ~90-100s | -0~50% |
+
+- 同工作量口径（Q&A 到提问点）：in 46.0k vs 基线 59.8k（-23%）。
+- 方差声明：u:1#6 基线 47-95s/18-86k in 方差大，顺带交付边际（+60s/+8k out）
+  为单轮估计；cr 受轮数影响不直比（#22 纪律）。
+- **附带发现（非本设计引入，既有判据语义）**：A/B 环境无 TTY → Q&A 会话 print
+  降级、AskUserQuestion 不可用——模型未编造答复，走「会话事实出处 + 未获答项
+  标注推测另列」路径落 trace，judge 放行（trace 明确披露「AskUserQuestion
+  禁用非用户拒绝」）。真人 TUI 场景不受影响；print 降级环境下「无新问答也
+  能过子1」是既有 gate 语义，如需收紧属独立裁决项。
+- 测试实例留存档案：.claude/workflows/u2_sub1_ab/ + evidence/u2_sub1_ab.jsonl
+  + worktree wf/u2_sub1_ab（同 u1_overall_ab 先例）。
+
 ## 6. 显式不做
 
 - 不动 TaskList 18 项逐字建单（v3.3.1 用户裁决面；Q&A 短会话建单 ~3k out 记为未开杠杆，多轮数据后再议）；
