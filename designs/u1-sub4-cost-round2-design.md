@@ -106,5 +106,23 @@ def _subagent_dir(project_root, name, task_id=None):
 - 原子C 定档复核：tier_reason 明示「规则明示『X 策略年化 48.7% 是否合理』
   =full 档」——2026-08-13 重设计删的是 light 例中的量级合理性，full 档
   含该规则例，定档 per-spec，**非子2a 判面漏判**（设计 §1 层2 观察项撤回）。
-- live 验证：下一次真实 step4（新工作流）应见 ingest 零调试循环、
-  calls ~30 量级。拷贝残留类污染已随鉴别器升级免疫。
+- **live A/B 实测（2026-08-17 step4_ab 测试工作流，种子=在飞实例真实子1-3
+  trace，同问题同仓同模型 deepseek-v4-flash，预置 2 个假旧 subagents 目录让
+  多目录条件在场）**——两次独立优化后运行 vs 修复前（e92ca5db）：
+
+  | 指标 | 修复前 | 优化后 A | 优化后 B | 变化（保守取 A） |
+  |---|---|---|---|---|
+  | 主会话 calls | 45 | 29 | 30 | **-36%** |
+  | 墙钟 | 707s | 412s | 236s | **-42%**（B 为 -67%） |
+  | cache_read | 4.11M | 2.47M | 2.45M | **-40%** |
+  | $ | 6.34 | 4.11 | 2.47 | **-35%** |
+  | 机械拒/调试循环 | 15 轮死循环 | 0 | 0 | **清零** |
+
+  两轮均零机械拒——多目录条件下 ingest 直接命中当前段 transcript（修A 生效）。
+  B 轮更快的主因是 fetch agent 运行时长方差（A 198s/183s vs 修复前 ~390s），
+  不全部归因本修复；但调试循环消除（-15 calls/-2.7min）是结构性永久收益。
+  同段子5 第二数据点：11 calls/249s/$1.30（与 amplitude 轮 9/277s/$1.50 一致）。
+  墙钟地板剩余 = fetch agent 运行 3-6.5min（v2.40 协议面，设计内）。
+  插曲：手工种子 state 把 last_judged_trace 写成 null（生产恒为 dict/缺省）
+  撞 setdefault 不覆盖 None → gate AttributeError——测试工作流种子问题，
+  非生产 bug（生产 state 由 dl-launch 生成无此形态）。
