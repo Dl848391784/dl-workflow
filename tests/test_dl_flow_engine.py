@@ -3635,6 +3635,16 @@ class TestRunJudgeHarnessTrim:
         eng.run_judge("rubric", "label", "out")
         assert captured["env"].get("MAX_THINKING_TOKENS") == "0"
 
+    def test_judge_invocation_disables_mcp(self, monkeypatch):
+        # O1（u1-overall-cost）：judge 本就不调工具（--tools ""），MCP schema
+        # （实测 2.5k tok/调用）是纯税——strict-mcp-config + 空表结构封死；
+        # 判决载荷仍须是最后一个位置参数（准确性契约不动）。
+        captured = self._capture(monkeypatch)
+        eng.run_judge("rubric", "label", "out")
+        cmd = captured["cmd"]
+        assert "--strict-mcp-config" in cmd
+        assert cmd[cmd.index("--mcp-config") + 1] == '{"mcpServers":{}}'
+
 
 class TestRunJudgeCostMeta:
     """judge 成本可见性（2026-07-26）：claude -p 返回 JSON 的 usage/duration/cost
@@ -10559,3 +10569,139 @@ def test_clear_workflow_discoveries(tmp_path):
     eng._clear_workflow_discoveries(tmp_path, "t")
     assert not disc.exists()
     eng._clear_workflow_discoveries(tmp_path, "t")  # 缺失时也非错误
+
+
+# ---------- u1-overall-cost O1/O2/O3（designs/u1-overall-cost-optimization-design.md）----------
+
+
+class TestNoMcpArgs:
+    """O1：driver/engine spawn 的 claude 一律禁 MCP。编排全程禁 tavily（子4 purpose
+    明文禁），但 MCP schema 照加载——探针实测（同端点裸 claude -p A/B）tavily
+    schema = 2,504 tok/调用前缀，u:1 单轮 ~115 调用 = ~0.3M cache_read 纯税；
+    且 --tools 限不住 MCP（红队 worker 经 MCP 调 tavily_extract 两次实证）——
+    strict-mcp-config + 空表 = 结构封死。"""
+
+    def test_no_mcp_args_shape(self):
+        assert eng.NO_MCP_ARGS[0] == "--strict-mcp-config"
+        assert eng.NO_MCP_ARGS[1] == "--mcp-config"
+        cfg = json.loads(eng.NO_MCP_ARGS[2])
+        assert cfg == {"mcpServers": {}}
+
+
+class TestRenderSubstepsBrief:
+    """O2：node-rules 清单瘦渲染——titles-only（map 骨架）+ 当前步标注。
+    当前步完整目的双通道已在（段 prompt「目的：{step.purpose}」逐字携带 +
+    TUI 每轮注入 primacy 置顶），其余步 purpose 全文是每调用重付的死重
+    （node-rules.understand:1.md 实测 25,005 字符，其中 7 步 purpose 清单 ~15k）。
+    与 workflow_phase 注入的既有形态一致（hooks/workflow_phase.py:385：
+    当前步 purpose 全文置顶、其余只留骨架短名链）。"""
+
+    def test_titles_only_plus_current_marker(self):
+        text = eng.render_substeps_brief("understand:1", 3)
+        # map 骨架：全部 7 步 short 在
+        for short in (
+            "逼问定义",
+            "规划拆解",
+            "因果链挖掘",
+            "双向取证",
+            "质检裁决",
+            "归一化陈述",
+            "读回确认",
+        ):
+            assert short in text
+        # 当前步标注
+        assert "子步骤3" in text and "当前步" in text
+        # 任何步的 purpose 全文都不在（当前步的由段 prompt 携带）
+        assert "占环位" not in text  # 子3 purpose 独有词形
+        assert "权威源注册表" not in text  # 子4
+        assert "去上下文" not in text  # 子6
+        # BEGIN/END 标记与全量渲染同形态（幂等/防漂移断言锚）
+        assert "<!-- BEGIN GENERATED sub_steps understand:1 -->" in text
+        assert "<!-- END GENERATED sub_steps understand:1 -->" in text
+
+    def test_invalid_nid_raises(self):
+        with pytest.raises(ValueError):
+            eng.render_substeps_brief("not-a-node", 1)
+
+    def test_node_without_substeps_raises(self):
+        with pytest.raises(ValueError):
+            eng.render_substeps_brief("execute:0", 1)
+
+
+class TestPackStripReports:
+    """O3：交接包「原文收录」隔步剥离。收录原文（fetch/红队报告全文）的唯一消费者
+    是 u:1 子5（三关质检，Step.pack_full_reports=True）；其余步的包内收录项
+    截断到 200 字符 + evidence 指针（真源 trace 不动，证据不丢）。"""
+
+    def _write_evidence(self, tmp_path, records):
+        ev = tmp_path / ".claude" / "evidence"
+        ev.mkdir(parents=True, exist_ok=True)
+        with open(ev / "t.jsonl", "w", encoding="utf-8") as f:
+            for r in records:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+    def _trace_with_report(
+        self, step, body, title="蒸馏报告原文收录（task-id abc123）"
+    ):
+        return {
+            "kind": "skill-trace",
+            "major_stage": "Understand",
+            "minor_stage": "ProblemContext",
+            "sub_step": step,
+            "skill": "s",
+            "purpose": "p",
+            "q": ["本步①工作项", title],
+            "a": ["短答", body],
+        }
+
+    def test_u1_step5_is_sole_consumer(self):
+        node = eng.get_node("understand", 1)
+        flags = [bool(s.pack_full_reports) for s in node.sub_steps]
+        assert flags == [False, False, False, False, True, False, False]
+
+    def test_consumer_step_keeps_full_report(self, tmp_path):
+        body = "R" * 500
+        self._write_evidence(tmp_path, [self._trace_with_report(4, body)])
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=5)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None
+        assert body in pack  # 子5=消费步：子4 收录全文保留
+
+    def test_non_consumer_step_strips_report(self, tmp_path):
+        body_r = "R" * 500
+        body_t = "T" * 500
+        self._write_evidence(
+            tmp_path,
+            [
+                self._trace_with_report(4, body_r),
+                self._trace_with_report(
+                    5, body_t, title="红队输出原文收录（driver 预派发）"
+                ),
+            ],
+        )
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=6)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None
+        # 两份收录全文都剥离；截断到 200 + 指针
+        assert body_r not in pack and body_t not in pack
+        assert "R" * 200 in pack
+        assert "evidence" in pack
+        # 非收录项全文保留（子5 的处置问题集是子6 输入）
+        assert "短答" in pack
+
+    def test_malformed_trace_passthrough(self, tmp_path):
+        # q/a 非列表 / 长度不齐：不崩、原样保留（宁纵勿枉）
+        rec = {
+            "kind": "skill-trace",
+            "major_stage": "Understand",
+            "minor_stage": "ProblemContext",
+            "sub_step": 4,
+            "skill": "s",
+            "purpose": "p",
+            "q": "not-a-list",
+            "a": ["x"],
+        }
+        self._write_evidence(tmp_path, [rec])
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=6)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None and "not-a-list" in pack

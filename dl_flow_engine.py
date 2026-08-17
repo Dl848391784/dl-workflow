@@ -1464,14 +1464,31 @@ def write_handoff_resolution(project_root: Path, name: str, *, choice: str) -> b
 _PACK_TRACE_DROP_KEYS = ("purpose", "skill", "kind", "major_stage", "atomic_questions")
 _PACK_PRIOR_Q_MAX = 80  # 前序节点 q 截断阈值（读回标题保留前 80 字符）
 _PACK_PRIOR_BOUNDARY_MAX = 100  # 前序节点 statements.boundary 截断阈值
+# O3（u1-overall-cost）：交接包内「原文收录」qa 项的 a 截断阈值——收录原文
+# （fetch/红队报告全文）唯一消费者是声明 pack_full_reports=True 的步（u:1 子5
+# 三关质检）；其余步截断 + evidence 指针（真源 trace 不动，证据不丢）。
+_PACK_REPORT_A_MAX = 200
+
+# O1（u1-overall-cost）：driver/engine spawn 的 claude 一律禁 MCP——编排全程禁
+# tavily（u:1 子4 purpose 明文禁），MCP schema 照加载却是纯税（同端点裸 claude -p
+# 探针实测：tavily schema = 2,504 tok/调用前缀，u:1 单轮 ~115 调用 ≈ 0.3M
+# cache_read）；且 --tools 限不住 MCP（红队 worker 经 MCP 调 tavily_extract 两次
+# 实证）——strict-mcp-config + 空表 = 结构封死。front 常驻 TUI（dl-launch 起的
+# 用户自由会话）不经此清单，不动。
+NO_MCP_ARGS = ["--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
 
 
 def _truncate(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit] + "…"
 
 
-def _slim_trace_for_pack(seg: str, *, prior: bool) -> str:
-    """交接包 trace 瘦身。parse 失败原样返回（宁纵勿枉，不丢证据）。"""
+def _slim_trace_for_pack(seg: str, *, prior: bool, strip_reports: bool = False) -> str:
+    """交接包 trace 瘦身。parse 失败原样返回（宁纵勿枉，不丢证据）。
+
+    strip_reports（O3）：当前步非收录消费步（Step.pack_full_reports=False）时，
+    qa 项标题含「原文收录」的 a 项截断到 _PACK_REPORT_A_MAX + evidence 指针——
+    收录原文的唯一消费者是 u:1 子5（三关质检），其余步报告正文是死重。
+    """
     try:
         rec = json.loads(seg)
     except json.JSONDecodeError:
@@ -1479,6 +1496,26 @@ def _slim_trace_for_pack(seg: str, *, prior: bool) -> str:
     if not isinstance(rec, dict):
         return seg
     out = {k: v for k, v in rec.items() if k not in _PACK_TRACE_DROP_KEYS}
+    if (
+        strip_reports
+        and isinstance(out.get("q"), list)
+        and isinstance(out.get("a"), list)
+    ):
+        new_a = []
+        for i, a_item in enumerate(out["a"]):
+            q_item = out["q"][i] if i < len(out["q"]) else ""
+            if (
+                isinstance(q_item, str)
+                and "原文收录" in q_item
+                and isinstance(a_item, str)
+                and len(a_item) > _PACK_REPORT_A_MAX
+            ):
+                a_item = (
+                    a_item[:_PACK_REPORT_A_MAX]
+                    + "……（报告全文已收录于 evidence，可按需 Read 复查）"
+                )
+            new_a.append(a_item)
+        out["a"] = new_a
     if prior:
         if isinstance(out.get("q"), list):
             out["q"] = [
@@ -1580,9 +1617,15 @@ def handoff_pack(project_root: Path, name: str) -> str | None:
         if k[0] == cur_node.minor_key and k[1] <= cur_step
     ]
     if cur_traces:
+        # O3：当前步是收录消费步（pack_full_reports=True，u:1 子5 三关质检）时
+        # 包内收录原文保全文；其余步剥离（报告正文只服务质检，隔步是死重）。
+        cur_step_obj = None
+        if cur_node.sub_steps and 1 <= cur_step <= len(cur_node.sub_steps):
+            cur_step_obj = cur_node.sub_steps[cur_step - 1]
+        strip = not (cur_step_obj and cur_step_obj.pack_full_reports)
         lines.append(f"### 本节点（{cur_node.label}）各步最新留痕")
         for _step, seg in sorted(cur_traces):
-            lines.append(_slim_trace_for_pack(seg, prior=False))
+            lines.append(_slim_trace_for_pack(seg, prior=False, strip_reports=strip))
         lines.append("")
     # 当前步最新 block 判词（返工中段 clear：新会话要知道修什么）
     reason = latest_block.get((node_id(cur_phase, cur_sub), cur_step))
@@ -2792,6 +2835,8 @@ def _run_judge_once(prompt: str) -> tuple[bool, str, bool]:
                 "json",
                 "--tools",
                 "",
+                # O1（u1-overall-cost）：judge 不调工具，MCP schema 纯税，结构封死
+                *NO_MCP_ARGS,
                 "--system-prompt",
                 JUDGE_SYSTEM_PROMPT,
                 prompt,
@@ -2891,6 +2936,34 @@ _GENERATED_RE = re.compile(
     r"<!-- BEGIN GENERATED sub_steps (\S+?) -->.*?<!-- END GENERATED sub_steps \1 -->",
     re.DOTALL,
 )
+
+
+def render_substeps_brief(nid: str, cur: int) -> str:
+    """node-rules 清单的瘦渲染（u1-overall-cost O2）：每步一行 title（map 骨架）
+    + 当前步标注；任何步的 purpose 全文都不带——当前步完整目的双通道已在
+    （段 prompt「目的：{step.purpose}」逐字携带 + TUI 每轮注入 primacy 置顶，
+    hooks/workflow_phase.py:385 同款形态），其余步 purpose 全文 = 每调用重付的
+    死重（node-rules.understand:1.md 实测 25,005 字符，清单 ~15k）。
+    phase-rules 全量渲染走 render_substeps_section（v2/front TUI 单会话跨步，
+    仍需全量），本函数只服务 driver 段/TUI 段的单步会话。
+
+    非法输入语义同 render_substeps_section（fail loud）。
+    """
+    phase, sep, sub_s = nid.partition(":")
+    if not sep or not sub_s.isdigit():
+        raise ValueError(
+            f"GENERATED 标记的节点 id 非法：{nid!r}（应形如 understand:1）"
+        )
+    node = get_node(phase, int(sub_s))
+    if not node.sub_steps:
+        raise ValueError(f"节点 {nid} 无 sub_steps，无可渲染段落")
+    lines = [f"<!-- BEGIN GENERATED sub_steps {nid} -->"]
+    for i, stp in enumerate(node.sub_steps, 1):
+        gate_tag = "" if stp.gate else "（自动过）"
+        cur_tag = " ← 当前步（完整目的见任务 prompt / 每轮注入）" if i == cur else ""
+        lines.append(f"     - 子步骤{i} = {stp.ref}{gate_tag}：{stp.short}{cur_tag}")
+    lines.append(f"<!-- END GENERATED sub_steps {nid} -->")
+    return "\n".join(lines)
 
 
 def render_substeps_section(nid: str) -> str:

@@ -113,6 +113,10 @@ class Step:
     # 输入在本步开始前已冻结（红队证据=子1-4 最新 trace），与本步段并行省等待；
     # 收录侧 = engine append-trace --ingest-redteam（无预派发时模型回退会话内路径）。
     pre_dispatch: str = ""
+    # O3（u1-overall-cost）：本步是「原文收录」报告的消费步（三关质检要读报告
+    # 全文）——交接包对本步保收录项全文；其余步（False）包内收录项截断+指针。
+    # 声明式单源（pre_dispatch 同范式），禁 handoff_pack 硬编码步号。
+    pack_full_reports: bool = False
 
 
 @dataclass(frozen=True)
@@ -1215,6 +1219,9 @@ _NODES: dict[str, Node] = {
                 # u1-sub5-cost 修3：红队改 driver 预派发（子4 证据冻结即具备输入），
                 # 与本步段并行——实测红队跑 158-235s 而主会话有效并行 ≤1min。
                 pre_dispatch="redteam",
+                # O3（u1-overall-cost）：本步是收录原文唯一消费步（①三关质检逐条
+                # 审子4 fetch 报告 + ②红队报告）——交接包对本步保收录项全文。
+                pack_full_reports=True,
                 # v2.80-v2.83（2026-08-04，designs/u1-sub4-gate-framing-design.md）：
                 # §3.5 #28 泛化第四例--framing 反转 + 方框化 4 条真值判据 + 双侧钉死。
                 # 基线 n=6：490 字从严版 clean 0/6 + vio1-4 牙齿 6/6。v2.80 反转后

@@ -153,7 +153,7 @@ def test_drive_settings_strips_statusline(wf_repo):
 def test_node_rules_is_node_scoped_not_full_template(wf_repo):
     drv = _load(DRIVER, "drv_under_test")
     node = engine.get_node("understand", 1)
-    out = drv.ensure_node_rules(wf_repo, "t", node)
+    out = drv.ensure_node_rules(wf_repo, "t", node, 1)
     text = out.read_text(encoding="utf-8")
     assert "子步骤" in text
     assert "禁输出 ### STEP_DONE" in text
@@ -182,7 +182,7 @@ def test_node_rules_injects_project_tools(wf_repo, monkeypatch):
         ],
     )
     node = engine.get_node("understand", 1)
-    out = drv.ensure_node_rules(wf_repo, "t", node)
+    out = drv.ensure_node_rules(wf_repo, "t", node, 1)
     text = out.read_text(encoding="utf-8")
     assert "## 本项目工具" in text
     assert "inspect-backtest-result" in text  # name（设计意图「给模型看的名字」）
@@ -195,7 +195,7 @@ def test_node_rules_omits_project_tools_section_without_tools(wf_repo):
     """无工具（无 workflow-tools.yaml）时，node-rules 不含「本项目工具」段。"""
     drv = _load(DRIVER, "drv_under_test")
     node = engine.get_node("understand", 1)
-    out = drv.ensure_node_rules(wf_repo, "t", node)
+    out = drv.ensure_node_rules(wf_repo, "t", node, 1)
     text = out.read_text(encoding="utf-8")
     assert "## 本项目工具" not in text
     assert "inspect-backtest-result" not in text
@@ -219,7 +219,7 @@ def test_node_rules_injection_handles_null_fields(wf_repo, monkeypatch):
         ],
     )
     node = engine.get_node("understand", 1)
-    out = drv.ensure_node_rules(wf_repo, "t", node)
+    out = drv.ensure_node_rules(wf_repo, "t", node, 1)
     text = out.read_text(encoding="utf-8")
     assert "## 本项目工具" in text
     assert "None" not in text
@@ -494,7 +494,7 @@ def test_tui_rules_carry_opening_discipline(wf_repo):
     assert "Bash 形态铁律" in tui_rules
     assert "git -C" in tui_rules
     # headless 段 rules 不带 TUI 段（无 TUI 可透出）
-    headless_rules = drv.ensure_node_rules(wf_repo, "t", node).read_text(
+    headless_rules = drv.ensure_node_rules(wf_repo, "t", node, 1).read_text(
         encoding="utf-8"
     )
     assert "TUI 交互段开场纪律" not in headless_rules
@@ -612,7 +612,7 @@ def test_build_tui_cmd_bare_omits_prompt(tmp_path):
     cmd_bare = drv._build_tui_cmd(
         "sid-x", tmp_path / "s.json", tmp_path / "rules.md", None, False, meta
     )
-    assert cmd_bare[-1] == "acceptEdits"  # 末位是 flag，无 prompt 位置参数
+    assert cmd_bare[-1] == drv.engine.NO_MCP_ARGS[-1]  # 末位是 flag，无 prompt 位置参数
     assert "sid-x" in cmd_bare
     cmd_full = drv._build_tui_cmd(
         "sid-x", tmp_path / "s.json", tmp_path / "rules.md", "任务书", False, meta
@@ -2279,20 +2279,24 @@ def test_node_rules_injects_discovery_ledger_hint(wf_repo):
     """ensure_node_rules 含「发现台账」提示（工具级去重告知）。"""
     drv = _load(DRIVER, "drv_under_test")
     node = engine.get_node("understand", 1)
-    out = drv.ensure_node_rules(wf_repo, "t", node)
+    out = drv.ensure_node_rules(wf_repo, "t", node, 1)
     text = out.read_text(encoding="utf-8")
     assert "## 发现台账" in text
     assert "discoveries.jsonl" in text
 
 
 def test_node_rules_has_arch_route(wf_repo):
-    """understand:1 子2 段落含通用取证路线（trace/string/history/Read）。"""
+    """understand:1 子3（因果链挖掘）的通用取证路线（trace/string/history/Read）
+    随当前步 purpose 逐字进段 prompt（O2 后 node-rules 只留 titles——
+    取证路线的可见面从 rules 清单迁到段 prompt 的「目的」行，契约在此钉死）。"""
     drv = _load(DRIVER, "drv_under_test")
     node = engine.get_node("understand", 1)
-    out = drv.ensure_node_rules(wf_repo, "t", node)
-    text = out.read_text(encoding="utf-8")
-    assert "dl-cmd.sh codebase trace" in text
-    assert "取证路线" in text
+    step = node.sub_steps[2]
+    prompt = drv.build_step_prompt(
+        wf_repo, "t", {"index": 1}, node, 3, step, rework=None
+    )
+    assert "dl-cmd.sh codebase trace" in prompt
+    assert "取证路线" in prompt
 
 
 # ---------- u1-sub5-cost 修3：红队 driver 预派发 ----------
@@ -2445,3 +2449,150 @@ class TestRedteamPreDispatch:
         assert len(spawned2) == 1
         wj2 = json.loads((meta / "redteam_worker.json").read_text())
         assert wj2["prompt_sha1"] != "stale-sha"
+
+
+# ---------- u1-overall-cost O1/O2（designs/u1-overall-cost-optimization-design.md）----------
+
+
+class _FakeSegProc:
+    """run_session Popen 假身：记录 stdin/cmd，喂一行 result 事件即完工。"""
+
+    def __init__(self, cmd, **kw):
+        self.cmd = cmd
+        self.kw = kw
+        self.pid = 888002
+        self.stdin = _FakeRTProc._RecStdin()
+        self.stdout = iter(
+            [
+                '{"type":"result","subtype":"success","duration_ms":1000,'
+                '"total_cost_usd":0.01,"num_turns":1}\n'
+            ]
+        )
+
+    def wait(self, timeout=None):
+        return 0
+
+    def terminate(self):
+        pass
+
+    def kill(self):
+        pass
+
+
+def test_run_session_disables_mcp(wf_repo, monkeypatch):
+    """O1：段会话禁 MCP——编排全程禁 tavily（子4 purpose 明文），MCP schema
+    （探针实测 2,504 tok/调用前缀）是纯税；--tools 限不住 MCP（红队经 MCP 调
+    tavily_extract 实证）——strict-mcp-config + 空表 = 结构封死。"""
+    drv = _load(DRIVER, "drv_no_mcp")
+    spawned = []
+
+    def _fake_popen(cmd, **kw):
+        proc = _FakeSegProc(cmd, **kw)
+        spawned.append(proc)
+        return proc
+
+    monkeypatch.setattr(drv.subprocess, "Popen", _fake_popen)
+    meta = wf_repo / ".claude" / "workflows" / "t"
+    meta.mkdir(parents=True, exist_ok=True)
+    settings = meta / "settings.drive.json"
+    settings.write_text("{}", encoding="utf-8")
+    rules = meta / "node-rules.md"
+    rules.write_text("r", encoding="utf-8")
+    rc, _out, _sid = drv.run_session(
+        "PROMPT",
+        cwd=wf_repo,
+        settings=settings,
+        sys_prompt_file=rules,
+        meta=meta,
+        debug=False,
+        note="t#1",
+    )
+    assert rc == 0
+    cmd = spawned[0].cmd
+    assert "--strict-mcp-config" in cmd
+    assert cmd[cmd.index("--mcp-config") + 1] == '{"mcpServers":{}}'
+
+
+def test_tui_cmd_disables_mcp(wf_repo):
+    """O1：TUI 交互段同一税同一封法；prompt 位置参数仍在末尾（旗标顺序纪律）。"""
+    drv = _load(DRIVER, "drv_no_mcp_tui")
+    meta = wf_repo / ".claude" / "workflows" / "t"
+    cmd = drv._build_tui_cmd("sid", Path("s"), Path("r"), "PROMPT", False, meta)
+    assert "--strict-mcp-config" in cmd
+    assert cmd[cmd.index("--mcp-config") + 1] == '{"mcpServers":{}}'
+    assert cmd[-1] == "PROMPT"
+
+
+def test_node_rules_brief_titles_only(wf_repo):
+    """O2：node-rules 清单 titles-only + 当前步标注；当前步完整目的由段 prompt
+    逐字携带（双通道契约在此钉死）。瘦身前 node-rules.understand:1.md 实测
+    25,005 字符（7 步 purpose 清单 ~15k 是每调用重付的死重）。"""
+    drv = _load(DRIVER, "drv_brief")
+    node = engine.get_node("understand", 1)
+    text = drv.ensure_node_rules(wf_repo, "t", node, 3).read_text(encoding="utf-8")
+    for short in (
+        "逼问定义",
+        "规划拆解",
+        "因果链挖掘",
+        "双向取证",
+        "质检裁决",
+        "归一化陈述",
+        "读回确认",
+    ):
+        assert short in text
+    assert "当前步" in text
+    # 任何步 purpose 全文都不在 rules（当前步的在段 prompt——下方钉死）
+    assert "占环位" not in text
+    assert "权威源注册表" not in text
+    assert "去上下文" not in text
+    assert len(text) < 9000  # 瘦身硬阈值（25,005 -> <9k）
+    # 双通道契约：段 prompt 逐字携带当前步完整目的
+    step = node.sub_steps[2]
+    prompt = drv.build_step_prompt(
+        wf_repo, "t", {"index": 1}, node, 3, step, rework=None
+    )
+    assert step.purpose in prompt
+
+
+def test_node_rules_aq_injection_consumer_steps_only(wf_repo):
+    """O2 连带：atomic_questions 注入收窄到消费步（子2b/子4 = cur 3/4）——
+    子5+ 的 claim/tier 上下文已在包内 trace 全文，注入是重复税。"""
+    drv = _load(DRIVER, "drv_aq_gate")
+    ev = wf_repo / ".claude" / "evidence"
+    ev.mkdir(parents=True, exist_ok=True)
+    rec = {
+        "kind": "skill-trace",
+        "major_stage": "Understand",
+        "minor_stage": "ProblemContext",
+        "sub_step": 2,
+        "skill": "s",
+        "purpose": "p",
+        "q": ["q"],
+        "a": ["a"],
+        "atomic_questions": [
+            {"q": "原子A", "tier": "none", "tier_reason": "仓内 paths.py:1"}
+        ],
+    }
+    (ev / "t.jsonl").write_text(
+        json.dumps(rec, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    node = engine.get_node("understand", 1)
+    t3 = drv.ensure_node_rules(wf_repo, "t", node, 3).read_text(encoding="utf-8")
+    t4 = drv.ensure_node_rules(wf_repo, "t", node, 4).read_text(encoding="utf-8")
+    t5 = drv.ensure_node_rules(wf_repo, "t", node, 5).read_text(encoding="utf-8")
+    assert "原子A" in t3
+    assert "原子A" in t4
+    assert "原子A" not in t5
+
+
+class TestRedteamPreDispatchNoMcp:
+    """O1 连带：红队预派发 worker 禁 MCP——「Read 为主」纪律从文案升结构
+    （--tools Read 只限内置工具，worker 经 MCP 调 tavily_extract 两次实证）。"""
+
+    def test_predispatch_cmd_disables_mcp(self, wf_repo, monkeypatch):
+        drv = _load(DRIVER, "drv_rt_pd_nomcp")
+        helper = TestRedteamPreDispatch()
+        spawned, _meta = helper._call(drv, wf_repo, monkeypatch)
+        cmd = spawned[0].cmd
+        assert "--strict-mcp-config" in cmd
+        assert cmd[cmd.index("--mcp-config") + 1] == '{"mcpServers":{}}'
