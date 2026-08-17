@@ -152,3 +152,17 @@ redteam-prompt 机械保证不含子5 结论）。把派发从「子5 段内模�
 - 三关质检内容本身下沉机械层（P2-2 审计结论：语义判据在，judge 不跳）；
 - v2 TUI（WF_TUI=1）路径任何改动（回滚面，自然走会话内回退路径）；
 - 交接包瘦身（=P1-1 独立项，不在本步范围）。
+
+## 5. 实施验证记录（2026-08-17）
+
+- TDD 红→绿 + 全量 1065 tests + ruff 全绿（merge 206dea9）。
+- **rt_smoke 真 claude 端到端冒烟**（scratch repo + 真子4 trace）：driver 预派发
+  spawn 真实 worker ✓ → 报告完工 ✓ → `--ingest-redteam` 收录 ✓ → `--from-file`
+  全量 mech 落库 ✓（float 证据 0.49519773767901265 在场零误报=修1 端到端生效；
+  k3 红队逐字标签「verdict: 证据不足」并识破虚构冒烟证据=修2 模板侧+对抗性在线）。
+- 冒烟逮住两个生产级缺陷并已修（27aa0b7）：①僵尸 pid——driver 存活期间 worker
+  完工成僵尸，kill(pid,0) 仍成功会把 ingest 拖到超时 → pid_alive 读 /proc 判 Z；
+  ②ANTHROPIC_LOG stdout 污染 → --output-format json + 末行 result 提取。
+- live 验证：在飞 amplitude_annualized 实例（停子4）续跑到子5 时观察——
+  redteam_worker.json 落盘、--ingest-redteam 一次收录、零 task-id 误报拒、
+  墙钟 ≤4.5min。
