@@ -92,3 +92,19 @@ def _subagent_dir(project_root, name, task_id=None):
   round-1 同裁决）；
 - 原子C 的 full 定档（子2a 判面，观察项）；
 - 交接包瘦身（P1-1 独立项）。
+
+## 5. 实施验证记录（2026-08-17，merge 44182f4，1068 tests）
+
+- TDD 红→绿：bug 重现场（agent 在字典序较后目录→ingest 成功）/双命中取最新/
+  台账取最新 agent 文件目录（目录 mtime 反向污染也不影响）+ 既有 ingest/retry
+  回归全绿。
+- **真实数据验证**（在飞实例 14 个 subagents 目录）：两 task_id 均定位
+  e92ca5db（当前段）✓；台账定位 e92ca5db ✓。过程中发现 bug 期模型的
+  workaround 拷贝残留（188d1472 里两份同名文件）把文件 mtime 锚也污染——
+  cmp 验证与原件一致后清除；鉴别器同步从「目录 mtime」改「最新 agent 文件」
+  抗此类污染。
+- 原子C 定档复核：tier_reason 明示「规则明示『X 策略年化 48.7% 是否合理』
+  =full 档」——2026-08-13 重设计删的是 light 例中的量级合理性，full 档
+  含该规则例，定档 per-spec，**非子2a 判面漏判**（设计 §1 层2 观察项撤回）。
+- live 验证：下一次真实 step4（新工作流）应见 ingest 零调试循环、
+  calls ~30 量级。拷贝残留类污染已随鉴别器升级免疫。
