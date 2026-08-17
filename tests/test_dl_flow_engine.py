@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -6062,6 +6063,14 @@ class TestRedteamPrompt:
         _write_evidence(tmp_path, "t", [_trace_line(1)])
         assert eng.redteam_prompt(tmp_path, "t") is None
 
+    def test_output_pins_literal_labels(self, tmp_path):
+        # u1-sub5-cost 修2 模板侧：输出节钉逐字标签（200fb21a 轮红队把
+        # 「置信度」简写成「置信 95%」撞 mech 字面扫——模板先钉，mech 再宽）
+        _write_evidence(tmp_path, "t", [_trace_line(4, "ev4")])
+        prompt = eng.redteam_prompt(tmp_path, "t")
+        assert prompt is not None
+        assert "置信度" in prompt and "逐字" in prompt
+
 
 class TestV237FirstPassRate:
     """v2.37 understand:1 一次通过率三连修（2026-08-01 tail_volume 审计）。
@@ -8521,6 +8530,43 @@ class TestRedteamReportRecorded:
         ok, msg = self._append_s5(tmp_path, qa)
         assert ok, msg
 
+    def test_predispatch_worker_unrecorded_blocked(self, tmp_path):
+        # u1-sub5-cost 修3 闭环：driver 预派发通道无 task-id 可引——
+        # redteam_worker.json 在位 = 红队已派，无收录项提交 = 提前提交，当场拒
+        # （否则 judge 被告知「形式要件已机械拦截」而放行 = 对抗复核缺席的洞）。
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=5)
+        meta = tmp_path / ".claude" / "workflows" / "t"
+        (meta / "redteam_worker.json").write_text(
+            json.dumps({"pid": 999999, "started_at": "x", "prompt_sha1": "s"}),
+            encoding="utf-8",
+        )
+        qa = [
+            {"q": "① 三关质检", "a": "E1 针对性 pass"},
+            {"q": "② 对抗复核", "a": "红队由 driver 预派发，与本步并行。"},
+            {"q": "③ 四态结论合成", "a": "Q1 部分成立"},
+        ]
+        ok, msg = self._append_s5(tmp_path, qa)
+        assert not ok and "预派发" in msg and "ingest-redteam" in msg
+
+    def test_predispatch_recorded_accepted(self, tmp_path):
+        # 预派发通道合法形态：worker.json 在位 + 收录项标题（无 task-id）→ 过
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=5)
+        meta = tmp_path / ".claude" / "workflows" / "t"
+        (meta / "redteam_worker.json").write_text(
+            json.dumps({"pid": 999999, "started_at": "x", "prompt_sha1": "s"}),
+            encoding="utf-8",
+        )
+        qa = [
+            {"q": "① 三关质检", "a": "E1 针对性 pass"},
+            {
+                "q": "②.5 红队输出原文收录（driver 预派发）",
+                "a": "verdict: 部分成立\n推理链：E1→收窄\n置信度：高",
+            },
+            {"q": "③ 四态结论合成", "a": "Q1 部分成立"},
+        ]
+        ok, msg = self._append_s5(tmp_path, qa)
+        assert ok, msg
+
 
 class TestRedteamThreePiece:
     """v2.83 redteam_three_piece：子5 红队收录项三件套完整性（verdict/推理链/置信度）。
@@ -8563,6 +8609,23 @@ class TestRedteamThreePiece:
         ]
         ok, msg = self._append_s5(tmp_path, qa)
         assert not ok and "推理链" in msg and "置信度" in msg
+
+    def test_confidence_shorthand_accepted(self, tmp_path):
+        # u1-sub5-cost 修2（200fb21a 轮真实被 block 载荷词形）：红队原文写
+        # 「置信 95%」（模板未钉逐字标签时弱模型的自然简写）→ 不应再被字面
+        # 「置信度」拦。词形取真实载荷逐字（v2.49 同范式）；转述冒充（双缺）
+        # 维持 BLOCK 见 test_missing_piece_blocked。
+        qa = [
+            {"q": "① 三关质检", "a": "E1 针对性 pass"},
+            {
+                "q": "②.5 红队输出原文收录（task-id a538a700d0d5e496d）",
+                "a": "## 原子A：部分成立\n**推理链（逐行点查证实双转结构）**"
+                "……结构证实，置信 95%。",
+            },
+            {"q": "③ 四态结论合成", "a": "Q1 部分成立"},
+        ]
+        ok, msg = self._append_s5(tmp_path, qa)
+        assert ok, msg
 
     def test_no_redteam_accepted(self, tmp_path):
         # 无红队收录项（未派发无 task-id）-> 交 judge 判真值（宁纵勿枉）
@@ -9696,6 +9759,162 @@ class TestIngestAgentReport:
         assert ok, msg
         text = (tmp_path / ".trace-payload-t.md").read_text(encoding="utf-8")
         assert "蒸馏报告原文收录（task-id abc123）" in text
+
+
+class TestTaskIdRe:
+    """u1-sub5-cost 修1：_TASK_ID_RE 排除 float repr 误报。
+
+    amplitude_annualized step5 三轮实测（轮1/2 共 4 次假阳性拒）：证据里的
+    Python float repr 小数位 ≥16 位被 `\\b[0-9a-f]{16,17}\\b` 当 task-id →
+    「已派发未收录」假阳性，模型为过关被迫改写合法证据数值。修复 = 候选须
+    含 a-f 字母 + 前邻不得为 hex/`.`。误报 id 逐字取自真实 reject 消息。
+    """
+
+    def test_real_task_ids_match(self):
+        for tid in ("a538a700d0d5e496d", "a9b273c9bd788e857", "a5ca6ea271e5e937e"):
+            assert eng._TASK_ID_RE.findall(f"task-id {tid}") == [tid]
+            assert eng._TASK_ID_RE.findall(f"task-id={tid}") == [tid]
+
+    def test_float_fraction_reprs_excluded(self):
+        # 轮1/2 真实误报 id 逐字（reject 消息原文）：全是证据数值的小数位段
+        text = (
+            "ob_quality raw = 0.49519773767901265 → 双转 4952%；"
+            "coverage=0.9806949806949807；0.48244678899192833 无对应；"
+            "残差 0.1194141004217242"
+        )
+        assert eng._TASK_ID_RE.findall(text) == []
+
+    def test_pure_digit_runs_excluded(self):
+        assert eng._TASK_ID_RE.findall("id 49519773767901265 缺收录") == []
+        assert eng._TASK_ID_RE.findall("48244678899192833") == []
+
+    def test_scientific_notation_excluded(self):
+        # e 是 hex 字母——纯「含字母」规则会漏科学计数法，靠前邻 `.` 排除
+        assert eng._TASK_ID_RE.findall("1.2345678901234567e-05") == []
+
+    def test_pairing_unaffected_by_float_evidence(self):
+        # 双向重放-放行侧：float 证据 + 真收录 → 无 missing（轮1/2 被拒载荷形态）
+        qa = [
+            {
+                "q": "① 三关质检",
+                "a": "E10 raw=0.49519773767901265 coverage=0.9806949806949807",
+            },
+            {
+                "q": "②.5 红队输出原文收录（task-id a9b273c9bd788e857）",
+                "a": "推理链：…；置信度：高",
+            },
+        ]
+        assert eng._dispatched_vs_unrecorded_task_ids(qa) == []
+
+    def test_pairing_missing_still_caught(self):
+        # 双向重放-拦截侧（v2.118 牙齿保真）：真 task-id 无收录 → missing
+        qa = [{"q": "② 派发", "a": "Agent task-id=a5ca6ea271e5e937e 已派发"}]
+        assert eng._dispatched_vs_unrecorded_task_ids(qa) == ["a5ca6ea271e5e937e"]
+
+
+class TestIngestRedteamPreDispatch:
+    """u1-sub5-cost 修3：append-trace --ingest-redteam（driver 预派发报告收录）。
+
+    红队改由 driver 在子4 gate 过后预派发（与子5 主会话并行），报告落
+    meta/redteam_report.md；本命令阻塞等报告就绪（pid 死 + 报告非空）后
+    以规定标题形态收录进载荷 qa 节。无预派发/无产出 → fail loud 指路回退
+    会话内路径（redteam-prompt → Agent → --ingest-agent）。
+    """
+
+    _REPORT = "verdict: 部分成立\n推理链：E1→收窄边界\n置信度：高"
+
+    def _mk(
+        self,
+        tmp_path,
+        *,
+        pid=None,
+        report=_REPORT,
+        worker_json=True,
+        scaffold=True,
+    ):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=5)
+        meta = tmp_path / ".claude" / "workflows" / "t"
+        if worker_json:
+            (meta / "redteam_worker.json").write_text(
+                json.dumps(
+                    {
+                        "pid": pid if pid is not None else 99999944,
+                        "started_at": "x",
+                        "prompt_sha1": "s",
+                    }
+                ),
+                encoding="utf-8",
+            )
+        if report is not None:
+            (meta / "redteam_report.md").write_text(report, encoding="utf-8")
+        if scaffold:
+            ok, msg = eng.scaffold_payload(tmp_path, "t")
+            assert ok, msg
+        return meta
+
+    def test_happy(self, tmp_path):
+        # pid 死（99999944 不存在）+ 报告非空 → 收录成功，标题含「红队」「原文收录」
+        self._mk(tmp_path)
+        ok, msg = eng.ingest_redteam_report(tmp_path, "t", timeout=1, interval=0.05)
+        assert ok, msg
+        text = (tmp_path / ".trace-payload-t.md").read_text(encoding="utf-8")
+        assert "红队输出原文收录（driver 预派发）" in text
+        assert "置信度：高" in text
+        step = eng.get_node("understand", 1).sub_steps[4]
+        payload, err = eng._parse_trace_md(text, step)
+        assert err is None
+        assert any("红队" in it["q"] and "原文收录" in it["q"] for it in payload["qa"])
+
+    def test_no_worker_json_fallback(self, tmp_path):
+        # v2 TUI / driver 未预派发 → 指路回退会话内路径
+        self._mk(tmp_path, worker_json=False, report=None)
+        ok, msg = eng.ingest_redteam_report(tmp_path, "t", timeout=1, interval=0.05)
+        assert not ok and "ingest-agent" in msg and "redteam-prompt" in msg
+
+    def test_dead_pid_empty_report_fallback(self, tmp_path):
+        # worker 已死 + 报告空 → 预派发无产出，指路回退（不傻等）
+        self._mk(tmp_path, report=None)
+        ok, msg = eng.ingest_redteam_report(tmp_path, "t", timeout=5, interval=0.05)
+        assert not ok and "无产出" in msg and "ingest-agent" in msg
+
+    def test_delayed_report_succeeds(self, tmp_path):
+        # 阻塞语义：报告在等待期间落盘（真实子进程 0.3s 后写并退出→pid 自然死）
+        meta = self._mk(tmp_path, pid=None, report=None)
+        report_path = meta / "redteam_report.md"
+        proc = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                "import time,sys;time.sleep(0.3);"
+                "open(sys.argv[1],'w',encoding='utf-8').write(sys.argv[2])",
+                str(report_path),
+                self._REPORT,
+            ]
+        )
+        (meta / "redteam_worker.json").write_text(
+            json.dumps({"pid": proc.pid, "started_at": "x", "prompt_sha1": "s"}),
+            encoding="utf-8",
+        )
+        ok, msg = eng.ingest_redteam_report(tmp_path, "t", timeout=5, interval=0.05)
+        proc.wait(timeout=5)
+        assert ok, msg
+
+    def test_timeout_still_running(self, tmp_path):
+        # pid 活（本进程）+ 报告空 → 等到超时，指路「继续①③④后重试」
+        self._mk(tmp_path, pid=os.getpid(), report=None)
+        ok, msg = eng.ingest_redteam_report(tmp_path, "t", timeout=0.3, interval=0.05)
+        assert not ok and "未就绪" in msg
+
+    def test_duplicate_rejected(self, tmp_path):
+        self._mk(tmp_path)
+        assert eng.ingest_redteam_report(tmp_path, "t", timeout=1, interval=0.05)[0]
+        ok, msg = eng.ingest_redteam_report(tmp_path, "t", timeout=1, interval=0.05)
+        assert not ok and "已收录" in msg
+
+    def test_missing_payload_rejected(self, tmp_path):
+        self._mk(tmp_path, scaffold=False)
+        ok, msg = eng.ingest_redteam_report(tmp_path, "t", timeout=1, interval=0.05)
+        assert not ok and "载荷不存在" in msg
 
 
 class TestRenderReadback:

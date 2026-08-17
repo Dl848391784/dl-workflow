@@ -22,9 +22,11 @@ dl_flow_engine（state.json + evidence.jsonl 磁盘真源，天然会话无关�
 """
 
 import argparse
+import hashlib
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -122,6 +124,105 @@ def _record_segment(
 # ---------- P2-4 段链合并（designs/segment-chain-resume-design.md） ----------
 # 会话合并非派发合并：逐步派发 + 步间 gate 不变，仅「下一步新会话」改
 # 「--resume 同会话续跑」。链粒度 = minor_state。
+
+
+# ---------- u1-sub5-cost 修3：红队 driver 预派发 ----------
+# （designs/u1-sub5-cost-optimization-design.md）：红队输入只依赖 ≤子4 trace
+# （redteam-prompt 机械保证不含子5 结论），子4 gate 一过即具备派发条件。
+# 实测红队跑 158-235s 而主会话有效并行 ≤1min（轮2 零并行干等 2.7min）——
+# 把派发从「子5 段内模型动作」前移为「driver 派段动作」，红队运行与子5
+# 主会话工作（①③④ ≈2-3min）重叠。收录侧 = engine --ingest-redteam。
+
+
+def _maybe_predispatch_redteam(
+    project_root: Path,
+    name: str,
+    step: "engine.Step",
+    *,
+    wt: Path,
+    settings: Path,
+    meta: Path,
+    disp: "LiveProgress | None" = None,
+) -> None:
+    """pre_dispatch=redteam 步派段前预起红队 worker（幂等，freshness 按 prompt sha1）。
+
+    - prompt = engine.redteam_prompt（子1-4 最新 trace；None=无子4 trace →
+      跳过，ingest 侧 fail loud 指路回退会话内路径）；
+    - worker.json（meta/redteam_worker.json）记 {pid, started_at, prompt_sha1,
+      session_id}：sha 相同且（pid 活 或 报告非空）→ 复用不重派；
+      sha 变（state-reset 后子4 证据变了）→ SIGTERM 旧进程、重派；
+    - spawn 形态对齐段会话（drive settings + stdin prompt[E2BIG 纪律] +
+      start_new_session），差异：`--tools Read` 把纪律1「Read 为主、其它
+      不要试」从文案变结构（judge --tools "" 同范式）；stdout 重定向
+      meta/redteam_report.md（文本输出=最终报告）；不解析 stream（无需
+      进度透出——worker 完成信号 = pid 死 + 报告非空，ingest 侧判定）。
+    """
+    if getattr(step, "pre_dispatch", "") != "redteam":
+        return
+    prompt = engine.redteam_prompt(project_root, name)
+    if prompt is None:
+        return
+    report = meta / "redteam_report.md"
+    wj_path = meta / "redteam_worker.json"
+    sha = hashlib.sha1(prompt.encode("utf-8")).hexdigest()
+    if wj_path.exists():
+        try:
+            old = json.loads(wj_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            old = None
+        if isinstance(old, dict) and old.get("prompt_sha1") == sha:
+            if engine.pid_alive(old.get("pid")) or (
+                report.exists() and report.stat().st_size > 0
+            ):
+                return  # 在跑或已完工——复用
+        elif isinstance(old, dict):
+            try:
+                os.kill(int(old.get("pid")), signal.SIGTERM)
+            except (ProcessLookupError, OverflowError, ValueError, TypeError):
+                pass
+    sid = str(uuid.uuid4())
+    cmd = [
+        "claude",
+        "-p",
+        "--tools",
+        "Read",
+        "--permission-mode",
+        "acceptEdits",
+        "--settings",
+        str(settings),
+        "--session-id",
+        sid,
+    ]
+    meta.mkdir(parents=True, exist_ok=True)
+    with (
+        open(report, "w", encoding="utf-8") as rep_f,
+        open(meta / "cc_sdk.log", "a", encoding="utf-8") as err_f,
+    ):
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(wt),
+            stdin=subprocess.PIPE,
+            stdout=rep_f,
+            stderr=err_f,
+            text=True,
+            start_new_session=True,
+        )
+        assert proc.stdin is not None
+        proc.stdin.write(prompt)
+        proc.stdin.close()
+    wj_path.write_text(
+        json.dumps(
+            {
+                "pid": proc.pid,
+                "started_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "prompt_sha1": sha,
+                "session_id": sid,
+            }
+        ),
+        encoding="utf-8",
+    )
+    if disp is not None:
+        disp.log("  ⚑ 红队预派发（子4 证据已冻结）——与本步段并行跑")
 
 
 def _chain_resume_sid(state: dict, node_id: str, cur: int) -> "str | None":
@@ -1654,6 +1755,17 @@ def _run_boundary_loop(
                         state, node, cur, step, pending_rework
                     )
                 else:
+                    # u1-sub5-cost 修3：pre_dispatch 声明步（u:1#5 红队）——
+                    # 派本步段前先预起后台 worker（红队运行与本步段并行）
+                    _maybe_predispatch_redteam(
+                        project_root,
+                        name,
+                        step,
+                        wt=wt,
+                        settings=settings,
+                        meta=meta,
+                        disp=disp,
+                    )
                     rules = ensure_node_rules(project_root, name, node)
                     # P2-1：下一步是交互步 -> 本段顺带备其问题清单（NEXT_PREP 通道）；
                     # 确认级读回步无问答（P3-1），不备

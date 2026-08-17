@@ -4422,7 +4422,19 @@ _MECH_EXTRA_STR_CHECKS = {
 
 # 子代理 task-id 词形（harness agentId = 16-17 位小写 hex，同
 # hooks/workflow_advance.py 的 _AGENT_LAUNCH_ID_RE 口径）。
-_TASK_ID_RE = re.compile(r"\b[0-9a-f]{16,17}\b")
+# u1-sub5-cost 修1（designs/u1-sub5-cost-optimization-design.md）：旧
+# `\b[0-9a-f]{16,17}\b` 把证据里的 Python float repr 小数位段当 task-id——
+# amplitude_annualized step5 轮1/2 共 4 次假阳性「已派发未收录」拒
+# （0.49519773767901265→49519773767901265、0.9806949806949807、
+# 0.48244678899192833、0.1194141004217242，逐字取自真实 reject 消息），模型
+# 为过关被迫改写合法证据数值。修复两道：
+# - (?=[0-9a-f]*[a-f])：候选须含 a-f 字母——纯数字 16-17 位串排除
+#   （真实 id 全含字母；纯数字真 id 概率 ~(10/16)^17，漏识别方向=交 judge
+#   宁纵勿枉；float 证据在质检类载荷是常态，误报方向不可接受）；
+# - (?<![0-9a-f.])：前邻不得为 hex 字符或 `.`——小数位段（`.`后）与科学计数法
+#   尾段（1.2345678901234567e-05 的 e 段）整段排除；`\b` 保留（word 字符粘连
+#   语义不变）。
+_TASK_ID_RE = re.compile(r"(?<![0-9a-f.])\b(?=[0-9a-f]*[a-f])[0-9a-f]{16,17}\b")
 
 
 def _dispatched_vs_unrecorded_task_ids(qa: list) -> list[str]:
@@ -4540,7 +4552,18 @@ def _check_fetch_skeleton_out(qa, project_root, name):
     return None
 
 
-def _check_redteam_report_recorded(qa: list, *_ctx) -> str | None:
+def _redteam_worker_file(project_root, name) -> Path | None:
+    """driver 预派发红队的 worker 记录文件（u1-sub5-cost 修3）。"""
+    if not project_root or not name:
+        return None
+    return (
+        Path(project_root) / ".claude" / "workflows" / str(name) / "redteam_worker.json"
+    )
+
+
+def _check_redteam_report_recorded(
+    qa: list, project_root=None, name=None
+) -> str | None:
     """redteam_report_recorded：子5 红队输出原文收录机械核验（u:1 子5 专属，v2.44）。
 
     实证（2026-08-02 tail_volume u:1 子4）：模型先撞占位符扫描（「待补」机械拒、
@@ -4559,14 +4582,32 @@ def _check_redteam_report_recorded(qa: list, *_ctx) -> str | None:
     收录项」——子5 可同时有取证 agent（子4 升档补派、跨步归位）与红队 agent，
     仅判「有没有红队收录项」逮不住其中一个缺席（类型无关配对见
     _dispatched_vs_unrecorded_task_ids）。
+
+    u1-sub5-cost 修3 预派发通道：红队改由 driver 预派发（Step.pre_dispatch），
+    载荷无 task-id 可引——以 redteam_worker.json 在位为「红队已派」信号：
+    在位 + 无收录项 = 提前提交当场拒（否则 judge 侧 gate 文案被告知「形式要件
+    已机械拦截」，提前提交会穿堂而过 = 对抗复核缺席的洞）；不在位（v2 TUI /
+    driver 未起）-> None 交 judge（宁纵勿枉维持）。
     """
     text_all = "\n".join(f"{item.get('q', '')}\n{item.get('a', '')}" for item in qa)
-    if "task-id" not in text_all and "task_id" not in text_all:
-        return None
     recorded = any(
         "红队" in str(item.get("q", "")) and "原文收录" in str(item.get("q", ""))
         for item in qa
     )
+    if "task-id" not in text_all and "task_id" not in text_all:
+        if recorded:
+            return None
+        wj = _redteam_worker_file(project_root, name)
+        if wj is not None and wj.exists():
+            return (
+                "红队已由 driver 预派发（redteam_worker.json 在位）但输出未收录"
+                "——缺标题含「红队」「原文收录」的 qa 项（正确动作：append-trace "
+                "--ingest-redteam，阻塞等报告就绪并原文收录落载荷，禁手工粘贴；"
+                "预派发失败按其报错回退会话内路径 Agent + --ingest-agent）。"
+                "「已派发等归位」式状态说明不算记录（提前提交 = 对抗复核缺席的裁决，"
+                "下游子6 会拿到未经复核的问题集）"
+            )
+        return None
     if not recorded:
         return (
             "红队已派发（trace 含 task-id）但输出未原文收录——缺标题含「红队」"
@@ -4591,6 +4632,12 @@ def _check_redteam_report_recorded(qa: list, *_ctx) -> str | None:
     return None
 
 
+# u1-sub5-cost 修2：置信度要件词形（取真实被 block 载荷逐字「置信 95%」，
+# 200fb21a 轮）——「置信度」正字 或 「置信」+数字（%）。「难以置信」类
+# 不含数字不误中；转述冒充（无数字置信）维持拦截。
+_REDTEAM_CONFIDENCE_RE = re.compile(r"置信度|置信\s*\d")
+
+
 def _check_redteam_three_piece(qa: list, *_ctx) -> str | None:
     """redteam_three_piece：子5 红队收录项三件套完整性机械核验（v2.83，u:1 子5 专属）。
 
@@ -4599,9 +4646,13 @@ def _check_redteam_three_piece(qa: list, *_ctx) -> str | None:
     词形可判部分，下沉 mech 零方差（#2 缺席断言同范式，§3.5 #13）。
     红队收录项 = 标题含「红队」且含「原文收录」的 qa 项（同 redteam_report_recorded
     承诺装置）。三件套 = verdict+推理链+置信度（purpose 明文 + redteam-prompt
-    模板规定字段名）；收录项 a 须含「推理链」「置信度」关键词（verdict 由标题/
+    模板规定字段名）；收录项 a 须含「推理链」关键词 + 置信度词形（verdict 由标题/
     redteam_report_recorded 间接保证）。缺任一 -> 拒；未派发（无收录项）-> None
     交 judge 判真值（宁纵勿枉，同 redteam_report_recorded）。
+
+    u1-sub5-cost 修2 置信度词形放宽（模板侧已同步钉逐字标签）：200fb21a 轮
+    红队原文写「置信 95%」（模板未钉逐字时弱模型自然简写）被字面「置信度」
+    拦——词形取真实被 block 载荷逐字（v2.49 同范式）：`置信度|置信\\s*\\d`。
     """
     recorded_items = [
         item
@@ -4612,7 +4663,7 @@ def _check_redteam_three_piece(qa: list, *_ctx) -> str | None:
         return None
     for item in recorded_items:
         a = str(item.get("a", ""))
-        if "推理链" not in a or "置信度" not in a:
+        if "推理链" not in a or not _REDTEAM_CONFIDENCE_RE.search(a):
             return (
                 "红队原文收录项缺四态 verdict+推理链+置信度三件套中的推理链或"
                 "置信度（正确动作：append-trace --ingest-agent <task-id> 收录红队"
@@ -4988,6 +5039,70 @@ def _subagent_dir(project_root: Path, name: str) -> Path | None:
     return None
 
 
+def _insert_report_item(
+    payload_path: Path, text: str, title: str, report: str
+) -> tuple[bool, str]:
+    """把报告收录项插进 .md 载荷【qa】节末（ingest_agent_report /
+    ingest_redteam_report 共用，u1-sub5-cost 修3 抽出）。
+
+    插入【qa】节内（节末、下一顶层标头前）——追加文件尾会落进别的节
+    （【q】在【atomic_questions】节末=被当分档项；在【结论】节末=解析报错）。
+    """
+    lines = text.splitlines()
+    qa_idx = next((i for i, ln in enumerate(lines) if ln.strip() == "【qa】"), None)
+    if qa_idx is None:
+        return False, "载荷缺【qa】节——报告收录项进 qa 节，先补 qa 节再 ingest"
+    item_headers = {f"【{h}】" for h in _MD_ITEM_FIELDS}
+    insert_at = len(lines)
+    for i in range(qa_idx + 1, len(lines)):
+        st = lines[i].strip()
+        if (
+            st.startswith("【")
+            and st.endswith("】")
+            and st not in item_headers
+            and not st.startswith("【fields.")
+        ):
+            insert_at = i
+            break
+    section = [
+        "",
+        "【q】",
+        title,
+        "【a】",
+        *report.strip().splitlines(),
+        "",
+    ]
+    lines[insert_at:insert_at] = section
+    try:
+        payload_path.write_text("\n".join(lines), encoding="utf-8")
+    except OSError as e:
+        return False, f"写载荷失败：{e}"
+    return True, ""
+
+
+def pid_alive(pid) -> bool:
+    """跨进程 pid 活性探测（driver 预派发/ingest 阻塞等待共用，u1-sub5-cost 修3）。
+
+    僵尸坑（TestIngestRedteamPreDispatch 实测逮住）：worker 跑完但父进程
+    （driver）还在跑段未 wait()——kill(pid,0) 对僵尸仍成功，会误判「仍在跑」
+    把 ingest 拖到超时。/proc/<pid>/stat 的 state 字段判 Z（linux；读失败按
+    活处理=宁纵勿枉，继续等）。
+    """
+    try:
+        os.kill(int(pid), 0)
+    except (ProcessLookupError, OverflowError, ValueError, TypeError):
+        return False
+    except PermissionError:
+        return True
+    try:
+        stat = Path(f"/proc/{int(pid)}/stat").read_text()
+        if stat.rsplit(")", 1)[1].split()[0] == "Z":
+            return False
+    except (OSError, IndexError, ValueError):
+        pass
+    return True
+
+
 def ingest_agent_report(
     project_root: Path, name: str, task_id: str
 ) -> tuple[bool, str]:
@@ -5071,40 +5186,98 @@ def ingest_agent_report(
             "等 Agent 返回后再 ingest"
         )
 
-    # 插入【qa】节内（节末、下一顶层标头前）——追加文件尾会落进别的节
-    # （【q】在【atomic_questions】节末=被当分档项；在【结论】节末=解析报错）。
-    lines = text.splitlines()
-    qa_idx = next((i for i, ln in enumerate(lines) if ln.strip() == "【qa】"), None)
-    if qa_idx is None:
-        return False, "载荷缺【qa】节——报告收录项进 qa 节，先补 qa 节再 ingest"
-    item_headers = {f"【{h}】" for h in _MD_ITEM_FIELDS}
-    insert_at = len(lines)
-    for i in range(qa_idx + 1, len(lines)):
-        st = lines[i].strip()
-        if (
-            st.startswith("【")
-            and st.endswith("】")
-            and st not in item_headers
-            and not st.startswith("【fields.")
-        ):
-            insert_at = i
-            break
-    section = [
-        "",
-        "【q】",
-        f"{title}（task-id {task_id}）",
-        "【a】",
-        *report.strip().splitlines(),
-        "",
-    ]
-    lines[insert_at:insert_at] = section
-    try:
-        payload_path.write_text("\n".join(lines), encoding="utf-8")
-    except OSError as e:
-        return False, f"写载荷失败：{e}"
+    # 插入【qa】节内（节末、下一顶层标头前）——逻辑单源 = _insert_report_item
+    ok, err = _insert_report_item(
+        payload_path, text, f"{title}（task-id {task_id}）", report
+    )
+    if not ok:
+        return False, err
     return True, (
         f"✓ 已收录 {title}（task-id {task_id}，{len(report)} 字符）-> "
         f"{payload_path}——其余「待填」填完后 append-trace --from-file 落库"
+    )
+
+
+def ingest_redteam_report(
+    project_root: Path, name: str, *, timeout: float = 360.0, interval: float = 2.0
+) -> tuple[bool, str]:
+    """append-trace --ingest-redteam：driver 预派发红队报告收录（u1-sub5-cost 修3）。
+
+    红队改由 driver 在子4 gate 过后预派发（与子5 主会话并行——实测红队跑
+    158-235s 而主会话有效并行 ≤1min，等报告 = step5 墙钟地板），报告文本落
+    meta/redteam_report.md（worker 进程 stdout 重定向，进程退出才写完）。
+    本命令阻塞等「报告非空 + pid 已死」后以规定标题形态（含「红队」
+    「原文收录」=redteam_report_recorded 承诺装置）落载荷 qa 节——收录仍是
+    结构性保证，模型零接触手工粘贴。
+    无预派发（v2 TUI/driver 未起）/worker 无产出 -> fail loud 指路回退会话内
+    路径（redteam-prompt → Agent → --ingest-agent），宁纵勿枉。
+    """
+    meta = Path(project_root) / ".claude" / "workflows" / name
+    wj_path = meta / "redteam_worker.json"
+    report_path = meta / "redteam_report.md"
+    _fallback = (
+        "回退会话内路径：`python3 ~/.dl-workflow/dl_flow_engine.py redteam-prompt`"
+        " 生成 prompt → Agent 工具单发起 → append-trace --ingest-agent <task-id>"
+    )
+    if not wj_path.exists():
+        return False, (
+            "本步无 driver 预派发红队记录（v2 TUI 模式或 driver 未起红队）——"
+            + _fallback
+        )
+    try:
+        wj = json.loads(wj_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        return False, f"redteam_worker.json 读取失败：{e}——{_fallback}"
+
+    deadline = time.monotonic() + timeout
+    while True:
+        report = ""
+        try:
+            if report_path.exists():
+                report = report_path.read_text(encoding="utf-8")
+        except OSError:
+            report = ""
+        alive = pid_alive(wj.get("pid"))
+        if report.strip() and not alive:
+            break
+        if not alive and not report.strip():
+            return False, (
+                "预派发红队无产出（worker 进程已退出、报告为空）——"
+                f"{_fallback}（worker stderr 见 {meta / 'cc_sdk.log'}）"
+            )
+        if time.monotonic() >= deadline:
+            return False, (
+                f"红队报告未就绪（已等 {int(timeout)}s，worker 仍在跑）——"
+                "先继续做不依赖红队的部分（①三关质检、③初步 verdict 草稿），"
+                f"完成后重跑本命令；多次超时则 {_fallback}"
+            )
+        time.sleep(interval)
+
+    state = load_state(project_root, name)
+    if state is None:
+        return False, f"工作流 {name} 的 state.json 缺失"
+    state = normalize_state(state)
+    payload_path = trace_payload_path(project_root, name, state)
+    if not payload_path.exists():
+        return False, (
+            f"载荷不存在：{payload_path}——先写本步其它内容（或 append-trace "
+            "--scaffold 起骨架），再 --ingest-redteam 追加报告收录项"
+        )
+    try:
+        text = payload_path.read_text(encoding="utf-8")
+    except OSError as e:
+        return False, f"读载荷失败：{e}"
+    # 防重只认脚本写出的收录项标题形态（与 ingest_agent_report 同纪律，
+    # 宁纵勿枉——重复收录代价 << 误报调试死循环）；模型派发留痕不含此形态。
+    if "红队输出原文收录（" in text:
+        return False, "红队报告已收录过——同一报告不重复落（防重）"
+    title = "红队输出原文收录（driver 预派发）"
+    ok, err = _insert_report_item(payload_path, text, title, report)
+    if not ok:
+        return False, err
+    return True, (
+        f"✓ 已收录 {title}（{len(report)} 字符）-> {payload_path}——"
+        "其余「待填」填完后 append-trace --from-file 落库"
     )
 
 
@@ -5514,7 +5687,15 @@ def redteam_prompt(project_root: Path, name: str) -> str | None:
         "3. 不做系统性重新取证：只点查验证；证据不足时下「证据不足」verdict 并指明缺哪条。\n"
         "4. 对每个原子问题给四态 verdict（证实/证伪/部分成立/证据不足）"
         "+ 推理链（引用证据指针）+ 置信度。\n\n"
-        "【输出】逐原子问题：verdict / 推理链 / 置信度。"
+        # u1-sub5-cost 修2 模板侧：钉逐字标签——旧「verdict / 推理链 / 置信度」
+        # 未钉词形，弱模型红队自然简写成「置信 95%」撞 mech 字面扫（200fb21a 轮
+        # 被拒后模型手工补标签，白烧 2 轮）。模板钉死为正解，mech 放宽为兜底
+        # （双侧钉死，§3.5 #23）。
+        "【输出】逐原子问题三行，三个标签**逐字**照写（收录侧机械核验按字面扫，"
+        "「置信度」勿简写为「置信」）：\n"
+        "verdict: 证实|证伪|部分成立|证据不足\n"
+        "推理链: …（引用证据指针，file:line / URL）\n"
+        "置信度: N%"
     )
 
 
@@ -6035,6 +6216,11 @@ def main(argv: list[str] | None = None) -> int:
         help="append-trace：把子代理 agent-<TASK_ID> 的报告原文收录进 .md 载荷 qa 节（脚本提取，禁手工粘贴）",
     )
     parser.add_argument(
+        "--ingest-redteam",
+        action="store_true",
+        help="append-trace：把 driver 预派发红队的报告（redteam_report.md）收录进 .md 载荷 qa 节（阻塞等报告就绪；无预派发则指路回退 --ingest-agent）",
+    )
+    parser.add_argument(
         "--out",
         action="store_true",
         help="fetch-prompt：骨架落盘 .claude/workflows/<name>/fetch-prompt-skeleton.md 并打印路径（替代 stdout）",
@@ -6099,6 +6285,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if ok else 1
         if args.ingest_agent:
             ok, msg = ingest_agent_report(project_root, name, args.ingest_agent)
+            print(msg, file=sys.stdout if ok else sys.stderr)
+            return 0 if ok else 1
+        if args.ingest_redteam:
+            ok, msg = ingest_redteam_report(project_root, name)
             print(msg, file=sys.stdout if ok else sys.stderr)
             return 0 if ok else 1
         if not args.from_file:

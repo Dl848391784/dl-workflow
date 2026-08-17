@@ -2293,3 +2293,153 @@ def test_node_rules_has_arch_route(wf_repo):
     text = out.read_text(encoding="utf-8")
     assert "dl-cmd.sh codebase trace" in text
     assert "取证路线" in text
+
+
+# ---------- u1-sub5-cost 修3：红队 driver 预派发 ----------
+
+
+class _FakeRTProc:
+    """预派发 Popen 假身：记录 stdin，pid 固定（不真起 claude）。"""
+
+    class _RecStdin:
+        def __init__(self):
+            self.buf = ""
+            self.saved = ""
+
+        def write(self, s):
+            self.buf += s
+
+        def close(self):
+            self.saved = self.buf
+
+    def __init__(self, cmd, **kw):
+        self.cmd = cmd
+        self.kw = kw
+        self.pid = 888001
+        self.stdin = self._RecStdin()
+
+
+def _rt_step(pre_dispatch="redteam"):
+    return engine.Step(
+        kind="skill",
+        ref="causal-inference-root-cause",
+        short="质检裁决",
+        purpose="p",
+        input=None,
+        record=True,
+        gate=None,
+        pre_dispatch=pre_dispatch,
+    )
+
+
+class TestRedteamPreDispatch:
+    """driver 在 pre_dispatch=redteam 步派段前预起红队 worker（与子5 主会话并行）。
+
+    实证（u1-sub5-cost-optimization-design §1）：红队子代理跑 158-235s，主会话
+    有效利用 ≤1min（轮2 零并行干等 2.7min）——红队输入只依赖 ≤子4 trace，
+    子4 gate 一过即具备派发条件。新鲜度按 prompt_sha1（state-reset 后子4
+    证据变 → 旧报告作废重派）。
+    """
+
+    def _call(self, drv, wf_repo, monkeypatch, *, prompt="PROMPT", step=None):
+        monkeypatch.setattr(drv.engine, "redteam_prompt", lambda *a, **k: prompt)
+        spawned = []
+
+        def _fake_popen(cmd, **kw):
+            proc = _FakeRTProc(cmd, **kw)
+            spawned.append(proc)
+            return proc
+
+        monkeypatch.setattr(drv.subprocess, "Popen", _fake_popen)
+        meta = wf_repo / ".claude" / "workflows" / "t"
+        wt = wf_repo / ".claude" / "worktrees" / "t"
+        drv._maybe_predispatch_redteam(
+            wf_repo,
+            "t",
+            step if step is not None else _rt_step(),
+            wt=wt,
+            settings=meta / "settings.drive.json",
+            meta=meta,
+        )
+        return spawned, meta
+
+    def test_spawn_on_predispatch_step(self, wf_repo, monkeypatch):
+        drv = _load(DRIVER, "drv_rt_pd")
+        spawned, meta = self._call(drv, wf_repo, monkeypatch)
+        assert len(spawned) == 1
+        proc = spawned[0]
+        cmd = proc.cmd
+        assert cmd[:2] == ["claude", "-p"]
+        assert cmd[cmd.index("--tools") + 1] == "Read"
+        assert "--session-id" in cmd
+        assert proc.kw.get("start_new_session") is True
+        # prompt 走 stdin（E2BIG 纪律）；报告落 meta/redteam_report.md
+        assert proc.stdin.saved == "PROMPT"
+        wj = json.loads((meta / "redteam_worker.json").read_text())
+        assert wj["pid"] == 888001 and wj["prompt_sha1"]
+
+    def test_skip_non_predispatch_step(self, wf_repo, monkeypatch):
+        drv = _load(DRIVER, "drv_rt_pd")
+        spawned, _ = self._call(drv, wf_repo, monkeypatch, step=_rt_step(""))
+        assert spawned == []
+
+    def test_skip_when_prompt_none(self, wf_repo, monkeypatch):
+        # 无子4 trace（redteam_prompt=None）→ 不派，ingest 侧 fail loud 指路
+        drv = _load(DRIVER, "drv_rt_pd")
+        spawned, meta = self._call(drv, wf_repo, monkeypatch, prompt=None)
+        assert spawned == []
+        assert not (meta / "redteam_worker.json").exists()
+
+    def test_no_respawn_when_running(self, wf_repo, monkeypatch):
+        # sha 相同 + pid 活（本进程）→ 复用不重派
+        drv = _load(DRIVER, "drv_rt_pd")
+        spawned, meta = self._call(drv, wf_repo, monkeypatch)
+        assert len(spawned) == 1
+        import hashlib
+
+        (meta / "redteam_worker.json").write_text(
+            json.dumps(
+                {
+                    "pid": os.getpid(),
+                    "started_at": "x",
+                    "prompt_sha1": hashlib.sha1(b"PROMPT").hexdigest(),
+                }
+            )
+        )
+        spawned2, _ = self._call(drv, wf_repo, monkeypatch)
+        assert spawned2 == []
+
+    def test_no_respawn_when_report_ready(self, wf_repo, monkeypatch):
+        # sha 相同 + 报告已非空（worker 已完工）→ 复用不重派
+        drv = _load(DRIVER, "drv_rt_pd")
+        spawned, meta = self._call(drv, wf_repo, monkeypatch)
+        assert len(spawned) == 1
+        import hashlib
+
+        (meta / "redteam_worker.json").write_text(
+            json.dumps(
+                {
+                    "pid": 99999944,
+                    "started_at": "x",
+                    "prompt_sha1": hashlib.sha1(b"PROMPT").hexdigest(),
+                }
+            )
+        )
+        (meta / "redteam_report.md").write_text("报告", encoding="utf-8")
+        spawned2, _ = self._call(drv, wf_repo, monkeypatch)
+        assert spawned2 == []
+
+    def test_respawn_on_stale_sha(self, wf_repo, monkeypatch):
+        # state-reset 后子4 证据变 → prompt sha 变 → 旧报告作废重派
+        drv = _load(DRIVER, "drv_rt_pd")
+        spawned, meta = self._call(drv, wf_repo, monkeypatch)
+        assert len(spawned) == 1
+        wj = json.loads((meta / "redteam_worker.json").read_text())
+        assert wj["prompt_sha1"]
+        wj["prompt_sha1"] = "stale-sha"
+        wj["pid"] = 99999944  # 已死
+        (meta / "redteam_worker.json").write_text(json.dumps(wj))
+        spawned2, meta = self._call(drv, wf_repo, monkeypatch)
+        assert len(spawned2) == 1
+        wj2 = json.loads((meta / "redteam_worker.json").read_text())
+        assert wj2["prompt_sha1"] != "stale-sha"
