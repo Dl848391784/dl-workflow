@@ -195,6 +195,9 @@ def _maybe_predispatch_redteam(
         "--session-id",
         sid,
     ]
+    # O1（u1-overall-cost）：--tools Read 只限内置工具、限不住 MCP（worker 经 MCP
+    # 调 tavily_extract 实证）——strict-mcp-config 把「Read 为主」从文案升结构
+    cmd += engine.NO_MCP_ARGS
     meta.mkdir(parents=True, exist_ok=True)
     with (
         open(report, "w", encoding="utf-8") as rep_f,
@@ -346,12 +349,19 @@ def ensure_phase_rules(project_root: Path, name: str) -> Path:
     return out
 
 
-def ensure_node_rules(project_root: Path, name: str, node: "engine.Node") -> Path:
-    """节点级 system prompt（瘦版）：只含本节点子步骤段落——92KB 全量税按构造消失。"""
+def ensure_node_rules(
+    project_root: Path, name: str, node: "engine.Node", cur: int
+) -> Path:
+    """节点级 system prompt（瘦版）：只含本节点子步骤段落——92KB 全量税按构造消失。
+
+    O2（u1-overall-cost）：清单渲染 titles-only（render_substeps_brief）——当前步
+    完整目的双通道已在（段 prompt 逐字携带 + TUI 每轮注入 primacy 置顶），其余步
+    purpose 全文是每调用重付的死重（u:1 node-rules 实测 25k 字符，清单 ~15k）。
+    """
     meta = _meta_root(project_root, name)
     nid = engine.node_id(node.phase, node.sub)
     out = meta / f"node-rules.{nid}.md"
-    section = engine.render_substeps_section(nid)
+    section = engine.render_substeps_brief(nid, cur)
     phase_label = engine.PHASE_LABELS.get(node.phase, node.phase)
     text = (
         f"# WORKFLOW 节点规则（driver 装配瘦版——全量 phase-rules 不注入）\n\n"
@@ -398,11 +408,13 @@ def ensure_node_rules(project_root: Path, name: str, node: "engine.Node") -> Pat
     # 噪音（grep 命中面≠取证起点），且逼子2a 重探索（16→61 轮）。v2：只注入
     # atomic_questions（聚焦计划），不注入 grep 命中面；符号/文件让子2b 按 atomic
     # 现场用 trace/history 取（结构查询的 file:line 才是真实起点）。
-    if nid == "understand:1":
+    # O2（u1-overall-cost）：注入收窄到消费步（子2b 挖链 cur=3 / 子4 按档取证
+    # cur=4）——子5+ 的 claim/tier 上下文已在包内 trace 全文，注入是重复税。
+    if nid == "understand:1" and cur in (3, 4):
         aq = engine._load_atomic_questions(project_root, name)
         if aq:
             text += (
-                "\n## 子2a atomic_questions（已自动注入，子2b 必须按此清单执行）\n\n"
+                "\n## 子2a atomic_questions（已自动注入，子2b/子4 必须按此清单执行）\n\n"
                 "以下 JSON 是子2a 最新 trace 的 atomic_questions。子2b 启动时必须按此"
                 "清单逐项挖因果链，不重新拆解问题、不重新定档。按每个原子的问题指向"
                 "用 `dl codebase trace <symbol>` / `dl codebase query --history <file>:<line>`"
@@ -457,7 +469,7 @@ def ensure_tui_rules(
     """
     meta = _meta_root(project_root, name)
     nid = engine.node_id(node.phase, node.sub)
-    base = ensure_node_rules(project_root, name, node).read_text(encoding="utf-8")
+    base = ensure_node_rules(project_root, name, node, cur).read_text(encoding="utf-8")
     phase_label = engine.PHASE_LABELS.get(node.phase, node.phase)
     status_map = {"done": "completed", "current": "in_progress", "todo": "pending"}
     rows = engine.progress_rows(state)  # 全深度：阶段+子阶段+当前节点子步骤
@@ -603,6 +615,8 @@ def run_session(
         "--append-system-prompt-file",
         str(sys_prompt_file),
     ]
+    # O1（u1-overall-cost）：段会话禁 MCP——编排全程禁 tavily，schema 是纯税
+    cmd += engine.NO_MCP_ARGS
     if resume_sid:
         # P2-4 续链：--resume 与 --session-id 互斥（设计期冒烟：全旗标组合
         # + --resume 跨进程续会话实测通过，记忆保留）
@@ -1109,6 +1123,9 @@ def _build_tui_cmd(
         "--permission-mode",
         "acceptEdits",
     ]
+    # O1（u1-overall-cost）：TUI 交互段同一 MCP 税同一封法
+    # （位置参数 prompt 必须仍在末尾——见下方 append 顺序）
+    cmd += engine.NO_MCP_ARGS
     if debug:
         cmd += [
             "--debug",
@@ -1684,7 +1701,7 @@ def _run_boundary_loop(
                     # 不停段让 TUI——先 headless 备问题清单（L1 工具封锁+变体 prompt），
                     # 出口恒为 NEED_USER（显式标记 > L2 AskUserQuestion 嗅探）。
                     # 裸开场（u:1#1 无返工）除外——保 57a64e1 用户裁决的 TUI 原生开场。
-                    rules = ensure_node_rules(project_root, name, node)
+                    rules = ensure_node_rules(project_root, name, node, cur)
                     prompt = build_step_prompt(
                         project_root,
                         name,
@@ -1768,7 +1785,7 @@ def _run_boundary_loop(
                         meta=meta,
                         disp=disp,
                     )
-                    rules = ensure_node_rules(project_root, name, node)
+                    rules = ensure_node_rules(project_root, name, node, cur)
                     # P2-1：下一步是交互步 -> 本段顺带备其问题清单（NEXT_PREP 通道）；
                     # 确认级读回步无问答（P3-1），不备
                     nxt = engine.sub_step_at(node, cur + 1) if cur < total else None
