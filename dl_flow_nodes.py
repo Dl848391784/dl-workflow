@@ -107,6 +107,12 @@ class Step:
     # （render-readback）+ 装配（render-artifact）+ 静默通过落 trace，不弹卡片；
     # 异议走 /dl state-reset 回上一步。TUI hook 编排（WF_TUI=1 回滚面）不读此字段。
     tier: str = "decision"
+    # u1-sub5-cost 修3（designs/u1-sub5-cost-optimization-design.md）：driver 在
+    # 派本步段前预派发的后台 worker 类型（""=不预派发；"redteam"=红队点查）。
+    # 声明式单源（interactive/tier 同范式）——禁 driver 硬编码步号。预派发的
+    # 输入在本步开始前已冻结（红队证据=子1-4 最新 trace），与本步段并行省等待；
+    # 收录侧 = engine append-trace --ingest-redteam（无预派发时模型回退会话内路径）。
+    pre_dispatch: str = ""
 
 
 @dataclass(frozen=True)
@@ -1143,7 +1149,7 @@ _NODES: dict[str, Node] = {
             ),
             Step(
                 kind="tool",
-                ref="推理(三关质检+四态合成) / Agent(红队子代理,条件触发)",
+                ref="推理(三关质检+四态合成) / 红队(driver预派发,回退Agent)",
                 short="质检裁决",
                 # 红队纪律 a-d 已机械化进 redteam_prompt()（v2.14「AI 定写什么，
                 # 脚本定怎么写」）：a.携带子1-4 证据；b.单层；c.Read 为主；
@@ -1160,19 +1166,22 @@ _NODES: dict[str, Node] = {
                     "trace 须逐项可验证——每条计数证据逐条列出三关结果（E1…En × 三关），"
                     "「10/10 pass」式汇总声明不算记录；"
                     "②条件触发对抗复核——verdict 决定大方向/大改动、或证据相互冲突时，"
-                    "起独立红队子代理尝试推翻初步结论（独立上下文，只给证据不给结论"
-                    "——该约束指红队**输入**：不得把子5 初步结论喂给红队，"
+                    "需独立红队复核初步结论（独立上下文，触发条件写死，"
+                    "不得自定义「不需要复核」豁免；"
+                    "红队**输入**只给证据不给结论——不得把子5 初步结论喂给红队，"
                     "redteam-prompt 模板已机械保证；红队**输出**按纪律必含四态 "
-                    "verdict，属合规非违规）："
-                    "用 `python3 ~/.dl-workflow/dl_flow_engine.py redteam-prompt` 生成红队 "
-                    "prompt（自动携带子1-4 证据+对抗纪律），Agent 工具单发起，"
-                    "禁止手拼 prompt；触发条件写死，不得自定义「不需要复核」豁免；"
-                    "红队输出须**原文收录**进本子步 trace：运行 `python3 "
-                    "~/.dl-workflow/dl_flow_engine.py append-trace --ingest-agent "
-                    "<task-id>`（脚本提取红队报告原文落载荷 qa 节，标题自动含"
-                    "「红队」「原文收录」——**禁手工复制粘贴**）；「已发起红队」式"
-                    "提及或概括转述不算记录；"
-                    "收录项标题须含「红队」「原文收录」（append-trace 机械校验：trace 含 task-id = 已派发，无收录项 = 红队未归提前提交，当场拒——等归位收录后再提交，agent 失败则重派或升级用户裁决；红队运行期间的正确动作 = 先做/完善不依赖红队的部分（①三关质检、③初步 verdict 草稿），红队未归位前禁输出 STEP_DONE——输出即提交、提交即拒）；"
+                    "verdict，属合规非违规）。红队由 **driver 预派发**：子4 gate 通过后 "
+                    "driver 已用 redteam-prompt（自动携带子1-4 证据+对抗纪律）后台起"
+                    "独立红队会话，与本步并行——你**无需自己派发**，先做①三关质检与"
+                    "③初步 verdict 草稿；收报告：运行 `python3 "
+                    "~/.dl-workflow/dl_flow_engine.py append-trace --ingest-redteam`"
+                    "（阻塞等报告就绪，脚本把红队报告原文落载荷 qa 节，标题自动含"
+                    "「红队」「原文收录」——**禁手工复制粘贴**）；该命令报「无预派发/"
+                    "无产出」时回退会话内路径：`python3 ~/.dl-workflow/dl_flow_engine.py "
+                    "redteam-prompt` 生成红队 prompt，Agent 工具单发起（禁止手拼 "
+                    "prompt），返回后 `append-trace --ingest-agent <task-id>` 收录；"
+                    "「已发起红队」式提及或概括转述不算记录；"
+                    "收录项标题须含「红队」「原文收录」（append-trace 机械校验：trace 含 task-id 或预派发 worker 在位 = 红队已派，无收录项 = 红队未归提前提交，当场拒——等归位收录后再提交，红队失败则重派/回退或升级用户裁决；红队未归位前禁输出 STEP_DONE——输出即提交、提交即拒）；"
                     "③四态结论合成——证实/证伪/部分成立/证据不足（证据不足是合法结论）"
                     "+ 推理链 + 置信度；"
                     "④按 verdict 处置问题集——证伪项剔除（留剔除理由）/部分成立项收窄到"
@@ -1182,22 +1191,29 @@ _NODES: dict[str, Node] = {
                 record=True,
                 selfcheck=(
                     "每条计数证据逐条列出三关质检结果了吗（E1…En × 三关，汇总声明不算记录）？"
-                    "红队触发条件满足时起了红队子代理吗（redteam-prompt 生成、禁止手拼）？"
-                    "红队输出已返回并用 --ingest-agent 收录进载荷了吗（收录项标题含「红队」"
-                    "「原文收录」；trace 含 task-id 而无收录项 = 提前提交，append-trace "
-                    "机械拒；禁手工粘贴、提及/概括转述不算记录）？"
+                    "红队触发条件满足时确认红队已派了吗（driver 预派发；无预派发则 "
+                    "redteam-prompt + Agent 回退，禁止手拼）？"
+                    "红队输出已用 --ingest-redteam（或回退 --ingest-agent）收录进载荷了吗"
+                    "（收录项标题含「红队」「原文收录」；已派未收录 = 提前提交，"
+                    "append-trace 机械拒；禁手工粘贴、提及/概括转述不算记录）？"
                     "每个原子问题有四态 verdict+推理链+置信度吗？"
                     "处置后问题集与 verdict 逐项一致吗（证伪剔除+理由/部分收窄/不足标记）？"
                 ),
-                # S15 前置围栏：条件触发红队子代理（Agent）；子代理进程内
-                # Read/Grep 在常驻集，无需声明。
+                # S15 前置围栏：条件触发红队子代理（Agent 回退路径）；子代理进程内
+                # Read/Grep 在常驻集，无需声明。主路径 = driver 预派发 +
+                # --ingest-redteam（Bash 走引擎命令，常驻放行）。
                 # v2.xx：加 TaskOutput--红队 agent 同为后台派发，模型需用它等结果
                 # （同子4，防抢跑假性 block）。
                 fence_allow=("Agent", "TaskOutput"),
                 # v2.44：红队已派发（trace 含 task-id）而无「红队…原文收录」
                 # 标题项 = 红队未归提前提交，append-trace 当场拒（词表扫描被
                 # 措辞绕开的实证收口，信号分隔度见 engine 函数 docstring）。
+                # u1-sub5-cost 修3：driver 预派发通道同牙齿（worker.json 在位
+                # 而无收录项 = 提前提交）。
                 mech_checks=("redteam_report_recorded", "redteam_three_piece"),
+                # u1-sub5-cost 修3：红队改 driver 预派发（子4 证据冻结即具备输入），
+                # 与本步段并行——实测红队跑 158-235s 而主会话有效并行 ≤1min。
+                pre_dispatch="redteam",
                 # v2.80-v2.83（2026-08-04，designs/u1-sub4-gate-framing-design.md）：
                 # §3.5 #28 泛化第四例--framing 反转 + 方框化 4 条真值判据 + 双侧钉死。
                 # 基线 n=6：490 字从严版 clean 0/6 + vio1-4 牙齿 6/6。v2.80 反转后
@@ -1216,12 +1232,13 @@ _NODES: dict[str, Node] = {
                     "证伪/部分成立/证据不足，非要求列出全部四种）；处置后问题集与 "
                     "verdict 逐项一致（证伪项已剔除+理由、部分成立项已收窄、"
                     "证据不足项已标记）。（红队已派发未收录的提前提交已由 "
-                    "append-trace 机械层拦截--trace 含 task-id 而无收录项不会到"
-                    "你这里；收录项存在性与三件套完整性已机械校验，你不得以这些"
-                    "形式要件为由 block，只判下面四件事的真实性。）\n"
+                    "append-trace 机械层拦截--trace 含 task-id 或 driver 预派发 "
+                    "worker 在位而无收录项不会到你这里；收录项存在性与三件套完整性"
+                    "已机械校验，你不得以这些形式要件为由 block，只判下面四件事的真实性。）\n"
                     "默认 pass--仅当以下成立才判 block（每条附合法形态，"
                     "合法形态在场不得判）：\n"
-                    "一、红队收录造假：红队触发条件满足时（trace 含 task-id），仅提及/"
+                    "一、红队收录造假：红队触发条件满足时（trace 含 task-id 或收录项"
+                    "标题含「driver 预派发」），仅提及/"
                     "概括转述红队而未原文收录其输出判 block。红队收录项三件套完整性"
                     "（verdict/推理链/置信度）已由 append-trace 机械校验通过（缺任一已"
                     "当场拒、不会到你这里）--你只判收录内容真实性：三件套齐全但实为"
