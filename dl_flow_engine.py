@@ -839,6 +839,37 @@ def sub_step_at(node: Node, n: int) -> Step | None:
     return node.sub_steps[n - 1]
 
 
+def next_decision_interactive_step(
+    phase: str, sub: int, cur: int
+) -> "tuple[Node, int, Step] | None":
+    """线性序下一个 decision 级交互步（u2-sub1-cost 修A——NEXT_PREP 跨节点扩展）。
+
+    扫描规则（从 (phase, sub) 的 cur 之后开始，按 _NODES 声明序 = 编排推进序）：
+    - confirm 级交互步跳过（P3-1 后无模型会话、无问答可备）；
+    - 撞非交互工作步即停 None——该步自己的段是更好的顺带交付点（不抢）；
+    - 无子步骤编排的节点（execute/review/evolution）自然越过不命中。
+    返回 (目标节点, 目标步号, 目标 Step) 或 None。
+    动机：u:1#6 的下一步 u:1#7 是 confirm 级读回（无模型会话），旧 lookahead
+    只看同节点 cur+1 → prep_next=None → u:2#1 落回独立 prep 段（纯系统税）；
+    u:1#6 段上下文（子1 原话在交接包 + 子6 陈述刚产出）恰好是设计 u:2#1
+    问题的全部材料，顺带交付后独立 prep 段整段消失。
+    """
+    nids = list(_NODES)
+    start = nids.index(node_id(phase, sub))
+    for o in range(start, len(nids)):
+        node = _NODES[nids[o]]
+        steps = node.sub_steps or ()
+        begin = cur + 1 if o == start else 1
+        for i in range(begin, len(steps) + 1):
+            s = steps[i - 1]
+            if not getattr(s, "interactive", False):
+                return None
+            if getattr(s, "tier", "decision") == "confirm":
+                continue
+            return (node, i, s)
+    return None
+
+
 def step_needs_evidence(step: Step) -> bool:
     """子步骤是否需读 evidence.jsonl 喂 judge（与 rubric_needs_evidence 同关键词判定）。
 
@@ -2133,6 +2164,13 @@ def reset_state(project_root: Path, name: str, target: str) -> tuple[bool, str]:
             }
         )
     state["history"] = new_hist
+    # u2-sub1-cost 修C：陈旧 prep 载荷作废——跨节点 stash（NEXT_PREP 顺带交付）
+    # 后用户异议回滚，旧 need_user.json 不得直达前台；重回 prep 源步会重新
+    # stash，不重 stash 则走原独立 prep 段兜底（任何回滚目标下都正确）。
+    state.pop("next_prep_stashed", None)
+    (project_root / ".claude" / "workflows" / name / "need_user.json").unlink(
+        missing_ok=True
+    )
     state["updated_at"] = _now()
     save_state(project_root, name, state)
 

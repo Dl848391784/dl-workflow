@@ -343,3 +343,27 @@ class TestPayloadPathInjection:
     def test_injection_fallback_without_worktree_path(self):
         ctx = wp._format_injection(_state(1), PROJECT_ROOT)
         assert f"{PROJECT_ROOT}/.claude/evidence/.trace-payload-demo.md" in ctx
+
+
+class TestFrontNeeduserSourcesClause:
+    """u2-sub1-cost 修B：front 模式 code 13 咬合 + need_user.json 在场时，
+    注入带 sources 出处包条款（与 drive needuser prompt 尾双通道同语义）。"""
+
+    def test_front_needuser_injection_sources_clause(self, tmp_path):
+        wf = tmp_path / ".claude" / "workflows" / "demo"
+        wf.mkdir(parents=True)
+        (wf / "need_user.json").write_text(
+            '{"questions": [], "sources": ["用户原话：x"]}', encoding="utf-8"
+        )
+        (wf / "segment_summary.json").write_text(
+            json.dumps({"code": 13, "node": "understand:2", "sub_step": 1}),
+            encoding="utf-8",
+        )
+        st = _state(
+            1,
+            front_mode=True,
+            sub_index=2,
+            node="understand:2",
+        )
+        ctx = wp._format_injection(st, tmp_path)
+        assert "逐字照抄" in ctx and "sources" in ctx and "evidence 全量" in ctx
