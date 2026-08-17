@@ -1068,6 +1068,51 @@ class TestSubagentRetryStats:
         assert stats["agents"] == 1
         assert stats["empty_responses"] == 1
 
+    def test_retry_stats_uses_newest_dir(self, tmp_path, monkeypatch):
+        # round-2 修 A 第二面：多会话目录时代「本会话」= 最新 agent 文件所在目录
+        # （transcript 写入时间锚，不受目录被 touch/拷贝残留污染；段顺序执行
+        # 当前段的 agent 恒最新写入）——旧实现取字典序第一个，台账扫旧会话
+        # agent 错位（amplitude_annualized 14 个 subagents 目录实测）。
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        home = tmp_path / "home"
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+        enc = "".join(c if c.isalnum() else "-" for c in str(tmp_path))
+        base = home / ".claude" / "projects" / enc
+        old_d = base / "aaa-old" / "subagents"
+        old_d.mkdir(parents=True)
+        old_fp = old_d / "agent-old.jsonl"
+        old_fp.write_text(
+            json.dumps(
+                {
+                    "type": "assistant",
+                    "message": {"usage": {"input_tokens": 999, "output_tokens": 0}},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        cur_d = base / "zzz-cur" / "subagents"
+        cur_d.mkdir(parents=True)
+        cur_fp = cur_d / "agent-new.jsonl"
+        cur_fp.write_text(
+            json.dumps(
+                {
+                    "type": "assistant",
+                    "message": {"usage": {"input_tokens": 100, "output_tokens": 50}},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        # 目录 mtime 反向污染（旧目录被 touch 成最新）也不影响文件锚判定
+        os.utime(old_fp, (1000000000, 1000000000))
+        os.utime(cur_fp, (1000000050, 1000000050))
+        os.utime(old_d, (1000000100, 1000000100))
+        os.utime(cur_d, (1000000000, 1000000000))
+        stats = eng._subagent_retry_stats(tmp_path, "t")
+        assert stats is not None
+        assert stats["agents"] == 1 and stats["empty_responses"] == 0
+
 
 # ---------- §orchestration v2：understand:1 子步骤编排（替代过渡「≥3 Q/A」） ----------
 
@@ -9674,6 +9719,74 @@ class TestIngestAgentReport:
         assert err is None
         titles = [it["q"] for it in payload["qa"]]
         assert any("红队" in q and "原文收录" in q for q in titles)
+
+    def test_ingest_finds_transcript_in_later_dir(self, tmp_path, monkeypatch):
+        # round-2 修 A bug 重现场（amplitude_annualized 2026-08-17 step4 实爆）：
+        # 多会话目录各有 subagents/（该实例 14 个），字典序第一个（"aaa-old"）
+        # 是旧会话，目标 transcript 在较后的 "zzz-cur"——旧实现按「第一个含
+        # subagents/」定位必报「找不到」，致模型 15 轮调试死循环（ln/cp 被
+        # 守卫拒、shutil 绕过）。修 = 按 task_id 定位含目标文件的目录。
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=5)
+        home = tmp_path / "home"
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+        enc = "".join(c if c.isalnum() else "-" for c in str(tmp_path))
+        base = home / ".claude" / "projects" / enc
+        old_d = base / "aaa-old" / "subagents"
+        old_d.mkdir(parents=True)
+        (old_d / "agent-old999.jsonl").write_text(
+            json.dumps({"type": "user", "message": {}}) + "\n", encoding="utf-8"
+        )
+        cur_d = base / "zzz-cur" / "subagents"
+        cur_d.mkdir(parents=True)
+        with (cur_d / "agent-abc123.jsonl").open("w", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "content": [{"type": "text", "text": "红队报告正文"}]
+                        },
+                    }
+                )
+                + "\n"
+            )
+        self._scaffold(tmp_path)
+        ok, msg = eng.ingest_agent_report(tmp_path, "t", "abc123")
+        assert ok, msg
+        text = (tmp_path / ".trace-payload-t.md").read_text(encoding="utf-8")
+        assert "红队报告正文" in text
+
+    def test_ingest_prefers_newest_on_duplicate(self, tmp_path, monkeypatch):
+        # 同名 transcript 双份（模型手工拷贝残留的 workaround，本轮实见
+        # 188d1472/e92ca5db 各一份）→ 取文件 mtime 最新者（当前段产出）
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=5)
+        home = tmp_path / "home"
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+        enc = "".join(c if c.isalnum() else "-" for c in str(tmp_path))
+        base = home / ".claude" / "projects" / enc
+        for dname, report, mtime in (
+            ("aaa-old", "旧拷贝", 1000000000),
+            ("zzz-cur", "新报告正文", 1000000100),
+        ):
+            d = base / dname / "subagents"
+            d.mkdir(parents=True)
+            fp = d / "agent-abc123.jsonl"
+            fp.write_text(
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {"content": [{"type": "text", "text": report}]},
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            os.utime(fp, (mtime, mtime))
+        self._scaffold(tmp_path)
+        ok, msg = eng.ingest_agent_report(tmp_path, "t", "abc123")
+        assert ok, msg
+        text = (tmp_path / ".trace-payload-t.md").read_text(encoding="utf-8")
+        assert "新报告正文" in text and "旧拷贝" not in text
 
     def test_ingest_fetch_title_step4(self, tmp_path, monkeypatch):
         # plan-first 拆步重编号后：双向取证 = 子4（旧子3 映射是重编号漏网，

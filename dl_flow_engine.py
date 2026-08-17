@@ -5011,8 +5011,10 @@ def _parse_trace_md(raw: str, step) -> tuple[dict | None, str | None]:
     return payload, None
 
 
-def _subagent_dir(project_root: Path, name: str) -> Path | None:
-    """子代理 transcript 目录（v2.39 台账同款定位，抽出共用）。
+def _subagent_dir(
+    project_root: Path, name: str, task_id: str | None = None
+) -> Path | None:
+    """子代理 transcript 目录定位（v2.39 台账同款，round-2 修 A 多目录时代）。
 
     v4 前台混合修复（2026-08-13 amplitude_annualized sub3 实证）：agent 由
     段工人（headless claude -p）派发，其 transcript 落在段工人的 session 目录下；
@@ -5021,6 +5023,19 @@ def _subagent_dir(project_root: Path, name: str) -> Path | None:
     指向前台目录（不存在），--ingest-agent 报「找不到子代理 transcript」，模型
     被迫 62 轮逆向源码手工兜底。改为 glob 遍历项目目录下所有 session 子目录，
     返回含 subagents/ 的那个（v2 单 TUI 会话下前台目录同样命中）。
+
+    u1-sub4-cost round-2 修 A（2026-08-17 同实例 step4 实爆）：上述「返回第一个
+    含 subagents/ 的目录」写在单目录时代——多会话各有 subagents/（step4 每轮 +
+    红队 + 升档补派，该实例 14 个）后，字典序第一个 = 旧会话目录，本段
+    transcript 在其后目录，ingest 必报「找不到」→ 模型 15 轮调试死循环
+    （ln -sf/cp 被 sensitive 守卫拒、python3 shutil 绕过）。
+    - task_id 给定（ingest_agent_report）：返回含 agent-<task_id>.jsonl 的
+      目录；多命中（模型手工拷贝残留的同名 workaround 文件）取文件 mtime
+      最新者（当前段产出）。
+    - task_id=None（_subagent_retry_stats 等「本会话」语义）：取**最新 agent
+      文件**所在目录（agent-*.jsonl mtime 最大者——transcript 写入时间锚，
+      不受目录被 touch/拷贝残留污染；段顺序执行，当前段的 agent 恒最新写入；
+      预派发 RT worker --tools Read 无 subagents，不干扰）。
     """
     state = load_state(project_root, name)
     if not state:
@@ -5032,11 +5047,29 @@ def _subagent_dir(project_root: Path, name: str) -> Path | None:
     base = Path.home() / ".claude" / "projects" / enc
     if not base.is_dir():
         return None
-    for d in sorted(base.iterdir()):
+    dirs = []
+    for d in base.iterdir():
         sd = d / "subagents"
         if sd.is_dir():
-            return sd
-    return None
+            dirs.append(sd)
+    if task_id:
+        matches = [sd for sd in dirs if (sd / f"agent-{task_id}.jsonl").exists()]
+        if not matches:
+            return None
+        return max(
+            matches,
+            key=lambda sd: (sd / f"agent-{task_id}.jsonl").stat().st_mtime,
+        )
+    if not dirs:
+        return None
+
+    def _newest_agent_mtime(sd: Path) -> float:
+        return max(
+            (f.stat().st_mtime for f in sd.glob("agent-*.jsonl")),
+            default=0.0,
+        )
+
+    return max(dirs, key=_newest_agent_mtime)
 
 
 def _insert_report_item(
@@ -5175,12 +5208,13 @@ def ingest_agent_report(
     if f"原文收录（task-id {task_id}）" in text:
         return False, f"task-id {task_id} 已收录过——同一报告不重复落（防重）"
 
-    d = _subagent_dir(project_root, name)
+    d = _subagent_dir(project_root, name, task_id)
     fp = d / f"agent-{task_id}.jsonl" if d else None
     if fp is None or not fp.exists():
         return False, (
             f"找不到子代理 transcript：agent-{task_id}.jsonl"
-            f"（目录 {d}）——task-id 以 Agent 工具返回的 <task-id> 为准"
+            "（已按 task-id 搜索该工作流全部会话目录均无此文件）"
+            "——task-id 以 Agent 工具返回的 <task-id> 为准"
         )
     report = ""
     try:
