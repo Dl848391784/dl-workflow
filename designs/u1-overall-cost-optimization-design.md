@@ -128,3 +128,40 @@ hooks import engine；常量定义在 engine，driver import 复用，禁拷贝�
   不经 driver 段 spawn（build_phase_prompt 整阶段会话同样禁——见「不做的事」末条，
   若实爆需求按实例再开）。
 - 三修各自独立 commit，可独立 revert。
+
+## 5. 实施验证记录（2026-08-17/18，merge e61c982，1082 tests）
+
+- TDD 红→绿 + 全量 1082 passed + ruff 绿；两处旧契约断言按新契约改写
+  （bare TUI 末位 flag / 取证路线可见面迁段 prompt——意图保留）。
+- **真实 evidence 冒烟**（u1_overall_ab 证据直接过优化后引擎）：子5（消费步）包
+  19,533 字符不变；子6 包 31,579→23,508（-26%）；node-rules 真实渲染
+  25,005→1,222 字符（-95%）。
+- **live A/B 三方**（同问题同仓，新实例种子子1 trace 从子2 起跑，全程零 block、
+  各步 judge 留痕齐全、node_attempts=0）：
+
+| 指标（子2-6 主段） | 基线 u1_overall_ab（deepseek） | v2（deepseek+三修） | k3（+三修） |
+|---|---|---|---|
+| calls | 87 | 129（子3 方差爆 70；剔除后 59） | 86 |
+| 段内墙钟 | 1263s | 1564s（剔除子3 差 ~1032s） | 2648s（+110%） |
+| fresh | 399k | 397k（剔除子3 差 275k，-12%） | **231k（-42%）** |
+| cache_read | 6.20M | 11.06M（剔除子3 差 3.90M，-3%） | **4.37M（-30%）** |
+| out | 123k | 156k | **53k（-57%）** |
+| 首调 fresh/段 | 44.5-60.2k | 37.5-52.3k（-13~16%） | **17.8-21.0k（-55~65%）** |
+
+- 稳态收益（剔除方差）：**每调用前缀 -11.5k tok**（rules 瘦 ~9k + MCP 2.5k），
+  折算全轮 cache_read -17%/fresh -11% 量级；本轮被子3 轮数方差（30→70 calls，
+  ±5M cr 摆幅）淹没——#22 实证：单轮总账读数不能归因机制，逐调用口径才可以。
+- O1 附带验收：v2/k3 全部会话（含红队 worker）**零 tavily 调用**（上轮红队
+  tavily_extract×2 的旁路洞结构封死）；红队预派发两实例均正常落痕。
+- **k3 provider A/B 结论**：token 三维全降（fresh -42%/cr -30%/out -57%，全局
+  缓存首调命中 ~50% 前缀），但**墙钟 2.1×**（k3[1m] high-effort 段内 31s/call
+  vs deepseek 14.5s/call，且随上下文涨：子6 70s/call）——耗时维度不合格。
+  provider 取舍 = 用户决策（v4-cost §2.0b 通道），本 A/B 即其前置数据。
+- 分档方差注意：三轮子2a tier 判定不同（2/3/1 个 tier≠none 原子）→ 子4 agent
+  数 2/3/1——跨轮子4 总账不可直比，按原子对齐才有效。
+- 测试账（隔离列报）：v2 被杀段 f511cf9a（24 calls/85k fresh/1.85M cr）+
+  其 fetch agents——会话中断孤儿 kill 所致，非生产账。
+- **未开杠杆（候选，需各自裁决/多轮验证）**：①段会话 --tools 白名单
+  （harness 地板 22.3k 里内建工具 schema ~12k，裁到 8 件约再 -4~6k/调用——
+  收益在方差带内，单轮 A/B 测不出，暂缓）；②k3 降 effort 收墙钟（质量/一过率
+  未验证）；③deepseek 段 effort 调优（out 123k 含 thinking，未拆账）。
