@@ -2223,9 +2223,9 @@ def test_chain_resume_on_match(wf_repo):
     drv = _load(DRIVER, "drv_chain_match")
     state = _write_state(
         wf_repo,
-        segment_chain={"node": "understand:3", "sid": "abc", "last_step": 2},
+        segment_chain={"node": "understand:4", "sid": "abc", "last_step": 2},
     )
-    assert drv._chain_resume_sid(state, "understand:3", 3) == "abc"
+    assert drv._chain_resume_sid(state, "understand:4", 3) == "abc"
 
 
 def test_chain_resume_rejects_non_whitelist_node(wf_repo):
@@ -2260,6 +2260,30 @@ def test_chain_resume_understand1_rolled_back(wf_repo):
         segment_chain={"node": "understand:2", "sid": "abc", "last_step": 2},
     )
     assert drv._chain_resume_sid(state2, "understand:2", 3) is None
+
+
+def test_chain_resume_understand3_broken(wf_repo):
+    """2026-08-18 u:3 断链（designs/u3-sub2-cost-optimization-design.md §6）：
+    u3_sub1_ab2 实测链税 #3 首调 71,862(cr=0)+#4 首调 106,780(cr=1,792)=178.6k
+    纯增税；两轮 live A/B 实测段内续步边界暖率仅 1/4（deepseek 逐出激进），
+    续步冷=全额重写继承 transcript（65-122k），EV 不如 fresh 段恒定地板
+    （~28-31k/步）——u:3 移出 SEGMENT_CHAIN_NODES 且不入 MERGED_RUN_NODES
+    （understand:4 与 plan 族保留 surgical）。"""
+    drv = _load(DRIVER, "drv_chain_u3")
+    state = _write_state(
+        wf_repo,
+        segment_chain={"node": "understand:3", "sid": "abc", "last_step": 2},
+    )
+    assert drv._chain_resume_sid(state, "understand:3", 3) is None
+
+
+def test_whitelist_u3_neither_chain_nor_merged():
+    """u:3 断链归属（同 u3-sub2-cost 设计 §6）：CHAIN/MERGED 两名单都不含
+    u:3（每步 fresh 段=断链语义）；两名单交集恒空（merged 路径不走
+    _chain_resume_sid/_chain_update）。"""
+    assert "understand:3" not in engine.SEGMENT_CHAIN_NODES
+    assert "understand:3" not in engine.MERGED_RUN_NODES
+    assert engine.SEGMENT_CHAIN_NODES.isdisjoint(engine.MERGED_RUN_NODES)
 
 
 def test_chain_resume_plan_nodes_whitelisted(wf_repo):
@@ -2303,9 +2327,9 @@ def test_chain_resume_no_chain(wf_repo):
 def test_chain_update_on_whitelisted_node(wf_repo):
     drv = _load(DRIVER, "drv_chain_upd")
     _write_state(wf_repo)
-    drv._chain_update(wf_repo, "t", "understand:3", 2, "sid-x")
+    drv._chain_update(wf_repo, "t", "understand:4", 2, "sid-x")
     chain = _read_state(wf_repo)["segment_chain"]
-    assert chain["node"] == "understand:3"
+    assert chain["node"] == "understand:4"
     assert chain["sid"] == "sid-x"
     assert chain["last_step"] == 2
     assert chain["ts"]
