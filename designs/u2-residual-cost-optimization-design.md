@@ -1,6 +1,6 @@
 # understand:2 残余成本优化设计——段前缀外科剥离（项目上下文 + 工具白名单）
 
-> 日期：2026-08-18 · 分支 feat/u2-residual-cost · 状态：实施中
+> 日期：2026-08-18 · 分支 feat/u2-residual-cost · 状态：已收口（live A/B 足额达标）
 > 上游：designs/u2-sub5-cost-optimization-design.md（子5 证伪式结案）§4 残余三项
 >      references/cost-optimization.md #20（首调桶）/ #21（段内续步）/ #13（逐调用口径）
 > 触发 = 用户指令（2026-08-18）：「u:2 残余优化项也优化好吧」——残余三项 =
@@ -112,3 +112,32 @@ schema（白名单可裁），~8k 是内置系统提示+skills 清单等不可�
 4. **混淆声明预登记**（#18/#40）：#3 步体轮数方差剔出对比面；验收口径 =
    **#2 首调 fresh**（前缀剥离的直接度量，与步体方差天然分离）+ 全段 cr 逐调用
    口径。#2/#3/#4 步体内容不同不构成混淆——验收点只在首调前缀。
+
+## 7. 实施验证记录（2026-08-18，feat/u2-residual-cost，1109 tests）
+
+- TDD 红→绿（5 新测试先红[TypeError: unexpected kwargs]后绿）+ 全量 1109 passed
+  + ruff 绿。提交 43d1874（design）+ 2b28374（feat）。
+- **live A/B（u2_sub5_ab 实例，drive 直跑 worktree 代码 @ac-deepseek1/
+  deepseek-v4-flash，种子 u2_sub4_ab evidence 裁至 u:2#1 从 u:2#2 起跑，跑到
+  u:2#5 confirm + u:3#1 needuser 自动收）——验收点全中**：
+  1. **机制生效直接证据**：段 init 事件 `"tools":["Bash","Edit","Read","Skill"]`
+     （白名单生产生效）+ `mcp_servers:[]`（O1 不回归）；
+  2. **#2 run-head 首调 fresh = 10,230**（验收口径；对照 u2_sub4_ab run-head
+     40,576 → **-74.8%**，预期 ≤15k 足额）；逐调用 cr 各 -26k 固定前缀
+     （探针 A/B 对照实证的分量，非 run 间对比）；
+  3. merged #2-#4 同一 sid（84b2610b）段内续步不回归；node_attempts=0 全程
+     零 block，三步门控全 pass（5/13/7 轮，126s/172s/86s——步体方差带内）；
+  4. trace 质量不降：#2 双向矩阵逐项、#3 基线实测留痕（ob_quality 今值
+     0.492015 → 双×100 装配 4920.15% = 今日值 4920.2% 口径 ✓）、
+     #4 四条 statements（2 must + 2 nice，boundary 携带裁决传导）；
+  5. NEXT_PREP 附带交付照常（「问题清单前序段已备（P2-1 合并段）」→ u:3#1
+     转前台）；#5 confirm 机械通过（P3-1 不回归）。
+- **全段账（result modelUsage 权威值，merged #2-#4 三步合计）**：fresh 39,826 /
+  cr 905,856 / out 48,471 / $1.864——对照 u2_sub4_ab（#3+#4 两步 fresh 78,902 /
+  cr 2,240,512），本 run 多跑一步（#2）fresh 反而 -50%、cr -60%（口径注意：
+  跨 run 对比含步体差异，前缀剥离的干净读数以验收口径 #2 首调为准）。
+- 探针台账（/tmp/wfprobe，生产旗标组合，凭证不进命令文本）：A 裸 harness
+  22,333 / B worktree 默认 34,046 / E DISABLE 对 22,185（hook 照触发）/
+  H +10 工具白名单 7,918 / I0 +4 工具白名单 4,812 / I' 数值法证
+  --append-system-prompt-file 照常拼接 / D SIMPLE=1 fresh 1,452 但 hooks
+  全灭（弃用铁证）/ G、H2 Skill·Bash·Edit 全可用。
