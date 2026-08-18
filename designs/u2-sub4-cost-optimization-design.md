@@ -155,4 +155,50 @@ WF_TUI=1（v2）无段概念不动；front/drive 共用 boundary loop 单点生�
    天然方差（#40）；种子快照若再漂移驱动 #3 增量探索，#3 剔出对比面——
    验收口径 = **#4 逐调用 fresh + #4 墙钟**（#4 步体=纯搬运，方差远小于 #3）。
 
-## 7. 实施验证记录（实施后回填）
+## 7. 实施验证记录（2026-08-18，feat/u2-sub4-cost，1104 tests）
+
+- TDD 红→绿（9 新测试先红[AttributeError: no MergedSession]后绿）+ 全量 1104
+  passed + ruff 绿。ruff format 漂移（10 个无关文件）已剔出提交（#filtered-patch
+  反应用）。生产旗标组合冒烟（probe2：--session-id × --settings ×
+  --append-system-prompt-file × stream-json 输入）通过：pinned sid 与事件 sid
+  一致、turn2 暖（fresh=53/cr=3,840）。
+- **live A/B（u2_sub4_ab 实例，dl @ac-deepseek1/deepseek-v4-flash headless，种子
+  u2_sub3_ab evidence 裁剪至 u:2#2 从 u:2#3 起跑，跑到 u:2#5 后 u:3#1 needuser
+  自动收）——验收点全中**：
+  1. **机制生效直接证据**：#3/#4 同一 sid（271f1ea0，state.segment_sessions 记
+     `merged understand:2#3-#4`；对照 u2_sub3_ab 各段独立 sid 693b4689/f19080a3）；
+     #4 轮首调 fresh=3,527 + cr>0（暖）——冷启动消灭；
+  2. node_attempts=0 全程零 block（一过率护栏 ✓）；judge 全 pass 推进（state
+     .last_judged_trace 的 u:2#3/#4 sha 为新一轮新值，牙齿零变更 ✓）；
+  3. trace 质量目测不降：#3 基线实测 web_ui 显示链逐环实证 + must/nice 附试金石
+     理由；#4 四条 statements（2 must + 2 nice）outcome-level 措辞合规；
+  4. 基线实测数字与今日值核对一致：long_short_return_annual=0.4920153499884061
+     → 双 ×100 装配 4920.15%（=今日值 4920.2% 口径 ✓），并正确区分显示异常
+     4824.5% 与真实值；
+  5. NEXT_PREP 附带交付在 #4 轮照常落 stash（need_user.json 3 问，u:3#1 消费后
+     next_prep_stashed 已清）——「prep 骑 run 内最后一个非交互步」语义保持。
+- **数字（逐调用口径，usage 去重 keep-max，同 id 内容块合并；turn 边界按用户
+  消息切——turn1=#3 / turn2=#4 续步 prompt 3,219 字符）**：
+
+| 指标 | 断链（u2_sub3_ab） | 段内续步（u2_sub4_ab） | 变化 |
+|---|---|---|---|
+| **u:2#4 首调 fresh（验收口径）** | 44,592 | 3,527 | **-92%** |
+| **u:2#4 fresh 总计** | 54,790 | 12,751 | **-76.7%**（预期 -78%，足额） |
+| **u:2#4 墙钟** | ~83s | ~47s | **-43%**（预期 -35~45% ✓） |
+| u:2#4 cr | 507,520 | 525,184 | +3.5%（预登记 +30~50%，远好于预期） |
+| u:2#4 调用数 | 10 | 6 | scaffold/Write/Edit 褶皱本轮未现 |
+| #3+#4 fresh 合计 | 141,498 | 78,902 | **-44%** |
+| #3+#4 cr 合计 | 2,397,568 | 2,240,512 | -6.5%（cr 总账不升反降） |
+
+- **混淆声明（§6 预登记执行）**：#3 两轮都是 run head，冷启动逐字相同
+  （40,576 = 40,576，同种子同包 = 完美对照）；#3 fresh 总计 86,708 → 66,151
+  是步体方差（#40：31 vs 25 调、单次增量更小），按预登记剔出对比面——
+  验收口径 #4 逐调用 fresh/墙钟无混淆足额达标。
+- **cr 预登记偏差说明**：设计预估累积上下文逐调重读会推 cr +30~50%，实测
+  +3.5%——#4 调用数 10→6（续步轮无 scaffold 返工褶皱）抵消了单次 cr 增长
+  （~54k→~90k/调）；#3+#4 合计 cr 反而 -6.5%。
+- 三模式：drive（headless）实测 ✓；front 共用 _run_boundary_loop 单点（单测
+  覆盖 run_segment 路径），前台 dogfood 未跑（沿用 v4 默认翻转既有观察项）；
+  WF_TUI=1 无段概念不动。
+- 测试实例留存档案：.claude/workflows/u2_sub4_ab/ + evidence/u2_sub4_ab.jsonl
+  + worktree wf/u2_sub4_ab（同 u2_sub1_ab/u2_sub2_ab/u2_sub3_ab 先例）。
