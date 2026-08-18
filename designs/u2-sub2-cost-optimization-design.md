@@ -121,3 +121,44 @@ trace 内容质量不降（引用源从「evidence 里找」换「包内已有�
 3. AC_WORKFLOW_LAUNCHER 指向本 worktree 的 dl-launch.sh（worktree A/B 驱动两前提之一：
    launcher 与 engine 同树解析）。
 4. 验收口径纪律沿用 #22：逐调用前缀读数归因，全轮总账只作参考。
+
+## 7. 实施验证记录（2026-08-18，feat/u2-sub2-cost，1095 tests）
+
+- TDD 红→绿 +5 测试 + 全量 1095 passed + ruff 绿（8 个无关文件 format 漂移按
+  filtered-patch 纪律不碰，v2.119 教训）。既有 test_slim_behavior 钉的是同一位置
+  （u:2#2）的通用尾行——按设计更新挪到 u:2#3 钉守通用尾行。
+- **live A/B（u2_sub2_ab 实例，dl @ac-deepseek1/deepseek-v4-flash headless，种子
+  u2_sub1_ab evidence 裁剪至 u:2#1 从 u:2#2 起跑，跑到 u:2#5 后 u:3#1 needuser
+  自动收）——验收点全中**：
+  1. u:2#2 段 transcript **零 Read evidence 全量、零侦察调用**（基线 8 调含
+     ls/wc/Read 68KB 三调 → 优化后 5 调直走 scaffold→Read 骨架→Edit→落库）；
+  2. 包尾行条件化生效（启动前 engine 冒烟：「本步所需材料已全部在包内」）；
+  3. node_attempts=0 全程零 block（一过率护栏 ✓）；judge 全 pass（牙齿零变更 ✓）；
+  4. trace 质量目测不降反细：4×4 双向矩阵逐项 + 孤儿显式处置 + 逐目标
+     solutioneering 核对 + 冲突检测显式声明（①④重叠标注留子5）；
+  5. u:2#3 基线实测环节数字与今日值核对一致：ob_quality annual=0.4920153
+     （显示 4920.2%）、coverage=0.502，且显式标注与种子快照（0.495/0.501）
+     的漂移——模型处理数据漂移正确。
+
+- **数字（逐调用口径，usage 去重 keep-max）**：
+
+| 指标 | 基线（u2_sub1_ab） | 优化后（u2_sub2_ab） | 变化 |
+|---|---|---|---|
+| u:2#2 fresh | 66,818 | 43,811 | **-34%** |
+| u:2#2 cache_read | 425,088 | 199,552 | **-53%** |
+| u:2#2 调用数 | 8 | 5 | -3 |
+| u:2#2 段墙钟（首调→末调） | ~99s | ~34s | **-66%** |
+| u:2#3 冷启动 fresh | 80,308 | 60,316 | **-25%** |
+| u:2#4 冷启动 fresh | 102,921 | 94,057 | -8.6%（见混淆声明） |
+| evidence 68KB 全量读 | 1 次（+19.6k fresh/+43s） | 0 | 灭 |
+| 优化直接作用面合计（#2 段 + #3 冷启动） | 147,126 | 104,127 | **-29%** |
+
+- **混淆声明**：u:2#3 本体两轮不可比——种子数据在两次运行间发生真实漂移
+  （default json annual 0.495→0.1277、ob_quality 0.492），本轮 #3 为跨两个结果
+  文件+源码的口径核查多做 ~10 调（fresh 178k vs 基线 96k 是数据漂移驱动的合法
+  探索，非优化失效）；#4 冷启动缩量被 #3 额外探索的上下文回灌部分抵消
+  （-19.6k 理论值 vs -8.9k 实测）。#2 段与 #3 冷启动无混淆，足额达标。
+- out 侧：14,374 vs 13,738（+4.6%）——thinking 是真实推理工作，噪声范围。
+- 测试实例留存档案：.claude/workflows/u2_sub2_ab/ + evidence/u2_sub2_ab.jsonl
+  + worktree wf/u2_sub2_ab（同 u2_sub1_ab 先例）。
+
