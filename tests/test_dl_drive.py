@@ -2262,12 +2262,13 @@ def test_chain_resume_understand1_rolled_back(wf_repo):
     assert drv._chain_resume_sid(state2, "understand:2", 3) is None
 
 
-def test_chain_resume_understand3_merged_off_chain(wf_repo):
-    """2026-08-18 u:3 段内续步（designs/u3-sub2-cost-optimization-design.md）：
-    u3_sub1_ab2 实测 u:3 链税 #3 首调 71,862(cr=0)+#4 首调 106,780(cr=1,792)
-    =178.6k 纯增税（deepseek 会话隔离缓存下链恒冷，占链合计 fresh 73%）——
-    u:3 移出 SEGMENT_CHAIN_NODES 转 MERGED_RUN_NODES（u:2 断链+续步同路径，
-    understand:4 与 plan 族保留 surgical）。"""
+def test_chain_resume_understand3_broken(wf_repo):
+    """2026-08-18 u:3 断链（designs/u3-sub2-cost-optimization-design.md §6）：
+    u3_sub1_ab2 实测链税 #3 首调 71,862(cr=0)+#4 首调 106,780(cr=1,792)=178.6k
+    纯增税；两轮 live A/B 实测段内续步边界暖率仅 1/4（deepseek 逐出激进），
+    续步冷=全额重写继承 transcript（65-122k），EV 不如 fresh 段恒定地板
+    （~28-31k/步）——u:3 移出 SEGMENT_CHAIN_NODES 且不入 MERGED_RUN_NODES
+    （understand:4 与 plan 族保留 surgical）。"""
     drv = _load(DRIVER, "drv_chain_u3")
     state = _write_state(
         wf_repo,
@@ -2276,11 +2277,12 @@ def test_chain_resume_understand3_merged_off_chain(wf_repo):
     assert drv._chain_resume_sid(state, "understand:3", 3) is None
 
 
-def test_merged_whitelist_u3_membership():
-    """白名单互斥不变量 + u:3 归属（同 u3-sub2-cost 设计）：MERGED 与 CHAIN
-    两名单交集恒空（merged 路径不走 _chain_resume_sid/_chain_update）。"""
-    assert "understand:3" in engine.MERGED_RUN_NODES
+def test_whitelist_u3_neither_chain_nor_merged():
+    """u:3 断链归属（同 u3-sub2-cost 设计 §6）：CHAIN/MERGED 两名单都不含
+    u:3（每步 fresh 段=断链语义）；两名单交集恒空（merged 路径不走
+    _chain_resume_sid/_chain_update）。"""
     assert "understand:3" not in engine.SEGMENT_CHAIN_NODES
+    assert "understand:3" not in engine.MERGED_RUN_NODES
     assert engine.SEGMENT_CHAIN_NODES.isdisjoint(engine.MERGED_RUN_NODES)
 
 
@@ -2944,78 +2946,6 @@ def test_merged_run_single_session_covers_u2_sub2_to_sub4(wf_repo, monkeypatch):
     assert calls == []  # prep_done 消费 stash——零 prep 段
     data = json.loads((wf_repo / SEG_META / "need_user.json").read_text())
     assert data["questions"][0]["question"] == "q-u3"
-
-
-def _gate_scripted_u3(repo: Path, actions):
-    """_gate_scripted 的 u:3 变体：advanced 真实推进 state（u:3 #2→…→#5→u:4#1）。"""
-
-    it = iter(actions)
-
-    def fake(project_root, name, cwd):
-        act = next(it)
-        if act[0] == "advanced":
-            st = _read_state(repo)
-            cur = st.get("sub_step_index", 1)
-            if st["sub_index"] == 3:
-                if cur < 5:
-                    st["sub_step_index"] = cur + 1
-                else:
-                    st.update(sub_index=4, node="understand:4", sub_step_index=1)
-            (repo / SEG_META / "state.json").write_text(
-                json.dumps(st), encoding="utf-8"
-            )
-            return ("advanced", "", None)
-        return (act[0], act[1] if len(act) > 1 else "", None)
-
-    return fake
-
-
-def test_merged_run_u3_sub2_to_sub4(wf_repo, monkeypatch):
-    """u:3 段内续步（designs/u3-sub2-cost-optimization-design.md，#21 泛化第三例）：
-    u3_sub1_ab2 实测 u:3 链税 = #3 首调 71,862(cr=0)+#4 首调 106,780(cr=1,792)
-    =178.6k 纯增税（deepseek 会话隔离缓存下链恒冷，占链合计 fresh 73%）；节点
-    形状与 u:2 同构（#1 交互/#2-#4 非交互连续/#5 confirm 级）——#2 为 merged-run
-    头段，#3/#4 同进程暖续，撞 #5 收段，NEXT_PREP(u:4#1) 照常落 stash。"""
-    drv = _load(DRIVER, "drv_merged_u3")
-    _seg_write_state(wf_repo, sub_index=3, node="understand:3", sub_step_index=2)
-    next_prep_out = (
-        "子4 完成\n### NEXT_PREP\n```json\n"
-        '{"questions": [{"question": "q-u4", "header": "h", "multiSelect": false,'
-        ' "options": []}]}\n```'
-    )
-    insts = _merged_stub(
-        drv,
-        monkeypatch,
-        [[("子2 完成", {}), ("子3 完成", {}), (next_prep_out, {})]],
-    )
-    monkeypatch.setattr(
-        drv.engine,
-        "gate_sub_step_at_stop",
-        _gate_scripted_u3(
-            wf_repo, [("advanced",), ("advanced",), ("advanced",), ("advanced",)]
-        ),
-    )
-    calls = _run_session_stub(drv, monkeypatch, [])
-    rc = drv.run_segment(wf_repo, "t")
-    assert rc == 13
-    assert len(insts) == 1  # 单进程覆盖 #2-#4
-    sess = insts[0]
-    assert sess.closed
-    assert len(sess.sends) == 3
-    assert "## WORKFLOW 当前任务" in sess.sends[0]  # 头段全量 prompt
-    assert "同会话续步" not in sess.sends[0]
-    assert (
-        "同会话续步" in sess.sends[1]
-        and "## WORKFLOW 上下文交接包" not in sess.sends[1]
-    )
-    assert (
-        "同会话续步" in sess.sends[2]
-        and "## WORKFLOW 上下文交接包" not in sess.sends[2]
-    )
-    assert "附带交付" in sess.sends[2]
-    assert calls == []  # prep_done 消费 stash——零 prep 段
-    data = json.loads((wf_repo / SEG_META / "need_user.json").read_text())
-    assert data["questions"][0]["question"] == "q-u4"
 
 
 def test_merged_run_block_reworks_in_session(wf_repo, monkeypatch):
