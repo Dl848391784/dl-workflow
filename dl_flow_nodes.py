@@ -2024,12 +2024,17 @@ _NODES: dict[str, Node] = {
         minor_key="ScopeAndConstraints",
         # 无 hold_for_gate（用户决议 2026-07-28）：围栏只设在 plan 完成，
         # 末步过门控自动续轮进 understand:4（同 understand:1 边界语义）。
-        # u3-sub1-cost：段前缀剥离置位（#23 泛化第三例，含 TUI 交互段管线）。
+        # u3-sub1-cost：段工具白名单置位（#23 泛化第三例，含 TUI 交互段管线）。
         # 逐字段核对：子2 本地验证=Bash+Read（codegraph 走 Bash CLI）；子3 推理
         # 型；子4 kind=skill define-problem→Skill；落库=scaffold+Edit 零合法
         # Write；子1 交互段三件套由 run_tui_step 自动附带；无 Agent 需求
         # （子2 本地单层源不派子代理，对照 u:1 子4 取证才含 Agent）。
-        segment_strip_project_context=True,
+        # **env 剥离（CLAUDE_MDS）不置位**（u3_sub1_ab 实证 2026-08-18）：
+        # 本节点约束分类把「项目硬规则」列为一等约束源，自动加载的 CLAUDE.md
+        # 是任务功能材料非死重——剥掉后模型为点名规则条号重读规范文档+代码
+        # 文件（+40k 上下文驻留），冷重付 87k 一次 + 逐调 cr 多背 35k，
+        # 总账反超标量（#23 置位前置核对补：任务内容本身引用自动加载文档的
+        # 节点禁剥 env）。
         segment_tools=("Bash", "Read", "Edit", "Skill"),
     ),
     "understand:4": Node(
