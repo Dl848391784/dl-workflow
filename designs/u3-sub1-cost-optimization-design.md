@@ -152,9 +152,68 @@ AskUserQuestion 在白名单内（真实 TTY 场景问答卡片照常）。
 5. AC_WORKFLOW_LAUNCHER 指向本 worktree dl-launch.sh（launcher 与 engine 同树
    解析；凭证不进命令文本，bashrc 函数体提取 env）。
 
-## 6. 实施验证记录
+## 6. 实施验证记录（2026-08-18，feat/u3-sub1-cost，1115 tests）
 
-（实施+live A/B 后回填）
+- **前置修复（9ba4cc1）**：/tmp 探针复现 variadic 吞参（短 prompt→
+  "MCP config file not found: /tmp/<prompt>"，长任务书→ENAMETOOLONG）；
+  `--` 分隔与 equals 两修法均验证，取 `--`。修复后 TUI 段全链路首跑即通
+  （u3_sub1_base 从 u:3#1 一路绿灯到 u:4#1，全 node 零 block）。
+- **TDD + 全量 1115 passed + ruff 绿**（format 漂移只收自己引入的两处）。
+- **生产旗标组合探针**（/tmp 无 workflow settings）：`--tools 白名单 ×
+  DISABLE 对 × --strict-mcp-config × --` 分隔共存启动正常、应答正常、
+  零 MCP 报错。
+
+### live A/B（ac-deepseek1/deepseek-v4-flash headless，种子=u2_sub5_ab
+evidence 全量+u:3#1 stash，同三问答案：无时限/接受重跑/装配层通用 +
+4920.2% 会话事实）
+
+**B1（全量 strip 配置，u3_sub1_ab）= 反证轮**：首调 13,974（-67%）达标，
+但模型为点名规则条号重读 CLAUDE.md/PROJECT.md/data_loaders.py/
+formatters.py（+40k 上下文驻留），resume 轮冷重付 87.4k，总账
+fresh 148,023/cr 1,377,024 **反超基线**。机制定位：u:3 约束分类把
+「项目硬规则」列一等约束源（子1 候选须点名规则条号、子2 合法验证源=
+Read 规范文档原文），自动加载的 CLAUDE.md 对本节点是**任务功能材料**
+——与 u:1/u:2（引用全是 Read 指针）结构性不同。据此下修为 tools-only
+（33cd99b），#23 置位前置核对补第三条。
+
+**B2（tools-only，u3_sub1_ab2）vs 基线 A（u3_sub1_base）——预登记口径**：
+
+| 指标 | A 基线 | B2 | 变化 |
+|---|---|---|---|
+| **首调 fresh（主口径）** | 41,988 | 26,310 | **-37.3%**（预期 -33~35% 足额略超） |
+| **cr 总账** | 617,856 | 342,912 | **-44.5%** |
+| 暖调逐调 cr | 45.6-67.3k | 33.9-74.0k | 前缀逐调 -14.3k 机制读数 ✓ |
+| out | 23,843 | 20,387 | -14.5% |
+| fresh 总账 | 101,296 | 108,675 | +7.3%（混淆见下） |
+| 调用数 | 13 | 8 | resume 轮权限摩擦降噪（--settings+
+--permission-mode 显式传） |
+| 探索行为 | 零 | 零（Read need_user.json + 1 次定点 grep evidence 引文） | ✓ 不回归 |
+
+- **fresh 总账混淆声明（预登记执行）**：B2 resume 轮冷重付 67.8k
+  （deepseek 跨进程缓存丢失，#9 时灵时不灵），A resume 轮暖（无冷重付）——
+  provider 缓存方差非机制效果。双方各剔一次冷重付（A call04 49.3k /
+  B2 call04 67.8k）后：B2 ~41k vs A ~52k = **-21%**。
+- **零探索核对**：B2 无规范文档/代码文件重读（B1 的 40k 重读面消失——
+  env-strip-诱发假设坐实）；sources 逐字引用兑现（trace 引 ProblemContext
+  陈述2 双×100 链 / 子3 基线实测 / 用户三问原话+4920.2% 会话事实；
+  H15/H1/H9 规则条号自上下文内 CLAUDE.md 引用——正是 env 保留的功能）。
+- **trace 质量**：q×6 a×6 按序对齐；候选钉具体对象（OB1 双×100 装配链/
+  OB5 日收益序列未持久化/long_short_return_annual 字段）；结论①逐句
+  出处；类型覆盖 ≥3 类。
+- **A/B 驱动伪影登记（对称剔除）**：①driver 重启重收段（无 gate-first
+  路径，TUI退=全退后续跑=重跑当前步）产生重复 u:3#1 trace 与额外会话
+  （A 66.7k/1.54M；B2 同型未计入对比面）；②--resume 喂答案轮权限摩擦
+  （A 3 次 denial 自恢复 5 调；B1 12 调 deliberation）为驱动法固有噪声，
+  不属机制效果。
+- **基线附带发现（独立后续项，不在本设计面）**：u:3 段链在 deepseek 上
+  恒冷实锤——u:3#3 首调 fresh=134,435/cr=1,792（继承上下文全量重写），
+  链合计 fresh 344k/cr 2.84M。与 u:2#3 断链前同构（#20：会话隔离缓存
+  provider 上链=纯税），断链候选须用户裁决（前决议「峰值未破保留」是
+  防爆默认非成本最优）。
+
+### u:3#2-#4 连带收益（tools 白名单对 headless 段）
+
+（B2 driver 续跑后回填：#2 首调对照基线 40,228）
 
 ## 7. 显式不做
 
