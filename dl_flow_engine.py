@@ -90,10 +90,12 @@ SUB_STEP_BLOCK_ESCALATE = 3
 # u2_sub1_ab/u2_sub2_ab 两轮实测 u:2#3/#4 段首调 cache_read=0（deepseek 会话
 # 隔离缓存下链恒冷=纯增税，#3 冷启动 60.3k=本步 fresh 73%、#4 94.1k=98%）；
 # fresh 段首调恒定 ~45k 不随前序轮数涨，交接包（v2.45）材料完备性已逐字段核对。
-# u:3/4 与 plan 族链峰值未突破且无降本指令，保留（surgical）。
+# 2026-08-18 u:3 移出转段内续步（designs/u3-sub2-cost-optimization-design.md）：
+# u3_sub1_ab2 实测链税 #3 首调 71,862(cr=0)+#4 首调 106,780(cr=1,792)=178.6k
+# 纯增税（占链合计 fresh 73%），节点形状与 u:2 同构（#1 交互/#2-#4 非交互
+# 连续/#5 confirm）。u:4 与 plan 族链峰值未突破且无降本指令，保留（surgical）。
 SEGMENT_CHAIN_NODES = frozenset(
     {
-        "understand:3",
         "understand:4",
         "plan:1",
         "plan:2",
@@ -110,7 +112,8 @@ SEGMENT_CHAIN_NODES = frozenset(
 # 交接包（会话内已有真迹）。白名单即回滚面；与 SEGMENT_CHAIN_NODES 互斥
 # （understand:2 已断链，merged 路径不走 _chain_resume_sid/_chain_update）。
 # 扩面判据 = cost-optimization #20（provider 缓存语义 × 冷启动口径逐节点审）。
-MERGED_RUN_NODES = frozenset({"understand:2"})
+# understand:3（2026-08-18，u3-sub2-cost 同设计）：#2 为合并段头，#3/#4 暖续。
+MERGED_RUN_NODES = frozenset({"understand:2", "understand:3"})
 
 # per-wf settings.json 模板版本戳（v2.35，症状 R 防静默权限税）：dl-lib.sh
 # wf_write_settings 写 settings 时盖章 wf_settings_template_version；workflow_phase
