@@ -1543,13 +1543,21 @@ _SEGMENT_STRIP_ENV = {
 }
 
 
-def segment_spawn_overrides(node: "Node") -> "dict[str, object]":
+def segment_spawn_overrides(
+    node: "Node", step: "Step | None" = None
+) -> "dict[str, object]":
     """段会话 spawn 覆盖单源（driver run_session/MergedSession 共用）。
 
     返回 {"env": {追加环境变量}, "tools": 工具白名单 tuple|None}。
     字段默认 False/None = 白名单外节点零行为变化（回滚面=字段翻转）。
+    step（u3-sub3-cost）：Step 级 segment_strip_project_context 置位时同样
+    剥 env——生效 = node 字段 OR step 字段（单调只增）；MergedSession 段内
+    续步管线 env 进程级固定，不传 step 维持节点级语义。
     """
-    env = dict(_SEGMENT_STRIP_ENV) if node.segment_strip_project_context else {}
+    strip = node.segment_strip_project_context or (
+        step is not None and step.segment_strip_project_context
+    )
+    env = dict(_SEGMENT_STRIP_ENV) if strip else {}
     return {"env": env, "tools": node.segment_tools}
 
 

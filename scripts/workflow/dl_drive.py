@@ -937,6 +937,8 @@ def _run_merged_run(
     None 则主循环重读 state 续派（state 在磁盘 = 唯一真源）。
     """
     nid = engine.node_id(node.phase, node.sub)
+    # 合并段 env 进程级固定（spawn 一次多步续跑）——不传 step，Step 级 strip
+    # （u3-sub3-cost）在合并段不适用；要用 Step 级剥离的节点不入 MERGED。
     _ov = engine.segment_spawn_overrides(node)
     sess = MergedSession(
         cwd=wt,
@@ -1731,7 +1733,8 @@ def run_tui_step(
     # 两管线已接，交互段是第三条 spawn 管线）。env 剥项目上下文死重（交接包
     # 由 SessionStart hook 注入，hooks 不受 DISABLE 对影响）；tools = 节点
     # segment_tools + TUI 交互三件套。未置位节点零覆盖（回滚面=字段翻转）。
-    _ov = engine.segment_spawn_overrides(node)
+    # u3-sub3-cost：step 传入启用 Step 级 strip（消费型步单独剥，B1 粒度下沉）。
+    _ov = engine.segment_spawn_overrides(node, step)
     _tools = tuple(_ov["tools"]) + _TUI_STEP_TOOLS if _ov["tools"] else None
     cmd = _build_tui_cmd(sid, settings, rules, prompt, debug, meta, tools=_tools)
     if bare:
@@ -2225,7 +2228,7 @@ def _run_boundary_loop(
                         rework=pending_rework,
                         prep=True,
                     )
-                    _ov = engine.segment_spawn_overrides(node)
+                    _ov = engine.segment_spawn_overrides(node, step)
                     rc, out, sid = run_session(
                         prompt,
                         cwd=wt,
@@ -2361,7 +2364,7 @@ def _run_boundary_loop(
                     resume_sid = _chain_resume_sid(state, nid, cur)
                     if resume_sid:
                         disp.log(f"  ⟂ 段链续跑（{nid} 链，子{cur}）——同会话 --resume")
-                    _ov = engine.segment_spawn_overrides(node)
+                    _ov = engine.segment_spawn_overrides(node, step)
                     rc, out, sid = run_session(
                         prompt,
                         cwd=wt,

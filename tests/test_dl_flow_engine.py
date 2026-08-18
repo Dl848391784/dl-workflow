@@ -10855,3 +10855,32 @@ class TestSegmentSpawnOverrides:
             ov = eng.segment_spawn_overrides(node)
             assert ov["env"] == {}, key
             assert ov["tools"] is None, key
+
+    def test_u3_step3_step_level_strip(self):
+        # u3-sub3-cost（designs/u3-sub3-cost-optimization-design.md）：Step 级
+        # segment_strip_project_context——B1 决议是节点级（子1/子2 须规则原文
+        # 在场），子3 是消费步（规则内容经子2 trace 逐字在场）可单独置位。
+        node = eng._NODES["understand:3"]
+        step3 = node.sub_steps[2]
+        ov = eng.segment_spawn_overrides(node, step3)
+        assert ov["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
+        assert ov["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
+        assert ov["tools"] == ("Bash", "Read", "Edit", "Skill")
+
+    def test_step_level_strip_backward_compat(self):
+        # step=None（MergedSession 段内续步管线不传 step）维持节点级语义——
+        # u:3 节点级 False 时 env 仍空（B1 决议不破）。
+        node = eng._NODES["understand:3"]
+        assert eng.segment_spawn_overrides(node)["env"] == {}
+        # 节点级已置位时 step 未置位不剥回（单调只增）
+        u2 = eng._NODES["understand:2"]
+        ov = eng.segment_spawn_overrides(u2, u2.sub_steps[0])
+        assert ov["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
+
+    def test_step_level_strip_other_steps_unaffected(self):
+        # u:3 其余步（子1/2/4/5）未置位——逐步粒度不误伤兄弟步。
+        node = eng._NODES["understand:3"]
+        for i, step in enumerate(node.sub_steps, start=1):
+            if i == 3:
+                continue
+            assert eng.segment_spawn_overrides(node, step)["env"] == {}, i
