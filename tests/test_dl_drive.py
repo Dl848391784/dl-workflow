@@ -2527,6 +2527,31 @@ class TestRedteamPreDispatch:
         wj = json.loads((meta / "redteam_worker.json").read_text())
         assert wj["pid"] == 888001 and wj["prompt_sha1"]
 
+    def test_spawn_env_passthrough(self, wf_repo, monkeypatch):
+        # u1-prefix-strip：spawn_env 覆盖进 worker Popen env（段前缀剥离
+        # 同步到红队预派发——Read-only worker 零 CLAUDE.md 依赖）。
+        drv = _load(DRIVER, "drv_rt_env")
+        monkeypatch.setattr(drv.engine, "redteam_prompt", lambda *a, **k: "PROMPT")
+        spawned = []
+
+        def _fake_popen(cmd, **kw):
+            proc = _FakeRTProc(cmd, **kw)
+            spawned.append(proc)
+            return proc
+
+        monkeypatch.setattr(drv.subprocess, "Popen", _fake_popen)
+        meta = wf_repo / ".claude" / "workflows" / "t"
+        drv._maybe_predispatch_redteam(
+            wf_repo,
+            "t",
+            _rt_step(),
+            wt=wf_repo / ".claude" / "worktrees" / "t",
+            settings=meta / "settings.drive.json",
+            meta=meta,
+            spawn_env={"CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1"},
+        )
+        assert spawned[0].kw["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
+
     def test_skip_non_predispatch_step(self, wf_repo, monkeypatch):
         drv = _load(DRIVER, "drv_rt_pd")
         spawned, _ = self._call(drv, wf_repo, monkeypatch, step=_rt_step(""))
