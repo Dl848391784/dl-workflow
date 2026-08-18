@@ -102,3 +102,40 @@ front/drive 两模式同路径生效（_chain_resume_sid 单点）。
    launcher 与 engine 同树解析；凭证不进命令文本，bashrc 函数体提取 env）。
 4. 混淆声明预登记：种子数据若再漂移，#3 测量探索增量属 #18 混淆项剔出对比面，
    只比冷启动 fresh（链税直接度量，无混淆）。
+
+## 7. 实施验证记录（2026-08-18，feat/u2-sub3-cost，1095 tests）
+
+- TDD 红→绿（test_chain_resume_understand1_rolled_back 扩 u:2 断言先红后绿）
+  + 全量 1095 passed + ruff 绿。白名单样例节点 understand:2→understand:3 五处对齐。
+- **live A/B（u2_sub3_ab 实例，dl @ac-deepseek1/deepseek-v4-flash headless，种子
+  u2_sub2_ab evidence 裁剪至 u:2#2 从 u:2#3 起跑，跑到 u:2#5 后 u:3#1 needuser
+  自动收）——验收点全中**：
+  1. **机制生效直接证据**：#3/#4 段各起新会话（693b4689 / f19080a3 两个 sid），
+     state.segment_chain 全程 None（链 run 时 #2→#3→#4 同一 sid）；
+  2. node_attempts=0 全程零 block（一过率护栏 ✓）；gate 全 pass 推进（牙齿零变更 ✓）；
+  3. trace 质量目测不降反丰：4 目标逐项（受益者会话事实出处/价值链/基线实测/
+     must-nice 附试金石理由）+ 72/72 因子 blast-radius 实测扫描；
+  4. 基线实测数字与今日值核对一致：long_short_return_annual=0.4920153 →
+     双 ×100 装配后显示 4920.15%（=今日值 4920.2% 口径 ✓），且正确区分历史版本
+     4824.5% 与当前版本。
+
+- **数字（逐调用口径，usage 去重 keep-max，同 id 内容块合并）**：
+
+| 指标 | 链（u2_sub2_ab） | 断链（u2_sub3_ab） | 变化 |
+|---|---|---|---|
+| u:2#3 冷启动 fresh（验收口径） | 60,316 | 40,576 | **-33%**（预期 -25%，超额） |
+| u:2#4 冷启动 fresh | 94,057 | 44,592 | **-53%**（预期 -45%，超额） |
+| 冷启动合计（链税直接面） | 154,373 | 85,168 | **-45%** |
+| u:2#4 fresh 总计 / 墙钟 | 95,772 / ~139s | 54,790 / 77s | **-43% / -45%** |
+| #3+#4 fresh 合计 | 178,402 | 141,498 | **-21%** |
+| u:2#3 调用数 / fresh 总计 | 18 / 82,630 | 25 / 86,708 | +5%（见混淆声明） |
+
+- **混淆声明**：u:2#3 本体只比冷启动（§6 预登记）——三轮调用数 11/18/25 = 步体
+  天然高方差（#40）：本轮模型做了更彻底的测量（72/72 因子逐一 sweep + web_ui
+  装配链核查 + evidence 出处回读 1 次[合法：本步非 pack_self_contained，通用尾行
+  在场]）+ 载荷手写后回炉 scaffold 重填 ~6 调（drive 模式 S15 降级、S14 围栏不在
+  段的既有行为褶皱，非断链引入）。冷启动口径无混淆足额达标；#3+#4 合计在 #3 多干
+  活的前提下仍 -21%。
+- out 侧：23,766 vs 21,004（+13%）——测量 reasoning 增量，噪声范围。
+- 测试实例留存档案：.claude/workflows/u2_sub3_ab/ + evidence/u2_sub3_ab.jsonl
+  + worktree wf/u2_sub3_ab（同 u2_sub1_ab/u2_sub2_ab 先例）。
