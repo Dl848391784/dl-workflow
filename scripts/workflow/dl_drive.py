@@ -1398,8 +1398,10 @@ class LiveProgress:
 _QUESTIONS_CONTRACT = (
     '{"questions": [{"question": "...", "header": "≤12字标签", '
     '"multiSelect": false, "options": [{"label": "...", "description": "..."}]}], '
-    '"sources": ["出处材料逐字收录：前序用户原话/会话事实（含其出处类目）——'
-    '前台落 trace 直接引用，禁编造、禁概括替换原话"]}'
+    '"sources": ["出处材料逐字收录：前序用户原话/会话事实（含其出处类目）；'
+    "发现台账（discoveries.jsonl）中与本步问答直接相关的已验证事实/结构锚点"
+    "（file:line/symbol/规则条号）可择要收录——无相关项不读不收，禁为凑数"
+    '扩大收录面。前台落 trace 直接引用，禁编造、禁概括替换原话"]}'
 )
 
 
@@ -1504,7 +1506,8 @@ def build_step_prompt(
             f"{how_prep}"
             "1. 按本步目的准备要向用户提的问题（问题/选项设计纪律 = 上方目的条款）\n"
             "2. 把问答后落 trace 要引用的出处材料（你上下文中已有的前序用户原话/"
-            "会话事实）逐字收录进载荷 sources 字段（禁编造、禁概括替换原话）\n"
+            "会话事实；发现台账 discoveries.jsonl 有与本步直接相关的结构锚点时"
+            "择要收录，无则免读）逐字收录进载荷 sources 字段（禁编造、禁概括替换原话）\n"
             "3. 输出 `### NEED_USER`，紧跟一个 ```json 代码块（问题载荷契约）：\n"
             f"   {_QUESTIONS_CONTRACT}\n"
             "4. 输出完即结束本轮"
@@ -1588,8 +1591,12 @@ def _build_tui_cmd(
     prompt: "str | None",
     debug: bool,
     meta: Path,
+    tools: "tuple[str, ...] | None" = None,
 ) -> list[str]:
-    """TUI 段命令行。prompt=None = 裸开场（无位置参数，会话开了安静等用户打字）。"""
+    """TUI 段命令行。prompt=None = 裸开场（无位置参数，会话开了安静等用户打字）。
+    tools（u3-sub1-cost）：段前缀剥离的工具白名单（segment_tools + TUI 交互
+    三件套）——必须放在 NO_MCP_ARGS 之前（--mcp-config variadic 吞尾随位置
+    参数的教训同 `--` 修复）；None = 全量工具（现状）。"""
     cmd = [
         "claude",
         "--session-id",
@@ -1601,6 +1608,9 @@ def _build_tui_cmd(
         "--permission-mode",
         "acceptEdits",
     ]
+    if tools:
+        # 逗号单串单 argv 元素（u2-residual-cost 同法，无变长吞参风险）
+        cmd += ["--tools", ",".join(tools)]
     # O1（u1-overall-cost）：TUI 交互段同一 MCP 税同一封法
     # （位置参数 prompt 必须仍在末尾——见下方 append 顺序）
     cmd += engine.NO_MCP_ARGS
@@ -1612,7 +1622,12 @@ def _build_tui_cmd(
             str(meta / f"cc_debug.{sid[:8]}.log"),
         ]
     if prompt is not None:
-        cmd.append(prompt)
+        # u3-sub1-cost 前置修复：--mcp-config 是 variadic，prompt 紧跟其后会被
+        # 吞作第二个配置文件路径（短 prompt 报 "MCP config file not found"，
+        # 长任务书报 ENAMETOOLONG——O1 后全部 prompt 驱动 TUI 段 rc=1 秒退，
+        # u2_sub2/3/4/5_ab 四实例 u:3#1 needuser 全中；judge/headless 因后续
+        # 跟 flag 或未带位置参数免疫）。`--` 分隔符把 prompt 钉成纯位置参数。
+        cmd += ["--", prompt]
     return cmd
 
 
@@ -1664,6 +1679,12 @@ def _consume_tui_autodone(meta: Path) -> "dict | None":
     return payload if isinstance(payload, dict) else {}
 
 
+# TUI 交互段的工具白名单附加件（u3-sub1-cost）：问答卡片 + v3.3.1 开场纪律
+# 清单是交互段的结构职能——节点 segment_tools 置位时自动附带（headless 段不加，
+# 那里 AskUserQuestion 反而要 --disallowedTools 封死）。
+_TUI_STEP_TOOLS = ("AskUserQuestion", "TaskCreate", "TaskUpdate")
+
+
 def run_tui_step(
     project_root: Path,
     name: str,
@@ -1706,7 +1727,13 @@ def run_tui_step(
             interactive=True,
             needuser=needuser,
         )
-    cmd = _build_tui_cmd(sid, settings, rules, prompt, debug, meta)
+    # u3-sub1-cost：TUI 段接入段前缀剥离单源（#23 泛化第三例——headless 段
+    # 两管线已接，交互段是第三条 spawn 管线）。env 剥项目上下文死重（交接包
+    # 由 SessionStart hook 注入，hooks 不受 DISABLE 对影响）；tools = 节点
+    # segment_tools + TUI 交互三件套。未置位节点零覆盖（回滚面=字段翻转）。
+    _ov = engine.segment_spawn_overrides(node)
+    _tools = tuple(_ov["tools"]) + _TUI_STEP_TOOLS if _ov["tools"] else None
+    cmd = _build_tui_cmd(sid, settings, rules, prompt, debug, meta, tools=_tools)
     if bare:
         print(
             f"\n▸ 交互子步骤 {cur}/{len(node.sub_steps or ())} —— TUI 会话已就绪："
@@ -1734,7 +1761,14 @@ def run_tui_step(
             # TUI 处于 raw 模式时 Ctrl+C 只是输入字节，driver 收不到 SIGINT
             # （tui-exit-quits-driver-design §2 实证）——本计数仅兜底 cooked 窗口：
             # 双击=杀子会话退 130，与「TUI 退 = 全退」语义一致
-            proc = subprocess.Popen(cmd, cwd=str(wt), stderr=err_f)
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(wt),
+                stderr=err_f,
+                # u3-sub1-cost：TUI 段前缀剥离 env（{}=继承父进程，零覆盖——
+                # run_session 同范式）
+                env=({**os.environ, **_ov["env"]} if _ov["env"] else None),
+            )
             _tui_segment_file(meta).write_text(
                 json.dumps(
                     {

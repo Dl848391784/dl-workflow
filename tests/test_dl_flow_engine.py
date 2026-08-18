@@ -10838,10 +10838,19 @@ class TestSegmentSpawnOverrides:
         assert ov["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
         assert ov["tools"] == ("Bash", "Read", "Edit", "Skill", "Agent")
 
+    def test_u3_tools_only_no_env_strip(self):
+        # u3-sub1-cost：u:3 置位 tools-only（#23 泛化第三例，TUI 交互段管线同
+        # 机制受益）。env 剥离刻意不置位——u3_sub1_ab 实证：约束分类把「项目
+        # 硬规则」列为一等约束源，自动加载的 CLAUDE.md 是任务功能材料，剥掉
+        # 诱发重读（+40k 驻留 + 87k 冷重付），总账反超。
+        ov = eng.segment_spawn_overrides(eng._NODES["understand:3"])
+        assert ov["env"] == {}
+        assert ov["tools"] == ("Bash", "Read", "Edit", "Skill")
+
     def test_other_nodes_zero_change(self):
         # 白名单外节点零行为变化（字段默认 False/None）——回滚面即字段翻转
         for key, node in eng._NODES.items():
-            if key in ("understand:1", "understand:2"):
+            if key in ("understand:1", "understand:2", "understand:3"):
                 continue
             ov = eng.segment_spawn_overrides(node)
             assert ov["env"] == {}, key

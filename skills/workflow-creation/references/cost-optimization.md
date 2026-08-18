@@ -94,4 +94,22 @@
 
 **段前缀外科剥离**（2026-08-18 u2-residual-cost，designs/u2-residual-cost-optimization-design.md）：u2-sub4 设计把 40.5k 冷启动记作「harness ~22.5k 恒定地板不随瘦身下降」——生产旗标组合探针逐层分解后地板其实是 ~4.8k：①**项目上下文 11.9k**（CLAUDE.md+auto-memory+git status 等）用官方开关 `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`+`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` 剥掉（2.1.234 起；段会话材料全在交接包+node-rules，项目路由文件是死重）；②**工具 schema ~14.3k** 用 `--tools` 白名单裁（逗号单串单 argv 元素，无变长吞 prompt 风险）——裸 harness 22.3k 的大头是工具 schema 不是系统提示。**关键对照**：`CLAUDE_CODE_SIMPLE=1`/`--bare` 更狠（fresh 1,452）但 **hooks 全灭**（探针 D：PreToolUse 探针零触发）=S11/S14 结构保证丢失——剥前缀只能走双 DISABLE 开关，hooks 照常触发须逐案实证（探针 E：hook_fired）。**置位前置两核对**：逐步工具需求核对（Write 不进 u:2 白名单=载荷 --scaffold+Edit 零合法 Write，附带灭 S14 撞栏褶皱）+ 本节点不依赖 CLAUDE.md/auto-memory 内容；声明式 Node 字段（segment_strip_project_context/segment_tools）白名单外零行为变化。**判别问句**：设计文档写「X 是恒定地板/不可裁」时先问「分解过吗」——空目录裸跑 vs 生产 cwd 的差值就是项目上下文分量，--tools "" 与默认的差值就是工具 schema 分量，两个只读探针把「恒定」拆成可裁清单。实测（u2_sub5_ab）：run-head 首调 fresh 40,576→10,230（-74.8%）、全段 cr -60%、零 block、trace 质量不降。
 
+**#23 泛化第二例（2026-08-18 u3-sub1-cost，designs/u3-sub1-cost-optimization-design.md）**：
+u:3 置位 + 剥离扩到第三条 spawn 管线（run_tui_step 交互段——tools 白名单须加
+TUI 交互三件套 AskUserQuestion/TaskCreate/TaskUpdate，且放 NO_MCP_ARGS 之前守
+variadic 排序纪律）。两新沉淀：①**置位前置核对补第三条——任务内容本身引用
+自动加载文档的节点禁剥 env**：u:3 约束分类把「项目硬规则」列一等约束源（候选
+须点名规则条号），CLAUDE.md 自动加载是功能材料非死重；B1 全量 strip 实证模型
+为点名条号重读规范文档+代码文件（+40k 驻留），冷重付 87k、总账 fresh 148k/
+cr 1.38M 反超基线（101k/618k）——剥前缀省的被诱发重读吃光还倒贴。改置
+tools-only（schema 纯裁零诱因变化）后 B2 首调 -37.3%/cr 总账 -44.5%/零探索
+不回归。对照判据：u:1/u:2 能剥是因为其 CLAUDE.md 引用逐处核对全是「约束源
+Read 指针」（模型按指针定向读，不依赖自动加载）。②**argv 顺序测试断言替代
+不了真实 spawn 探针**：既有测试钉死「prompt 在 argv 末位」仍漏 --mcp-config
+variadic 吞 prompt（O1 落地后四个 A/B 实例 u:3#1 全 rc=1 秒退，ENAMETOOLONG=
+长 prompt 被当文件路径 open）——变长/variadic 旗标的坑只有 /tmp 真实探针
+（无 workflow settings）能逮，断言数组顺序不够。
+
 **#23 泛化第一例（2026-08-18 u1-prefix-strip，designs/u1-prefix-strip-design.md）**：u:1 置位（白名单 +Agent——子4 取证派发依赖），两新增量：①**验证口径坑**：`--tools` 白名单声明 `Agent`，段 init 事件显示为 `Task`（2.1.234 内部映射）——验收时按 Task 认，别当白名单失效；②**预派发 worker 同步剥**：红队 `--tools Read` worker 走 `_maybe_predispatch_redteam` 独立 spawn 管线，overrides 要显式接线（spawn_env 参数），主流线改了它不改=漏面。逐字段核对执行范式：节点内 CLAUDE.md 引用逐处过，全是「约束源 Read 指针」（模型按指针定向 Read）即不依赖自动加载——Read 保留=定向读不受剥离影响。本轮实测再证预登记混淆声明的价值：五段首调 -57~-77% 一致命中（机制读数干净），但全段总账 fresh/cr 反升（轮数 30/69/77/27/55 vs 基线 17/30/24/9/7，#40 步体方差 + #18 种子漂移）——**前缀类固定税优化的验收只能按逐调用/首调口径，总账单轮不可比**。
+
+**#23 泛化第二例（2026-08-18 u3-sub1-cost，designs/u3-sub1-cost-optimization-design.md）**：第三 spawn 管线（run_tui_step 交互段）接入 segment_spawn_overrides 单源——tools 白名单 = segment_tools + `_TUI_STEP_TOOLS` 三件套（AskUserQuestion/TaskCreate/TaskUpdate = 交互段结构职能：问答卡片+v3.3.1 清单）。**argv 排序纪律两连**：--tools 必须放 NO_MCP_ARGS 之前、prompt 前必须 `--` 分隔——--mcp-config 是 variadic，吞尾随位置参数当配置文件路径（O1 后全部 prompt 驱动 TUI 段 rc=1 秒退，u2_sub2/3/4/5_ab 四实例 u:3#1 全中；judge/headless 因后续跟 flag 或走 stdin 免疫——**给 variadic flag 后接位置参数的 spawn 点做审计是同类前置**）。**置位前置核对补第三条（env 剥离边界）**：节点任务内容把自动加载文档当**一等材料**（非 Read 指针）时禁剥 env——u:3 约束分类把「项目硬规则」列一等约束源（子1 候选须点名规则条号），剥掉 CLAUDE.md 自动加载后模型为点名规则重读规范文档+代码文件（+40k 上下文驻留 + 87k 冷重付），首调 -67% 账面 vs 总账 fresh +46%/cr +123% **反超基线**；改 tools-only（纯能力裁量零内容诱因变化）后首调 -37%/cr 总账 -44.5%/零探索回归。判别问句：逐字段核对时问「本步交付物的**正文**会不会引用自动加载文档的内容」——「按指针 Read」≠「正文引用」，前者可剥后者禁剥。

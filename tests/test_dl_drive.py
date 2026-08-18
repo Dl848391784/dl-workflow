@@ -634,6 +634,9 @@ def test_build_tui_cmd_bare_omits_prompt(tmp_path):
         "sid-x", tmp_path / "s.json", tmp_path / "rules.md", "任务书", False, meta
     )
     assert cmd_full[-1] == "任务书"
+    # u3-sub1-cost：prompt 前必须有 `--` 分隔——--mcp-config 是 variadic，
+    # 无分隔时 prompt 被吞作配置文件路径（ENAMETOOLONG rc=1 秒退实证）。
+    assert cmd_full[-2] == "--"
 
 
 # ---------- Ctrl+C 中断语义（drive-tasklist-render-design §2.6） ----------
@@ -2689,6 +2692,45 @@ def test_tui_cmd_disables_mcp(wf_repo):
     assert "--strict-mcp-config" in cmd
     assert cmd[cmd.index("--mcp-config") + 1] == '{"mcpServers":{}}'
     assert cmd[-1] == "PROMPT"
+    # variadic --mcp-config 与位置参数 prompt 之间必须有 `--`，否则吞参
+    assert cmd.index("--") > cmd.index("--mcp-config")
+
+
+def test_tui_cmd_tools_before_no_mcp(tmp_path):
+    """u3-sub1-cost：TUI 段 --tools 白名单须在 NO_MCP_ARGS 之前（--mcp-config
+    variadic 吞尾随位置参数——同 `--` 修复的排序纪律）。"""
+    drv = _load(DRIVER, "drv_tui_tools")
+    cmd = drv._build_tui_cmd(
+        "sid",
+        Path("s"),
+        Path("r"),
+        "PROMPT",
+        False,
+        tmp_path,
+        tools=("Bash", "Read", "AskUserQuestion"),
+    )
+    assert cmd[cmd.index("--tools") + 1] == "Bash,Read,AskUserQuestion"
+    assert cmd.index("--tools") < cmd.index("--mcp-config")
+    assert cmd[-2] == "--" and cmd[-1] == "PROMPT"
+    # None = 全量工具（未置位节点零行为变化）
+    cmd2 = drv._build_tui_cmd("sid", Path("s"), Path("r"), None, False, tmp_path)
+    assert "--tools" not in cmd2
+
+
+def test_tui_step_tools_constant():
+    """TUI 交互三件套：问答卡片 + 开场纪律清单（v3.3.1）是交互段结构职能。"""
+    drv = _load(DRIVER, "drv_tui_const")
+    assert drv._TUI_STEP_TOOLS == ("AskUserQuestion", "TaskCreate", "TaskUpdate")
+
+
+def test_questions_contract_sources_ledger_category():
+    """u3-sub1-cost 修2：sources 合同扩类目——发现台账结构锚点合法化
+    （框架级措辞，禁为凑数扩大收录面的刹车条款同驻）。"""
+    drv = _load(DRIVER, "drv_contract")
+    c = drv._QUESTIONS_CONTRACT
+    assert "discoveries.jsonl" in c
+    assert "结构锚点" in c
+    assert "禁为凑数" in c
 
 
 def test_node_rules_brief_titles_only(wf_repo):
