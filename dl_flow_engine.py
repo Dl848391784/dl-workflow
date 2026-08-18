@@ -102,6 +102,16 @@ SEGMENT_CHAIN_NODES = frozenset(
     }
 )
 
+# 段内续步白名单（u2-sub4-cost，2026-08-18 用户裁决「段内续步」方案）：
+# 名单内节点的连续非交互子步骤在同一 claude -p 进程内续跑（--input-format
+# stream-json 多轮，driver 逐步注入任务 prompt，gate 照跑）——deepseek 会话
+# 隔离缓存下跨进程段首调必冷（恒定地板 ~44.6k/段，u2_sub3_ab 实测 #4 冷启动
+# 占本步 fresh 81%），进程内暖（探针 turn2 fresh=95/cr 暖）；续步 prompt 剥
+# 交接包（会话内已有真迹）。白名单即回滚面；与 SEGMENT_CHAIN_NODES 互斥
+# （understand:2 已断链，merged 路径不走 _chain_resume_sid/_chain_update）。
+# 扩面判据 = cost-optimization #20（provider 缓存语义 × 冷启动口径逐节点审）。
+MERGED_RUN_NODES = frozenset({"understand:2"})
+
 # per-wf settings.json 模板版本戳（v2.35，症状 R 防静默权限税）：dl-lib.sh
 # wf_write_settings 写 settings 时盖章 wf_settings_template_version；workflow_phase
 # 注入与 /dl status 比对本常量，落后即警告 `dl <name> --resume` 刷新——
