@@ -2024,6 +2024,13 @@ _NODES: dict[str, Node] = {
         minor_key="ScopeAndConstraints",
         # 无 hold_for_gate（用户决议 2026-07-28）：围栏只设在 plan 完成，
         # 末步过门控自动续轮进 understand:4（同 understand:1 边界语义）。
+        # u3-sub1-cost：段前缀剥离置位（#23 泛化第三例，含 TUI 交互段管线）。
+        # 逐字段核对：子2 本地验证=Bash+Read（codegraph 走 Bash CLI）；子3 推理
+        # 型；子4 kind=skill define-problem→Skill；落库=scaffold+Edit 零合法
+        # Write；子1 交互段三件套由 run_tui_step 自动附带；无 Agent 需求
+        # （子2 本地单层源不派子代理，对照 u:1 子4 取证才含 Agent）。
+        segment_strip_project_context=True,
+        segment_tools=("Bash", "Read", "Edit", "Skill"),
     ),
     "understand:4": Node(
         label="定义成功标准和验收方式",

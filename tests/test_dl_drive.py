@@ -2696,6 +2696,43 @@ def test_tui_cmd_disables_mcp(wf_repo):
     assert cmd.index("--") > cmd.index("--mcp-config")
 
 
+def test_tui_cmd_tools_before_no_mcp(tmp_path):
+    """u3-sub1-cost：TUI 段 --tools 白名单须在 NO_MCP_ARGS 之前（--mcp-config
+    variadic 吞尾随位置参数——同 `--` 修复的排序纪律）。"""
+    drv = _load(DRIVER, "drv_tui_tools")
+    cmd = drv._build_tui_cmd(
+        "sid",
+        Path("s"),
+        Path("r"),
+        "PROMPT",
+        False,
+        tmp_path,
+        tools=("Bash", "Read", "AskUserQuestion"),
+    )
+    assert cmd[cmd.index("--tools") + 1] == "Bash,Read,AskUserQuestion"
+    assert cmd.index("--tools") < cmd.index("--mcp-config")
+    assert cmd[-2] == "--" and cmd[-1] == "PROMPT"
+    # None = 全量工具（未置位节点零行为变化）
+    cmd2 = drv._build_tui_cmd("sid", Path("s"), Path("r"), None, False, tmp_path)
+    assert "--tools" not in cmd2
+
+
+def test_tui_step_tools_constant():
+    """TUI 交互三件套：问答卡片 + 开场纪律清单（v3.3.1）是交互段结构职能。"""
+    drv = _load(DRIVER, "drv_tui_const")
+    assert drv._TUI_STEP_TOOLS == ("AskUserQuestion", "TaskCreate", "TaskUpdate")
+
+
+def test_questions_contract_sources_ledger_category():
+    """u3-sub1-cost 修2：sources 合同扩类目——发现台账结构锚点合法化
+    （框架级措辞，禁为凑数扩大收录面的刹车条款同驻）。"""
+    drv = _load(DRIVER, "drv_contract")
+    c = drv._QUESTIONS_CONTRACT
+    assert "discoveries.jsonl" in c
+    assert "结构锚点" in c
+    assert "禁为凑数" in c
+
+
 def test_node_rules_brief_titles_only(wf_repo):
     """O2：node-rules 清单 titles-only + 当前步标注；当前步完整目的由段 prompt
     逐字携带（双通道契约在此钉死）。瘦身前 node-rules.understand:1.md 实测
