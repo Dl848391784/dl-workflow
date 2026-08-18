@@ -10816,6 +10816,95 @@ class TestPackSelfContained:
         assert "存活问题陈述甲UNIQUEPC6" in pack  # PC 子6 存活问题全文
         assert "目标候选UNIQUEG1附出处" in pack  # 子1 目标候选+出处全文
 
+    @staticmethod
+    def _sc_traces():
+        return [
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "ScopeAndConstraints",
+                "sub_step": 1,
+                "skill": "s",
+                "purpose": "p",
+                "q": ["否定提问"],
+                "a": ["约束候选UNIQUESC1"],
+            },
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "ScopeAndConstraints",
+                "sub_step": 2,
+                "skill": "s",
+                "purpose": "p",
+                "q": ["三态处置"],
+                "a": ["已验证留痕UNIQUESC2附fileline"],
+            },
+        ]
+
+    def test_u3_step3_flag_single_source(self):
+        # u3-sub3-cost：u:3#3 置位（消费型步——材料=子2 验证留痕全文+GAV 裁决，
+        # 均在包内）；兄弟步不置位（子1/子2 须规范文档在场，B1 决议不下放）。
+        node = eng.get_node("understand", 3)
+        flags = [bool(s.pack_self_contained) for s in node.sub_steps]
+        assert flags == [False, False, True, False, False]
+
+    @staticmethod
+    def _gav_decision_traces():
+        return [
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "GoalsAndValue",
+                "sub_step": 4,
+                "skill": "s",
+                "purpose": "p",
+                "statements": [
+                    {
+                        "text": "归一化目标UNIQUEG4",
+                        "type_label": "must",
+                        "boundary": "b",
+                        "fields": {},
+                    }
+                ],
+            },
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "GoalsAndValue",
+                "sub_step": 5,
+                "skill": "s",
+                "purpose": "p",
+                "q": ["读回"],
+                "a": ["用户裁决UNIQUEG5拍板must"],
+            },
+        ]
+
+    def test_u3_step3_tail_line_replaced(self, tmp_path):
+        self._write_evidence(
+            tmp_path,
+            self._pc_traces() + self._gav_decision_traces() + self._sc_traces(),
+        )
+        _write_state_full(tmp_path, "t", "understand", 3, sub_step=3)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None
+        assert "本步所需材料已全部在包内" in pack
+        assert "以上为摘要" not in pack
+
+    def test_u3_step3_materials_complete_invariant(self, tmp_path):
+        """装配不变量：u:3#3 的包须含子2 验证留痕全文（本节点留痕节）+
+        GAV 归一化陈述与用户裁决（前序摘要节）——复用优先条款（L1）的材料前提。"""
+        self._write_evidence(
+            tmp_path,
+            self._pc_traces() + self._gav_decision_traces() + self._sc_traces(),
+        )
+        _write_state_full(tmp_path, "t", "understand", 3, sub_step=3)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None
+        assert "已验证留痕UNIQUESC2附fileline" in pack  # 子2 留痕全文（复用源）
+        assert "约束候选UNIQUESC1" in pack  # 子1 候选（本节点留痕节）
+        assert "归一化目标UNIQUEG4" in pack  # GAV 归一化（前序摘要节）
+        assert "用户裁决UNIQUEG5拍板must" in pack  # GAV 用户裁决（前序摘要节）
+
 
 class TestSegmentSpawnOverrides:
     """u2-residual-cost（designs/u2-residual-cost-optimization-design.md）：

@@ -1,6 +1,11 @@
-# understand:3 子3（范围界定）耗时/token 优化设计——复用前序取证 + 逐步 env 剥离
+# understand:3 子3（范围界定）耗时/token 优化设计——复用前序取证 + 逐步 env 剥离 + 材料边界
 
 > 日期：2026-08-19 · 分支 feat/u3-sub3-cost · 状态：实施中
+> **修订（2026-08-19 两轮 A/B 后）**：L1/L2 机制双双落地（首调 -45.5% 两轮
+> 稳定、零重复取证、24 处子2 来源标注），但 ab2 轮模型开局 15 次调用在
+> evidence/state 元探查（ls evidence/cat state/tail+jq ×6）——#16 的
+> 「包尾通用按需 Read 邀请 = 反指」在 u:3#3 复现（u:2#2 同型）。补 L3 =
+> pack_self_contained 置位（机制现成，置位前置核对见 §2 L3）。
 > 上游：designs/u3-sub2-cost-optimization-design.md（断链收官，u:3 各步 fresh 段）；
 >      designs/u3-sub1-cost-optimization-design.md（tools 白名单 + B1：u:3 节点级
 >      env 剥离是反优化）；designs/u2-residual-cost-optimization-design.md（#23
@@ -95,6 +100,26 @@ CLAUDE.md §5 一行指针，purpose 文本自身已携带「单次改动 ≤3 �
 **B1 风险对冲**：子3 若确需规则原文（如 H8 逐字），Read 在白名单内可定向读
 ——一次定向 Read ~2-3k << 剥离省的 11.9k×8 调用 ≈ 95k。A/B 行为核对项显式
 列「零规范文档全量重读（定向 Read 单行级合法）」。
+
+### L3 材料边界——pack_self_contained 置位（#16 三件套，ab2 轮实证补入）
+
+ab2 轮（L1+L2 已生效）模型开局 ~15 次调用全在元探查（ls evidence 目录、
+cat state.json、tail/jq evidence ×6 找前序留痕）——根因 = 包尾通用
+「以上为摘要；按需 Read evidence」邀请（#16 反指机制，u:2#2 同型实证）。
+子3 输入契约逐字段核对（#16 置位前置）：
+
+| 输入契约项 | 包内位置 | 核对 |
+|---|---|---|
+| step2.verified_constraints（子1 候选逐条三态+留痕） | 本节点留痕节（子2 trace 全文，候选原文嵌于 q 列表） | ✓ ab 轮零 evidence 读完成 I-1..I-6 |
+| GoalsAndValue.step5.user_decisions（must/nice 拍板） | 前序节点摘要节（归一化+用户裁决） | ✓ 两轮 trace 均正确引用 M1/M2/N1/N2 |
+| ProblemContext 结论（部分成立边界） | 前序节点摘要节 | ✓ |
+| codegraph CLI 路径（缺口取证用） | purpose 内指针（CLAUDE.md §3 定向查） | ✓ ab 轮首调即定向 grep 命中 |
+| 缺口新取证（真缺口 symbol） | 条款允许「确有缺口按指针定点补」 | ✓ 条款明示 |
+
+置位后：段 prompt 加「材料边界」条款 + 包尾改「材料已在包内」（两处消费点
+已泛化，零新机制）+ 装配不变量测试（包须含子2 trace 内容与 GAV 裁决全文）。
+ab 轮实证材料已在包内：该轮零 evidence 读取完成全部交付（元探查发生在
+ab2 的 evidence tail/jq，正是本杠杆要灭的形态）。
 
 ### 显式不做
 

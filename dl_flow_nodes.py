@@ -1953,6 +1953,11 @@ _NODES: dict[str, Node] = {
                 # 是死重；B1 反优化结论限子1/子2（候选生成/验证须规则原文
                 # 在场），不覆盖本步。
                 segment_strip_project_context=True,
+                # 同设计 L3：材料边界——输入契约（子2 验证留痕全文 + GAV 裁决 +
+                # PC 结论）100% 在交接包内（ab 轮零 evidence 读取完成交付实证；
+                # ab2 轮通用「按需 Read」尾行诱发 15 次 evidence/state 元探查，
+                # #16 反指机制 u:3#3 复现）。缺口取证走 purpose 内指针定点补。
+                pack_self_contained=True,
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace、minor_stage=ScopeAndConstraints 且 sub_step==3 的记录；形式要件：in/out 双侧清单；每项携带双字段（具体实现指针+outcome 层标签）；双向矩阵逐项（backward 每个 in 项回溯目标+forward 每个目标有范围覆盖或显式搁置+理由——prose 逐项点名即合规，不要求表格/命中-未命中矩阵/结构化清单形式）；孤儿项显式处置；约束回写已记录（哪条约束迫使范围怎么缩有对应陈述即合规，不要求回写位置/字段级明细）。\n"
                     "默认 pass——仅当以下成立才判 block（每条附合法形态，合法形态在场不得判）：\n"
