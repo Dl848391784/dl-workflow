@@ -579,6 +579,8 @@ def run_session(
     disp: "LiveProgress | None" = None,
     disallow_ask: bool = False,
     resume_sid: "str | None" = None,
+    spawn_env: "dict | None" = None,
+    tools: "tuple | None" = None,
 ) -> tuple[int, str, str]:
     """一次 headless `claude -p` 会话。返回 (rc, assistant 全文, session_id)。
 
@@ -593,6 +595,10 @@ def run_session(
     配合 _session_called_ask_user L2 嗅探，NEED_USER 标记不作承重墙）。
     resume_sid（P2-4 段链）：续链走 --resume（与 --session-id 互斥），返回
     sid = 链 sid；None = 新会话（现状）。
+    spawn_env/tools（u2-residual-cost）：Node 声明式段前缀剥离——spawn_env
+    追加进 Popen env（剥 CLAUDE.md/auto-memory 自动加载），tools 拼
+    --tools 逗号单串（裁工具 schema；单 argv 元素，无变长参数吞 prompt 风险）。
+    None/None = 零覆盖（现状）。
     """
     sid = resume_sid or str(uuid.uuid4())
     cmd = [
@@ -602,6 +608,8 @@ def run_session(
         "stream-json",
         "--verbose",
     ]
+    if tools:
+        cmd += ["--tools", ",".join(tools)]
     if disallow_ask:
         # --disallowedTools 是变长参数（<tools...>）：其后必须跟旗标——
         # 直接跟位置参数 prompt 会被吞成工具名（2026-08-12 实爆：claude 秒退
@@ -651,6 +659,8 @@ def run_session(
             # 独立进程组：终端 Ctrl+C 只打 driver——中断/退出语义由 driver
             # 统一裁决（防 child 先收 SIGINT 自杀、driver 读 EOF 当正常收段的竞态）
             start_new_session=True,
+            # u2-residual-cost：段前缀剥离 env（None=继承父进程，零覆盖）
+            env=({**os.environ, **spawn_env} if spawn_env else None),
         )
         assert proc.stdin is not None
         proc.stdin.write(prompt)
@@ -752,6 +762,8 @@ class MergedSession:
         note: str,
         verbose: bool = False,
         disp: "LiveProgress | None" = None,
+        spawn_env: "dict | None" = None,
+        tools: "tuple | None" = None,
     ):
         self.sid = str(uuid.uuid4())
         self.note = note
@@ -777,6 +789,9 @@ class MergedSession:
             "--append-system-prompt-file",
             str(sys_prompt_file),
         ]
+        # u2-residual-cost：段前缀剥离（同 run_session 管线）
+        if tools:
+            cmd += ["--tools", ",".join(tools)]
         cmd += engine.NO_MCP_ARGS
         cmd += ["--session-id", self.sid]
         if debug:
@@ -799,6 +814,8 @@ class MergedSession:
             bufsize=1,
             # 独立进程组（同 run_session）：终端 Ctrl+C 只打 driver
             start_new_session=True,
+            # u2-residual-cost：段前缀剥离 env（None=继承父进程，零覆盖）
+            env=({**os.environ, **spawn_env} if spawn_env else None),
         )
 
     def send(self, prompt: str) -> None:
@@ -917,6 +934,7 @@ def _run_merged_run(
     None 则主循环重读 state 续派（state 在磁盘 = 唯一真源）。
     """
     nid = engine.node_id(node.phase, node.sub)
+    _ov = engine.segment_spawn_overrides(node)
     sess = MergedSession(
         cwd=wt,
         settings=settings,
@@ -926,6 +944,8 @@ def _run_merged_run(
         note=f"{nid}#{cur}-merged",
         verbose=verbose,
         disp=disp,
+        spawn_env=_ov["env"],
+        tools=_ov["tools"],
     )
     first_cur = cur
     none_retries = 0
@@ -2168,6 +2188,7 @@ def _run_boundary_loop(
                         rework=pending_rework,
                         prep=True,
                     )
+                    _ov = engine.segment_spawn_overrides(node)
                     rc, out, sid = run_session(
                         prompt,
                         cwd=wt,
@@ -2179,6 +2200,8 @@ def _run_boundary_loop(
                         verbose=verbose,
                         disp=disp,
                         disallow_ask=True,
+                        spawn_env=_ov["env"],
+                        tools=_ov["tools"],
                     )
                     seg_kind = "headless-prep"
                     if rc != RC_INTERRUPTED:
@@ -2300,6 +2323,7 @@ def _run_boundary_loop(
                     resume_sid = _chain_resume_sid(state, nid, cur)
                     if resume_sid:
                         disp.log(f"  ⟂ 段链续跑（{nid} 链，子{cur}）——同会话 --resume")
+                    _ov = engine.segment_spawn_overrides(node)
                     rc, out, sid = run_session(
                         prompt,
                         cwd=wt,
@@ -2311,6 +2335,8 @@ def _run_boundary_loop(
                         verbose=verbose,
                         disp=disp,
                         resume_sid=resume_sid,
+                        spawn_env=_ov["env"],
+                        tools=_ov["tools"],
                     )
                     seg_kind = "headless-step"
                     if (
@@ -2335,6 +2361,8 @@ def _run_boundary_loop(
                             note=f"{nid}#{cur}",
                             verbose=verbose,
                             disp=disp,
+                            spawn_env=_ov["env"],
+                            tools=_ov["tools"],
                         )
                     if NEED_USER_RE.search(out):
                         # 动态交互 fallback（§2.3）：模型非预期需要用户输入——

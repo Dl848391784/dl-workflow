@@ -3066,3 +3066,126 @@ def test_merged_session_cmd_and_wire_format(wf_repo, monkeypatch):
     assert text == "干完了" and info["subtype"] == "success"
     sess.close()
     sess.close()  # 幂等
+
+
+def test_run_session_spawn_overrides(wf_repo, monkeypatch):
+    """u2-residual-cost：spawn_env/tools 覆盖进 cmd 与 Popen env；
+    prompt 仍走 stdin（--tools 逗号单串，无变长参数吞 prompt 风险）。"""
+    drv = _load(DRIVER, "drv_spawn_ov")
+    captured = {}
+
+    class _FakeProc:
+        stdout = iter([])
+        stdin = io.StringIO()
+
+        def wait(self):
+            return 0
+
+        def terminate(self):
+            pass
+
+        def kill(self):
+            pass
+
+    def fake_popen(cmd, **kw):
+        captured["cmd"] = cmd
+        captured["env"] = kw.get("env")
+        return _FakeProc()
+
+    monkeypatch.setattr(drv.subprocess, "Popen", fake_popen)
+    meta = wf_repo / SEG_META
+    rc, _out, _sid = drv.run_session(
+        "提示词正文",
+        cwd=wf_repo,
+        settings=meta / "settings.json",
+        sys_prompt_file=meta / "rules.md",
+        meta=meta,
+        debug=False,
+        note="t",
+        spawn_env={"CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1"},
+        tools=("Bash", "Read", "Edit", "Skill"),
+    )
+    cmd = captured["cmd"]
+    assert cmd[cmd.index("--tools") + 1] == "Bash,Read,Edit,Skill"
+    assert captured["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
+    assert rc == 0
+
+
+def test_run_session_default_no_overrides(wf_repo, monkeypatch):
+    """现状不回归：无覆盖时 cmd 无 --tools、Popen env=None（继承父进程）。"""
+    drv = _load(DRIVER, "drv_spawn_default")
+    captured = {}
+
+    class _FakeProc:
+        stdout = iter([])
+        stdin = io.StringIO()
+
+        def wait(self):
+            return 0
+
+        def terminate(self):
+            pass
+
+        def kill(self):
+            pass
+
+    def fake_popen(cmd, **kw):
+        captured["cmd"] = cmd
+        captured["env"] = kw.get("env")
+        return _FakeProc()
+
+    monkeypatch.setattr(drv.subprocess, "Popen", fake_popen)
+    meta = wf_repo / SEG_META
+    drv.run_session(
+        "提示词正文",
+        cwd=wf_repo,
+        settings=meta / "settings.json",
+        sys_prompt_file=meta / "rules.md",
+        meta=meta,
+        debug=False,
+        note="t",
+    )
+    assert "--tools" not in captured["cmd"]
+    assert captured["env"] is None
+
+
+def test_merged_session_spawn_overrides(wf_repo, monkeypatch):
+    """u2-residual-cost：MergedSession 同管线——--tools 进 cmd、spawn_env 进 env。"""
+    drv = _load(DRIVER, "drv_ms_ov")
+    captured = {}
+
+    class _FakeProc:
+        def __init__(self):
+            self.stdout = iter([])
+            self.stdin = io.StringIO()
+
+        def wait(self):
+            return 0
+
+        def terminate(self):
+            pass
+
+        def kill(self):
+            pass
+
+    def fake_popen(cmd, **kw):
+        captured["cmd"] = cmd
+        captured["env"] = kw.get("env")
+        return _FakeProc()
+
+    monkeypatch.setattr(drv.subprocess, "Popen", fake_popen)
+    meta = wf_repo / SEG_META
+    sess = drv.MergedSession(
+        cwd=wf_repo,
+        settings=meta / "settings.json",
+        sys_prompt_file=meta / "rules.md",
+        meta=meta,
+        debug=False,
+        note="t",
+        spawn_env={"CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"},
+        tools=("Bash", "Read", "Edit", "Skill"),
+    )
+    cmd = captured["cmd"]
+    assert cmd[cmd.index("--tools") + 1] == "Bash,Read,Edit,Skill"
+    assert captured["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
+    sess.close()

@@ -1524,6 +1524,27 @@ _PACK_REPORT_A_MAX = 200
 NO_MCP_ARGS = ["--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
 
 
+# u2-residual-cost（designs/u2-residual-cost-optimization-design.md）：段前缀
+# 外科剥离——置位节点的段 spawn 剥项目上下文（CLAUDE.md/auto-memory 自动加载，
+# 探针实证 -11.9k/冷启动）+ 裁工具 schema（--tools 白名单，再 -14.3k）。
+# env 键名是 Claude Code 2.1.234 官方开关；hooks 不受影响（探针实证——
+# CLAUDE_CODE_SIMPLE=1/--bare 会连 hooks 一起灭，故走双 DISABLE 而非 SIMPLE）。
+_SEGMENT_STRIP_ENV = {
+    "CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1",
+    "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
+}
+
+
+def segment_spawn_overrides(node: "Node") -> "dict[str, object]":
+    """段会话 spawn 覆盖单源（driver run_session/MergedSession 共用）。
+
+    返回 {"env": {追加环境变量}, "tools": 工具白名单 tuple|None}。
+    字段默认 False/None = 白名单外节点零行为变化（回滚面=字段翻转）。
+    """
+    env = dict(_SEGMENT_STRIP_ENV) if node.segment_strip_project_context else {}
+    return {"env": env, "tools": node.segment_tools}
+
+
 def _truncate(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit] + "…"
 

@@ -159,6 +159,17 @@ class Node:
     # 仅 gate_mech=ARTIFACT_CONTAINS 时读取。取值必须引用 ARTIFACT_SECTIONS
     # 或其节常量（禁散写字面量，2026-08-02 节标题单源化）。
     artifact_contains: tuple[str, ...] = ()
+    # u2-residual-cost（designs/u2-residual-cost-optimization-design.md）：段会话
+    # 前缀外科剥离。True=段 spawn env 加 CLAUDE_CODE_DISABLE_CLAUDE_MDS /
+    # CLAUDE_CODE_DISABLE_AUTO_MEMORY（探针实证 -11.9k/冷启动且 hooks 照常；
+    # CLAUDE_CODE_SIMPLE=1 更狠但 hooks 全灭=S11/S14 结构保证丢失，禁用）。
+    # 置位前置=本节点各步不依赖项目 CLAUDE.md/auto-memory 内容（材料全在
+    # 交接包+node-rules+step prompt）。声明式单源（pre_dispatch 同范式）。
+    segment_strip_project_context: bool = False
+    # 非 None=段 spawn 加 --tools 白名单（逗号单串，探针实证再 -14.3k——工具
+    # schema 占裸 harness 22.3k 的大头）。置位前置=逐步工具需求核对（Write
+    # 不进单=载荷走 --scaffold+Edit，模型零合法 Write；附带灭 S14 撞栏褶皱）。
+    segment_tools: tuple[str, ...] | None = None
 
 
 # 节点表。<node_id> -> Node。node_id = f"{phase}:{sub}"。
@@ -1731,6 +1742,14 @@ _NODES: dict[str, Node] = {
         minor_key="GoalsAndValue",
         # 无 hold_for_gate（用户决议 2026-07-28）：围栏只设在 plan 完成，
         # 末步过门控自动续轮进 understand:3（同 understand:1 边界语义）。
+        # u2-residual-cost 置位（逐字段核对见 design §3）：本节点五步零源码
+        # 交互（规范性命题——目标/价值真值源是用户），材料全在交接包+node-rules，
+        # 不依赖项目 CLAUDE.md/auto-memory；逐步工具需求：#1 prep=Read/Bash、
+        # #2 矩阵推理=Bash(append-trace)、#3 基线测量=Bash/Read、
+        # #4 归一化=Skill(define-problem)+Edit 骨架+Bash 落库——Write 零合法用途
+        # （载荷 --scaffold+Edit），AskUserQuestion 由 prep --disallowedTools 封。
+        segment_strip_project_context=True,
+        segment_tools=("Bash", "Read", "Edit", "Skill"),
     ),
     "understand:3": Node(
         label="确定范围与约束",

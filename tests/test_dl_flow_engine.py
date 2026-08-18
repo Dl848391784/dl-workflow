@@ -10815,3 +10815,26 @@ class TestPackSelfContained:
         assert pack is not None
         assert "存活问题陈述甲UNIQUEPC6" in pack  # PC 子6 存活问题全文
         assert "目标候选UNIQUEG1附出处" in pack  # 子1 目标候选+出处全文
+
+
+class TestSegmentSpawnOverrides:
+    """u2-residual-cost（designs/u2-residual-cost-optimization-design.md）：
+    段前缀外科剥离——Node 声明式字段（segment_strip_project_context /
+    segment_tools）→ spawn 覆盖单源。探针实证（2026-08-18，2.1.234）：
+    DISABLE 对 -11.9k（hooks 照常触发）、--tools 白名单再 -14.3k；
+    CLAUDE_CODE_SIMPLE=1 fresh 更低但 hooks 全灭（S11/S14 丢失）禁用。"""
+
+    def test_u2_strip_and_tools(self):
+        ov = eng.segment_spawn_overrides(eng._NODES["understand:2"])
+        assert ov["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
+        assert ov["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
+        assert ov["tools"] == ("Bash", "Read", "Edit", "Skill")
+
+    def test_other_nodes_zero_change(self):
+        # 白名单外节点零行为变化（字段默认 False/None）——回滚面即字段翻转
+        for key, node in eng._NODES.items():
+            if key == "understand:2":
+                continue
+            ov = eng.segment_spawn_overrides(node)
+            assert ov["env"] == {}, key
+            assert ov["tools"] is None, key
