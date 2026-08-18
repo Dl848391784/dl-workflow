@@ -8878,7 +8878,9 @@ class TestHandoffPackSlim:
             },
         ]
         self._write_evidence(tmp_path, recs)
-        _write_state_full(tmp_path, "t", "understand", 2, sub_step=2)
+        # 注：sub_step 取 3（非 pack_self_contained 步）——u2-sub2-cost 起 u:2#2
+        # 的包尾改「材料已在包内」不含 evidence 指针，通用尾行由本测试钉守。
+        _write_state_full(tmp_path, "t", "understand", 2, sub_step=3)
         pack = eng.handoff_pack(tmp_path, "t")
         assert pack is not None
         # 机械字段剥除（本节点+前序都不带）
@@ -10719,3 +10721,97 @@ class TestPackStripReports:
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=6)
         pack = eng.handoff_pack(tmp_path, "t")
         assert pack is not None and "not-a-list" in pack
+
+
+class TestPackSelfContained:
+    """u2-sub2-cost（designs/u2-sub2-cost-optimization-design.md）：
+    pack_self_contained 步的交接包尾行条件化 + 材料完备性装配不变量。
+
+    u:2#2（对齐质检）矩阵输入 = 子1 目标候选（本节点前序留痕全文）
+    + ProblemContext 存活问题陈述（前序节点结论摘要 statements 全文）
+    ——全部在包内。通用尾行「以上为摘要；按需 Read evidence」对该步是
+    反指邀请（u2_sub1_ab 实测：模型保险性全量读 68KB evidence = +19.6k
+    fresh/+43s 零信息增量，且驻留污染链式下游冷启动各 +19.6k）。
+    """
+
+    def _write_evidence(self, tmp_path, records):
+        ev = tmp_path / ".claude" / "evidence"
+        ev.mkdir(parents=True, exist_ok=True)
+        with open(ev / "t.jsonl", "w", encoding="utf-8") as f:
+            for r in records:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+    @staticmethod
+    def _pc_traces():
+        return [
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "ProblemContext",
+                "sub_step": 6,
+                "skill": "s",
+                "purpose": "p",
+                "statements": [
+                    {
+                        "text": "存活问题陈述甲UNIQUEPC6",
+                        "type_label": "证实",
+                        "boundary": "b",
+                        "fields": {"confidence": "高"},
+                    }
+                ],
+            },
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "ProblemContext",
+                "sub_step": 7,
+                "skill": "s",
+                "purpose": "p",
+                "q": ["读回"],
+                "a": ["确认级静默通过"],
+            },
+        ]
+
+    @staticmethod
+    def _gav_step1_trace():
+        return {
+            "kind": "skill-trace",
+            "major_stage": "Understand",
+            "minor_stage": "GoalsAndValue",
+            "sub_step": 1,
+            "skill": "s",
+            "purpose": "p",
+            "q": ["outcome 问"],
+            "a": ["目标候选UNIQUEG1附出处"],
+        }
+
+    def test_u2_step2_flag_single_source(self):
+        node = eng.get_node("understand", 2)
+        flags = [bool(s.pack_self_contained) for s in node.sub_steps]
+        assert flags == [False, True, False, False, False]
+
+    def test_tail_line_replaced_for_self_contained_step(self, tmp_path):
+        self._write_evidence(tmp_path, self._pc_traces() + [self._gav_step1_trace()])
+        _write_state_full(tmp_path, "t", "understand", 2, sub_step=2)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None
+        assert "本步所需材料已全部在包内" in pack
+        assert "以上为摘要" not in pack
+
+    def test_tail_line_default_for_other_steps(self, tmp_path):
+        self._write_evidence(tmp_path, self._pc_traces() + [self._gav_step1_trace()])
+        _write_state_full(tmp_path, "t", "understand", 2, sub_step=3)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None
+        assert "以上为摘要；前序细节按需 Read" in pack
+        assert "本步所需材料已全部在包内" not in pack
+
+    def test_materials_complete_invariant(self, tmp_path):
+        """装配不变量：u:2#2 的包须含子1 trace 内容 + PC 子6 statement 全文——
+        防未来 P1-1 类交接包修剪把材料修没了、「禁读」条款变错。"""
+        self._write_evidence(tmp_path, self._pc_traces() + [self._gav_step1_trace()])
+        _write_state_full(tmp_path, "t", "understand", 2, sub_step=2)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None
+        assert "存活问题陈述甲UNIQUEPC6" in pack  # PC 子6 存活问题全文
+        assert "目标候选UNIQUEG1附出处" in pack  # 子1 目标候选+出处全文

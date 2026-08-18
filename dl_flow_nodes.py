@@ -117,6 +117,14 @@ class Step:
     # 全文）——交接包对本步保收录项全文；其余步（False）包内收录项截断+指针。
     # 声明式单源（pre_dispatch 同范式），禁 handoff_pack 硬编码步号。
     pack_full_reports: bool = False
+    # u2-sub2-cost（designs/u2-sub2-cost-optimization-design.md）：本步所需材料
+    # 已全部在交接包内（本节点前序留痕全文 + 前序节点结论摘要全文）——段 prompt
+    # 加「材料边界」条款、包尾「按需 Read evidence」通用邀请改「材料已在包内」，
+    # 灭弱模型保险性全量重读（u2_sub1_ab u:2#2 实测：68KB 零增量读 = +19.6k
+    # fresh/+43s，且驻留污染链式下游冷启动各 +19.6k）。声明式单源
+    # （pack_full_reports 同范式）；置位前置 = 逐字段核对「本步输入契约 ⊆
+    # 包内内容」，未核对禁置位。
+    pack_self_contained: bool = False
 
 
 @dataclass(frozen=True)
@@ -1530,6 +1538,10 @@ _NODES: dict[str, Node] = {
                 ),
                 input="step1.goal_candidates",
                 record=True,
+                # pack_self_contained 置位核对（u2-sub2-cost §2，逐字段）：矩阵输入
+                # =子1 目标候选+出处（包内本节点留痕全文 ✓）+PC 存活问题陈述
+                # （包内前序节点摘要 statements 全文 ✓）；u2_sub1_ab 实测包外零引用。
+                pack_self_contained=True,
                 selfcheck=(
                     "双向矩阵逐项列出了吗（问题×目标，汇总声明不算）？"
                     "孤儿目标/孤儿问题都显式处置了吗（剔除/退回补问/搁置+理由）？"

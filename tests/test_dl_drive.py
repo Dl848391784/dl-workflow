@@ -250,6 +250,22 @@ def test_step_prompt_core_elements(wf_repo):
     assert "禁 `$(...)`" in prompt
 
 
+def test_step_prompt_pack_self_contained_clause(wf_repo):
+    """u2-sub2-cost：pack_self_contained 步的段 prompt 带材料边界条款
+    （材料全在包内、禁 Read evidence 全量），未置位步不带。"""
+    drv = _load(DRIVER, "drv_under_test")
+    state = _write_state(wf_repo)
+    node = engine.get_node("understand", 2)
+    step2 = engine.sub_step_at(node, 2)
+    assert step2.pack_self_contained is True  # u:2#2 置位（单源核对）
+    prompt = drv.build_step_prompt(wf_repo, "t", state, node, 2, step2, rework=None)
+    assert "材料边界" in prompt
+    assert "禁 Read evidence 全量翻找" in prompt
+    step3 = engine.sub_step_at(node, 3)
+    prompt3 = drv.build_step_prompt(wf_repo, "t", state, node, 3, step3, rework=None)
+    assert "材料边界" not in prompt3
+
+
 def test_bash_shape_rules_venv_absolute_form(wf_repo):
     """项目有 venv 时钉绝对路径形态（./ 前缀会让白名单前缀匹配落空）。"""
     drv = _load(DRIVER, "drv_under_test")

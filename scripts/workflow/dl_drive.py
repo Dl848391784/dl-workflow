@@ -1103,7 +1103,17 @@ def build_step_prompt(
             "- 只做这一个子步骤——后续步骤由 driver 另行派发，与你无关\n"
             "- 禁输出 ### STEP_DONE / ### PHASE_DONE 标记（外部编排，标记无效）\n"
             f"{_bash_shape_rules(project_root)}\n"
-            f"{tail}\n" + engine.selfcheck_hint(step)
+            # u2-sub2-cost：pack_self_contained 步材料全在交接包内——灭弱模型
+            # 保险性 evidence 全量重读（u:2#2 基线 +19.6k fresh/+43s 零增量）。
+            + (
+                "- 材料边界：本步所需材料已全部在上方交接包内（本节点前序留痕"
+                "全文 + 前序节点结论摘要）——直接引用，禁 Read evidence 全量翻找；"
+                "确有缺口才按指针定点补（宁纵勿枉）\n"
+                if step.pack_self_contained
+                else ""
+            )
+            + f"{tail}\n"
+            + engine.selfcheck_hint(step)
         )
     parts.append(
         f"## WORKFLOW 当前任务（外部 driver 编排）\n"

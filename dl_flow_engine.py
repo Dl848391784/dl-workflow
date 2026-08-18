@@ -1642,6 +1642,9 @@ def handoff_pack(project_root: Path, name: str) -> str | None:
     ]
     # 当前节点已完成步的最新 trace（含当前步已有 trace——返工中段 clear 的场景）；
     # 本节点 trace 保内容全文只剥机械字段（跨步一致性/装配判材，P1-1）
+    cur_step_obj = None
+    if cur_node.sub_steps and 1 <= cur_step <= len(cur_node.sub_steps):
+        cur_step_obj = cur_node.sub_steps[cur_step - 1]
     cur_traces = [
         (k[1], seg)
         for k, seg in latest_trace.items()
@@ -1650,9 +1653,6 @@ def handoff_pack(project_root: Path, name: str) -> str | None:
     if cur_traces:
         # O3：当前步是收录消费步（pack_full_reports=True，u:1 子5 三关质检）时
         # 包内收录原文保全文；其余步剥离（报告正文只服务质检，隔步是死重）。
-        cur_step_obj = None
-        if cur_node.sub_steps and 1 <= cur_step <= len(cur_node.sub_steps):
-            cur_step_obj = cur_node.sub_steps[cur_step - 1]
         strip = not (cur_step_obj and cur_step_obj.pack_full_reports)
         lines.append(f"### 本节点（{cur_node.label}）各步最新留痕")
         for _step, seg in sorted(cur_traces):
@@ -1690,7 +1690,15 @@ def handoff_pack(project_root: Path, name: str) -> str | None:
     if prior_sections:
         lines.extend(prior_sections)
         ev_path = project_root / ".claude" / "evidence" / f"{name}.jsonl"
-        lines.append(f"（以上为摘要；前序细节按需 Read `{ev_path}`，禁凭记忆补全）")
+        if cur_step_obj and cur_step_obj.pack_self_contained:
+            # u2-sub2-cost：本步材料全在包内——通用「按需 Read」邀请对该步是
+            # 反指（实测弱模型保险性全量读 68KB evidence 零增量），改打禁读。
+            lines.append(
+                "（本步所需材料已全部在包内——禁 Read evidence 全量翻找；"
+                "确有缺口才按指针定点补）"
+            )
+        else:
+            lines.append(f"（以上为摘要；前序细节按需 Read `{ev_path}`，禁凭记忆补全）")
         lines.append("")
     # 产物清单（指针非全文）
     artifacts = []
