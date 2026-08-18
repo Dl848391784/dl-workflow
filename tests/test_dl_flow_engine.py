@@ -10816,6 +10816,95 @@ class TestPackSelfContained:
         assert "存活问题陈述甲UNIQUEPC6" in pack  # PC 子6 存活问题全文
         assert "目标候选UNIQUEG1附出处" in pack  # 子1 目标候选+出处全文
 
+    @staticmethod
+    def _sc_traces():
+        return [
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "ScopeAndConstraints",
+                "sub_step": 1,
+                "skill": "s",
+                "purpose": "p",
+                "q": ["否定提问"],
+                "a": ["约束候选UNIQUESC1"],
+            },
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "ScopeAndConstraints",
+                "sub_step": 2,
+                "skill": "s",
+                "purpose": "p",
+                "q": ["三态处置"],
+                "a": ["已验证留痕UNIQUESC2附fileline"],
+            },
+        ]
+
+    def test_u3_step3_flag_single_source(self):
+        # u3-sub3-cost：u:3#3 置位（消费型步——材料=子2 验证留痕全文+GAV 裁决，
+        # 均在包内）；兄弟步不置位（子1/子2 须规范文档在场，B1 决议不下放）。
+        node = eng.get_node("understand", 3)
+        flags = [bool(s.pack_self_contained) for s in node.sub_steps]
+        assert flags == [False, False, True, False, False]
+
+    @staticmethod
+    def _gav_decision_traces():
+        return [
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "GoalsAndValue",
+                "sub_step": 4,
+                "skill": "s",
+                "purpose": "p",
+                "statements": [
+                    {
+                        "text": "归一化目标UNIQUEG4",
+                        "type_label": "must",
+                        "boundary": "b",
+                        "fields": {},
+                    }
+                ],
+            },
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "GoalsAndValue",
+                "sub_step": 5,
+                "skill": "s",
+                "purpose": "p",
+                "q": ["读回"],
+                "a": ["用户裁决UNIQUEG5拍板must"],
+            },
+        ]
+
+    def test_u3_step3_tail_line_replaced(self, tmp_path):
+        self._write_evidence(
+            tmp_path,
+            self._pc_traces() + self._gav_decision_traces() + self._sc_traces(),
+        )
+        _write_state_full(tmp_path, "t", "understand", 3, sub_step=3)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None
+        assert "本步所需材料已全部在包内" in pack
+        assert "以上为摘要" not in pack
+
+    def test_u3_step3_materials_complete_invariant(self, tmp_path):
+        """装配不变量：u:3#3 的包须含子2 验证留痕全文（本节点留痕节）+
+        GAV 归一化陈述与用户裁决（前序摘要节）——复用优先条款（L1）的材料前提。"""
+        self._write_evidence(
+            tmp_path,
+            self._pc_traces() + self._gav_decision_traces() + self._sc_traces(),
+        )
+        _write_state_full(tmp_path, "t", "understand", 3, sub_step=3)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None
+        assert "已验证留痕UNIQUESC2附fileline" in pack  # 子2 留痕全文（复用源）
+        assert "约束候选UNIQUESC1" in pack  # 子1 候选（本节点留痕节）
+        assert "归一化目标UNIQUEG4" in pack  # GAV 归一化（前序摘要节）
+        assert "用户裁决UNIQUEG5拍板must" in pack  # GAV 用户裁决（前序摘要节）
+
 
 class TestSegmentSpawnOverrides:
     """u2-residual-cost（designs/u2-residual-cost-optimization-design.md）：
@@ -10855,3 +10944,32 @@ class TestSegmentSpawnOverrides:
             ov = eng.segment_spawn_overrides(node)
             assert ov["env"] == {}, key
             assert ov["tools"] is None, key
+
+    def test_u3_step3_step_level_strip(self):
+        # u3-sub3-cost（designs/u3-sub3-cost-optimization-design.md）：Step 级
+        # segment_strip_project_context——B1 决议是节点级（子1/子2 须规则原文
+        # 在场），子3 是消费步（规则内容经子2 trace 逐字在场）可单独置位。
+        node = eng._NODES["understand:3"]
+        step3 = node.sub_steps[2]
+        ov = eng.segment_spawn_overrides(node, step3)
+        assert ov["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
+        assert ov["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
+        assert ov["tools"] == ("Bash", "Read", "Edit", "Skill")
+
+    def test_step_level_strip_backward_compat(self):
+        # step=None（MergedSession 段内续步管线不传 step）维持节点级语义——
+        # u:3 节点级 False 时 env 仍空（B1 决议不破）。
+        node = eng._NODES["understand:3"]
+        assert eng.segment_spawn_overrides(node)["env"] == {}
+        # 节点级已置位时 step 未置位不剥回（单调只增）
+        u2 = eng._NODES["understand:2"]
+        ov = eng.segment_spawn_overrides(u2, u2.sub_steps[0])
+        assert ov["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
+
+    def test_step_level_strip_other_steps_unaffected(self):
+        # u:3 其余步（子1/2/4/5）未置位——逐步粒度不误伤兄弟步。
+        node = eng._NODES["understand:3"]
+        for i, step in enumerate(node.sub_steps, start=1):
+            if i == 3:
+                continue
+            assert eng.segment_spawn_overrides(node, step)["env"] == {}, i
