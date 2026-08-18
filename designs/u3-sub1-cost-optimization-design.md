@@ -57,24 +57,27 @@ u:3#1 起跑。A/B 环境无 TTY → AskUserQuestion 不可用，第一轮模型
 
 ## 2. 方案（两修，全部机械层/装配层，零判据变更）
 
-### 修1（主修）：TUI/needuser 段前缀剥离——#23 泛化第三例
+### 修1（主修）：TUI/needuser 段前缀剥离——#23 泛化第三例（u:3 置位 tools-only）
 
 `segment_spawn_overrides(node)` 单源已服务 run_session/MergedSession 两条
 headless 管线；本修把它接到第三条 spawn 管线 `run_tui_step`（drive 模式交互段）：
 
 - **env**：`node.segment_strip_project_context=True` 时 Popen env 叠加
-  `_SEGMENT_STRIP_ENV`（CLAUDE_CODE_DISABLE_CLAUDE_MDS/AUTO_MEMORY——hooks 不受
-  影响，#23 探针 E 实证；SessionStart 交接包注入照常）。
+  `_SEGMENT_STRIP_ENV`（hooks 不受影响，#23 探针 E 实证；SessionStart 交接包
+  注入照常）。**u:3 不置位**（B1 实证见 §6：本节点约束分类把「项目硬规则」
+  列为一等约束源，自动加载的 CLAUDE.md 是任务功能材料非死重，剥掉诱发
+  规范文档重读，总账反超——#23 置位前置两核对补第三条：任务内容本身引用
+  自动加载文档的节点禁剥 env；u:1/u:2 维持原置位——其 CLAUDE.md 引用逐处
+  核对全是「约束源 Read 指针」）。
 - **tools**：`node.segment_tools` 置位时 cmd 加 `--tools` 白名单 =
   segment_tools + **TUI 交互必需三件套**（`AskUserQuestion`/`TaskCreate`/
   `TaskUpdate`——问答卡片与 v3.3.1 开场纪律清单是 TUI 段的结构职能，单源常量
-  `_TUI_STEP_TOOLS`，非交互段不加）。
-- **u:3 Node 置位**：`segment_strip_project_context=True` +
-  `segment_tools=("Bash","Read","Edit","Skill")`（逐字段核对：子2 本地验证=
-  Bash+Read；子3 范围界定=推理+codegraph-via-Bash；子4 kind=skill define-problem
-  →Skill；落库=scaffold+Edit 零合法 Write；子1 交互段三件套由上条自动附带；
-  无 Agent 需求——子2 本地单层源不派子代理，对照 u:1 因子4 取证才含 Agent）。
-  置位连带生效于 u:3#2/#3/#4 headless 段（同 #23 机制，本设计顺带收益）。
+  `_TUI_STEP_TOOLS`，非交互段不加；放在 NO_MCP_ARGS 之前守 variadic 排序纪律）。
+- **u:3 Node 置位 `segment_tools=("Bash","Read","Edit","Skill")`**（逐字段核对：
+  子2 本地验证=Bash+Read（codegraph 走 Bash CLI）；子3 推理型；子4 kind=skill
+  define-problem→Skill；落库=scaffold+Edit 零合法 Write；子1 交互段三件套
+  由上条自动附带；无 Agent 需求——子2 本地单层源不派子代理，对照 u:1 子4
+  取证才含 Agent）。置位连带生效于 u:3#2/#3/#4 headless 段（顺带收益）。
 - **front 模式零变更**：常驻 TUI 由 dl-launch.sh 直接 exec，不经 run_tui_step；
   v2（WF_TUI=1）不动；u:1/u:2 已置位节点的 drive 交互段同机制连带受益
   （方向一致，不 retroactively 影响已收官读数）。
@@ -99,15 +102,18 @@ u:3#1 gate 对候选句本就不要求出处（反事实假想合法），source
 factor_IC_analyzer 数据契约（无因子/回测/报告词形）。u:3 Node 置位是声明式
 字段翻转，机制本身跨项目通用。
 
-## 3. 预期收益（u:3#1 单次到达，deepseek 口径）
+## 3. 预期收益（u:3#1 单次到达，deepseek 口径，tools-only 修订后）
 
 | 指标 | 基线 | 预期 | 机制 |
 |---|---|---|---|
-| 首调 fresh | 41,988 | ~16-18k（**-57~62%**） | 项目上下文 -11.9k + 工具 schema -14.3k |
-| fresh 总账 | 101,296 | ~50-55k（**-46~51%**） | 冷付 42k→16k + 中途失效重付 49k→23k |
-| cache_read | 617,856 | ~280-320k（**-48~55%**） | 逐调少背 ~26k 前缀 × 11 暖调 |
-| 模型墙钟 | ~96s | ~60-70s（**-30~35%**） | 逐调重读量减半，TTFT 随 cr 缩 |
+| 首调 fresh | 41,988 | ~27-28k（**-33~35%**） | 工具 schema -14.3k（项目上下文保留——见修1 env 不置位理由） |
+| fresh 总账 | 101,296 | ~75-85k（**-16~26%**） | 首调 -14.3k + 中途失效重付同幅缩减 |
+| cache_read | 617,856 | ~430-460k（**-26~30%**） | 逐调少背 ~14.3k × ~11 暖调 |
+| 模型墙钟 | ~96s | ~70-80s（**-17~27%**） | 逐调重读量缩，TTFT 随 cr 缩 |
 | out | 23,843 | ~持平 | 步体内容不动 |
+
+（初版全量 strip 预期：首调 -57~62% / fresh -46~51% / cr -48~55%——B1 实证
+env 剥离诱发重读使总账反超，已按证据下修为 tools-only 预期。）
 
 护栏：一次通过率不降（gate 判据零变更；strip 不动 hooks/注入通道——#23 探针
 实证 hooks 照常触发）；交接包注入（SessionStart）不受 DISABLE 对影响；
