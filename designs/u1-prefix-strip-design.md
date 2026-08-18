@@ -74,3 +74,36 @@ H15 门禁不受影响：codegraph_gate 是 hook（探针 E 实证 DISABLE 对�
   - #5 段红队收录正常（预派发 worker.json + 收录项，--ingest-redteam 路径）；
   - 全程零 block（node_attempts=0）、judge 全 pass、trace 质量目测不降；
   - amplitude 口径核对（4920.2% = 0.492 双×100 装配）。
+
+## 4. 实施验证记录（2026-08-18，feat/u1-prefix-strip，1111 tests）
+
+- TDD 红→绿（2 新测试先红后绿）+ 全量 1111 passed + ruff 绿。提交 e1f828e
+  （design）+ 038a369（feat）。
+- **live A/B（u1_strip_ab，drive 直跑 worktree @ac-deepseek1/deepseek-v4-flash，
+  种子 u1_overall_ab evidence 裁至 u:1#1 从 #2 起跑，跑到 u:1#7 confirm +
+  u:2#1 needuser 自动收）**：
+  1. **机制生效直接证据**：段 init `"tools":["Task","Bash","Edit","Read","Skill"]`
+     （Agent 在 2.1.234 内部映射为 Task，白名单声明 Agent 即生效）+ mcp 空；
+  2. **验收口径逐段首调 fresh（预登记）全足额**：
+
+     | 段 | 基线（u1_overall_ab） | 本轮 | 变化 |
+     |---|---|---|---|
+     | #2 | 44,497 | **10,142** | **-77%** |
+     | #3 | 49,861 | 16,223 | -67% |
+     | #4 | 50,054 | 18,079 | -64% |
+     | #5 | 54,764 | 23,225 | -58% |
+     | #6 | 60,230 | 26,059 | -57% |
+
+  3. **#4 Agent 派发正常**（tool_use 台账 Agent×2，trace 含 empyrical/quantstats
+     源码 URL 级外部证据）；**#5 红队预派发+收录正常**（worker 与子5 段并行，
+     收录项齐备）；工具结果零「tool not available」类错误（S15/append-trace
+     等既有机械拦截照常工作=hooks 在剥离下存活的生产实证）；
+  4. node_attempts=0；#6 一次内容质量 block（陈述集混入证伪项——健康返工
+     三分类①类，judge 牙齿工作正常）后返工 pass；
+  5. trace 质量不降（file:line 因果链 + 外部源码 URL + 红队 verdict 逐项）；
+     amplitude 口径核对 ✓（ob_quality 0.4920 → 4920.15% = 今日值 4920.2%）。
+- **混淆声明执行（§3 预登记）**：本轮各段轮数（30/69/52+25/27/25+30）高于基线
+  （17/30/24/9/7）——#40 弱模型步体 5 倍方差带内 + 可能的种子数据漂移（#18，
+  两轮之间 report 产物有再生成），按预登记剔出总账对比；前缀剥离的干净读数
+  = 逐段首调 fresh（上表，每段 -57~-77% 一致命中，探针分量的生产复现）。
+  全节点总账的多轮连续确认留后续运行观察（#40 纪律：单轮总账不下结论）。
