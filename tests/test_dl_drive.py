@@ -2220,9 +2220,9 @@ def test_chain_resume_on_match(wf_repo):
     drv = _load(DRIVER, "drv_chain_match")
     state = _write_state(
         wf_repo,
-        segment_chain={"node": "understand:2", "sid": "abc", "last_step": 2},
+        segment_chain={"node": "understand:3", "sid": "abc", "last_step": 2},
     )
-    assert drv._chain_resume_sid(state, "understand:2", 3) == "abc"
+    assert drv._chain_resume_sid(state, "understand:3", 3) == "abc"
 
 
 def test_chain_resume_rejects_non_whitelist_node(wf_repo):
@@ -2240,13 +2240,23 @@ def test_chain_resume_understand1_rolled_back(wf_repo):
     执行 2026-08-14 裁决的预授权回滚条件——amplitude_annualized D 轮链峰值
     324k > 250k 护栏 + deepseek 跨进程 resume 前缀缓存时灵时不灵
     （D 轮链内 step2→5 首调 fresh 44k→109k→166k→241k 全冷），
-    u:1 移出 SEGMENT_CHAIN_NODES（u:2/3/4 与 plan 族保留）。"""
+    u:1 移出 SEGMENT_CHAIN_NODES。
+    2026-08-18 断链 u:2（designs/u2-sub3-cost-optimization-design.md，
+    用户裁决覆盖 08-17「峰值未破保留」项）：u2_sub1_ab/u2_sub2_ab 两轮实测
+    u:2#3/#4 段首调 cache_read=0——deepseek 会话隔离缓存下链恒冷=纯增税
+    （#3 冷启动 60.3k=本步 fresh 73%、#4 94.1k=98%），fresh 段恒定 ~45k。
+    u:2 移出 SEGMENT_CHAIN_NODES（u:3/4 与 plan 族保留）。"""
     drv = _load(DRIVER, "drv_chain_u1")
     state = _write_state(
         wf_repo,
         segment_chain={"node": "understand:1", "sid": "abc", "last_step": 2},
     )
     assert drv._chain_resume_sid(state, "understand:1", 3) is None
+    state2 = _write_state(
+        wf_repo,
+        segment_chain={"node": "understand:2", "sid": "abc", "last_step": 2},
+    )
+    assert drv._chain_resume_sid(state2, "understand:2", 3) is None
 
 
 def test_chain_resume_plan_nodes_whitelisted(wf_repo):
@@ -2266,9 +2276,9 @@ def test_chain_resume_rejects_step_gap(wf_repo):
     drv = _load(DRIVER, "drv_chain_gap")
     state = _write_state(
         wf_repo,
-        segment_chain={"node": "understand:2", "sid": "abc", "last_step": 4},
+        segment_chain={"node": "understand:3", "sid": "abc", "last_step": 4},
     )
-    assert drv._chain_resume_sid(state, "understand:2", 3) is None
+    assert drv._chain_resume_sid(state, "understand:3", 3) is None
 
 
 def test_chain_resume_rejects_node_mismatch(wf_repo):
@@ -2276,23 +2286,23 @@ def test_chain_resume_rejects_node_mismatch(wf_repo):
     drv = _load(DRIVER, "drv_chain_node")
     state = _write_state(
         wf_repo,
-        segment_chain={"node": "understand:2", "sid": "abc", "last_step": 4},
+        segment_chain={"node": "understand:3", "sid": "abc", "last_step": 4},
     )
-    assert drv._chain_resume_sid(state, "understand:3", 2) is None
+    assert drv._chain_resume_sid(state, "understand:4", 2) is None
 
 
 def test_chain_resume_no_chain(wf_repo):
     drv = _load(DRIVER, "drv_chain_none")
     state = _write_state(wf_repo)
-    assert drv._chain_resume_sid(state, "understand:2", 2) is None
+    assert drv._chain_resume_sid(state, "understand:3", 2) is None
 
 
 def test_chain_update_on_whitelisted_node(wf_repo):
     drv = _load(DRIVER, "drv_chain_upd")
     _write_state(wf_repo)
-    drv._chain_update(wf_repo, "t", "understand:2", 2, "sid-x")
+    drv._chain_update(wf_repo, "t", "understand:3", 2, "sid-x")
     chain = _read_state(wf_repo)["segment_chain"]
-    assert chain["node"] == "understand:2"
+    assert chain["node"] == "understand:3"
     assert chain["sid"] == "sid-x"
     assert chain["last_step"] == 2
     assert chain["ts"]

@@ -84,10 +84,15 @@ SUB_STEP_BLOCK_ESCALATE = 3
 # 链峰值 324k > 250k 护栏 + deepseek 跨进程 resume 前缀缓存时灵时不灵
 # （D 轮链内 step2→5 首调 fresh 44k→109k→166k→241k 全冷，F 轮暖 158k hit）——
 # 冷轮时链 = 纯增税（每步首调重付单调涨的继承上下文），暖轮也比 fresh 段贵
-# ~2 倍（每轮重读 ~160k vs ~70k）。u:2/3/4 与 plan 族链峰值未突破，保留。
+# ~2 倍（每轮重读 ~160k vs ~70k）。
+# 2026-08-18 断链 u:2（designs/u2-sub3-cost-optimization-design.md，用户裁决
+# 覆盖 08-17「u:2 峰值未破保留」项——那是 surgical 保留非成本最优判定）：
+# u2_sub1_ab/u2_sub2_ab 两轮实测 u:2#3/#4 段首调 cache_read=0（deepseek 会话
+# 隔离缓存下链恒冷=纯增税，#3 冷启动 60.3k=本步 fresh 73%、#4 94.1k=98%）；
+# fresh 段首调恒定 ~45k 不随前序轮数涨，交接包（v2.45）材料完备性已逐字段核对。
+# u:3/4 与 plan 族链峰值未突破且无降本指令，保留（surgical）。
 SEGMENT_CHAIN_NODES = frozenset(
     {
-        "understand:2",
         "understand:3",
         "understand:4",
         "plan:1",
