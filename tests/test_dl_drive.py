@@ -2739,3 +2739,330 @@ class TestRedteamPreDispatchNoMcp:
         cmd = spawned[0].cmd
         assert "--strict-mcp-config" in cmd
         assert cmd[cmd.index("--mcp-config") + 1] == '{"mcpServers":{}}'
+
+
+# ---------- 段内续步（u2-sub4-cost §3：MERGED_RUN_NODES 白名单节点同进程多轮 stream-json） ----------
+
+
+class _FakeMergedSession:
+    """脚本化 MergedSession 替身：turns = [(text, info), ...]，捕获 send 序列。"""
+
+    def __init__(self, turns):
+        self._turns = list(turns)
+        self.sends: list[str] = []
+        self.sid = "merged-s"
+        self.alive = True
+        self.last_ctx = None
+        self.rc = 0
+        self.closed = False
+
+    def send(self, prompt: str) -> None:
+        self.sends.append(prompt)
+
+    def read_turn(self):
+        text, info = self._turns.pop(0)
+        self.last_ctx = (info or {}).get("last_ctx", self.last_ctx)
+        return text, (info or {})
+
+    def close(self) -> int:
+        self.closed = True
+        return 0
+
+
+def _merged_stub(drv, monkeypatch, turns_list) -> list:
+    """MergedSession 替身工厂：每次 spawn 取下一组脚本 turns，收集全部实例。"""
+
+    instances = []
+    it = iter(turns_list)
+
+    def factory(**kw):
+        inst = _FakeMergedSession(next(it))
+        instances.append(inst)
+        return inst
+
+    monkeypatch.setattr(drv, "MergedSession", factory)
+    return instances
+
+
+def _gate_scripted(repo: Path, actions):
+    """假门控：按序返回 action；advanced 真实推进 state（u:2 #2→…→#5→u:3#1）。"""
+
+    it = iter(actions)
+
+    def fake(project_root, name, cwd):
+        act = next(it)
+        if act[0] == "advanced":
+            st = _read_state(repo)
+            cur = st.get("sub_step_index", 1)
+            if st["sub_index"] == 2:
+                if cur < 5:
+                    st["sub_step_index"] = cur + 1
+                else:
+                    st.update(sub_index=3, node="understand:3", sub_step_index=1)
+            (repo / SEG_META / "state.json").write_text(
+                json.dumps(st), encoding="utf-8"
+            )
+            return ("advanced", "", None)
+        return (act[0], act[1] if len(act) > 1 else "", None)
+
+    return fake
+
+
+_NEED_OUT = 'q\n### NEED_USER\n```json\n{"questions": []}\n```'
+
+
+def test_merged_run_single_session_covers_u2_sub2_to_sub4(wf_repo, monkeypatch):
+    """段内续步主路径：u:2#2 起跑——#2/#3/#4 同一 MergedSession 续跑（#2 全量
+    prompt 带交接包；#3/#4 续步 prompt 剥交接包、带「同会话续步」头），#4 附带交付
+    （NEXT_PREP u:3#1）照常落 stash；撞 #5（confirm 级交互）收段——主循环接管：
+    确认级机械过后 u:3#1 消费已备问题清单直接转前台（退 13，零 prep 段）。"""
+    drv = _load(DRIVER, "drv_merged_main")
+    _seg_write_state(wf_repo, sub_index=2, node="understand:2", sub_step_index=2)
+    next_prep_out = (
+        "子4 完成\n### NEXT_PREP\n```json\n"
+        '{"questions": [{"question": "q-u3", "header": "h", "multiSelect": false,'
+        ' "options": []}]}\n```'
+    )
+    insts = _merged_stub(
+        drv,
+        monkeypatch,
+        [[("子2 完成", {}), ("子3 完成", {}), (next_prep_out, {})]],
+    )
+    monkeypatch.setattr(
+        drv.engine,
+        "gate_sub_step_at_stop",
+        _gate_scripted(
+            wf_repo, [("advanced",), ("advanced",), ("advanced",), ("advanced",)]
+        ),
+    )
+    calls = _run_session_stub(drv, monkeypatch, [])
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 13
+    assert len(insts) == 1  # 单进程覆盖 #2-#4
+    sess = insts[0]
+    assert sess.closed
+    assert len(sess.sends) == 3
+    assert "交接包" in sess.sends[0]
+    assert (
+        "同会话续步" in sess.sends[1]
+        and "## WORKFLOW 上下文交接包" not in sess.sends[1]
+    )
+    assert (
+        "同会话续步" in sess.sends[2]
+        and "## WORKFLOW 上下文交接包" not in sess.sends[2]
+    )
+    assert "附带交付" in sess.sends[2]
+    assert calls == []  # prep_done 消费 stash——零 prep 段
+    data = json.loads((wf_repo / SEG_META / "need_user.json").read_text())
+    assert data["questions"][0]["question"] == "q-u3"
+
+
+def test_merged_run_block_reworks_in_session(wf_repo, monkeypatch):
+    """门控 block → 同会话暖返工（不起新进程、不重付冷启动）：续步 prompt 带返工判词。"""
+    drv = _load(DRIVER, "drv_merged_block")
+    _seg_write_state(wf_repo, sub_index=2, node="understand:2", sub_step_index=3)
+    insts = _merged_stub(
+        drv,
+        monkeypatch,
+        [[("子3 缺陷产出", {}), ("子3 返工完成", {}), ("子4 完成", {})]],
+    )
+    monkeypatch.setattr(
+        drv.engine,
+        "gate_sub_step_at_stop",
+        _gate_scripted(
+            wf_repo,
+            [("block", "矩阵放水"), ("advanced",), ("advanced",), ("advanced",)],
+        ),
+    )
+    _run_session_stub(drv, monkeypatch, [(0, _NEED_OUT, "s2")])
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 13
+    assert len(insts) == 1
+    sends = insts[0].sends
+    assert len(sends) == 3
+    assert "返工" in sends[1] and "矩阵放水" in sends[1]
+    assert "同会话续步" in sends[2]
+
+
+def test_merged_run_escalate_closes_and_breakpoints(wf_repo, monkeypatch):
+    """连续 block 达阈值（escalate）→ 收段 + 断点（--segment 退 12）。"""
+    drv = _load(DRIVER, "drv_merged_esc")
+    _seg_write_state(wf_repo, sub_index=2, node="understand:2", sub_step_index=3)
+    insts = _merged_stub(drv, monkeypatch, [[("缺陷产出", {})]])
+    monkeypatch.setattr(
+        drv.engine,
+        "gate_sub_step_at_stop",
+        _gate_scripted(wf_repo, [("escalate", "连续 block")]),
+    )
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 12
+    assert insts[0].closed
+
+
+def test_merged_run_none_nudges_in_session_then_breakpoint(wf_repo, monkeypatch):
+    """门控读不到新 trace（none）→ 会话内 nudge（≤NONE_RETRY_LIMIT）仍无 →
+    收段断点（退 12）。"""
+    drv = _load(DRIVER, "drv_merged_none")
+    _seg_write_state(wf_repo, sub_index=2, node="understand:2", sub_step_index=3)
+    insts = _merged_stub(
+        drv,
+        monkeypatch,
+        [[("没落库", {})] * drv.NONE_RETRY_LIMIT],
+    )
+    monkeypatch.setattr(
+        drv.engine,
+        "gate_sub_step_at_stop",
+        _gate_scripted(wf_repo, [("none",)] * drv.NONE_RETRY_LIMIT),
+    )
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 12
+    sess = insts[0]
+    assert sess.closed
+    assert len(sess.sends) == drv.NONE_RETRY_LIMIT  # 1 head + 2 nudge
+    assert "落库" in sess.sends[1]
+
+
+def test_merged_run_ctx_guard_breaks_run(wf_repo, monkeypatch):
+    """上下文破 250k（链峰值同阈值 CHAIN_CONTEXT_WARN）→ 收段降级：下一步
+    新起段（第二次 spawn，全量 prompt 带交接包）。"""
+    drv = _load(DRIVER, "drv_merged_ctx")
+    _seg_write_state(wf_repo, sub_index=2, node="understand:2", sub_step_index=2)
+    insts = _merged_stub(
+        drv,
+        monkeypatch,
+        [
+            [("子2 完成", {"last_ctx": 300_000})],
+            [("子3 完成", {}), ("子4 完成", {})],
+        ],
+    )
+    monkeypatch.setattr(
+        drv.engine,
+        "gate_sub_step_at_stop",
+        _gate_scripted(
+            wf_repo,
+            [("advanced",), ("advanced",), ("advanced",), ("advanced",)],
+        ),
+    )
+    _run_session_stub(drv, monkeypatch, [(0, _NEED_OUT, "s3")])
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 13
+    assert len(insts) == 2
+    assert len(insts[0].sends) == 1  # #2 一轮后破线收段
+    assert insts[0].closed
+    assert len(insts[1].sends) == 2  # 第二段覆盖 #3/#4
+    assert "同会话续步" not in insts[1].sends[0]  # fresh 段全量 prompt（含交接包通道）
+    assert "同会话续步" in insts[1].sends[1]
+
+
+def test_merged_run_need_user_falls_back_to_tui(wf_repo, monkeypatch):
+    """段内模型非预期要用户输入（### NEED_USER）→ 收段 + 动态交互 fallback
+    （--segment 退 13）。"""
+    drv = _load(DRIVER, "drv_merged_nu")
+    _seg_write_state(wf_repo, sub_index=2, node="understand:2", sub_step_index=3)
+    insts = _merged_stub(drv, monkeypatch, [[("需要用户\n### NEED_USER\nq", {})]])
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 13
+    assert insts[0].closed
+
+
+def test_merged_run_whitelist_excludes_other_nodes(wf_repo, monkeypatch):
+    """白名单外节点（u:1）非交互步维持每步独立段（run_session 通道）——
+    MergedSession 不 spawn。"""
+    drv = _load(DRIVER, "drv_merged_wl")
+    _seg_write_state(wf_repo, sub_step_index=2)  # u:1#2 非交互
+
+    def boom(**kw):
+        raise AssertionError("MergedSession 不应 spawn（白名单外）")
+
+    monkeypatch.setattr(drv, "MergedSession", boom)
+    monkeypatch.setattr(drv.engine, "gate_sub_step_at_stop", _gate_advancing(wf_repo))
+    calls = _run_session_stub(drv, monkeypatch, [(0, "", "s")] * 20)
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc in (10, 12, 13)
+    assert len(calls) >= 2  # 多个独立段 = 每步独立进程未变
+
+
+def test_build_step_prompt_continuation_strips_pack(wf_repo):
+    """续步变体：剥交接包（会话内已有真迹）+ 「同会话续步」头 + 当前任务段原样。"""
+    drv = _load(DRIVER, "drv_cont_prompt")
+    _seg_write_state(wf_repo, sub_index=2, node="understand:2", sub_step_index=4)
+    state = _read_state(wf_repo)
+    node = engine.get_node("understand", 2)
+    step = engine.sub_step_at(node, 4)
+    p = drv.build_step_prompt(
+        wf_repo, "t", state, node, 4, step, rework=None, continuation=True
+    )
+    assert "同会话续步" in p
+    assert "## WORKFLOW 上下文交接包" not in p
+    assert "当前任务" in p and step.purpose in p
+
+
+def test_merged_session_cmd_and_wire_format(wf_repo, monkeypatch):
+    """旗标组合（--input-format stream-json × --session-id × NO_MCP）+
+    send NDJSON user 消息 + read_turn result 提取 + close 幂等。"""
+    drv = _load(DRIVER, "drv_ms_wire")
+    lines = [
+        json.dumps({"type": "system", "subtype": "init", "session_id": "x"}),
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [{"type": "text", "text": "干完了"}],
+                    "usage": {"input_tokens": 10},
+                },
+            }
+        ),
+        json.dumps(
+            {
+                "type": "result",
+                "subtype": "success",
+                "num_turns": 1,
+                "duration_ms": 1000,
+            }
+        ),
+    ]
+    captured = {}
+
+    class _FakeProc:
+        def __init__(self):
+            self.stdout = iter(lines)
+            self.stdin = io.StringIO()
+
+        def wait(self):
+            return 0
+
+        def terminate(self):
+            pass
+
+        def kill(self):
+            pass
+
+    def fake_popen(cmd, **kw):
+        captured["cmd"] = cmd
+        return _FakeProc()
+
+    monkeypatch.setattr(drv.subprocess, "Popen", fake_popen)
+    meta = wf_repo / SEG_META
+    sess = drv.MergedSession(
+        cwd=wf_repo,
+        settings=meta / "settings.json",
+        sys_prompt_file=meta / "rules.md",
+        meta=meta,
+        debug=False,
+        note="t",
+    )
+    cmd = captured["cmd"]
+    assert cmd[cmd.index("--input-format") + 1] == "stream-json"
+    assert "--session-id" in cmd
+    for flag in engine.NO_MCP_ARGS:
+        assert flag in cmd
+    sess.send("提示词")
+    wire = json.loads(sess._proc.stdin.getvalue().strip())
+    assert wire == {
+        "type": "user",
+        "message": {"role": "user", "content": "提示词"},
+    }
+    text, info = sess.read_turn()
+    assert text == "干完了" and info["subtype"] == "success"
+    sess.close()
+    sess.close()  # 幂等

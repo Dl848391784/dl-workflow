@@ -724,6 +724,402 @@ def run_session(
     return rc, "\n".join(texts), sid
 
 
+# ---------- 段内续步（u2-sub4-cost §3，designs/u2-sub4-cost-optimization-design.md） ----------
+
+
+class _MergedInterrupted(Exception):
+    """合并段读 turn 期间单击 Ctrl+C——编排层转断点裁决（对齐 RC_INTERRUPTED 语义）。"""
+
+
+class MergedSession:
+    """段内续步会话：一个 claude -p 进程多轮 stream-json（stdin 常开）。
+
+    deepseek 会话隔离缓存下跨进程段首调必冷（恒定地板 ~44.6k/段），进程内暖
+    （/tmp 探针 2026-08-18 实证：turn2 fresh=95/cr 暖/1.4s vs 冷启 8.3s）——
+    每步 gate 过后把下一步任务 prompt 作为新用户消息注入同会话，灭段边界
+    冷启动。旗标组合（--session-id × --settings × --append-system-prompt-file
+    × stream-json 输入）生产形态探针实测兼容。
+    """
+
+    def __init__(
+        self,
+        *,
+        cwd: Path,
+        settings: Path,
+        sys_prompt_file: Path,
+        meta: Path,
+        debug: bool,
+        note: str,
+        verbose: bool = False,
+        disp: "LiveProgress | None" = None,
+    ):
+        self.sid = str(uuid.uuid4())
+        self.note = note
+        self.verbose = verbose
+        self.disp = disp
+        self.first_fresh: "int | None" = None
+        self.last_ctx: "int | None" = None
+        self.alive = True
+        self.rc: "int | None" = None
+        self._closed = False
+        cmd = [
+            "claude",
+            "-p",
+            "--input-format",
+            "stream-json",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--permission-mode",
+            "acceptEdits",
+            "--settings",
+            str(settings),
+            "--append-system-prompt-file",
+            str(sys_prompt_file),
+        ]
+        cmd += engine.NO_MCP_ARGS
+        cmd += ["--session-id", self.sid]
+        if debug:
+            cmd += [
+                "--debug",
+                "api,hooks",
+                "--debug-file",
+                str(meta / f"cc_debug.{self.sid[:8]}.log"),
+            ]
+        meta.mkdir(parents=True, exist_ok=True)
+        self._log_f = open(meta / "drive-stream.jsonl", "a", encoding="utf-8")
+        self._err_f = open(meta / "cc_sdk.log", "a", encoding="utf-8")
+        self._proc = subprocess.Popen(
+            cmd,
+            cwd=str(cwd),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=self._err_f,
+            text=True,
+            bufsize=1,
+            # 独立进程组（同 run_session）：终端 Ctrl+C 只打 driver
+            start_new_session=True,
+        )
+
+    def send(self, prompt: str) -> None:
+        """注入一条用户消息（NDJSON user 事件）= 一个子步骤的任务 prompt。"""
+        assert self._proc.stdin is not None
+        msg = {"type": "user", "message": {"role": "user", "content": prompt}}
+        self._proc.stdin.write(json.dumps(msg, ensure_ascii=False) + "\n")
+        self._proc.stdin.flush()
+
+    def read_turn(self) -> "tuple[str, dict]":
+        """读到本 turn 的 result 事件为止。返回 (assistant 文本汇总, turn 信息)。
+
+        原始流全量落 drive-stream.jsonl（审计数据源，同 run_session）。
+        KeyboardInterrupt（§2.6 单击）→ 杀进程抛 _MergedInterrupted。
+        进程先死（EOF 无 result）→ alive=False 返回已收文本（编排层降级）。
+        """
+        texts: list[str] = []
+        info: dict = {}
+        try:
+            assert self._proc.stdout is not None
+            for line in self._proc.stdout:
+                self._log_f.write(line)
+                try:
+                    ev = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                etype = ev.get("type")
+                if etype == "assistant":
+                    if self.first_fresh is None:
+                        self.first_fresh = _first_call_fresh(ev)
+                    self.last_ctx = _ctx_size(ev) or self.last_ctx
+                    for blk in (ev.get("message") or {}).get("content") or []:
+                        if not isinstance(blk, dict):
+                            continue
+                        if blk.get("type") == "text":
+                            t = blk.get("text") or ""
+                            if t:
+                                texts.append(t)
+                                if self.verbose:
+                                    print(t)
+                        elif blk.get("type") == "tool_use":
+                            brief = f"{blk.get('name')} {_brief_tool_input(blk)}"
+                            if self.verbose:
+                                print(f"  ⚙ {brief}")
+                            elif self.disp is not None:
+                                self.disp.set_action(brief[:100])
+                elif etype == "result":
+                    dur = int(ev.get("duration_ms") or 0) // 1000
+                    cost = ev.get("total_cost_usd") or 0.0
+                    msg = (
+                        f"—— 子步骤轮结束（{self.note}）：{ev.get('subtype')} · "
+                        f"{ev.get('num_turns')}轮 · {dur}s · ${cost:.3f}"
+                    )
+                    if self.disp is not None:
+                        self.disp.log(msg)
+                    else:
+                        print(f"\n{msg}")
+                    info = {"subtype": ev.get("subtype"), "last_ctx": self.last_ctx}
+                    return "\n".join(texts), info
+        except KeyboardInterrupt:
+            self._proc.terminate()
+            raise _MergedInterrupted from None
+        # EOF：进程先死（API 炸/崩溃）——标记死亡，文本交编排层按现状处置
+        self.alive = False
+        return "\n".join(texts), info
+
+    def close(self) -> int:
+        """关 stdin 收尸（幂等）；段落尾补 fresh/ctx 告警行（同 run_session 口径）。"""
+        if self._closed:
+            return self.rc or 0
+        self._closed = True
+        try:
+            assert self._proc.stdin is not None
+            self._proc.stdin.close()
+        except (BrokenPipeError, OSError, AssertionError):
+            pass
+        self.rc = _pwait_interruptible(self._proc, on_first=lambda: None)
+        self._log_f.close()
+        self._err_f.close()
+        warn = _fresh_warn_line(self.first_fresh, self.note)
+        if warn:
+            (self.disp.log if self.disp is not None else print)(warn)
+        cwarn = _chain_warn_line(self.last_ctx, self.note)
+        if cwarn:
+            (self.disp.log if self.disp is not None else print)(cwarn)
+        return self.rc
+
+
+def _run_merged_run(
+    project_root: Path,
+    name: str,
+    wt: Path,
+    meta: Path,
+    settings: Path,
+    rules: Path,
+    debug: bool,
+    verbose: bool,
+    disp,
+    *,
+    on_breakpoint,
+    on_need_user,
+    node: "engine.Node",
+    cur: int,
+    step: "engine.Step",
+    prompt: str,
+    prep_next: "engine.Step | None",
+    prep_next_key: "str | None",
+    pending_rework: "str | None",
+) -> "tuple[int | None, str | None]":
+    """段内续步主循环（u2-sub4-cost §3）：白名单节点连续非交互步同进程续跑。
+
+    逐 turn 过门控（gate_sub_step_at_stop 零变更）：advanced 且下一步同节点
+    非交互 → 续步 prompt（剥交接包）注入同会话（暖）；block → 会话内暖返工；
+    escalate/none 上限/NEED_USER/中断/进程死 → 收段按既有语义处置。
+    返回 (退出码|None, 待携返工上下文|None)——退出码非 None 主循环直接 return；
+    None 则主循环重读 state 续派（state 在磁盘 = 唯一真源）。
+    """
+    nid = engine.node_id(node.phase, node.sub)
+    sess = MergedSession(
+        cwd=wt,
+        settings=settings,
+        sys_prompt_file=rules,
+        meta=meta,
+        debug=debug,
+        note=f"{nid}#{cur}-merged",
+        verbose=verbose,
+        disp=disp,
+    )
+    first_cur = cur
+    none_retries = 0
+    cur_prep = (prep_next, prep_next_key)  # 在飞步的附带交付声明（逐步 lookahead）
+    try:
+        sess.send(prompt)
+        if pending_rework is not None:
+            # 消费即清（语义同主循环 run_session 后清理）
+            st = _load(project_root, name)
+            if st.pop("pending_rework", None) is not None:
+                engine.save_state(project_root, name, st)
+        while True:
+            state = _load(project_root, name)
+            node = engine.get_node(state["phase"], state["sub_index"])
+            cur = state.get("sub_step_index", 1)
+            step = engine.sub_step_at(node, cur)
+            if step is None:
+                return None, None  # 越界——主循环的越界断点处理
+            try:
+                out, _info = sess.read_turn()
+            except _MergedInterrupted:
+                if (
+                    on_breakpoint(
+                        f"⛔ 子步骤 {cur} 合并段已被用户中断（单击）——"
+                        f"回车重试本步 / step-pass / state-reset / q 退出。",
+                        SEG_BREAKPOINT,
+                    )
+                    == "quit"
+                ):
+                    return 0, None
+                return None, None
+            if not sess.alive:
+                # 进程先死（API 炸/崩溃）：state 在磁盘（最后过门步），主循环
+                # 新起段重派 = 每步独立段的崩溃语义，不新增风险面
+                disp.log("  ⚠ 合并段进程异常退出——回主循环重派（state 在磁盘）")
+                return None, None
+            if NEED_USER_RE.search(out):
+                # 动态交互 fallback（同主循环语义）：收段转 TUI，段尾门控照跑
+                sess.close()
+                _rc2, _sid2, seg_kind2 = on_need_user(state, node, cur, step, None)
+                if seg_kind2.startswith("tui"):
+                    seg_rc = _handle_tui_segment_end(
+                        project_root, name, wt, cur, meta, disp
+                    )
+                    if seg_rc is not None:
+                        return seg_rc, None  # 手动退出：TUI 退 = 全退
+                action, reason, _ns = engine.gate_sub_step_at_stop(
+                    project_root, name, str(wt)
+                )
+                if action == "advanced":
+                    return None, None
+                if action == "block":
+                    return None, _rework_text(reason)
+                if action == "escalate":
+                    if (
+                        on_breakpoint(
+                            f"⛔ 子步骤 {cur} 连续 block 达阈值（判词：{reason[:200]}）"
+                            f"——用户裁决：step-pass 强制通过 / state-reset 回退 / q 退出。",
+                            SEG_BREAKPOINT,
+                        )
+                        == "quit"
+                    ):
+                        return 0, None
+                    return None, None
+                # none：TUI 段未落库——断点裁决（同主循环 TUI none 语义）
+                if (
+                    on_breakpoint(
+                        f"⛔ 子步骤 {cur} TUI 段已结束但未落库——"
+                        f"回车重开 TUI / step-pass / state-reset / q 退出。",
+                        SEG_BREAKPOINT,
+                    )
+                    == "quit"
+                ):
+                    return 0, None
+                return None, None
+            action, reason, _ns = engine.gate_sub_step_at_stop(
+                project_root, name, str(wt)
+            )
+            if action == "advanced":
+                none_retries = 0
+                disp.log(f"  ✓ 子步骤 {cur} 通过门控（段内续步）")
+                # NEXT_PREP 附带交付落 stash（语义同主循环：门控通过后才落——
+                # 被 block 的内容备的问题不得转前台）
+                if cur_prep[0] is not None and _NEXT_PREP_JSON_RE.search(out):
+                    if _stash_need_user_payload(meta, out, _NEXT_PREP_JSON_RE):
+                        _mark_next_prep(project_root, name, cur_prep[1])
+                        _warn_sources_missing(meta, disp)
+                st2 = _load(project_root, name)
+                nnode = engine.get_node(st2["phase"], st2["sub_index"])
+                ncur = st2.get("sub_step_index", 1)
+                nstep = engine.sub_step_at(nnode, ncur) if nnode.sub_steps else None
+                can_continue = (
+                    engine.node_id(nnode.phase, nnode.sub) == nid
+                    and nstep is not None
+                    and not getattr(nstep, "interactive", False)
+                )
+                if (
+                    can_continue
+                    and sess.last_ctx
+                    and sess.last_ctx > CHAIN_CONTEXT_WARN
+                ):
+                    # ctx 护栏（链峰值同阈值 250k）：破线收段，下一步 fresh 段降级
+                    disp.log(
+                        f"  ⚠ 合并段上下文 {sess.last_ctx:,} 破 "
+                        f"{CHAIN_CONTEXT_WARN:,}——收段，下一步 fresh 段降级"
+                    )
+                    can_continue = False
+                if can_continue:
+                    _nxt = engine.next_decision_interactive_step(
+                        nnode.phase, nnode.sub, ncur
+                    )
+                    cur_prep = (
+                        (
+                            _nxt[2],
+                            f"{engine.node_id(_nxt[0].phase, _nxt[0].sub)}#{_nxt[1]}",
+                        )
+                        if _nxt
+                        else (None, None)
+                    )
+                    disp.begin(f"子步骤 {ncur}/{len(nnode.sub_steps)} · {nstep.short}")
+                    sess.send(
+                        build_step_prompt(
+                            project_root,
+                            name,
+                            st2,
+                            nnode,
+                            ncur,
+                            nstep,
+                            rework=None,
+                            prep_next=cur_prep[0],
+                            prep_next_key=cur_prep[1],
+                            continuation=True,
+                        )
+                    )
+                    continue
+                return None, None  # 撞交互步/节点末/白名单边界——收段回主循环
+            if action == "block":
+                none_retries = 0
+                disp.log(f"  ✗ 门控 block（会话内暖返工）：{reason[:200]}")
+                sess.send(
+                    build_step_prompt(
+                        project_root,
+                        name,
+                        _load(project_root, name),
+                        node,
+                        cur,
+                        step,
+                        rework=_rework_text(reason),
+                        continuation=True,
+                    )
+                )
+                continue
+            if action == "escalate":
+                if (
+                    on_breakpoint(
+                        f"⛔ 子步骤 {cur} 连续 block 达阈值（判词：{reason[:200]}）"
+                        f"——用户裁决：step-pass 强制通过 / state-reset 回退 / q 退出。",
+                        SEG_BREAKPOINT,
+                    )
+                    == "quit"
+                ):
+                    return 0, None
+                return None, None
+            # none：会话内 nudge（暖），上限后收段断点（同主循环语义）
+            none_retries += 1
+            disp.log(f"  ⚠ 门控读不到新 trace（{none_retries}/{NONE_RETRY_LIMIT}）")
+            if none_retries >= NONE_RETRY_LIMIT:
+                if (
+                    on_breakpoint(
+                        f"⛔ 子步骤 {cur} 合并段连续 {NONE_RETRY_LIMIT} 次未落库——"
+                        f"回车重试本步 / step-pass / state-reset / q 退出。",
+                        SEG_BREAKPOINT,
+                    )
+                    == "quit"
+                ):
+                    return 0, None
+                return None, None
+            sess.send(
+                "上一轮你未落库新 trace——本步的硬性交付是 append-trace 落库："
+                "--scaffold 生成骨架 → Edit 填「待填」→ --from-file 落库。"
+                "若上次 append-trace 报错，按报错修载荷重跑，不要跳过。"
+            )
+            continue
+    finally:
+        sess.close()
+        _record_segment(
+            project_root,
+            name,
+            session_id=sess.sid,
+            kind="headless-step",
+            note=f"merged {nid}#{first_cur}-#{cur} rc={sess.rc}",
+        )
+
+
 # ---------- 交互步 prep 的机械保证（interactive-step-headless-prep §4.2/§4.4） ----------
 
 
@@ -998,6 +1394,7 @@ def build_step_prompt(
     needuser: bool = False,
     prep_next: "engine.Step | None" = None,
     prep_next_key: "str | None" = None,
+    continuation: bool = False,
 ) -> str:
     """子步骤会话 prompt = 交接包 + 当前步目的 + append-trace 指引 + 铁律（+返工判词）。
 
@@ -1008,6 +1405,9 @@ def build_step_prompt(
     prep=True（交互步后台预处理，interactive-step-headless-prep §4.3）：
     交付从 append-trace 换成「备问题清单 + ### NEED_USER + ```json 载荷」，
     禁 AskUserQuestion/禁落 trace（本步 trace 归前台问答段）。
+    continuation=True（段内续步，u2-sub4-cost §3）：同会话多轮续跑——前序各步
+    产物已在会话上下文中，交接包（前序留痕全文/前序摘要）冗余故剥除，
+    换一行「同会话续步」位置头。
     """
     total = len(node.sub_steps or ())
     if step.kind == "skill":
@@ -1016,7 +1416,13 @@ def build_step_prompt(
         how = f"用工具 {step.ref} 执行"
     phase_label = engine.PHASE_LABELS.get(node.phase, node.phase)
     parts: list[str] = []
-    if not interactive:
+    if continuation:
+        parts.append(
+            f"## WORKFLOW 当前位置（同会话续步）\n"
+            f"进入子步骤 {cur}/{total}（{step.kind}: {step.ref}）——"
+            "前序各步产物已在你本会话上下文中，交接包省略。\n"
+        )
+    elif not interactive:
         pack = engine.handoff_pack(project_root, name)
         if pack:
             parts += [pack, ""]
@@ -1106,9 +1512,15 @@ def build_step_prompt(
             # u2-sub2-cost：pack_self_contained 步材料全在交接包内——灭弱模型
             # 保险性 evidence 全量重读（u:2#2 基线 +19.6k fresh/+43s 零增量）。
             + (
-                "- 材料边界：本步所需材料已全部在上方交接包内（本节点前序留痕"
-                "全文 + 前序节点结论摘要）——直接引用，禁 Read evidence 全量翻找；"
-                "确有缺口才按指针定点补（宁纵勿枉）\n"
+                (
+                    "- 材料边界：本步所需材料已全部在你本会话上下文中（前序各步"
+                    "产物全文）——直接引用，禁 Read evidence 全量翻找；"
+                    "确有缺口才按指针定点补（宁纵勿枉）\n"
+                    if continuation
+                    else "- 材料边界：本步所需材料已全部在上方交接包内（本节点前序留痕"
+                    "全文 + 前序节点结论摘要）——直接引用，禁 Read evidence 全量翻找；"
+                    "确有缺口才按指针定点补（宁纵勿枉）\n"
+                )
                 if step.pack_self_contained
                 else ""
             )
@@ -1858,6 +2270,33 @@ def _run_boundary_loop(
                         prep_next_key=prep_next_key,
                     )
                     nid = engine.node_id(node.phase, node.sub)
+                    if nid in engine.MERGED_RUN_NODES:
+                        # 段内续步（u2-sub4-cost §3）：连续非交互步同进程多轮
+                        # stream-json——灭每步冷启动地板（deepseek 进程内暖）。
+                        # 白名单即回滚面；与段链互斥（u:2 已断链）。
+                        m_rc, pending_rework = _run_merged_run(
+                            project_root,
+                            name,
+                            wt,
+                            meta,
+                            settings,
+                            rules,
+                            debug,
+                            verbose,
+                            disp,
+                            on_breakpoint=on_breakpoint,
+                            on_need_user=on_need_user,
+                            node=node,
+                            cur=cur,
+                            step=step,
+                            prompt=prompt,
+                            prep_next=prep_next,
+                            prep_next_key=prep_next_key,
+                            pending_rework=pending_rework,
+                        )
+                        if m_rc is not None:
+                            return m_rc
+                        continue
                     resume_sid = _chain_resume_sid(state, nid, cur)
                     if resume_sid:
                         disp.log(f"  ⟂ 段链续跑（{nid} 链，子{cur}）——同会话 --resume")
