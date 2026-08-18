@@ -1429,6 +1429,16 @@ _NODES: dict[str, Node] = {
         minor_key="ProblemContext",  # evidence minor_stage 值（结构标识,模型照抄注入给的当前值）
         # 无 hold_for_gate（用户决议 2026-07-28）：围栏只设在 plan 完成，
         # understand 全部子阶段末步过门控即自动推进，中途不停。
+        # u1-prefix-strip 置位（designs/u1-prefix-strip-design.md §1 两核对已过）：
+        # 逐步工具需求——子4 双向取证需 Agent（探针 J 实证白名单下可派发），
+        # 故白名单 = u:2 四件 + Agent；CLAUDE.md 引用逐处过：全是「约束源/证据
+        # 材料」的 Read 指针（模型按指针定向 Read，不依赖自动加载），codegraph
+        # 命令模板 v2.38 起逐字在 purpose/fetch-prompt 内；auto-memory 按段 cwd
+        # 编码目录本就为空。红队预派发 worker（子5）同步剥 env（dl_drive 接线）。
+        # 不上 MERGED_RUN_NODES：段链 08-17 峰值 324k 破 250k 护栏回滚在先，
+        # 步体重（17-30 调/段）合并必撞 ctx 护栏（#21 判据）。
+        segment_strip_project_context=True,
+        segment_tools=("Bash", "Read", "Edit", "Skill", "Agent"),
     ),
     "understand:2": Node(
         label="明确目标和价值",

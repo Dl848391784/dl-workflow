@@ -143,6 +143,7 @@ def _maybe_predispatch_redteam(
     settings: Path,
     meta: Path,
     disp: "LiveProgress | None" = None,
+    spawn_env: "dict | None" = None,
 ) -> None:
     """pre_dispatch=redteam 步派段前预起红队 worker（幂等，freshness 按 prompt sha1）。
 
@@ -211,6 +212,8 @@ def _maybe_predispatch_redteam(
             stderr=err_f,
             text=True,
             start_new_session=True,
+            # u1-prefix-strip：段前缀剥离同步到红队 worker（None=继承零覆盖）
+            env=({**os.environ, **spawn_env} if spawn_env else None),
         )
         assert proc.stdin is not None
         proc.stdin.write(prompt)
@@ -2264,6 +2267,7 @@ def _run_boundary_loop(
                         settings=settings,
                         meta=meta,
                         disp=disp,
+                        spawn_env=engine.segment_spawn_overrides(node)["env"],
                     )
                     rules = ensure_node_rules(project_root, name, node, cur)
                     # P2-1：下一 decision 级交互步 -> 本段顺带备其问题清单（NEXT_PREP

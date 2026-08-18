@@ -10830,10 +10830,18 @@ class TestSegmentSpawnOverrides:
         assert ov["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
         assert ov["tools"] == ("Bash", "Read", "Edit", "Skill")
 
+    def test_u1_strip_and_tools_with_agent(self):
+        # u1-prefix-strip：u:1 置位（白名单含 Agent——子4 双向取证派发依赖，
+        # 探针 J 实证可派发）；红队预派发 worker 同步剥 env。
+        ov = eng.segment_spawn_overrides(eng._NODES["understand:1"])
+        assert ov["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
+        assert ov["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
+        assert ov["tools"] == ("Bash", "Read", "Edit", "Skill", "Agent")
+
     def test_other_nodes_zero_change(self):
         # 白名单外节点零行为变化（字段默认 False/None）——回滚面即字段翻转
         for key, node in eng._NODES.items():
-            if key == "understand:2":
+            if key in ("understand:1", "understand:2"):
                 continue
             ov = eng.segment_spawn_overrides(node)
             assert ov["env"] == {}, key
