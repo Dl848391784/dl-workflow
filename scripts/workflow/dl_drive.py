@@ -1612,7 +1612,12 @@ def _build_tui_cmd(
             str(meta / f"cc_debug.{sid[:8]}.log"),
         ]
     if prompt is not None:
-        cmd.append(prompt)
+        # u3-sub1-cost 前置修复：--mcp-config 是 variadic，prompt 紧跟其后会被
+        # 吞作第二个配置文件路径（短 prompt 报 "MCP config file not found"，
+        # 长任务书报 ENAMETOOLONG——O1 后全部 prompt 驱动 TUI 段 rc=1 秒退，
+        # u2_sub2/3/4/5_ab 四实例 u:3#1 needuser 全中；judge/headless 因后续
+        # 跟 flag 或未带位置参数免疫）。`--` 分隔符把 prompt 钉成纯位置参数。
+        cmd += ["--", prompt]
     return cmd
 
 
