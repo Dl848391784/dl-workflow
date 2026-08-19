@@ -5930,6 +5930,13 @@ def redteam_prompt(project_root: Path, name: str) -> str | None:
         "【纪律】\n"
         "1. 点查以 Read 工具为主：证据里引用的文件路径用 Read 复查；"
         "你的会话里 Glob/Grep/codegraph 可能不存在、Bash 会被围栏拒绝，都不要试。\n"
+        # u1-time-opt 修A（designs/u1-time-opt-design.md §2.4）：worker cwd=
+        # 实例 worktree（干净检出），interaction run 实证它对主树在场的
+        # 生成文件两处声明「不存在/无法复核」，把数值复核推给子5 主段。
+        "路径提示：你的 cwd 是项目的 git worktree（干净检出）——证据里的相对"
+        "路径 Read 不到（不存在）时，拼主仓库根绝对路径重试："
+        f"{project_root}/<相对路径>；生成的数据/结果文件（如 backtest/result/、"
+        "data_fetchers/result/ 下的产物）只在主仓库检出，不在 worktree。\n"
         "2. 单层：禁止再 spawn 子代理。\n"
         "3. 不做系统性重新取证：只点查验证；证据不足时下「证据不足」verdict 并指明缺哪条。\n"
         "4. 对每个原子问题给四态 verdict（证实/证伪/部分成立/证据不足）"
