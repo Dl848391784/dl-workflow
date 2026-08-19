@@ -9449,6 +9449,21 @@ class TestScaffoldPayload:
         assert err is None
         assert {"text", "type_label", "boundary"} <= set(payload["statements"][0])
 
+    def test_scaffold_statements_multi_item_hint(self, tmp_path):
+        # u4-sub4-cost 修A：多条陈述形态写进骨架占位符括注（u4_sub4_ab B 轮
+        # 实测——单条骨架未示多条形态，模型花 5 调用去 evidence/仓内找多条
+        # 实际样例；格式信息归骨架表达，四桶分工）。钉死防静默丢失。
+        _write_state_full(tmp_path, "t", "understand", 3, sub_step=4)
+        ok, msg = eng.scaffold_payload(tmp_path, "t")
+        assert ok, msg
+        out = tmp_path / ".trace-payload-t.md"
+        text = out.read_text(encoding="utf-8")
+        assert "多条陈述 = 逐项重复本【statements】整段" in text
+        # 骨架自身仍可被解析器读回（括注在待填占位符内=text 字段内容）
+        step = eng.get_node("understand", 3).sub_steps[3]
+        payload, err = eng._parse_trace_md(text, step)
+        assert err is None
+
     def test_scaffold_refuses_overwrite(self, tmp_path):
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
         out = tmp_path / ".trace-payload-t.md"

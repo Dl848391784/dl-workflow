@@ -5555,8 +5555,13 @@ def scaffold_payload(project_root: Path, name: str) -> tuple[bool, str]:
 
     parts = ["【purpose】\n待填：本步目的/本轮做了什么（一句话）"]
     if getattr(step, "record_format", "qa") == "statements":
+        # u4-sub4-cost 修A（u4_sub4_ab B 轮实测）：单条骨架未示多条形态，
+        # 模型为确认「多条 statement 怎么写」去 evidence/仓内找实际样例
+        # （5 调用格式核对税）——多条形态是格式信息，归骨架表达（四桶分工：
+        # 格式归脚本），写进待填占位符括号（替换即消失，既有括注同形态）。
         seg = (
-            "【statements】\n【text】\n待填：单句陈述（outcome 层，禁实现侧名词/file:line）"
+            "【statements】\n【text】\n待填：单句陈述（outcome 层，禁实现侧名词/file:line；"
+            "多条陈述 = 逐项重复本【statements】整段，一条一块）"
             "\n【type_label】\n待填：类型标签（如 in/out）\n【boundary】\n待填：边界/实现指针"
         )
         for k in getattr(step, "statement_fields", ()) or ():
