@@ -8905,6 +8905,45 @@ class TestHandoffPackSlim:
         # 摘要指引 + evidence 指针
         assert "结论摘要" in pack and ".claude" in pack and "evidence" in pack
 
+    def test_full_prior_boundary_step_opt_in(self, tmp_path):
+        # p1-sub1-cost 修1（Step.pack_full_prior_boundary）：复用钉死条款要求
+        # 前序出处逐字引用——置位步（plan:1#1）包内前序 boundary 保全文；
+        # 未置位步（plan:1#2）维持 100 字符截断（P1-1 行为不变=回滚面）。
+        long_boundary = "file:line 出处链 " + "B" * 300
+        recs = [
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "ProblemContext",
+                "sub_step": 6,
+                "skill": "s",
+                "purpose": "p",
+                "statements": [
+                    {"text": "结论甲", "type_label": "must", "boundary": long_boundary}
+                ],
+            },
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "ProblemContext",
+                "sub_step": 7,
+                "skill": "s",
+                "purpose": "p",
+                "q": ["读回"],
+                "a": ["用户裁决原话保留"],
+            },
+        ]
+        self._write_evidence(tmp_path, recs)
+        _write_state_full(tmp_path, "t", "plan", 1, sub_step=1)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None
+        assert long_boundary in pack  # 置位步：boundary 全文在包
+        _write_state_full(tmp_path, "t", "plan", 1, sub_step=2)
+        pack2 = eng.handoff_pack(tmp_path, "t")
+        assert pack2 is not None
+        assert long_boundary not in pack2  # 未置位步：维持截断
+        assert long_boundary[:100] + "…" in pack2  # 100 字符截断形（_PACK_PRIOR_BOUNDARY_MAX）
+
 
 class TestHandoffEvents:
     """v2.122 handoff 留痕（minor-boundary-handoff-prompt-design §2.2）。
@@ -11140,8 +11179,8 @@ class TestSegmentSpawnOverrides:
                 continue
             ov = eng.segment_spawn_overrides(node)
             assert ov["env"] == {}, key
-            if key == "understand:4":
-                continue  # u4-sub1-cost：tools-only 置位（env 仍空，逐步 strip）
+            if key in ("understand:4", "plan:1"):
+                continue  # u4-sub1-cost / p1-sub1-cost：tools-only 置位（env 仍空）
             assert ov["tools"] is None, key
 
     def test_u4_tools_only_no_env_strip(self):
@@ -11263,6 +11302,59 @@ class TestSegmentSpawnOverrides:
         assert ov["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
         assert ov["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
         assert ov["tools"] == ("Bash", "Read", "Edit", "Skill")
+
+    def test_p1_tools_whitelist_no_env_strip(self):
+        # p1-sub1-cost L2（designs/p1-sub1-cost-optimization-design.md）：
+        # plan:1 置位 tools-only（plan 族首例）——逐步需求并集六件
+        # （Bash/Read/Edit/Grep/Skill/Agent，子4 条件红队要 Agent、子5 要
+        # Skill、子1 ref 明写 Grep）；env 剥离不下放节点级（子2-6 逐步
+        # 核对未做），子1 逐步置位见下一测试。
+        ov = eng.segment_spawn_overrides(eng._NODES["plan:1"])
+        assert ov["env"] == {}
+        assert ov["tools"] == ("Bash", "Read", "Edit", "Grep", "Skill", "Agent")
+
+    def test_p1_step1_step_level_strip(self):
+        # p1-sub1-cost L1：plan:1#1 Step 级 strip（第七例）——交付物=四要素
+        # 现状事实+新鲜度判定，无点名项目硬规则条号职责；新鲜度通道由
+        # dl codebase freshness 补位（原 SQL 只在项目 CLAUDE.md）。
+        node = eng._NODES["plan:1"]
+        step1 = node.sub_steps[0]
+        ov = eng.segment_spawn_overrides(node, step1)
+        assert ov["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
+        assert ov["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
+        assert ov["tools"] == ("Bash", "Read", "Edit", "Grep", "Skill", "Agent")
+
+    def test_p1_other_steps_no_step_strip(self):
+        # 逐步粒度不误伤兄弟步（子2-6 逐步核对未做，不置位——链内段 env
+        # 零变化=回滚面）。
+        node = eng._NODES["plan:1"]
+        for i, step in enumerate(node.sub_steps, start=1):
+            if i == 1:
+                continue
+            assert eng.segment_spawn_overrides(node, step)["env"] == {}, i
+
+    def test_p1_step1_reuse_clause_pinned(self):
+        # p1-sub1-cost L3：purpose/selfcheck 复用钉死条款（#25/#29 收紧形态
+        # ——默认零重验+枚举例外+按条配额+时间敏感项[新鲜度]排除出复用面）
+        # 关键词钉死——防未来编辑把条款静默改丢（条款是本步步体主杠杆：
+        # 基线 50 Bash 中 ~35 纯税/半税=前序已载出处重验+掘进+环境摸索）。
+        step1 = eng._NODES["plan:1"].sub_steps[0]
+        assert "零重跑重验" in step1.purpose
+        assert "复用 <节点>子N 留痕" in step1.purpose
+        assert "每条事实最多一次" in step1.purpose
+        assert "验存在即止" in step1.purpose
+        assert "dl codebase freshness" in step1.purpose
+        assert "零 evidence 全量翻找" in step1.purpose
+        assert "零重验" in step1.selfcheck
+
+    def test_p1_step1_pack_full_prior_boundary_pinned(self):
+        # p1-sub1-cost 修1：plan:1#1 置位 pack_full_prior_boundary（复用钉死
+        # 的逐字引用材料=前序 boundary，截断 100 字符恰切在 file:line 处）；
+        # 兄弟步不置位（钉死防静默扩面/丢失）。
+        node = eng._NODES["plan:1"]
+        assert node.sub_steps[0].pack_full_prior_boundary is True
+        for i, step in enumerate(node.sub_steps[1:], start=2):
+            assert step.pack_full_prior_boundary is False, i
 
     def test_step_level_strip_backward_compat(self):
         # step=None（MergedSession 段内续步管线不传 step）维持节点级语义——

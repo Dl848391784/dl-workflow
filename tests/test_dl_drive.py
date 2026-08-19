@@ -2489,13 +2489,33 @@ def test_chain_context_warn_line(wf_repo):
 
 
 def test_node_rules_injects_discovery_ledger_hint(wf_repo):
-    """ensure_node_rules 含「发现台账」提示（工具级去重告知）。"""
+    """ensure_node_rules 含「发现台账」提示（工具级去重告知）。
+
+    p1-sub1-cost：命令形 = dl-cmd.sh codebase（148d1e3 对齐——headless 段工人
+    裸 `dl codebase` 不可用）且路径指 driver 同仓（_DLWF_ROOT，worktree dogfood
+    时新子命令 freshness 生效）；freshness 通道在段（strip env 后新鲜度唯一
+    通道）。"""
     drv = _load(DRIVER, "drv_under_test")
     node = engine.get_node("understand", 1)
     out = drv.ensure_node_rules(wf_repo, "t", node, 1)
     text = out.read_text(encoding="utf-8")
     assert "## 发现台账" in text
     assert "discoveries.jsonl" in text
+    assert "dl-cmd.sh codebase query --symbol/--history" in text
+    assert "dl-cmd.sh codebase freshness" in text
+    # p1-sub1-cost 修3：路径形态按 driver 树分派——测试 driver 在 worktree
+    # （_DLWF_ROOT≠~/.dl-workflow）发绝对路径；生产主树发字面 ~（白名单
+    # `Bash(bash ~/.dl-workflow/...:*)` 字面 ~ 前缀匹配，B1/B2 轮展开路径
+    # 3 连拒实证）。
+    if drv._DLWF_ROOT == Path.home() / ".dl-workflow":
+        assert "bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh" in text
+    else:
+        assert f"bash {drv._DLWF_ROOT}/scripts/workflow/dl-cmd.sh" in text
+    assert "`dl codebase" not in text  # 裸 dl codebase 引导零残留（段工人不可跑）
+    # p1-sub1-cost 修2：工具直用条款（B1 轮模型对 dl-cmd.sh/codegraph 元探查
+    # --help/ls/Read 脚本 ~11 调用实证）+ freshness 复判同命令（禁手搓 SQL）。
+    assert "工具直用" in text and "禁对工具本身元探查" in text
+    assert "sync 后用同一命令复判" in text
 
 
 def test_node_rules_has_arch_route(wf_repo):

@@ -125,6 +125,15 @@ class Step:
     # （pack_full_reports 同范式）；置位前置 = 逐字段核对「本步输入契约 ⊆
     # 包内内容」，未核对禁置位。
     pack_self_contained: bool = False
+    # p1-sub1-cost 修1（designs/p1-sub1-cost-optimization-design.md §5 修1）：
+    # 复用钉死条款要求前序留痕出处「逐字引用」，但 P1-1 摘要化把前序节点
+    # statements.boundary 截断到 100 字符（_PACK_PRIOR_BOUNDARY_MAX）——
+    # 截断处恰是 file:line/机制结论所在（双×100 链出处被切成「f…」实证），
+    # 模型拿不到逐字出处只能翻 evidence/重验（B1 轮 evidence grep×6 +
+    # 前序已载事实重验 ~10 调用）。置位 = 交接包前序节点摘要的 boundary
+    # 不截断（q 截断不变）。声明式单源（pack_full_reports 同范式）；
+    # 置位前置 = 本步复用条款点名逐字引用前序出处。
+    pack_full_prior_boundary: bool = False
     # u3-sub3-cost（designs/u3-sub3-cost-optimization-design.md）：Step 级
     # segment_strip_project_context——Node 级字段（B1 决议粒度）之下再开逐步
     # 粒度：同节点内「消费型步」（规则/材料经前序 trace 逐字在场，如 u:3#3
@@ -2507,6 +2516,12 @@ _NODES: dict[str, Node] = {
         gate_mech=GateMech.NONE,
         gate_rubric=None,  # 子阶段级 rubric 删除（被 sub_steps 逐步门控取代）
         advance="sub",
+        # p1-sub1-cost（designs/p1-sub1-cost-optimization-design.md L2）：
+        # 工具白名单（plan 族首例）——逐步需求核对（设计 §2 L2）：六步需求
+        # 并集 = Bash/Read/Edit/Grep/Skill/Agent；载荷走 --scaffold+Edit 零
+        # 合法 Write；MCP 由 NO_MCP_ARGS 结构封死（既有）。env 剥离不下放
+        # 节点级（子2-6 逐步核对未做），子1 逐步置位见下。
+        segment_tools=("Bash", "Read", "Edit", "Grep", "Skill", "Agent"),
         sub_steps=(
             Step(
                 kind="tool",
@@ -2518,10 +2533,35 @@ _NODES: dict[str, Node] = {
                     "LLM 凭训练记忆描述代码结构是最强编造区（不存在的接口/"
                     "凭印象的模块归属/漏检的重复实现），"
                     "接地是本节点双轴心之一。"
+                    # p1-sub1-cost L3（复用钉死，cost-optimization #25/#29
+                    # 收紧形态：默认零重验+枚举例外+按条配额+时间敏感项排除）：
+                    "材料边界（复用钉死）：交接包前序各节点归一化陈述与读回"
+                    "裁决所载出处（file:line/实测命令与输出/机制结论/数据契约"
+                    "字段）逐字直接引用即合法（「复用 <节点>子N 留痕：<出处"
+                    "逐字>」形态），零重跑重验（前序已定位的 file:line 不重修、"
+                    "已实测的字段存在性不重测、已查过的符号不重查——符号查询"
+                    "走 dl codebase query --symbol，前步已查符号自动返台账"
+                    "缓存）。枚举例外（逐条可判定的二值条件）：①codegraph "
+                    "新鲜度判定=时间敏感，本步实测一次（dl codebase freshness，"
+                    "命令全文见 node-rules 发现台账段——禁复用前序判定）；"
+                    "②四要素某条事实在前序留痕中从未出现（符号/字段/模块名"
+                    "零提及）→ 该事实单点验证一次（每条事实最多一次，验存在"
+                    "即止，禁顺手掘进内部结构）。零 evidence 全量翻找（前序"
+                    "结论已在交接包）。"
                 ),
                 input="understand.md（问题陈述+范围约束+成功标准）",
                 record=True,
                 fence_allow=("Bash",),
+                # p1-sub1-cost L1：Step 级 strip（第七例）——交付物=四要素
+                # 现状事实+新鲜度判定，出处形态=codegraph/dl codebase 输出/
+                # file:line/Bash 实测/复用引用，无点名项目硬规则条号职责
+                # （与 u:4#1-#4 同型）；新鲜度通道由 dl codebase freshness
+                # 补位（原 SQL 只在项目 CLAUDE.md §3，剥 env 后唯一通道）。
+                segment_strip_project_context=True,
+                # p1-sub1-cost 修1：复用钉死的逐字引用材料=前序 statements
+                # boundary——P1-1 截断 100 字符恰切在 file:line 处（B1 轮
+                # 模型翻 evidence×6+重验 ~10 调用实证），置位保全文。
+                pack_full_prior_boundary=True,
                 # v2.99 framing 反转（designs/p1-sub1-gate-framing-design.md §3）：
                 # 留痕投影（引用代码符号形却无工具动词）下沉 mech 零方差生产墙，
                 # 纯 token 扫描不读 db（⑯-safe）；存在性真值归子3 不在此。
@@ -2531,6 +2571,9 @@ _NODES: dict[str, Node] = {
                     "四要素都覆盖了吗（或显式「无+理由」）？"
                     "每条事实都附 codegraph 原始输出或 file:line 了吗，"
                     "还是有凭训练记忆写的？勘察范围与 understand.md 对齐吗？"
+                    # p1-sub1-cost L3：
+                    "前序已载出处逐字引用零重验了吗？前序零提及的事实每条 "
+                    "≤1 次单点验证、验存在即止吗？零 evidence 全量翻找吗？"
                 ),
                 gate=(
                     f"evidence/<name>.jsonl 含 kind=skill-trace、minor_stage=DesignSolution "

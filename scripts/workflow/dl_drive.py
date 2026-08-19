@@ -376,6 +376,9 @@ def ensure_node_rules(
         f"- 禁输出 ### STEP_DONE / ### PHASE_DONE 标记（外部编排，标记无效）\n"
         f"- 当前阶段「{phase_label}」的写权限由 S11 硬约束执行（禁写范围见 phase-rules）\n"
         f"- 禁静默兜底：捕获异常必 log，默认值必标记，缺数据必暴露\n"
+        f"- 工具直用：本文件与段 prompt 给出的命令（dl-cmd.sh/codegraph/append-trace 等）"
+        f"直接可用（在场已验证）——禁对工具本身元探查（--help/ls/Read 脚本/which/引擎"
+        f"源码翻查），用法以本文件与段 prompt 为准\n"
         f"- 载荷格式以 --scaffold 骨架为准：字段标头（【purpose】【qa】【q】【a】【statements】"
         f"【text】【type_label】【boundary】【fields.*】）逐字照抄骨架，"
         f"禁反向 grep engine 源码（dl_flow_engine.py）核对格式/校验规则——"
@@ -400,11 +403,25 @@ def ensure_node_rules(
             )
         text += "\n".join(lines) + "\n"
     # 发现台账提示（discovery-ledger）：dl codebase query 工具级去重，模型无需手工查账
+    # p1-sub1-cost：命令形对齐 148d1e3（headless 段工人裸 `dl codebase` 不可用，
+    # .bashrc function 未加载）+补 freshness 通道（新鲜度 SQL 此前只在项目
+    # CLAUDE.md，strip env 后唯一通道）。路径形态：生产（driver=主树）发字面
+    # `~/.dl-workflow`——per-wf 白名单规则 `Bash(bash ~/.dl-workflow/...:*)` 按
+    # 字面 `~` 前缀匹配，展开绝对路径不匹配会被 auto 权限层拒（B1/B2 两轮
+    # freshness 3 连拒实证）；worktree dogfood 发 _DLWF_ROOT 绝对路径（主树
+    # 无新子命令时模型回退 mtime/手搓降级，#31 验收面第三路径同型——种子侧
+    # settings 补 worktree 路径白名单可端到端验）。
     ledger = project_root / ".claude" / "workflows" / name / "discoveries.jsonl"
+    _main_tree = Path.home() / ".dl-workflow"
+    _cb_root = "~/.dl-workflow" if _DLWF_ROOT == _main_tree else str(_DLWF_ROOT)
+    _cb = f"bash {_cb_root}/scripts/workflow/dl-cmd.sh codebase"
     text += (
         f"\n## 发现台账\n"
-        f"`dl codebase query --symbol/--history` 会自动落账去重到 {ledger}；"
-        f"重查同一 symbol/history 返回缓存（source=discovery-ledger），无需手工查账。\n"
+        f"`{_cb} query --symbol/--history` 会自动落账去重到 {ledger}；"
+        f"重查同一 symbol/history 返回缓存（source=discovery-ledger），无需手工查账。"
+        f"codegraph 索引新鲜度判定走 `{_cb} freshness`"
+        f"（输出索引时间戳+距今时长+>72h 判定，新鲜/过期结论直接可作留痕出处；"
+        f"判过期先 codegraph sync，sync 后用同一命令复判，禁手搓 SQL 重验）。\n"
     )
     # u:1 子2b 注入子2a atomic_questions（「查什么」；designs/u1-sub2b-mechanical-
     # symbol-extraction-design.md v2）。v1 教训：string-files 全量命中注入 350 文件
