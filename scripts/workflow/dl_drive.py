@@ -404,11 +404,17 @@ def ensure_node_rules(
         text += "\n".join(lines) + "\n"
     # 发现台账提示（discovery-ledger）：dl codebase query 工具级去重，模型无需手工查账
     # p1-sub1-cost：命令形对齐 148d1e3（headless 段工人裸 `dl codebase` 不可用，
-    # .bashrc function 未加载）+ 路径指 driver 同仓（worktree dogfood 时新子命令
-    # freshness 生效，_rewrite_hook_paths 同范式）；补 freshness 通道（新鲜度
-    # SQL 此前只在项目 CLAUDE.md，strip env 后唯一通道）。
+    # .bashrc function 未加载）+补 freshness 通道（新鲜度 SQL 此前只在项目
+    # CLAUDE.md，strip env 后唯一通道）。路径形态：生产（driver=主树）发字面
+    # `~/.dl-workflow`——per-wf 白名单规则 `Bash(bash ~/.dl-workflow/...:*)` 按
+    # 字面 `~` 前缀匹配，展开绝对路径不匹配会被 auto 权限层拒（B1/B2 两轮
+    # freshness 3 连拒实证）；worktree dogfood 发 _DLWF_ROOT 绝对路径（主树
+    # 无新子命令时模型回退 mtime/手搓降级，#31 验收面第三路径同型——种子侧
+    # settings 补 worktree 路径白名单可端到端验）。
     ledger = project_root / ".claude" / "workflows" / name / "discoveries.jsonl"
-    _cb = f"bash {_DLWF_ROOT}/scripts/workflow/dl-cmd.sh codebase"
+    _main_tree = Path.home() / ".dl-workflow"
+    _cb_root = "~/.dl-workflow" if _DLWF_ROOT == _main_tree else str(_DLWF_ROOT)
+    _cb = f"bash {_cb_root}/scripts/workflow/dl-cmd.sh codebase"
     text += (
         f"\n## 发现台账\n"
         f"`{_cb} query --symbol/--history` 会自动落账去重到 {ledger}；"

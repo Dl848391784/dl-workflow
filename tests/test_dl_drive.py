@@ -2503,7 +2503,14 @@ def test_node_rules_injects_discovery_ledger_hint(wf_repo):
     assert "discoveries.jsonl" in text
     assert "dl-cmd.sh codebase query --symbol/--history" in text
     assert "dl-cmd.sh codebase freshness" in text
-    assert str(drv._DLWF_ROOT) in text
+    # p1-sub1-cost 修3：路径形态按 driver 树分派——测试 driver 在 worktree
+    # （_DLWF_ROOT≠~/.dl-workflow）发绝对路径；生产主树发字面 ~（白名单
+    # `Bash(bash ~/.dl-workflow/...:*)` 字面 ~ 前缀匹配，B1/B2 轮展开路径
+    # 3 连拒实证）。
+    if drv._DLWF_ROOT == Path.home() / ".dl-workflow":
+        assert "bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh" in text
+    else:
+        assert f"bash {drv._DLWF_ROOT}/scripts/workflow/dl-cmd.sh" in text
     assert "`dl codebase" not in text  # 裸 dl codebase 引导零残留（段工人不可跑）
     # p1-sub1-cost 修2：工具直用条款（B1 轮模型对 dl-cmd.sh/codegraph 元探查
     # --help/ls/Read 脚本 ~11 调用实证）+ freshness 复判同命令（禁手搓 SQL）。
