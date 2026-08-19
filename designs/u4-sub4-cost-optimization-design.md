@@ -165,6 +165,67 @@ ac-deepseek1 headless）：
 - 不改：driver 机制代码（三件套全是声明式字段/条款，零新机制）、gate
   文本（§2 L3 三查）、MERGED_RUN_NODES、plan 族链、judge。
 
-## 5. 实测收官
+## 5. 实测收官（2026-08-19，u4_sub4_ab 同种子起跑双轮，ac-deepseek1 headless，worktree 码 471d916/3c85da1）
 
-（A/B 后填）
+驱动法（runtime-audit #24/#25）：种子六件套（evidence 裁 20 条 ≤SC#3[B2 轮
+SC#3 trace=基线 A2 输入同一条] + state 四字段同步 understand/1/4/understand:4
++ sub_step_index=4 + last_judged_trace 裁 ≤u:4#3 + 段记录/链/stash 清零 +
+settings 三件套 grep 验 name-agnostic=0 + pack 冒烟 17,985 字符 SC#3 全文
+[4,188 字符 a 字段片段]在包+包尾已切「材料已在包内」）→ `bash -ic` 内
+`AC_WORKFLOW_LAUNCHER=<worktree>/scripts/workflow/dl-launch.sh ac-deepseek1
+--dl u4_sub4_ab --resume --headless`；step5 确认级过门控进 plan:1 即停 driver
+（免烧计量外 token）。B1 后发现残余税→修A→B2（修A 生效面见下）。
+
+| 指标 | A1（u4_sub3_ab B1 step4） | A2（u4_sub3_ab B2 step4） | B1 | B2 | B 双样本 vs A 均值 |
+|---|---|---|---|---|---|
+| 首调 fresh | 30,443 | 30,525 | 17,780 | 17,820 | **-41.6%**（双样本 ±0.2% 钉死） |
+| 段 fresh 合计 | n/a（流已重置） | 71,643 | 46,909 | 44,046 | vs A2：-34.5% / **-38.5%** |
+| 段 cr 合计 | n/a | 1,139,200 | 250,752 | 214,656 | vs A2：**-78.0% / -81.2%** |
+| 段 out | 25,114 | 34,789 | 20,248 | 24,006 | 均值 -26.2% |
+| 轮数 | 10 | 24 | 12 | 11 | 均值 17→11.5（-32%） |
+| 段 dur_api | 187s | 248s | 163.9s | 177.6s | 均值 217.5→170.8（-21.5%） |
+| 成本 | $1.110 | $1.798 | $0.866 | $0.928 | 均值 **-38.3%** |
+| 成本等效（fresh+cr×0.1） | n/a | 185,563 | 71,984 | 65,512 | vs A2：**-61.2% / -64.7%** |
+| 门控 | 通过 | 通过 | 零 block | 零 block（1 次 mech 拒收会话内自修正） | ✓ |
+
+代码路径核验：B1/B2 首调 17.8k 双样本稳定（strip -11.9k 探针预算精确命中
+30.5k→18.6k 附近，残差=包长/prompt 长差）+ 段 prompt 内条款关键词命中 =
+三杠杆确由 worktree 码生效（driver 侧：prompt 条款/spawn 覆盖/交接包包尾）。
+
+验收逐条：①首调 ≤19k **双样本达标**（17,780/17,820，机制读数确定性）；
+②**跨仓源码/designs 格式猎捕双轮清零**（#26 条款目标行为达成——A2 的
+grep designs 反推 5+ 调用形态绝迹）；evidence 元探查 B1 残留 5 调用
+（格式动机，见修A）、B2 仅 1 次 ls ≈ 清零；总调用 B1 10/B2 9 边际超
+预登记 ≤8（含 Skill；骨架五件+褶皱循环）；③段 fresh B2 -38.5% 达标/
+B1 边际；**段 out 均值 -26% 未达预登记 ≥50%、墙钟均值 -21.5% 未达 ≥40%**
+——归因（#30 out÷rate 输出主导再实证）：out 残量大头是**载荷厚度=质量
+形态**（4 条陈述逐字引用验收包六字段+传导 C7.2 修正后更厚），预登记
+≥50% 的前提是格式迭代褶皱占 out 大头，实测褶皱成分比预估小（B1 零拒收、
+B2 一次**合法** mech 拒收[C7.2 传导缺失=牙齿逮真漏]=会话内修正非浪费）；
+墙钟随 out（同端点速率稳定），token 轴优化的墙钟兑现受输出侧厚度限制
+——与 u4-sub3 §5 登记的「墙钟输出侧瘦身」观察项同归因，维持观察项不撤
+质量条款；④零 block 双轮 ✓，trace 质量四节自查全过（原子单句/六字段
+传导[text+type_label+boundary 承载]/verdict 边界[目标承接+条件启用]/
+solution-free 零实现侧名词；C7.2 待建手段传导=边界传导完整性反升）；
+⑤pytest 1144 全绿（新增 5 例：step4 strip/格式条款钉死/包尾切换/装配
+不变量/scaffold 多条提示钉死）+ nodes-index 同步 ✓；⑥混淆声明按预登记
+处理 ✓；amplitude 今日值 4947.7% 双轮未触发（子4 非交互无现状测量职责，
+同预登记）。
+
+**修A（scaffold statements 骨架多条形态提示，commit 3c85da1）——merge 后
+生效面登记**：B1 残余 5 调用根因=模型要确认「多条 statement 怎么写」去
+evidence 找实际样例（自白「这是格式核对，非 evidence 翻找」）——单条骨架
+未示多条形态=**骨架表达力缺口**（#26 条款管得住「不反推校验实现」，管不住
+「骨架本身没回答的问题」）。修法=多条形态写进 scaffold 待填占位符括注
+（「多条陈述 = 逐项重复本【statements】整段，一条一块」，替换即消失，与既
+有括注同形态，零解析器变更，parse-back 测试钉死）。**生效面核验发现**：
+段内模型 Bash 调 `python3 ~/.dl-workflow/dl_flow_engine.py append-trace`
+= **主树引擎**（命令模板硬编码路径），worktree 码的 scaffold 改动在 A/B
+里静默无效——B2 骨架 Read 回显确为旧版（无多条提示）。此面属 #28 验收面
+拆分的第三路径（driver=worktree / SessionStart hook=主树 / **模型 Bash 调
+引擎 CLI=主树**），归 merge 后生效面；改动纯骨架文本+零 gate 影响+
+parse-back 双测试兜底，合并风险可忽略。预期效果：B1 型格式核对 5 调用
+灭绝（B2 该动机未发作=单轮方差，不作证据）。
+
+**遗留登记**：墙钟输出侧瘦身（trace 措辞密度）维持观察项（两轮同归因）；
+plan 族链重审（无降本指令，保留）；u:2 MERGED 重审（前登记，未动）。
