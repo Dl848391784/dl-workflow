@@ -1,6 +1,6 @@
 # plan:1 子2（方案发散）耗时/token 优化设计——Step strip（第八例）+ pack_self_contained（交互步第二例）+ 复用钉死/职责边界条款
 
-> 日期：2026-08-20 · 分支 feat/p1-sub2-cost · 状态：设计中
+> 日期：2026-08-20 · 分支 feat/p1-sub2-cost · 状态：收官（一轮 A/B 全验收达标）
 > 上游：designs/p1-sub1-cost-optimization-design.md（plan:1 子1 三杠杆范式+
 >      Node 白名单已落地）；designs/u4-sub1-cost-optimization-design.md（交互步
 >      置位 strip/pack_self_contained 首例 + 交互步 A/B 驱动法）；
@@ -195,3 +195,64 @@ u2-residual/u3-sub1/p1-sub1 三处同口径实证值，-41.6%）；段 cr ≈ -2
   同步（purpose 实质内容变更）。
 - 不改：engine 机制代码（全现成）、dl_drive.py（条款分支已覆盖交互步）、
   gate 文本、Node segment_tools、SEGMENT_CHAIN_NODES、MERGED_RUN_NODES。
+
+## 5. 实测收官（2026-08-20，A=p1_sub1_ab2 子2 段免跑基线 / B=p1_sub2_ab，ac-deepseek1 headless）
+
+B 轮驱动法：种子=p1_sub1_ab4 完成态（evidence 23 条 ≤plan:1#1 + state
+plan:1 sub_step_index=2 + 段记录/链清零 + **next_prep_stashed="plan:1#2"
+复原进入位形**[u4-sub1 法]+ settings 名替换+hook 路径指 worktree + 产物
+文件第七件）→ 包冒烟 18,609 字符（尾行切换生效+子1 留痕全文在包）→
+`bash -ic` 内 AC_WORKFLOW_LAUNCHER=worktree launcher `ac-deepseek1 --dl
+p1_sub2_ab --resume --headless`。**交互步答案注入（本轮新方法，见沉淀）**：
+B 段模型走 print 提问+end_turn（needuser 出口，环境性路径形态之一），用
+`claude --resume <段 sid> -p <答案>` 复刻段 spawn 旗标（settings/tui-rules/
+tools 白名单/NO_MCP/strip env）注入用户答案（Q1=C Q2=A Q3=B，对齐种子已录
+用户裁决），模型同会话续跑完成交付；driver 再 --resume 跑 gate=judge。
+
+| 指标 | A（p1_sub1_ab2 子2 段） | B（p1_sub2_ab） | Δ |
+|---|---|---|---|
+| 首调 fresh | 28,605（ab3 28,654/ab4 28,625 三样本 ±0.2%） | 16,061 | **-43.9%**（探针预算 ~16.7k，实测 ±4% 内） |
+| 段 fresh 合计 | 55,777 | 41,062 | **-26.4%** |
+| 段 cr 合计 | 360,576 | 278,528 | **-22.8%** |
+| 段 out 合计 | 23,666 | 23,065 | -2.5%（持平=载荷厚度质量形态，#30 预登记兑现） |
+| 成本等效（fresh+0.1cr） | 91,835 | 68,915 | **-25.0%** |
+| API 调用 | 9 | 9 | = |
+| 模型墙钟 | ~165s | ~163s（21s+142s 两段，扣人工答题间隔） | 持平（out÷rate 输出主导，预登记兑现） |
+| 非仪式工具序列 | Read×3+Bash×3+AskUserQuestion×1+Edit×1 | Read×3+Bash×2+Grep×1（待填检查）+Edit×1 | 冗余 status 调用消除 |
+| 探索/翻找 | 0 | 0 | =（条款防守性成立） |
+| 门控 | 一次通过 | **一次通过（零 block）** | ✓ |
+
+**验收逐条**：①首调 ≤18k **✓**（16,061，-43.9%——strip 机制读数，首轮
+driver spawn 段读数不受注入轮影响）；②工具序列零 codegraph/dl codebase/
+grep 探索、零仓文件重读、零 evidence 翻找 **✓**（非仪式 7 调用全交付通道+
+合法材料读；唯一 Grep=载荷骨架「待填」占位符提交前自查=交付卫生非探索）；
+段 cr -22.8% ≥20% **✓**；③零 block **✓**（gate pass 进子3）；trace 质量
+逐条自查：6 候选（≥3）✓/维度差异声明在场 ✓/锚定子1 事实逐条可溯包内材料
+✓/零评估排序措辞（「推荐/首选」命中均为「未出现推荐性措辞」「不预设首选」
+否定声明=gate 明列合法形态）✓/用户想法平权入列（Q1=C/Q2=A/Q3=B 逐字收录
+为候选1）✓/零编造 ✓；④pytest 1163 全绿（新增 7 例）+ nodes-index 同步
+✓；⑤混淆声明全部按预登记处理——③数值漂移未触发（子2 无测量职责，运行
+中未被问今值）；⑤**修正登记**：B 轮 per-wf settings hook 路径指 worktree
+（种子组装 sed+ensure_tui_settings 同仓化）→ SessionStart hook 用 worktree
+引擎→**包尾切换在 B 轮实际可见**（hook additionalContext 文件实证「本步
+所需材料已全部在包内」在场）——#28「merge 后生效面」的适用条件=hook 路径
+指主树时，本轮不命中（沉淀进 runtime-audit #25）；新增混淆⑥'：答案注入
+轮（resume 续跑）与 driver 重问段（~2 调用，「沿用」提示后 rc=0 秒退）=
+人工驱动工件，生产 front 模式无此两面，段合计口径含注入轮但首调机制读数
+不受影响。
+
+**墙钟归因（#30 双轴口径）**：out 基本持平（-2.5%）→ 墙钟持平（163s vs
+165s）=out÷rate 拟合（输出主导）——strip/复用杠杆作用在 token/成本轴，
+墙钟轴预登记即声明不挂硬线（交互步墙钟地板=用户答题时间，生产 TTY 下
+模型侧 163s 中非仪式生成占大头=载荷厚度质量形态，登记不动）。
+
+**沉淀**（skills 同步）：①cost-optimization #34=「无取证例外」最强收紧
+形态的适用条件（gate 判据结构性封死引用面时条款可与判据同向写死，本轮
+首证）；②runtime-audit #25 补=交互步 A/B 答案注入法（`claude --resume
+<段 sid> -p <答案>` 复刻段 spawn 旗标含 strip env）+ hook 路径树决定
+hook 侧生效面（#28 精确化）。
+
+**遗留立项**：plan:1 子3-6 strip/pack 逐步核对（子3 可行性验证=验证步参
+照 u:4#2/#3 形态；子4 有 Agent 红队）；TaskList 仪式/print 降级工件两臂
+同有登记不动；amplitude 今日值 4947.7% 本轮未触发（方案发散无现状测量
+职责）。
