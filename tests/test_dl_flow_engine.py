@@ -8942,7 +8942,9 @@ class TestHandoffPackSlim:
         pack2 = eng.handoff_pack(tmp_path, "t")
         assert pack2 is not None
         assert long_boundary not in pack2  # 未置位步：维持截断
-        assert long_boundary[:100] + "…" in pack2  # 100 字符截断形（_PACK_PRIOR_BOUNDARY_MAX）
+        assert (
+            long_boundary[:100] + "…" in pack2
+        )  # 100 字符截断形（_PACK_PRIOR_BOUNDARY_MAX）
 
 
 class TestHandoffEvents:
@@ -11129,6 +11131,50 @@ class TestPackSelfContained:
             "四法三态UNIQUESC43验收包六字段传导链" in pack
         )  # 子3 留痕全文（装配材料）
 
+    @staticmethod
+    def _ds_step1_trace():
+        return {
+            "kind": "skill-trace",
+            "major_stage": "Plan",
+            "minor_stage": "DesignSolution",
+            "sub_step": 1,
+            "skill": "s",
+            "purpose": "p",
+            "q": ["现状勘察"],
+            "a": ["现状地图UNIQUEDS1四要素齐备附fileline"],
+        }
+
+    def test_p1_step2_pack_self_contained_flags(self):
+        # p1-sub2-cost L3（designs/p1-sub2-cost-optimization-design.md）：
+        # plan:1#2 置位（交互步第二例）——输入契约 step1.terrain_map 经
+        # 本节点前序留痕全文通道在包（ab2 真迹四步核对：零包外取证、gate
+        # 凭空设计判据使包外材料结构性不可用=#19 判别意图不命中）；
+        # 兄弟步不置位（#1 勘察步/#3-4 验证评估步要跑 Bash/Agent 取证，
+        # #5 生成型/#6 确认级）。
+        node = eng.get_node("plan", 1)
+        flags = [bool(s.pack_self_contained) for s in node.sub_steps]
+        assert flags == [False, True, False, False, False, False]
+
+    def test_p1_step2_tail_line_replaced(self, tmp_path):
+        # 尾行条件化挂在 prior_sections 非空分支——须带前序节点（understand
+        # 族）末两步留痕，同 u4 测试写法。
+        self._write_evidence(tmp_path, self._pc_traces() + [self._ds_step1_trace()])
+        _write_state_full(tmp_path, "t", "plan", 1, sub_step=2)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None
+        assert "本步所需材料已全部在包内" in pack
+        assert "以上为摘要" not in pack
+
+    def test_p1_step2_materials_complete_invariant(self, tmp_path):
+        """装配不变量：plan:1#2 的包须含子1 现状勘察留痕全文（本节点留痕
+        节）——输入契约 step1.terrain_map 的唯一材料来源；防未来交接包
+        修剪把材料修没了、「禁读」条款变错。"""
+        self._write_evidence(tmp_path, self._pc_traces() + [self._ds_step1_trace()])
+        _write_state_full(tmp_path, "t", "plan", 1, sub_step=2)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None
+        assert "现状地图UNIQUEDS1四要素齐备附fileline" in pack  # 子1 留痕全文
+
 
 class TestSegmentSpawnOverrides:
     """u2-residual-cost（designs/u2-residual-cost-optimization-design.md）：
@@ -11325,13 +11371,38 @@ class TestSegmentSpawnOverrides:
         assert ov["tools"] == ("Bash", "Read", "Edit", "Grep", "Skill", "Agent")
 
     def test_p1_other_steps_no_step_strip(self):
-        # 逐步粒度不误伤兄弟步（子2-6 逐步核对未做，不置位——链内段 env
-        # 零变化=回滚面）。
+        # 逐步粒度不误伤兄弟步（子3-6 逐步核对未做，不置位——链内段 env
+        # 零变化=回滚面；子2 于 p1-sub2-cost 置位，见下一测试）。
         node = eng._NODES["plan:1"]
         for i, step in enumerate(node.sub_steps, start=1):
-            if i == 1:
+            if i in (1, 2):
                 continue
             assert eng.segment_spawn_overrides(node, step)["env"] == {}, i
+
+    def test_p1_step2_step_level_strip(self):
+        # p1-sub2-cost L1（designs/p1-sub2-cost-optimization-design.md）：
+        # plan:1#2 Step 级 strip（第八例，交互步第二例）——交付物=候选+
+        # 维度声明+用户想法入列，gate 零规则引据要求（硬规则兼容=子3
+        # 五项核验④职责，复用条款钉死缺引不违规防剥后重读规范文档）。
+        node = eng._NODES["plan:1"]
+        step2 = node.sub_steps[1]
+        ov = eng.segment_spawn_overrides(node, step2)
+        assert ov["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
+        assert ov["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
+        assert ov["tools"] == ("Bash", "Read", "Edit", "Grep", "Skill", "Agent")
+
+    def test_p1_step2_reuse_clause_pinned(self):
+        # p1-sub2-cost L2：purpose/selfcheck 复用钉死+职责边界条款（#25
+        # 收紧形态最强版——默认零新查询+无取证例外，例外缺口的合法性由
+        # gate 凭空设计判据结构性保证）关键词钉死——防未来编辑静默改丢。
+        step2 = eng._NODES["plan:1"].sub_steps[1]
+        assert "零新取证" in step2.purpose
+        assert "无取证例外" in step2.purpose
+        assert "子1 未列出的事实不得进候选" in step2.purpose
+        assert "硬规则兼容核验归子3" in step2.purpose
+        assert "为后续步预取材料=越界" in step2.purpose
+        assert "零 evidence 全量翻找" in step2.purpose
+        assert "零为后续步预取" in step2.selfcheck
 
     def test_p1_step1_reuse_clause_pinned(self):
         # p1-sub1-cost L3：purpose/selfcheck 复用钉死条款（#25/#29 收紧形态
