@@ -2366,10 +2366,28 @@ _NODES: dict[str, Node] = {
                     '时机,"boundary":verdict 边界}，验收包六字段可作额外字段随项携带——'
                     "text 只许 outcome-level（实现侧名词/file:line 只能进 boundary，"
                     "机械扫描命中即拒）。"
+                    # u4-sub4-cost（designs/u4-sub4-cost-optimization-design.md
+                    # L3）：格式真源钉死（#26 平移第二例，u:3#4 同文删「编号传导」
+                    # ——本步无条目编号传导机械核对）。基线实证（u4_sub3_ab B2）：
+                    # 断链后 fresh 段零格式上下文，模型 grep designs/引擎测试源码
+                    # 反推【text】/【statements】格式 5+ 调用（格式猎捕）。
+                    "载荷格式的唯一真源 = --scaffold 骨架 + append-trace 报错文案"
+                    "（四桶分工：格式归脚本）——禁读引擎/测试源码反推校验实现；"
+                    "被拒按报错文案逐字修即可。"
                 ),
                 input="step3.criteria_with_acceptance",
                 record=True,
                 record_format="statements",
+                # u4-sub4-cost L1/L2（同设计）：Step 级 strip（第六例，u:4 内
+                # 第四例）+ pack_self_contained（第五例）——消费装配步（禁二次
+                # 创作同构 u:3#4）：交付物 text 只许 outcome-level、规则内容经
+                # purpose 常量逐字在场、方案名词扫描在 append-trace 脚本侧，
+                # CLAUDE.md/auto-memory 对本步是死重；输入契约（子3 标准集全文
+                # = SC#3 trace 及其携带的验收包六字段传导链）在本节点留痕节
+                # 逐字在场，包尾「按需 Read」通用邀请是反指（基线 A1/A2 evidence
+                # 元探查 grep/python3 读全量零信息增量实证）。
+                segment_strip_project_context=True,
+                pack_self_contained=True,
                 selfcheck=(
                     "每条陈述单句只含 1 个独立标准吗（「和/以及/同时」连接多项 = "
                     "复合未拆净，回子1）？脱离本会话可独立理解吗"
@@ -2378,6 +2396,8 @@ _NODES: dict[str, Node] = {
                     f"无方案名词残留吧（逐条看主语：{_SOLUTION_FREE_SUBJECT_RULE}）？"
                     "statements 载荷 text 逐条无实现侧名词吧（文件名/类名只进 boundary，"
                     "append-trace 机械扫描会拒）？"
+                    "格式照 scaffold 骨架填了吗——没去翻引擎/测试源码反推校验"
+                    "实现吧（被拒按报错文案修）？"
                 ),
                 # v2.98 gate framing 反转（§3.5 #28 泛化第十六例，
                 # designs/u4-sub4-gate-framing-design.md）：基线 382 字从严版
