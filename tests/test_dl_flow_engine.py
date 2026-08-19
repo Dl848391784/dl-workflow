@@ -6140,6 +6140,17 @@ class TestRedteamPrompt:
         assert prompt is not None
         assert "置信度" in prompt and "逐字" in prompt
 
+    def test_main_repo_path_hint_pinned(self, tmp_path):
+        # u1-time-opt 修A：worker cwd=实例 worktree（干净检出），interaction
+        # run 实证它对主树在场的生成文件（backtest/result/*.json、
+        # data_fetchers/result/*.parquet）两处声明「不存在/无法复核」，把数值
+        # 复核推给子5 主段。提示=主仓库根绝对路径在场+worktree 检出说明。
+        _write_evidence(tmp_path, "t", [_trace_line(4, "ev4")])
+        prompt = eng.redteam_prompt(tmp_path, "t")
+        assert prompt is not None
+        assert str(tmp_path) in prompt
+        assert "worktree" in prompt and "只在主仓库检出" in prompt
+
 
 class TestV237FirstPassRate:
     """v2.37 understand:1 一次通过率三连修（2026-08-01 tail_volume 审计）。
@@ -11100,6 +11111,18 @@ class TestSegmentSpawnOverrides:
         assert ov["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
         assert ov["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
         assert ov["tools"] == ("Bash", "Read", "Edit", "Skill", "Agent")
+
+    def test_u1_step6_format_clause_pinned(self):
+        # u1-time-opt 修B：L4 格式真源钉死平移第三例（u:3#4 同文——本步有
+        # 条目传导机械核对，保留「编号传导」）。interaction run u1#6 实证：
+        # 条目传导被拒（缺 factor[D]，报错文案已指路）后模型不修文案反而
+        # evidence 元探查 10 调用 + Read/grep 引擎源码反推校验实现（2.3min
+        # 格式猎捕）。关键词钉死防未来编辑静默改丢。
+        step6 = eng._NODES["understand:1"].sub_steps[5]
+        assert "载荷格式与编号传导的唯一真源" in step6.purpose
+        assert "--scaffold 骨架" in step6.purpose
+        assert "禁读引擎/测试源码反推校验实现" in step6.purpose
+        assert "格式照 scaffold 骨架填了吗" in step6.selfcheck
 
     def test_u3_tools_only_no_env_strip(self):
         # u3-sub1-cost：u:3 置位 tools-only（#23 泛化第三例，TUI 交互段管线同
