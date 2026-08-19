@@ -1571,12 +1571,17 @@ def _truncate(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit] + "…"
 
 
-def _slim_trace_for_pack(seg: str, *, prior: bool, strip_reports: bool = False) -> str:
+def _slim_trace_for_pack(
+    seg: str, *, prior: bool, strip_reports: bool = False, full_boundary: bool = False
+) -> str:
     """交接包 trace 瘦身。parse 失败原样返回（宁纵勿枉，不丢证据）。
 
     strip_reports（O3）：当前步非收录消费步（Step.pack_full_reports=False）时，
     qa 项标题含「原文收录」的 a 项截断到 _PACK_REPORT_A_MAX + evidence 指针——
     收录原文的唯一消费者是 u:1 子5（三关质检），其余步报告正文是死重。
+    full_boundary（p1-sub1-cost 修1，Step.pack_full_prior_boundary）：前序节点
+    statements.boundary 不截断——复用钉死条款要求出处逐字引用，100 字符截断
+    处恰是 file:line/机制结论所在（截断逼模型翻 evidence/重验）。
     """
     try:
         rec = json.loads(seg)
@@ -1611,7 +1616,7 @@ def _slim_trace_for_pack(seg: str, *, prior: bool, strip_reports: bool = False) 
                 _truncate(x, _PACK_PRIOR_Q_MAX) if isinstance(x, str) else x
                 for x in out["q"]
             ]
-        if isinstance(out.get("statements"), list):
+        if isinstance(out.get("statements"), list) and not full_boundary:
             slim = []
             for st in out["statements"]:
                 if isinstance(st, dict) and isinstance(st.get("boundary"), str):
@@ -1736,7 +1741,15 @@ def handoff_pack(project_root: Path, name: str) -> str | None:
                 continue
             n = len(node.sub_steps)
             keep = [
-                _slim_trace_for_pack(latest_trace[k], prior=True)
+                _slim_trace_for_pack(
+                    latest_trace[k],
+                    prior=True,
+                    # p1-sub1-cost 修1：本步置位 pack_full_prior_boundary 时
+                    # 前序摘要 boundary 保全文（复用钉死的逐字引用材料）。
+                    full_boundary=bool(
+                        cur_step_obj and cur_step_obj.pack_full_prior_boundary
+                    ),
+                )
                 for k in ((node.minor_key, n - 1), (node.minor_key, n))
                 if k in latest_trace
             ]

@@ -376,6 +376,9 @@ def ensure_node_rules(
         f"- 禁输出 ### STEP_DONE / ### PHASE_DONE 标记（外部编排，标记无效）\n"
         f"- 当前阶段「{phase_label}」的写权限由 S11 硬约束执行（禁写范围见 phase-rules）\n"
         f"- 禁静默兜底：捕获异常必 log，默认值必标记，缺数据必暴露\n"
+        f"- 工具直用：本文件与段 prompt 给出的命令（dl-cmd.sh/codegraph/append-trace 等）"
+        f"直接可用（在场已验证）——禁对工具本身元探查（--help/ls/Read 脚本/which/引擎"
+        f"源码翻查），用法以本文件与段 prompt 为准\n"
         f"- 载荷格式以 --scaffold 骨架为准：字段标头（【purpose】【qa】【q】【a】【statements】"
         f"【text】【type_label】【boundary】【fields.*】）逐字照抄骨架，"
         f"禁反向 grep engine 源码（dl_flow_engine.py）核对格式/校验规则——"
@@ -411,7 +414,8 @@ def ensure_node_rules(
         f"`{_cb} query --symbol/--history` 会自动落账去重到 {ledger}；"
         f"重查同一 symbol/history 返回缓存（source=discovery-ledger），无需手工查账。"
         f"codegraph 索引新鲜度判定走 `{_cb} freshness`"
-        f"（输出索引时间戳+距今时长+>72h 判定，新鲜/过期结论直接可作留痕出处）。\n"
+        f"（输出索引时间戳+距今时长+>72h 判定，新鲜/过期结论直接可作留痕出处；"
+        f"判过期先 codegraph sync，sync 后用同一命令复判，禁手搓 SQL 重验）。\n"
     )
     # u:1 子2b 注入子2a atomic_questions（「查什么」；designs/u1-sub2b-mechanical-
     # symbol-extraction-design.md v2）。v1 教训：string-files 全量命中注入 350 文件

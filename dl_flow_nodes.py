@@ -125,6 +125,15 @@ class Step:
     # （pack_full_reports 同范式）；置位前置 = 逐字段核对「本步输入契约 ⊆
     # 包内内容」，未核对禁置位。
     pack_self_contained: bool = False
+    # p1-sub1-cost 修1（designs/p1-sub1-cost-optimization-design.md §5 修1）：
+    # 复用钉死条款要求前序留痕出处「逐字引用」，但 P1-1 摘要化把前序节点
+    # statements.boundary 截断到 100 字符（_PACK_PRIOR_BOUNDARY_MAX）——
+    # 截断处恰是 file:line/机制结论所在（双×100 链出处被切成「f…」实证），
+    # 模型拿不到逐字出处只能翻 evidence/重验（B1 轮 evidence grep×6 +
+    # 前序已载事实重验 ~10 调用）。置位 = 交接包前序节点摘要的 boundary
+    # 不截断（q 截断不变）。声明式单源（pack_full_reports 同范式）；
+    # 置位前置 = 本步复用条款点名逐字引用前序出处。
+    pack_full_prior_boundary: bool = False
     # u3-sub3-cost（designs/u3-sub3-cost-optimization-design.md）：Step 级
     # segment_strip_project_context——Node 级字段（B1 决议粒度）之下再开逐步
     # 粒度：同节点内「消费型步」（规则/材料经前序 trace 逐字在场，如 u:3#3
@@ -2538,6 +2547,10 @@ _NODES: dict[str, Node] = {
                 # （与 u:4#1-#4 同型）；新鲜度通道由 dl codebase freshness
                 # 补位（原 SQL 只在项目 CLAUDE.md §3，剥 env 后唯一通道）。
                 segment_strip_project_context=True,
+                # p1-sub1-cost 修1：复用钉死的逐字引用材料=前序 statements
+                # boundary——P1-1 截断 100 字符恰切在 file:line 处（B1 轮
+                # 模型翻 evidence×6+重验 ~10 调用实证），置位保全文。
+                pack_full_prior_boundary=True,
                 # v2.99 framing 反转（designs/p1-sub1-gate-framing-design.md §3）：
                 # 留痕投影（引用代码符号形却无工具动词）下沉 mech 零方差生产墙，
                 # 纯 token 扫描不读 db（⑯-safe）；存在性真值归子3 不在此。
