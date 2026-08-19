@@ -1994,6 +1994,9 @@ _NODES: dict[str, Node] = {
                     '已验证/假设：<置信度>,"boundary":verdict 边界+实现指针}——text 只许 '
                     "outcome-level（实现侧名词/file:line 只能进 boundary，机械扫描命中即拒）；"
                     "子3 条目编号（in[..]/out[..]/Cx.x）逐项传导，机械核对缺传即拒。"
+                    "载荷格式与编号传导的唯一真源 = --scaffold 骨架 + append-trace "
+                    "报错文案（四桶分工：格式归脚本）——禁读引擎/测试源码反推校验"
+                    "实现；被拒按报错文案逐字修即可。"
                 ),
                 input="step3.scope_proposal",
                 record=True,
@@ -2007,7 +2010,18 @@ _NODES: dict[str, Node] = {
                     f"动词都指向 outcome/范围赋予、没指向代码实现动作吧（{_SCOPE_VERB_RULE}）？"
                     "statements 载荷 text 逐条无实现侧名词吧（只进 boundary，机械扫描会拒）？"
                     "子3 条目编号（in[..]/out[..]/Cx.x）逐项传导了吗（缺传机械拒）？"
+                    "格式照 scaffold 骨架填了吗——没去翻引擎/测试源码反推校验"
+                    "实现吧（被拒按报错文案修）？"
                 ),
+                # u3-sub4-cost（designs/u3-sub4-cost-optimization-design.md）：
+                # 消费型装配步置位双字段（u:3#3 同型第二例）——规则内容
+                # （_SOLUTION_FREE_SUBJECT_RULE/_SCOPE_VERB_RULE）经 purpose 常量
+                # 逐字在场、方案名词扫描在 append-trace 脚本侧，CLAUDE.md/auto-memory
+                # 对本步是死重；输入契约（子3 范围与约束集全文）在本节点留痕节
+                # 逐字在场，包尾「按需 Read」通用邀请是反指（基线 6 次 evidence
+                # 元探查+1 次 node-rules 全量重读实证）。
+                segment_strip_project_context=True,
+                pack_self_contained=True,
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace、minor_stage=ScopeAndConstraints 且 sub_step==4 的记录。形式要件：子3 范围与约束集每项各 ≤1 句且自包含（原子+去上下文=对象+动作+约束，中文省略主语合法）；陈述携带类型标签（已验证/假设+置信度/in/out）与边界。（statements 三字段非空（text/type_label/boundary）已由 append-trace 逐项 JSON 机械校验通过——你不得以「缺 type_label/缺 boundary/字段不齐/未声明 evidence 路径」为由 block，这些字段在场是机械已知事实。）\n"
                     "默认 pass——仅当以下成立才判 block（每条附合法形态，合法形态在场不得判）：\n"
