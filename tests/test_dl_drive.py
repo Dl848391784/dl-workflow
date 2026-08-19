@@ -2240,9 +2240,9 @@ def test_chain_resume_on_match(wf_repo):
     drv = _load(DRIVER, "drv_chain_match")
     state = _write_state(
         wf_repo,
-        segment_chain={"node": "understand:4", "sid": "abc", "last_step": 2},
+        segment_chain={"node": "plan:1", "sid": "abc", "last_step": 2},
     )
-    assert drv._chain_resume_sid(state, "understand:4", 3) == "abc"
+    assert drv._chain_resume_sid(state, "plan:1", 3) == "abc"
 
 
 def test_chain_resume_rejects_non_whitelist_node(wf_repo):
@@ -2265,7 +2265,8 @@ def test_chain_resume_understand1_rolled_back(wf_repo):
     用户裁决覆盖 08-17「峰值未破保留」项）：u2_sub1_ab/u2_sub2_ab 两轮实测
     u:2#3/#4 段首调 cache_read=0——deepseek 会话隔离缓存下链恒冷=纯增税
     （#3 冷启动 60.3k=本步 fresh 73%、#4 94.1k=98%），fresh 段恒定 ~45k。
-    u:2 移出 SEGMENT_CHAIN_NODES（u:3/4 与 plan 族保留）。"""
+    u:2 移出 SEGMENT_CHAIN_NODES（u:3/4 与 plan 族保留——u:3/u:4 后续分别
+    于 08-18/08-19 断链，见各自测试）。"""
     drv = _load(DRIVER, "drv_chain_u1")
     state = _write_state(
         wf_repo,
@@ -2285,7 +2286,7 @@ def test_chain_resume_understand3_broken(wf_repo):
     纯增税；两轮 live A/B 实测段内续步边界暖率仅 1/4（deepseek 逐出激进），
     续步冷=全额重写继承 transcript（65-122k），EV 不如 fresh 段恒定地板
     （~28-31k/步）——u:3 移出 SEGMENT_CHAIN_NODES 且不入 MERGED_RUN_NODES
-    （understand:4 与 plan 族保留 surgical）。"""
+    （understand:4 与 plan 族保留 surgical——u:4 后于 08-19 断链，见下）。"""
     drv = _load(DRIVER, "drv_chain_u3")
     state = _write_state(
         wf_repo,
@@ -2300,6 +2301,31 @@ def test_whitelist_u3_neither_chain_nor_merged():
     _chain_resume_sid/_chain_update）。"""
     assert "understand:3" not in engine.SEGMENT_CHAIN_NODES
     assert "understand:3" not in engine.MERGED_RUN_NODES
+    assert engine.SEGMENT_CHAIN_NODES.isdisjoint(engine.MERGED_RUN_NODES)
+
+
+def test_chain_resume_understand4_broken(wf_repo):
+    """2026-08-19 u:4 断链（designs/u4-sub3-cost-optimization-design.md L1，
+    用户降本指令覆盖「峰值未破保留」防爆默认）：u4_sub2_ab B 轮实测 u:4#3
+    首调 44,747(cr=0)+#4 首调 74,227(cr=512≈冷)=118,974 纯增税——deepseek
+    会话隔离缓存下链恒冷（cost-optimization #20 三要素全中）；各步输入契约
+    经交接包逐字段核对完备（#2←SC#1/#3←SC#2/#4←SC#3 trace 全文在包）。
+    u:4 移出 SEGMENT_CHAIN_NODES 且不入 MERGED_RUN_NODES（步体非极小搬运型
+    +续步暖率彩票 EV 两节点证伪，#24 口径）；plan 族保留（surgical，
+    无降本指令）。"""
+    drv = _load(DRIVER, "drv_chain_u4")
+    state = _write_state(
+        wf_repo,
+        segment_chain={"node": "understand:4", "sid": "abc", "last_step": 2},
+    )
+    assert drv._chain_resume_sid(state, "understand:4", 3) is None
+
+
+def test_whitelist_u4_neither_chain_nor_merged():
+    """u:4 断链归属（同 u4-sub3-cost 设计 L1）：CHAIN/MERGED 两名单都不含
+    u:4（每步 fresh 段=断链语义，u:3 同型）。"""
+    assert "understand:4" not in engine.SEGMENT_CHAIN_NODES
+    assert "understand:4" not in engine.MERGED_RUN_NODES
     assert engine.SEGMENT_CHAIN_NODES.isdisjoint(engine.MERGED_RUN_NODES)
 
 
@@ -2330,9 +2356,9 @@ def test_chain_resume_rejects_node_mismatch(wf_repo):
     drv = _load(DRIVER, "drv_chain_node")
     state = _write_state(
         wf_repo,
-        segment_chain={"node": "understand:3", "sid": "abc", "last_step": 4},
+        segment_chain={"node": "plan:1", "sid": "abc", "last_step": 4},
     )
-    assert drv._chain_resume_sid(state, "understand:4", 2) is None
+    assert drv._chain_resume_sid(state, "plan:2", 2) is None
 
 
 def test_chain_resume_no_chain(wf_repo):
@@ -2344,9 +2370,9 @@ def test_chain_resume_no_chain(wf_repo):
 def test_chain_update_on_whitelisted_node(wf_repo):
     drv = _load(DRIVER, "drv_chain_upd")
     _write_state(wf_repo)
-    drv._chain_update(wf_repo, "t", "understand:4", 2, "sid-x")
+    drv._chain_update(wf_repo, "t", "plan:1", 2, "sid-x")
     chain = _read_state(wf_repo)["segment_chain"]
-    assert chain["node"] == "understand:4"
+    assert chain["node"] == "plan:1"
     assert chain["sid"] == "sid-x"
     assert chain["last_step"] == 2
     assert chain["ts"]

@@ -95,10 +95,16 @@ SUB_STEP_BLOCK_ESCALATE = 3
 # cr=1,792 = 178.6k 纯增税，占链合计 fresh 73%）；②段内续步 EV 证伪（续步
 # 边界暖率 1/4：暖 -68k vs 冷全额重写 65-122k；断链 fresh 段 ~28-31k/步恒定，
 # EV 远优且逐出敞口随上下文单调涨的风险同步灭）。交接包材料完备性逐字段核对
-# 见设计 §2。u:4 与 plan 族链峰值未突破且无降本指令，保留（surgical）。
+# 见设计 §2。2026-08-19 u:4 断链（designs/u4-sub3-cost-optimization-design.md
+# L1，用户降本指令覆盖「峰值未破保留」防爆默认）：u4_sub2_ab B 轮实测 u:4#3
+# 首调 44,747(cr=0)+#4 首调 74,227(cr=512≈冷)=118,974 纯增税——deepseek 会话
+# 隔离缓存下链恒冷（#20 三要素全中）；各步输入契约经交接包逐字段核对完备
+# （#2←SC#1/#3←SC#2/#4←SC#3 trace 全文在包），fresh 段恒定地板（#2 已实证
+# 13,658）。断链第五例（u:1 回滚/u:2/u:3 后），不入 MERGED（步体非极小搬运型
+# +续步暖率彩票两节点 EV 证伪，#24 口径）。plan 族链峰值未突破且无降本指令，
+# 保留（surgical）。
 SEGMENT_CHAIN_NODES = frozenset(
     {
-        "understand:4",
         "plan:1",
         "plan:2",
         "plan:3",

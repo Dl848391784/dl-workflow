@@ -11101,12 +11101,37 @@ class TestSegmentSpawnOverrides:
         assert "每条候选最多一次" in step2.purpose
         assert "本步零勘察" in step2.selfcheck
 
+    def test_u4_step3_step_level_strip(self):
+        # u4-sub3-cost L2（designs/u4-sub3-cost-optimization-design.md）：
+        # u:4#3 Step 级 strip（第五例，u:4 内第三例）——交付物=四法选择+三态
+        # 处置+时机+证据形式，正文不点名项目硬规则条号（与 u:4#1/#2 同型：
+        # 材料经交接包逐字在场）；工具需求 Bash/Read/Edit 全在 Node 白名单内。
+        node = eng._NODES["understand:4"]
+        step3 = node.sub_steps[2]
+        ov = eng.segment_spawn_overrides(node, step3)
+        assert ov["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
+        assert ov["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
+        assert ov["tools"] == ("Bash", "Read", "Edit", "Skill")
+
+    def test_u4_step3_reuse_clause_pinned(self):
+        # u4-sub3-cost L3：purpose/selfcheck 复用钉死条款（#25 收紧形态——
+        # 默认零重验+枚举例外+按条配额）关键词钉死——防未来编辑把条款静默
+        # 改丢（条款是本步步体主杠杆：基线 13 探索 Bash 中 ~8-10 纯税/半税
+        # =重复验证包内已证存在性+超出存在性粒度的掘进）。
+        step3 = eng._NODES["understand:4"].sub_steps[2]
+        assert "零重跑重验" in step3.purpose
+        assert "复用 <节点>子N 留痕" in step3.purpose
+        assert "每条标准最多一次" in step3.purpose
+        assert "验存在即止" in step3.purpose
+        assert "零 evidence 全量翻找" in step3.purpose
+        assert "零重跑重验" in step3.selfcheck
+
     def test_u4_other_steps_no_step_strip(self):
-        # 逐步粒度不误伤兄弟步（#3 验证步前置核对未做、#4 消费步 pack 完备性
-        # 核对未做、#5 确认级无会话——均不置位；#1/#2 已置位见上两测试）。
+        # 逐步粒度不误伤兄弟步（#4 消费步 pack 完备性核对未做、#5 确认级无
+        # 会话——均不置位；#1/#2/#3 已置位见上三测试）。
         node = eng._NODES["understand:4"]
         for i, step in enumerate(node.sub_steps, start=1):
-            if i in (1, 2):
+            if i in (1, 2, 3):
                 continue
             assert eng.segment_spawn_overrides(node, step)["env"] == {}, i
 
