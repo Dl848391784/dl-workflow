@@ -187,6 +187,66 @@ prompt ~4k，u:4#2 实证 13,658 同型] + strip -11.9k env 剥离 [三处同口
 - 不改：driver 机制代码（断链=白名单摘除零新机制）、gate 文本（§2 L3
   三重核对）、MERGED_RUN_NODES、plan 族链、judge。
 
-## 5. 实测收官（A/B 后回填）
+## 5. 实测收官（2026-08-19，u4_sub3_ab 同种子起跑，ac-deepseek1 headless，worktree 码 4e7c084）
 
-（待回填）
+B 轮驱动法（runtime-audit #24/#25）：种子五件套（evidence 19 条 ≤SC#2 +
+state sub_step_index=3 + last_judged_trace 裁至 ≤u:4#2 + 段记录/链/stash
+清零 + settings 三件套 grep 验 name-agnostic=0 + pack 冒烟 13,315 字符
+SC#1/SC#2 全文在包）→ `bash -ic` 内 `AC_WORKFLOW_LAUNCHER=<worktree>/
+scripts/workflow/dl-launch.sh ac-deepseek1 --dl u4_sub3_ab --resume
+--headless`。代码路径核验：B 首调 fresh 15,309（A 44,747 的 -65.8%，
+幅度 ≈ 链税 ~17.5k + env 剥离 ~11.9k 探针预算）+ 段 prompt 内条款关键词
+「零重跑重验/验存在即止/每条标准最多一次」全命中 = 断链/strip/条款三杠杆
+确由 worktree 码生效。
+
+| 指标 | A（u4_sub2_ab seg#4，链） | B（u4_sub3_ab seg#0，断链+strip+复用） | Δ |
+|---|---|---|---|
+| 首调 fresh | 44,747（cr=0） | 15,309（cr=0） | **-65.8%** |
+| 段 fresh 合计 | 53,555 | 22,494 | **-58.0%** |
+| 段 cr 合计 | 504,576 | 231,808 | **-54.1%** |
+| 段 out 合计 | 12,356 | 15,875 | +28.5% |
+| 轮数（result 权威值） | 18 | 10 | -44% |
+| 段 dur_api | 95.8s | 123.2s | +28.6% ⚠ |
+| 成本 | $0.829 | $0.681 | -17.9% |
+| 工具序列 | Bash×13 探索+落库 4 | scaffold→Read→**bs4 单点×1**→Edit→落库（9 调用） | 探索 Bash 13→**1** |
+| 门控 | 一次通过 | 一次通过，零 block | ✓ |
+
+成本等效（cr×0.1 折 fresh，#13/#24 口径）：A 104,013 → B 45,675 =
+**-56.1%**。
+
+验收逐条：①首调 ≤15k **边际超 2%**（15,309）——floor 探针预算 ~25.5k
+低估 ~1.7k（step3 段 prompt 比 step2 长：purpose+gate 文本更大；step2
+同机制实证 13,658）；机制分解幅度全确认（44,747-15,309=29,438 ≈ 链税
+~17.5k+env ~11.9k），主口径=机制读数非整数值线；②探索 Bash 1 ≤4 ✓——
+唯一例外 bs4 可用性单点验证（HTML 提取手段前序零提及=枚举例外合法），
+零包内已证出处重验（pytest 框架存在性经复用 ScopeAndConstraints C7.2
+逐字出处解决，基线的 pytest --version/ls test_cases/grep testpaths 3
+调用全灭）、零 app.py 类掘进、Read 仅骨架 ✓；③fresh -58% ≥45% ✓、
+cr -54.1%（预登记 ≥55% 边际差 0.9pt）、**墙钟未降反 +28.6%**（见下
+归因）；④零 block ✓，trace 质量逐条自查全过：四法+选择理由（含「经典
+映射功能→demonstration 不适用为主」排除式论证）、三态处置（存在附
+逐字出处/待建=提取比对断言脚本进 plan）、时机 triggered 汇总声明、证据
+形式锚定 review:0 消费形态；存在性出处 100% 可溯源（复用引用 6+ 处逐字
+可回查包内 SC#1/SC#2/u:3 statements），零编造 ✓；⑤pytest 1139 全绿
+（新增 4 例：u4 断链×2/u4#3 strip/条款钉死；链夹具 u:4→plan:1）+
+nodes-index 同步 ✓；⑥混淆声明全部按预登记处理 ✓。
+
+**墙钟归因（诚实登记，双轴验收 #13 的输出侧补丁）**：dur_api ≈ out/
+rate——四个同端点样本生成速率稳定 121-129 tok/s（u4_sub2_ab A 16.5k/
+136s≈121、B 8.2k/65s≈127、本 A 12.4k/96s≈129、本 B 15.9k/123s≈129），
+墙钟差 +27s ≈ 输出差 +3.5k ÷ 129 tok/s，**段墙钟被输出量主导**。输出
+增长两成分：①复用钉死的逐字引用形态（trace 证据本身是交付物，引用
+更长=质量形态非浪费）；②scaffold 返工褶皱（3 Edit+1 grep 待填+1 重
+Read=4/9 调用=格式迭代，步无关 scaffold 行为）。token 轴：out +3.5k
+远小于 in+cr 节省（等效 -58.3k），成本 -17.9%；墙钟轴：生成主导下
+输出量即墙钟，本轮墙钟目标未达——取舍明示：逐字引用条款不撤（质量
+机制），墙钟的进一步杠杆在输出侧瘦身（trace 措辞密度），非本轮三杠杆
+作用面，登记为观察项。
+
+**#4 段外部性登记（不进验收面）**：断链连带 #4 fresh 段——首调 74,227
+→30,443（-59%，无 strip 的纯断链读数）、in -43%、cr -49%；out 7.6k→
+25.1k（3.3×，step4 purpose 未动+1 次 append 重试褶皱）、dur 60→187s
+（同输出主导归因）。#5 确认级读回（P3-1）机械装配 0 token 符合既有
+设计。**遗留立项**：u:4#4 strip 置位（逐步核对未做）；plan 族链重审
+（无降本指令，保留）；墙钟输出侧瘦身（观察项）。amplitude 今日值
+4947.7% 本轮未被触发（step3 无现状测量职责）。
