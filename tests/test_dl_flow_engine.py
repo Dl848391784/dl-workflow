@@ -10953,6 +10953,71 @@ class TestPackSelfContained:
         assert "范围提案UNIQUESC3双侧清单双字段" in pack  # 子3 留痕全文（装配材料）
         assert "已验证留痕UNIQUESC2附fileline" in pack  # 子2 留痕（类型标签溯源）
 
+    @staticmethod
+    def _sc_decision_traces():
+        return [
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "ScopeAndConstraints",
+                "sub_step": 4,
+                "skill": "s",
+                "purpose": "p",
+                "statements": [
+                    {
+                        "text": "归一化范围约束UNIQUESC4含inout双侧",
+                        "type_label": "in",
+                        "boundary": "b",
+                    }
+                ],
+            },
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "ScopeAndConstraints",
+                "sub_step": 5,
+                "skill": "s",
+                "purpose": "p",
+                "q": ["读回"],
+                "a": ["确认级静默通过"],
+            },
+        ]
+
+    def test_u4_pack_self_contained_flags(self):
+        # u4-sub1-cost（designs/u4-sub1-cost-optimization-design.md L3）：
+        # u:4#1 置位（交互步置位首例——声明输入 = GAV/SC 两节点 step4
+        # statements，均在包内前序摘要节）；兄弟步不置位（#2/#3 验证/测量
+        # 步要跑 Bash 取证，非纯消费；#4 消费本节点 #3 留痕但其 pack
+        # 完备性核对未做；#5 确认级无会话）。
+        node = eng.get_node("understand", 4)
+        flags = [bool(s.pack_self_contained) for s in node.sub_steps]
+        assert flags == [True, False, False, False, False]
+
+    def test_u4_step1_tail_line_replaced(self, tmp_path):
+        self._write_evidence(
+            tmp_path,
+            self._gav_decision_traces() + self._sc_decision_traces(),
+        )
+        _write_state_full(tmp_path, "t", "understand", 4, sub_step=1)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None
+        assert "本步所需材料已全部在包内" in pack
+        assert "以上为摘要" not in pack
+
+    def test_u4_step1_materials_complete_invariant(self, tmp_path):
+        """装配不变量：u:4#1 的包须含 GAV step4 + SC step4 statements 全文
+        （声明输入的两项唯一材料来源）——防未来交接包修剪把材料修没了、
+        「禁读」条款变错。"""
+        self._write_evidence(
+            tmp_path,
+            self._gav_decision_traces() + self._sc_decision_traces(),
+        )
+        _write_state_full(tmp_path, "t", "understand", 4, sub_step=1)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None
+        assert "归一化目标UNIQUEG4" in pack  # GAV step4 statements 全文
+        assert "归一化范围约束UNIQUESC4含inout双侧" in pack  # SC step4 同上
+
 
 class TestSegmentSpawnOverrides:
     """u2-residual-cost（designs/u2-residual-cost-optimization-design.md）：
@@ -10991,7 +11056,36 @@ class TestSegmentSpawnOverrides:
                 continue
             ov = eng.segment_spawn_overrides(node)
             assert ov["env"] == {}, key
+            if key == "understand:4":
+                continue  # u4-sub1-cost：tools-only 置位（env 仍空，逐步 strip）
             assert ov["tools"] is None, key
+
+    def test_u4_tools_only_no_env_strip(self):
+        # u4-sub1-cost（designs/u4-sub1-cost-optimization-design.md L1）：
+        # u:4 置位 tools-only（同 u:3 型——env 剥离不下放节点级，逐步见子1）。
+        # Agent 不在单 = 机制堵「为后续步预取证据」步骤越界（u3_sub4_ab
+        # 基线：子1 段派发 2 个 Explore 为子3 预取 file:line 纯税）。
+        ov = eng.segment_spawn_overrides(eng._NODES["understand:4"])
+        assert ov["env"] == {}
+        assert ov["tools"] == ("Bash", "Read", "Edit", "Skill")
+
+    def test_u4_step1_step_level_strip(self):
+        # u4-sub1-cost L2：u:4#1 Step 级 strip（第三例——交互步置位首例：
+        # 交付物正文不引用自动加载文档，材料经交接包/prep 载荷逐字在场）。
+        node = eng._NODES["understand:4"]
+        step1 = node.sub_steps[0]
+        ov = eng.segment_spawn_overrides(node, step1)
+        assert ov["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
+        assert ov["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
+        assert ov["tools"] == ("Bash", "Read", "Edit", "Skill")
+
+    def test_u4_other_steps_no_step_strip(self):
+        # 逐步粒度不误伤兄弟步（#2/#3 验证/测量步前置核对未做，不置位）。
+        node = eng._NODES["understand:4"]
+        for i, step in enumerate(node.sub_steps, start=1):
+            if i == 1:
+                continue
+            assert eng.segment_spawn_overrides(node, step)["env"] == {}, i
 
     def test_u3_step3_step_level_strip(self):
         # u3-sub3-cost（designs/u3-sub3-cost-optimization-design.md）：Step 级

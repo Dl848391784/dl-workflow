@@ -266,6 +266,23 @@ def test_step_prompt_pack_self_contained_clause(wf_repo):
     assert "材料边界" not in prompt3
 
 
+def test_step_prompt_self_contained_clause_interactive(wf_repo):
+    """u4-sub1-cost：交互步置位 pack_self_contained 时段 prompt 同样带材料
+    边界条款——u:4#1 是首个置位的交互步（条款在非-prep else 分支，交互步
+    同路径），钉死交互分支覆盖，防未来重构把交互步切出条款面。"""
+    drv = _load(DRIVER, "drv_under_test")
+    state = _write_state(wf_repo)
+    node = engine.get_node("understand", 4)
+    step1 = engine.sub_step_at(node, 1)
+    assert step1.pack_self_contained is True  # u:4#1 置位（单源核对）
+    assert step1.interactive is True
+    prompt = drv.build_step_prompt(
+        wf_repo, "t", state, node, 1, step1, interactive=True, rework=None
+    )
+    assert "材料边界" in prompt
+    assert "禁 Read evidence 全量翻找" in prompt
+
+
 def test_bash_shape_rules_venv_absolute_form(wf_repo):
     """项目有 venv 时钉绝对路径形态（./ 前缀会让白名单前缀匹配落空）。"""
     drv = _load(DRIVER, "drv_under_test")

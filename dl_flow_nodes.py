@@ -2113,9 +2113,28 @@ _NODES: dict[str, Node] = {
                     f"（纪律同 GoalsAndValue 子2；{_SOLUTION_FREE_SUBJECT_RULE}）。"
                     "消费契约锚点：成功标准是 review 阶段 gate 判定 "
                     "solved/partial/not 的依据——写每条候选时想象 review 时拿什么判它。"
+                    # u4-sub1-cost（designs/u4-sub1-cost-optimization-design.md
+                    # L4）：复用钉死（#25 收紧形态——默认零新查询+枚举例外，
+                    # 非「缺口才新跑」开放谓词）。基线实证：模型派发 2 个
+                    # Explore 子代理为子3 预取 file:line 证据（步骤越界 +
+                    # 前序已沉淀锚点的重复取证），Agent 已出本节点 tools
+                    # 白名单（机制堵入口），本条款防 Bash 迂回（双侧钉死）。
+                    "材料边界（复用钉死）：must 目标集/范围约束/用户原话全部在"
+                    "交接包（前序节点结论摘要节）与 prep 载荷 sources 字段——"
+                    "逐字直接引用即出处；本步零新取证：不派发子代理、不跑 "
+                    "codegraph/grep、不 Read evidence 全量翻找（验收手段的 "
+                    "file:line 取证归子3——为后续步预取材料 = 越界，"
+                    "「先查清楚再补问」不是本步职责）。"
                 ),
                 input="GoalsAndValue.step4.statements + ScopeAndConstraints.step4.statements",
                 record=True,
+                # u4-sub1-cost L2/L3（designs/u4-sub1-cost-optimization-design.md）：
+                # Step 级 strip（u:3#3/#4 后第三例——交付物正文不引用自动加载
+                # 文档，判材边界见 gate 结构段）+ pack_self_contained（第四例——
+                # 声明输入 = 前序两节点 step4 statements，生产真包冒烟实证全文
+                # 在包；交互步置位首例，条款分支已覆盖 interactive）。
+                segment_strip_project_context=True,
+                pack_self_contained=True,
                 selfcheck=(
                     "每个 must 目标都做了验收视角提问「怎么知道它达成了」吗？"
                     "双向追溯逐项列出了吗（每目标 ≥1 候选或定性+理由；"
@@ -2123,6 +2142,8 @@ _NODES: dict[str, Node] = {
                     f"含方案名词的候选剥到 outcome 了吗（{_SOLUTION_FREE_SUBJECT_RULE}）？"
                     "每条 a 是用户原话/会话事实，还是我推断补全的"
                     "（推断只能标「推测」另列）？结论选了①还是②、每句都有出处吗？"
+                    "材料全部引自交接包/prep 载荷 sources 吗"
+                    "（零新取证、零子代理、零 evidence 全量翻找）？"
                 ),
                 # v2.93 gate framing 反转（§3.5 #28 泛化第十一例，
                 # designs/u4-sub1-gate-framing-design.md）：基线 784 字从严版
@@ -2377,6 +2398,15 @@ _NODES: dict[str, Node] = {
         # understand.md 在子5 内装配（hold 前已落地，同 plan:2/3/4 产物节模式），
         # 不再有「放行后写产物」窗口。
         artifact_on_release=False,  # 产物子5 内装配
+        # u4-sub1-cost（designs/u4-sub1-cost-optimization-design.md L1）：
+        # tools-only 置位（u:3 同型——env 剥离不做节点级，逐步粒度见子1）。
+        # 逐步工具需求核对（design §2 L1 表）：#1 Read(need_user)+Bash(落库)
+        # +Edit(骨架)+TUI 三件套（自动并）/#2 Bash 基线测量/#3 Bash(codegraph)
+        # +Read/#4 Skill(define-problem)/#5 无会话——全节点无一步合法需要
+        # Agent。Agent 不在单 = 机制堵「为后续步预取证据」步骤越界
+        # （u3_sub4_ab 基线：子1 段派发 2 个 Explore 为子3 预取 file:line，
+        # 21.3k in/41.9k cr 纯税；#16 文案管不住，机制堵入口）。
+        segment_tools=("Bash", "Read", "Edit", "Skill"),
     ),
     # ---------- plan ----------
     # designs/design-solution-substeps-design.md（2026-07-27 用户确认 6 步）。
