@@ -1,6 +1,6 @@
 # understand:4 子1（成功标准引出）耗时/token 优化设计——Node 级 tools 白名单 + 逐步 env 剥离 + 材料边界 + 复用钉死
 
-> 日期：2026-08-19 · 分支 feat/u4-sub1-cost · 状态：设计中
+> 日期：2026-08-19 · 分支 feat/u4-sub1-cost · 状态：收官（一轮 A/B 全验收达标）
 > 上游：designs/u3-sub4-cost-optimization-design.md（Step 级 strip 第二例 +
 >      pack_self_contained 第三例 + 格式真源钉死）；
 >      designs/u3-sub3-cost-optimization-design.md（#25 复用条款收紧形态）；
@@ -173,3 +173,33 @@ selfcheck 追加一条：「材料全部引自交接包/prep 载荷 sources 吗�
   同步（purpose 实质内容变更）。
 - 不改：engine 机制代码（全现成）、dl_drive.py（条款分支已覆盖交互）、
   gate 文本、SEGMENT_CHAIN_NODES。
+
+## 5. 实测收官（2026-08-19，u3_sub4_ab 同实例续跑，ac-deepseek1 headless）
+
+B 轮驱动法：恢复今晨已消费的 next_prep_stashed 标记（need_user.json 在位、
+输入未变 = 复原今晨进入位形，P2-1 短路线同构）→ `bash -ic` 内
+AC_WORKFLOW_LAUNCHER 指 worktree launcher 跑 `ac-deepseek1 --dl u3_sub4_ab
+--resume --headless`。driver 日志特征行核验代码路径：「⚑ 问题清单前序段
+已备（P2-1 合并段）——转前台问答」= stash 短路生效、零独立 prep 段。
+
+| 指标 | A 基线（今晨 12:16） | B（13:41） | Δ |
+|---|---|---|---|
+| 首调 fresh | 45,217 | 17,416 | **-61.5%**（探针预算 -26.2k → 19.0k，实测 17.4k 一致量级） |
+| 段 fresh 合计 | 51,995 | 19,329 | -62.8% |
+| 段 cr 合计 | 260,608 | 43,136 | -83.4% |
+| 段 out 合计 | 9,023 | 4,751 | -47.3% |
+| 成本等效（fresh+0.1cr） | 78.1k | 23.6k | **-69.8%** |
+| API 调用 | 6 | 3 | -50% |
+| 段墙钟 | 66s | 29.7s | **-55%** |
+| 子代理 | 2（in 21.3k / cr 41.9k） | 0（无子代理目录） | -100% |
+
+验收逐条：①首调 fresh ≤20k ✓（17,416）；②工具序列零 Agent、唯一 Read
+= need_user.json（prep 载荷指针，合法通道）、零 evidence/仓库文件读 ✓；
+③两臂同为无 TTY print 降级、步均未完成（环境性，不计成败——u2-sub1 §6
+附记同口径），零 block ✓；④pytest 1133 全绿（新增 6 例）+ nodes-index
+同步 ✓；⑤数值漂移未触发（引出步无新取证）✓。
+
+遗留观察（登记不动）：TaskList 仪式 24 调用两臂同有（真实 TTY 用户可见，
+v3.3.1 设计内）；pack 尾行切换对 TUI 段要待 merge 后由主树 hook 生效
+（B 轮 prompt 侧条款已生效——driver 是 worktree 码，hook 引用主树引擎，
+u:4#1 的 pack_self_contained 在 merge 前主树不可见）。
