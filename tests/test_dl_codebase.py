@@ -15,9 +15,23 @@ def test_query_symbol_shapes(monkeypatch):
     def fake_run(cmd):
         calls[cmd[1]] = cmd
         if cmd[1] == "query":
-            return subprocess.CompletedProcess(cmd, 0, json.dumps([{"node": {"name": "f", "filePath": "a.py", "startLine": 1}}]), "")
+            return subprocess.CompletedProcess(
+                cmd,
+                0,
+                json.dumps(
+                    [{"node": {"name": "f", "filePath": "a.py", "startLine": 1}}]
+                ),
+                "",
+            )
         if cmd[1] == "callers":
-            return subprocess.CompletedProcess(cmd, 0, json.dumps({"callers": [{"name": "g", "filePath": "b.py", "startLine": 2}]}), "")
+            return subprocess.CompletedProcess(
+                cmd,
+                0,
+                json.dumps(
+                    {"callers": [{"name": "g", "filePath": "b.py", "startLine": 2}]}
+                ),
+                "",
+            )
         if cmd[1] == "impact":
             return subprocess.CompletedProcess(cmd, 0, json.dumps({"affected": []}), "")
         return subprocess.CompletedProcess(cmd, 0, "", "")
@@ -50,13 +64,17 @@ def test_query_string_parses_grep(monkeypatch):
 
     def fake_run(cmd):
         captured["cmd"] = cmd
-        out = "backtest/common/layered_backtest.py:624:    return_col=\"forward_return_1d\",\n"
+        out = 'backtest/common/layered_backtest.py:624:    return_col="forward_return_1d",\n'
         return subprocess.CompletedProcess(cmd, 0, out, "")
 
     monkeypatch.setattr(cb, "_run", fake_run)
     out = cb.query_string("forward_return_1d", None, 50)
     assert out["matches"] == [
-        {"file": "backtest/common/layered_backtest.py", "line": 624, "text": '    return_col="forward_return_1d",'}
+        {
+            "file": "backtest/common/layered_backtest.py",
+            "line": 624,
+            "text": '    return_col="forward_return_1d",',
+        }
     ]
     # 关键：必须排除 .git / .claude / .superpowers
     assert "--exclude-dir=.git" in captured["cmd"]
@@ -68,6 +86,7 @@ def test_query_string_parses_grep(monkeypatch):
 
 def test_query_history_parses_blame(monkeypatch):
     """--history <file>:<line> 返回 blame + commits。"""
+
     def fake_run(cmd):
         if cmd[0] == "git" and cmd[1] == "-C" and cmd[3] == "blame":
             return subprocess.CompletedProcess(cmd, 0, "abc1234 (dev) line content", "")
@@ -87,7 +106,11 @@ def test_query_history_bad_target():
 
 
 def test_main_symbol_json(capsys, monkeypatch):
-    monkeypatch.setattr(cb, "query_symbol", lambda s: {"symbol": s, "definition": {}, "callers": {}, "impact": {}})
+    monkeypatch.setattr(
+        cb,
+        "query_symbol",
+        lambda s: {"symbol": s, "definition": {}, "callers": {}, "impact": {}},
+    )
     rc = cb.main(["query", "--symbol", "foo"])
     assert rc == 0
     out = json.loads(capsys.readouterr().out)
@@ -101,7 +124,9 @@ def test_main_no_flag_returns_2(capsys):
 
 def test_symbol_dedup_returns_cached(monkeypatch, tmp_path):
     """worktree 内同 symbol 二次查询返回缓存 + source=discovery-ledger，不重跑 codegraph。"""
-    monkeypatch.setattr(cb, "_resolve_ledger_path", lambda: tmp_path / "discoveries.jsonl")
+    monkeypatch.setattr(
+        cb, "_resolve_ledger_path", lambda: tmp_path / "discoveries.jsonl"
+    )
     calls = {"n": 0}
 
     def fake_codegraph_json(sub, symbol):
@@ -122,8 +147,12 @@ def test_symbol_dedup_returns_cached(monkeypatch, tmp_path):
 
 def test_string_not_recorded(monkeypatch, tmp_path):
     """--string 不落账。"""
-    monkeypatch.setattr(cb, "_resolve_ledger_path", lambda: tmp_path / "discoveries.jsonl")
-    monkeypatch.setattr(cb, "_run", lambda cmd: subprocess.CompletedProcess(cmd, 0, "a.py:1:x\n", ""))
+    monkeypatch.setattr(
+        cb, "_resolve_ledger_path", lambda: tmp_path / "discoveries.jsonl"
+    )
+    monkeypatch.setattr(
+        cb, "_run", lambda cmd: subprocess.CompletedProcess(cmd, 0, "a.py:1:x\n", "")
+    )
     cb.query_string("x", None, 5)
     assert not (tmp_path / "discoveries.jsonl").exists()
 
@@ -131,7 +160,9 @@ def test_string_not_recorded(monkeypatch, tmp_path):
 def test_corrupt_ledger_silently_degrades(monkeypatch, tmp_path):
     """台账损坏 → 正常查询，不抛异常，视为无账。"""
     (tmp_path / "discoveries.jsonl").write_text("{bad json\n", encoding="utf-8")
-    monkeypatch.setattr(cb, "_resolve_ledger_path", lambda: tmp_path / "discoveries.jsonl")
+    monkeypatch.setattr(
+        cb, "_resolve_ledger_path", lambda: tmp_path / "discoveries.jsonl"
+    )
     monkeypatch.setattr(cb, "_codegraph_json", lambda sub, sym: {"ok": []})
     out = cb.query_symbol("foo")
     assert out["source"] == "fresh"
@@ -139,7 +170,9 @@ def test_corrupt_ledger_silently_degrades(monkeypatch, tmp_path):
 
 def test_query_trace_bundles_and_dedups(monkeypatch, tmp_path):
     """trace 一次返回 5 段 + source；二次命中缓存不重跑。"""
-    monkeypatch.setattr(cb, "_resolve_ledger_path", lambda: tmp_path / "discoveries.jsonl")
+    monkeypatch.setattr(
+        cb, "_resolve_ledger_path", lambda: tmp_path / "discoveries.jsonl"
+    )
     calls = {"codegraph": 0, "git": 0}
 
     def fake_codegraph_json(sub, symbol):
@@ -157,11 +190,93 @@ def test_query_trace_bundles_and_dedups(monkeypatch, tmp_path):
     monkeypatch.setattr(cb, "_current_step", lambda p: "understand:1#2")
 
     out1 = cb.query_trace("foo")
-    assert set(out1) >= {"symbol", "definition", "callers", "callees", "impact", "history"}
+    assert set(out1) >= {
+        "symbol",
+        "definition",
+        "callers",
+        "callees",
+        "impact",
+        "history",
+    }
     assert out1["source"] == "fresh"
     assert calls["codegraph"] == 4  # query/callers/callees/impact 各一次
-    assert calls["git"] == 1        # git log -S 一次
+    assert calls["git"] == 1  # git log -S 一次
 
     out2 = cb.query_trace("foo")
     assert out2["source"] == "discovery-ledger"
     assert calls["codegraph"] == 4  # 二次命中，不重跑
+
+
+def test_find_codegraph_db_walks_upward(tmp_path):
+    """git 式上溯：worktree 形深层目录（<root>/.claude/worktrees/<name>）能找到
+    项目根的 .codegraph/codegraph.db；无索引返 None。"""
+    db = tmp_path / ".codegraph" / "codegraph.db"
+    db.parent.mkdir()
+    db.write_text("", encoding="utf-8")
+    deep = tmp_path / ".claude" / "worktrees" / "wf1"
+    deep.mkdir(parents=True)
+    assert cb._find_codegraph_db(deep) == db  # 深层 worktree 形目录上溯命中
+    assert (
+        cb._find_codegraph_db(tmp_path / "nowhere") == db
+    )  # 不存在目录 resolve 不报错，上溯仍命中
+    assert cb._find_codegraph_db(Path("/nonexistent-path-xyz")) is None  # 无索引返 None
+
+
+def test_freshness_fresh_verdict(monkeypatch, tmp_path):
+    """新鲜索引（age ≤72h）：stale=False + verdict 新鲜 + 时间戳/时长字段齐备。"""
+    db = tmp_path / ".codegraph" / "codegraph.db"
+    db.parent.mkdir()
+    db.write_text("", encoding="utf-8")
+    now_ms = str(int(cb.time.time() * 1000))
+    monkeypatch.setattr(
+        cb, "_run", lambda cmd: subprocess.CompletedProcess(cmd, 0, now_ms + "\n", "")
+    )
+    out = cb.query_freshness(tmp_path)
+    assert out["stale"] is False
+    assert "新鲜" in out["verdict"]
+    assert out["age_hours"] < 1
+    assert "indexed_at" in out and out["db"] == str(db)
+
+
+def test_freshness_stale_verdict(monkeypatch, tmp_path):
+    """过期索引（age >72h）：stale=True + verdict 指向 codegraph sync。"""
+    db = tmp_path / ".codegraph" / "codegraph.db"
+    db.parent.mkdir()
+    db.write_text("", encoding="utf-8")
+    old_ms = str(int((cb.time.time() - 100 * 3600) * 1000))
+    monkeypatch.setattr(
+        cb, "_run", lambda cmd: subprocess.CompletedProcess(cmd, 0, old_ms + "\n", "")
+    )
+    out = cb.query_freshness(tmp_path)
+    assert out["stale"] is True
+    assert "codegraph sync" in out["verdict"]
+    assert out["age_hours"] > 72
+
+
+def test_freshness_no_db(tmp_path):
+    """无索引：结构化 error（不适用声明），不抛异常。"""
+    out = cb.query_freshness(tmp_path)
+    assert "error" in out and "无 codegraph 索引" in out["error"]
+
+
+def test_freshness_bad_output(monkeypatch, tmp_path):
+    """sqlite 输出非数字：结构化 error，不抛异常（宁纵勿枉）。"""
+    db = tmp_path / ".codegraph" / "codegraph.db"
+    db.parent.mkdir()
+    db.write_text("", encoding="utf-8")
+    monkeypatch.setattr(
+        cb, "_run", lambda cmd: subprocess.CompletedProcess(cmd, 0, "NULL\n", "")
+    )
+    out = cb.query_freshness(tmp_path)
+    assert "error" in out
+
+
+def test_main_freshness(capsys, monkeypatch, tmp_path):
+    """CLI 路由：freshness 子命令直通 query_freshness。"""
+    monkeypatch.setattr(
+        cb, "query_freshness", lambda: {"stale": False, "verdict": "新鲜"}
+    )
+    rc = cb.main(["freshness"])
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["stale"] is False

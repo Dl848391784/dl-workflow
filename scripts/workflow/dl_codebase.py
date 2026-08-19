@@ -3,6 +3,7 @@
 
 包装 codegraph / grep / git 为结构化 JSON，供工作流模型直接消费。
 """
+
 from __future__ import annotations
 
 import argparse
@@ -17,7 +18,9 @@ def _run(cmd: list[str]) -> subprocess.CompletedProcess:
     try:
         return subprocess.run(cmd, capture_output=True, text=True)
     except OSError as e:
-        return subprocess.CompletedProcess(cmd, 1, "", f"{cmd[0]} 不存在或不可执行: {e}")
+        return subprocess.CompletedProcess(
+            cmd, 1, "", f"{cmd[0]} 不存在或不可执行: {e}"
+        )
 
 
 def _codegraph_json(sub: str, symbol: str) -> dict:
@@ -82,8 +85,14 @@ def _ledger_get(path: Path, key: str) -> dict | None:
 
 
 def _ledger_append(path: Path, key: str, kind: str, query: str, result: dict) -> None:
-    entry = {"key": key, "kind": kind, "query": query, "result": result,
-             "step": _current_step(path), "ts": int(time.time())}
+    entry = {
+        "key": key,
+        "kind": kind,
+        "query": query,
+        "result": result,
+        "step": _current_step(path),
+        "ts": int(time.time()),
+    }
     try:
         with path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
@@ -109,8 +118,61 @@ def query_symbol(symbol: str) -> dict:
     return {**payload, "source": "fresh"}
 
 
-_GREP_EXCLUDES = ["--exclude-dir=.git", "--exclude-dir=.claude", "--exclude-dir=__pycache__", "--exclude-dir=node_modules", "--exclude-dir=.superpowers"]
+_GREP_EXCLUDES = [
+    "--exclude-dir=.git",
+    "--exclude-dir=.claude",
+    "--exclude-dir=__pycache__",
+    "--exclude-dir=node_modules",
+    "--exclude-dir=.superpowers",
+]
 _TYPE_INCLUDE = {"py": "*.py", "html": "*.html", "js": "*.js", "ts": "*.ts"}
+
+# 索引新鲜度阈值（小时）——与节点 purpose/selfcheck 的「>72h 先 sync」同口径。
+_FRESHNESS_STALE_HOURS = 72
+
+
+def _find_codegraph_db(start: Path) -> Path | None:
+    """从 start 向上找 .codegraph/codegraph.db（git 式上溯——worktree 内 cwd
+    位于 <project>/.claude/worktrees/<name>，索引在项目根，上溯可及）。"""
+    cur = start.resolve()
+    for d in (cur, *cur.parents):
+        db = d / ".codegraph" / "codegraph.db"
+        if db.exists():
+            return db
+    return None
+
+
+def query_freshness(start: Path | None = None) -> dict:
+    """codegraph 索引新鲜度：MAX(indexed_at) + 距今时长 + >72h 判定。
+
+    供「现状勘察」类步骤的新鲜度留痕（输出时间戳+判定结论即合规出处）。
+    不落账——新鲜度是时间函数，台账缓存会让判定失真。
+    """
+    db = _find_codegraph_db(start or Path.cwd())
+    if db is None:
+        return {
+            "error": "未找到 .codegraph/codegraph.db——本仓无 codegraph 索引（新鲜度判定不适用）"
+        }
+    r = _run(["sqlite3", str(db), "SELECT MAX(indexed_at) FROM files;"])
+    if r.returncode != 0:
+        return {"error": r.stderr.strip() or "sqlite3 查询失败"}
+    raw = (r.stdout or "").strip()
+    if not raw.isdigit():
+        return {"error": f"索引时间戳读取异常: {raw!r}"}
+    ts = int(raw) / 1000
+    age_h = (time.time() - ts) / 3600
+    stale = age_h > _FRESHNESS_STALE_HOURS
+    return {
+        "db": str(db),
+        "indexed_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts)),
+        "age_hours": round(age_h, 1),
+        "stale": stale,
+        "verdict": (
+            f"过期（>{_FRESHNESS_STALE_HOURS}h）——先 codegraph sync 再勘察"
+            if stale
+            else f"新鲜（≤{_FRESHNESS_STALE_HOURS}h）——可直接勘察"
+        ),
+    }
 
 
 def query_string(pattern: str, type_filter: str | None, max_count: int) -> dict:
@@ -143,10 +205,24 @@ def query_history(target: str, max_count: int) -> dict:
             return {**cached["result"], "source": "discovery-ledger"}
     line = int(line_str)
     blame = _run(["git", "-C", ".", "blame", "-L", f"{line},{line}", "--", file_path])
-    log = _run(["git", "-C", ".", "log", "--oneline", "--max-count", str(max_count), "--", file_path])
+    log = _run(
+        [
+            "git",
+            "-C",
+            ".",
+            "log",
+            "--oneline",
+            "--max-count",
+            str(max_count),
+            "--",
+            file_path,
+        ]
+    )
     payload = {
         "target": target,
-        "blame": blame.stdout.strip() if blame.returncode == 0 else f"<blame 失败: {blame.stderr.strip()}>",
+        "blame": blame.stdout.strip()
+        if blame.returncode == 0
+        else f"<blame 失败: {blame.stderr.strip()}>",
         "commits": log.stdout.strip().splitlines() if log.returncode == 0 else [],
     }
     if path is not None:
@@ -187,14 +263,21 @@ def main(argv: list[str] | None = None) -> int:
     q.add_argument("--symbol", help="符号名（codegraph query/callers/impact）")
     q.add_argument("--string", help="字符串/正则（grep -rn）")
     q.add_argument("--history", help="<file>:<line>（git blame + log）")
-    q.add_argument("--type", help="grep --include 类型过滤（py/html/js/ts，仅 --string）")
+    q.add_argument(
+        "--type", help="grep --include 类型过滤（py/html/js/ts，仅 --string）"
+    )
     q.add_argument("--max-count", type=int, default=50)
-    t = sub.add_parser("trace", help="符号关系全景（def+callers+callees+impact+history）")
+    t = sub.add_parser(
+        "trace", help="符号关系全景（def+callers+callees+impact+history）"
+    )
     t.add_argument("symbol", help="符号名")
+    sub.add_parser("freshness", help="codegraph 索引新鲜度（时间戳+>72h 判定，不落账）")
     args = p.parse_args(argv)
 
     if args.cmd == "trace":
         out = query_trace(args.symbol)
+    elif args.cmd == "freshness":
+        out = query_freshness()
     elif args.symbol:
         out = query_symbol(args.symbol)
     elif args.string:
@@ -202,7 +285,10 @@ def main(argv: list[str] | None = None) -> int:
     elif args.history:
         out = query_history(args.history, args.max_count)
     else:
-        print("✗ 需指定 --symbol / --string / --history 之一，或 trace <symbol>", file=sys.stderr)
+        print(
+            "✗ 需指定 --symbol / --string / --history 之一，或 trace <symbol>",
+            file=sys.stderr,
+        )
         return 2
     print(json.dumps(out, ensure_ascii=False, indent=2))
     return 0

@@ -2489,13 +2489,22 @@ def test_chain_context_warn_line(wf_repo):
 
 
 def test_node_rules_injects_discovery_ledger_hint(wf_repo):
-    """ensure_node_rules 含「发现台账」提示（工具级去重告知）。"""
+    """ensure_node_rules 含「发现台账」提示（工具级去重告知）。
+
+    p1-sub1-cost：命令形 = dl-cmd.sh codebase（148d1e3 对齐——headless 段工人
+    裸 `dl codebase` 不可用）且路径指 driver 同仓（_DLWF_ROOT，worktree dogfood
+    时新子命令 freshness 生效）；freshness 通道在段（strip env 后新鲜度唯一
+    通道）。"""
     drv = _load(DRIVER, "drv_under_test")
     node = engine.get_node("understand", 1)
     out = drv.ensure_node_rules(wf_repo, "t", node, 1)
     text = out.read_text(encoding="utf-8")
     assert "## 发现台账" in text
     assert "discoveries.jsonl" in text
+    assert "dl-cmd.sh codebase query --symbol/--history" in text
+    assert "dl-cmd.sh codebase freshness" in text
+    assert str(drv._DLWF_ROOT) in text
+    assert "`dl codebase" not in text  # 裸 dl codebase 引导零残留（段工人不可跑）
 
 
 def test_node_rules_has_arch_route(wf_repo):
