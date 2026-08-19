@@ -10841,12 +10841,14 @@ class TestPackSelfContained:
             },
         ]
 
-    def test_u3_step3_flag_single_source(self):
+    def test_u3_pack_self_contained_flags(self):
         # u3-sub3-cost：u:3#3 置位（消费型步——材料=子2 验证留痕全文+GAV 裁决，
-        # 均在包内）；兄弟步不置位（子1/子2 须规范文档在场，B1 决议不下放）。
+        # 均在包内）；u3-sub4-cost：u:3#4 同型置位（材料=子3 范围与约束集全文，
+        # 在本节点留痕节）；兄弟步不置位（子1/子2 须规范文档在场，B1 决议不
+        # 下放；子5 交互读回补用户裁决非纯消费）。
         node = eng.get_node("understand", 3)
         flags = [bool(s.pack_self_contained) for s in node.sub_steps]
-        assert flags == [False, False, True, False, False]
+        assert flags == [False, False, True, True, False]
 
     @staticmethod
     def _gav_decision_traces():
@@ -10905,6 +10907,52 @@ class TestPackSelfContained:
         assert "归一化目标UNIQUEG4" in pack  # GAV 归一化（前序摘要节）
         assert "用户裁决UNIQUEG5拍板must" in pack  # GAV 用户裁决（前序摘要节）
 
+    @staticmethod
+    def _sc_step3_trace():
+        return {
+            "kind": "skill-trace",
+            "major_stage": "Understand",
+            "minor_stage": "ScopeAndConstraints",
+            "sub_step": 3,
+            "skill": "s",
+            "purpose": "p",
+            "q": ["范围界定"],
+            "a": ["范围提案UNIQUESC3双侧清单双字段"],
+        }
+
+    def test_u3_step4_tail_line_replaced(self, tmp_path):
+        # u3-sub4-cost：u:3#4（归一化陈述）置位——包尾「按需 Read」通用邀请
+        # 对该步是反指（基线 6 次 evidence 元探查实证，#16 第三例）。
+        self._write_evidence(
+            tmp_path,
+            self._pc_traces()
+            + self._gav_decision_traces()
+            + self._sc_traces()
+            + [self._sc_step3_trace()],
+        )
+        _write_state_full(tmp_path, "t", "understand", 3, sub_step=4)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None
+        assert "本步所需材料已全部在包内" in pack
+        assert "以上为摘要" not in pack
+
+    def test_u3_step4_materials_complete_invariant(self, tmp_path):
+        """装配不变量：u:3#4 的包须含子3 范围与约束集全文（本节点留痕节）——
+        输入契约 step3.scope_proposal 的唯一材料来源；防未来交接包修剪把
+        材料修没了、「禁读」条款变错。"""
+        self._write_evidence(
+            tmp_path,
+            self._pc_traces()
+            + self._gav_decision_traces()
+            + self._sc_traces()
+            + [self._sc_step3_trace()],
+        )
+        _write_state_full(tmp_path, "t", "understand", 3, sub_step=4)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None
+        assert "范围提案UNIQUESC3双侧清单双字段" in pack  # 子3 留痕全文（装配材料）
+        assert "已验证留痕UNIQUESC2附fileline" in pack  # 子2 留痕（类型标签溯源）
+
 
 class TestSegmentSpawnOverrides:
     """u2-residual-cost（designs/u2-residual-cost-optimization-design.md）：
@@ -10956,6 +11004,17 @@ class TestSegmentSpawnOverrides:
         assert ov["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
         assert ov["tools"] == ("Bash", "Read", "Edit", "Skill")
 
+    def test_u3_step4_step_level_strip(self):
+        # u3-sub4-cost（designs/u3-sub4-cost-optimization-design.md）：子4 同型
+        # 置位——纯消费装配步（规则内容经 purpose 常量在场、方案名词扫描在
+        # 脚本侧），B1 节点级决议不下放但逐步粒度覆盖本步。
+        node = eng._NODES["understand:3"]
+        step4 = node.sub_steps[3]
+        ov = eng.segment_spawn_overrides(node, step4)
+        assert ov["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
+        assert ov["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
+        assert ov["tools"] == ("Bash", "Read", "Edit", "Skill")
+
     def test_step_level_strip_backward_compat(self):
         # step=None（MergedSession 段内续步管线不传 step）维持节点级语义——
         # u:3 节点级 False 时 env 仍空（B1 决议不破）。
@@ -10967,9 +11026,9 @@ class TestSegmentSpawnOverrides:
         assert ov["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
 
     def test_step_level_strip_other_steps_unaffected(self):
-        # u:3 其余步（子1/2/4/5）未置位——逐步粒度不误伤兄弟步。
+        # u:3 其余步（子1/2/5）未置位——逐步粒度不误伤兄弟步。
         node = eng._NODES["understand:3"]
         for i, step in enumerate(node.sub_steps, start=1):
-            if i == 3:
+            if i in (3, 4):
                 continue
             assert eng.segment_spawn_overrides(node, step)["env"] == {}, i
