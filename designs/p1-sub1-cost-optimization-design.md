@@ -189,14 +189,17 @@ node-rules 发现台账段已有「`dl codebase query --symbol/--history` 自动
    数值 4824.5% 与今日值 4947.7% 的漂移属 #18，两轮同种子同漂移面；
    ③总账单轮受步体方差（#40）影响，验收以首调 fresh + 工具序列形态为
    主口径（#13/#23）；④B 轮 子1 段携带 NEXT_PREP 附带交付（子2 交互步
-   预处理并入）两臂同构；⑤**sync 条件触发**：A 轮索引 674h 过期触发
-   codegraph sync（B05+重查 B06），A 后索引已新——B 轮不再触发 sync
-   = 步体少 1-2 调用，环境态非杠杆效果，登记不归功于杠杆（首调 fresh
-   机制读数不受影响）；⑥`dl codebase freshness` 走模型 Bash 侧=
-   dl-cmd.sh 路由 dl_codebase.py——LIB_DIR 随 dl-cmd.sh 所在树解析，
-   driver（worktree）组装的段命令模板 `dl codebase` 经 PATH/函数走哪个
-   副本实现时核验；若硬编码主树则归 merge 后生效面（cost-optimization
-   #31 验收面第三路径同型）。
+   预处理并入）两臂同构；⑤**sync 触发面同构**：A 轮索引 674h 过期触发
+   codegraph sync（B05+重查 B06）；实测 A 轮 sync 后 MAX(indexed_at) 未前进
+   （sync 只重索引变更文件，全量未变时 MAX 不动——dl codebase freshness
+   冒烟 674.6h 实证），B 轮面对同一 stale 判定、sync 触发面两臂同构，
+   无环境态混淆；⑥`dl codebase freshness` 走模型 Bash 侧——node-rules
+   台账段命令形 = `bash <_DLWF_ROOT>/scripts/workflow/dl-cmd.sh codebase
+   freshness`（driver 同仓路径，_rewrite_hook_paths 同范式）：B 轮
+   node-rules 冒烟已验路径指 worktree 树=新子命令当轮生效（验收面第三
+   路径 #31 被机制覆盖，非 merge 后生效面）；purpose/selfcheck 只引
+   命令名（「命令全文见 node-rules 发现台账段」），路径单源在 driver
+   装配侧。
 
 ## 4. 实现清单（待实现时定稿）
 
@@ -214,4 +217,85 @@ node-rules 发现台账段已有「`dl codebase query --symbol/--history` 自动
 - 不改：SEGMENT_CHAIN_NODES、MERGED_RUN_NODES、gate 文本、judge、
   pack_self_contained。
 
-## 5. 实测收官（待填）
+## 5. 实测收官（2026-08-19，A=p1_sub1_ab / B1=p1_sub1_ab2 / B2=p1_sub1_ab3 / B3=p1_sub1_ab4，同种子，ac-deepseek1 headless）
+
+B 轮驱动法（runtime-audit #24/#25）：种子七件套（evidence 22 条 ≤u:4#5 +
+state plan:1 sub_step_index=1 + last_judged_trace ≤u:4#5 + 段记录/链/stash
+清零 + settings 名替换零残留 + **.claude/understands/<name>.md 产物文件**
+[第七件，B1 轮发现缺失致模型 find/ls 翻 understand.md×4] + 包冒烟）→
+`bash -ic` 内 `AC_WORKFLOW_LAUNCHER=<树>/scripts/workflow/dl-launch.sh
+ac-deepseek1 --dl <name> --resume --headless`（A=主树，B=worktree 树）。
+B3 种子 settings 补一条白名单 accommodate（worktree dl-cmd.sh 路径，见修3）。
+
+| 指标 | A（main 310c5c9） | B1（三杠杆） | B2（+修1/修2） | B3（+修3+种子白名单） | B3 vs A |
+|---|---|---|---|---|---|
+| 首调 fresh | 44,040（cr=0） | 16,441（cr=0） | 19,453（cr=0） | 19,453（cr=0） | **-55.8%（B2/B3 逐字相同=机制读数钉死）** |
+| 段 fresh 合计 | 86,601 | 73,284 | 75,428 | 71,318 | -17.7% |
+| 段 cr 合计 | 2,670,464 | 2,090,368 | 1,637,120 | 1,003,776 | **-62.4%** |
+| 段 out 合计 | 35,278 | 48,186 | 50,661 | 42,294 | +19.9% |
+| 轮数（result 权威值） | 71 | 56 | 41 | 27 | **-62.0%** |
+| 段 dur_api | 292.4s | 380.6s | 406.6s | 340.1s | +16.3% ⚠ |
+| 成本 | $2.650 | $2.616 | $2.462 | $1.916 | **-27.7%** |
+| Bash | 50 | 41 | 23 | 14 | **-72%** |
+| 总工具调用 | 68 | 56 | 39 | 26 | -62% |
+| 门控 | 一次通过 | 零 block | 零 block | 零 block | ✓ |
+
+成本等效（cr×0.1 折 fresh，#13/#24 口径）：A 353,647 → B3 171,696 = **-51.4%**。
+
+**修1/修2/修3 迭代链（B1→B2→B3 归因）**：
+- **修1（机制，Step.pack_full_prior_boundary）**：B1 轮残余税根因一——P1-1
+  把前序 statements.boundary 截断 100 字符，截断处恰是 file:line/机制结论
+  （双×100 链出处被切成「f…」），复用钉死要求逐字引用→模型翻 evidence
+  grep×6 + 前序已载事实重验 ~10 调用。置位后包内前序 boundary 保全文
+  （包 11,257→17,147 字符），B2/B3 evidence 翻找**清零**、前序重验收敛到 ~3。
+- **修2（文案，工具直用条款）**：B1 轮模型对 dl-cmd.sh/codegraph 元探查
+  --help/ls/Read 脚本/which ~11 调用（新工具可见性税）。
+- **修3（机制，命令路径按 driver 树分派）**：B2 轮残余税根因二——per-wf
+  白名单规则 `Bash(bash ~/.dl-workflow/...:*)` 按**字面 ~** 前缀匹配，
+  node-rules 发 _DLWF_ROOT 展开路径（worktree 绝对路径）不在任何白名单
+  形态内，acceptEdits 下 freshness **3 连「requires approval」被拒**（B2
+  trace q1 逐字实证）——模型转 settings 翻查×4/错误调用×2/手搓 mtime 判定，
+  「freshness 困惑族」~12 调用的真根因是**权限墙**不是工具元探查。修3：
+  生产发字面 ~（148d1e3 同形态），worktree 发 _DLWF_ROOT 绝对路径+种子侧
+  settings 补白名单。B3 freshness 通道端到端兑现：B01 初判→B03 sync→
+  B04 复判同命令（条款逐字形态）。**沉淀：#31 验收面第三路径的权限变体——
+  worktree 路径不仅主树无新码，也不在 per-wf 白名单形态内。**
+
+**B3 工具序列（理想最小形态逼近）**：freshness×2（初判+复判）→
+understand.md 定点 Read×1 → sync×1 → dl codebase query×5（台账通道）→
+Grep×7/Read×2（单点验证+有限掘进）→ 数据契约 3 → scaffold/落库 2。
+零 evidence 翻找、零 understand.md 翻找、零 settings 翻查、零手写 SQL、
+零错误调用（B02 `dl-cmd codebase sync` 误调 1 次=台账段已写明 sync 走
+codegraph CLI，褶皱 1 调用登记不修）。
+
+**验收逐条**：①首调 ≤20k **✓**（19,453，B2/B3 双样本逐字相同——包内容
+确定则首调确定，机制读数钉死；-55.8%）；②工具序列 **✓**（Bash 14 vs A 50
+[-72%]，探索类 ~12 边际达线；零 evidence 翻找/零 understand.md 翻找/
+Read 4≤6/freshness 经 dl codebase freshness 留痕）；③段 fresh -17.7%
+**未达预登记 ≥40%**（诚实归因：段 fresh 大头=工具输出增量逐轮进上下文，
+杠杆作用在调用数 -62% 与前缀 -55.8%，大体积 codegraph/json 输出稀释合计
+降幅——cr 才是上下文膨胀主口径）；cr -62.4% **✓**（≥45%）；轮数 27 **✓**
+（≤30）；墙钟 +16.3% **未降**（见下归因）；④零 block ✓，trace 质量逐条
+自查全过：四要素齐备（模块/可复用点/调用方/数据契约）、出处逐条可溯源
+（前序复用标记 C4.2/C6/R1 逐字+codegraph 实测输出引用+Read 核实）、新鲜度
+留痕全要素（时间戳+判定+sync+复判）、q6 材料边界自查枚举例外按条计数、
+零编造；⑤pytest 1156 全绿（新增 14 例）+ nodes-index 同步 ✓；⑥混淆声明
+全部按预登记处理，⑤修正定案：sync 只重索引变更文件、全量未变时
+MAX(indexed_at) 不前进（B3 trace q1 实测 sync 后复判仍 stale=true），两臂
+同面对无环境态混淆。
+
+**墙钟归因（诚实登记，#30 双轴口径）**：dur_api ≈ out÷rate——A 35,278/
+292.4s≈121 tok/s vs B3 42,294/340.1s≈124 tok/s，同端点速率稳定，墙钟差
++48s ≈ 输出差 +7.0k÷124 tok/s=+56s 拟合上=**输出量主导**。输出增长两成分
+（输出构成三分归因法：thinking/text/tool_use）：①thinking 64,261→120,064
+字符（1.9×）=条款驱动的逐事实 deliberation（复用 or 单点验证的逐条决策
+开销）+逐字引用质量形态（复用钉死条款兑现，trace 证据更厚=质量形态）；
+②tool_use 输入 31,628→12,873 字符（调用数 -62% 的直接兑现）。取舍明示：
+逐字引用条款不撤（质量机制，u4-sub3/u4-sub4 同处置）；墙钟的进一步杠杆
+在输出侧瘦身（thinking  deliberation 密度），非本轮杠杆作用面，登记观察项。
+
+**遗留立项**：plan 族段链（plan:1-4 链内步 子3/子4 断链候选——须先补
+条款缺口，#30 断链暴露效应）；plan:1 子2-6 strip 逐步核对；输出侧瘦身
+（观察项）；段 fresh 合计降幅的工具输出体积稀释现象（#13 口径补注）。
+amplitude 今日值 4947.7% 本轮未被触发（子1 无现状测量职责——勘察对象是
+代码现状非因子数值）。
