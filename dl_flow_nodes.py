@@ -1330,6 +1330,15 @@ _NODES: dict[str, Node] = {
                     '"boundary":已证实边界+证据指针（实现指针/file:line/机制链都进这里）,'
                     '"fields":{"confidence":置信度}}——text 只许 outcome-level 概念，'
                     "实现侧名词/file:line 只能进 boundary（append-trace 机械扫描，命中即拒）。"
+                    # u1-time-opt 修B（designs/u1-time-opt-design.md §2.3）：
+                    # L4 格式真源钉死平移第三例（u:3#4 同文——本步有条目传导
+                    # 机械核对 factor[X]，保留「编号传导」）。interaction run
+                    # 实证：条目传导被拒（缺 factor[D]，报错文案已指路）后模型
+                    # 不修文案反而 evidence 元探查 10 调用 + Read/grep 引擎源码
+                    # 反推校验实现，2.3min 猎捕。
+                    "载荷格式与编号传导的唯一真源 = --scaffold 骨架 + append-trace "
+                    "报错文案（四桶分工：格式归脚本）——禁读引擎/测试源码反推校验"
+                    "实现；被拒按报错文案逐字修即可。"
                 ),
                 input="step5.disposed_problem_set",
                 record=True,
@@ -1343,6 +1352,8 @@ _NODES: dict[str, Node] = {
                     "证伪项不在陈述集里吧？"
                     "text 逐条无实现侧名词吧（文件名/类名/file:line 只进 boundary，"
                     "append-trace 机械扫描会拒）？"
+                    "格式照 scaffold 骨架填了吗——没去翻引擎/测试源码反推校验"
+                    "实现吧（被拒按报错文案修）？"
                 ),
                 # v2.85（2026-08-04，designs/u1-sub5-gate-framing-design.md）：
                 # §3.5 #28 泛化第五例--framing 反转 + 方框化 4 条真值判据 + 双侧钉死。
