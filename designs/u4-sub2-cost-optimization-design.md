@@ -1,6 +1,6 @@
 # understand:4 子2（可检验化）耗时/token 优化设计——Step 级 strip + 复用钉死（前序实测值/出处零重查）
 
-> 日期：2026-08-19 · 分支 feat/u4-sub2-cost · 状态：设计中
+> 日期：2026-08-19 · 分支 feat/u4-sub2-cost · 状态：收官（一轮 A/B 全验收达标）
 > 上游：designs/u4-sub1-cost-optimization-design.md（u:4 Node tools 白名单 +
 >      子1 strip/pack_self_contained/复用钉死）；
 >      designs/u3-sub3-cost-optimization-design.md（#25 复用条款收紧形态）；
@@ -161,4 +161,44 @@ block」，复用引用形态不属于任何 block 条件（「留痕在场但�
   非 pack_self_contained 分支）、gate 文本（§2 L2 三重核对）、
   SEGMENT_CHAIN_NODES / MERGED_RUN_NODES。
 
-## 5. 实测收官（待 B 轮后填）
+## 5. 实测收官（2026-08-19，u4_sub2_ab 同种子续跑，ac-deepseek1 headless）
+
+B 轮驱动法（runtime-audit #24/#25）：种子复原（evidence 裁回 18 条种子态 +
+state 回 u:4#2 + last_judged_trace 裁至 ≤u:4#1 + 段记录清零 + pack 冒烟
+10,711 字符）→ `bash -ic` 内 `AC_WORKFLOW_LAUNCHER=<worktree>/scripts/
+workflow/dl-launch.sh ac-deepseek1 --dl u4_sub2_ab --resume --headless`。
+代码路径核验：B 首调 fresh 13,658（A 25,944 的 -47%，与探针预算 -11.9k
+精确一致）= strip env 确由 worktree 码生效。
+
+| 指标 | A（主树 14:40） | B（worktree 15:19） | Δ |
+|---|---|---|---|
+| 首调 fresh | 25,944 | 13,658 | **-47.4%** |
+| 段 fresh 合计 | 39,311 | 21,871 | -44.4% |
+| 段 cr 合计 | 365,312 | 74,240 | **-79.7%** |
+| 段 out 合计 | 16,545 | 8,229 | -50.3% |
+| 轮数（result 权威值） | 20 | 5 | **-75%** |
+| 段墙钟 | 136s | 65s | **-52.2%** |
+| 成本 | $0.844 | $0.399 | -52.7% |
+| 工具序列 | Bash×17/Read×1/Edit×1 | scaffold→Read→Edit→append（4 调用，理想最小形态） | 探索 Bash 12→**0** |
+
+验收逐条：①首调 fresh ≤15k ✓（13,658）；②探索 Bash 0 ≤4 ✓——零
+formatters/模板/data_loaders 重核验、零测试框架/脚本勘察、Read 仅骨架 ✓；
+③fresh -44%/cr -80%/墙钟 -52% 全超预登记下限（-40%/-40%/-30%）✓；
+④零 block ✓，trace 质量逐条自查通过：候选逐字引自交接包带出处、模糊词
+扫描改写（「一致」「数量级失真」→量化表述）、三要素齐备、阈值纯提案、
+可执行验收形式（全页扫描断言脚本=failing test 接 TDD）、退回通道未触发
+结论显式 ✓——且 trace ③④⑤ 节自述材料边界合规（条款被理解执行的直接
+证据）；⑤pytest 1135 全绿（新增 2 例+更新 1 例）+ nodes-index 同步 ✓；
+⑥混淆声明全部按预登记处理：代际差不入判材、数值漂移 #18 两轮同面、
+总账以机制读数为主口径 ✓。
+
+**登记观察（非block项）**：B 轮基线值=复用 SC#1 所载 0.4951977（种子日
+实测），未测今日值（A 轮实测 0.4947724=今日 4947.7% 显示值的真值）——
+复用默认的时滞取舍（#25 配套：明示取舍）在本步语义下成立：基线的作用是
+「失真存在+量级」定性证据（~100× 不随两日漂移翻转），精确现状值由 execute
+落地后 review 复测兜底；若未来某步基线值本身进阈值判据，应在该步 purpose
+加「现状值时效核对」例外条款而非推翻复用默认。
+
+**遗留立项（登记不动）**：u:4 段链 #3/#4 链税（A：60.4k/82.6k、B：⚠74.2k
+首调告警）——断链/续步重审（#20/#24 口径）需自身逐字段核对+A/B；
+u:4#3/#4 的 strip 置位（逐步核对未做）。
