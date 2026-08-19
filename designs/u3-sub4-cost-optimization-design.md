@@ -1,6 +1,6 @@
 # understand:3 子4（归一化陈述）耗时/token 优化设计——逐步 env 剥离 + 材料边界 + 格式真源钉死
 
-> 日期：2026-08-19 · 分支 feat/u3-sub4-cost · 状态：实施中
+> 日期：2026-08-19 · 分支 feat/u3-sub4-cost · 状态：收官（一轮 A/B 全验收达标）
 > 上游：designs/u3-sub3-cost-optimization-design.md（子3 三杠杆收官：L1 复用收紧 /
 >      L2 Step 级 segment_strip_project_context 首例 / L3 pack_self_contained 置位）；
 >      designs/u3-sub2-cost-optimization-design.md（断链收官，u:3 各步 fresh 段）；
@@ -113,6 +113,53 @@ _parse_trace_md 实现。补条款（purpose 末 + selfcheck 一条，措辞通�
 
 护栏：一次通过率不降（gate 零变更）；trace 质量不降（statements 逐项+
 三字段+编号传导——A/B 逐项核对）；回滚 = 两处字段翻转 + 文案回退。
+
+## 6. 实施验证记录（2026-08-19，一轮 live A/B，ac-deepseek1/deepseek-v4-flash）
+
+种子五件套（runtime-audit #25）：u3_sub3_ab4 evidence 裁到 u:3#3（15 行）+
+last_judged_trace 裁 + 段记录清 + settings name-agnostic grep=0 + 包冒烟
+（18,469 字符，子3 留痕全文在场 + 尾行「材料已全部在包内」已随置位渲染）。
+驱动法 `AC_WORKFLOW_LAUNCHER=<worktree>/scripts/workflow/dl-launch.sh
+ac-deepseek1 --dl u3_sub4_ab --resume --headless`（#24 纪律）。
+
+### 6.1 读数对照（u:3#4 段，同种子源同 provider）
+
+| 指标 | 基线（u3_sub3_ab4 #4） | ab1（u3_sub4_ab #4） | 变化 |
+|---|---|---|---|
+| 首调 fresh | 31,787 | 19,571 | **-38.4%**（探针预测 -11.9k，实测 -12.2k） |
+| 段 fresh | 70,260 | 40,750 | -42.0% |
+| 段 cr | 1,049,600 | 143,872 | **-86.3%** |
+| 成本等效（fresh+0.1cr） | 175.2k | 55.1k | **-68.5%** |
+| out | 39,482 | 27,166 | -31.2%（载荷 ~19.6k 不动） |
+| 模型墙钟 | 274s | 147s | **-46.3%** |
+| API/工具调用 | 20/22 | 6/5 | -70%/-77% |
+
+### 6.2 工具序列（理想最小交付形态一次达成）
+
+`Skill(define-problem) → append-trace --scaffold → Read 骨架 → Edit 载荷 →
+append-trace --from-file`——5 调用零探索：零 evidence/state 元探查（L3 ✓）、
+零 node-rules 全量重读（L3 ✓）、零 ~/.dl-workflow 源码/测试格式猎捕（L4 ✓）、
+零规范文档重读（B1 症状未复现，L2 ✓）。
+
+### 6.3 验收对照（预登记口径，全达标）
+
+| 验收点 | 目标 | ab1 实测 | 判定 |
+|---|---|---|---|
+| 首调 fresh | ≤21k | 19,571 | ✓ |
+| 工具调用 | ≤9 | 5 | ✓ |
+| 段 cr | ≤450k | 143,872 | ✓ |
+| 零 block / judge pass | 是 | 一把过（#4 gate pass → #5 confirm → u:4） | ✓ |
+| 行为核对（元探查/猎捕/规范重读三零） | 是 | 工具序列逐条核对全零 | ✓ |
+| trace 质量 | 不降 | 31 条 statements 三字段齐备、IS-M1-*/OS-*/C* 编号逐项传导、类型标签与子3 一致（12 已验证+2 假设含置信度+12 in+7 out） | ✓ |
+
+### 6.4 收官结论
+
+三杠杆一轮全落地：L2（首调 -38.4%，与探针值精确一致）+ L3（元探查归零，
+#16 泛化第三例）+ L4（格式猎捕归零——「格式真源=骨架+报错文案」通用条款
+首例）。一轮即收官的依据：三杠杆均为已验证机制的再次应用（L2/L3 探针值
+与前例精确复现），非新机制首验；预登记验收全绿、质量逐项核对不降。
+数值口径：amplitude 今日值 4947.7% 与种子 4824.5% 的漂移未进验收面
+（#4 纯装配步零新取证，预登记判断成立）。回滚面 = 两处字段翻转 + 文案回退。
 
 ## 4. 验证计划
 
