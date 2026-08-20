@@ -78,7 +78,7 @@ strip/无白名单节点之一）；③步体层（主税二）：11 调用中 5
 
 ## 2. 方案（机制为主、文案为辅，零 factor 化）
 
-### L1 Step 级 segment_strip_project_context 置位 plan:3 子1（第十三例）
+### L1 Step 级 segment_strip_project_context 置位 plan:3 子1（第十四例，p2-sub4 先落地占第十三）
 
 置位前置核对（#23 两核对 + u3-sub1 第三核对「env 剥离边界」）：
 - **交付物正文不引用自动加载文档**：子1 交付 = 逐任务操作类型清单 +
@@ -207,7 +207,7 @@ p3_sub1_ab 起跑）：
 
 - `dl_flow_nodes.py`：plan:3 Node += segment_tools 白名单（plan:3 首例，
   注释登记）；plan:3 子1 Step += segment_strip_project_context=True
-  （第十三例）+ ref 改定点一次形态 + purpose 材料边界/交付即止/格式真源
+  （第十四例）+ ref 改定点一次形态 + purpose 材料边界/交付即止/格式真源
   条款 + selfcheck 一条。
 - `tests/`：白名单置位/strip 置位/条款关键词钉死/ref 形态单测（对齐
   plan:2 子1 既有测试形态）。

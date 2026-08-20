@@ -3714,7 +3714,7 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                 record=True,
                 fence_allow=("Bash",),  # scaffold/append-trace 落库通道；Read 在常驻集
                 mech_checks=("need_quote_trace",),  # v2.106：方框三原文引用下沉生产墙
-                # p3-sub1-cost L1：Step 级 strip（第十三例）——交付物=操作类型
+                # p3-sub1-cost L1：Step 级 strip（第十四例——p2-sub4 先落地占第十三）——交付物=操作类型
                 # 清单+任务 ID 出处+plan.md 原文引用，六类标签逐字在
                 # _CTS_STEP1_FORM_REQUIREMENTS 自给，不引自动加载文档正文
                 # （强制路由核对引 CLAUDE.md §2 归子2 判面，非本步）；gate

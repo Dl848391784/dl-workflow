@@ -11680,7 +11680,7 @@ class TestSegmentSpawnOverrides:
         assert ov["tools"] == ("Bash", "Read", "Edit", "Skill", "Agent")
 
     def test_p3_step1_step_level_strip(self):
-        # p3-sub1-cost L1：plan:3#1 Step 级 strip（第十三例）——交付物=
+        # p3-sub1-cost L1：plan:3#1 Step 级 strip（第十四例——p2-sub4 先落地占第十三）——交付物=
         # 操作类型清单+任务 ID 出处+plan.md 原文引用，六类标签逐字在
         # _CTS_STEP1_FORM_REQUIREMENTS 自给，不引自动加载文档正文
         # （强制路由核对引 §2 归子2 判面）。
