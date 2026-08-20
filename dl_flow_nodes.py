@@ -4262,22 +4262,76 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
             ),
             Step(
                 kind="skill",
-                ref="推理(DAG 拓扑分层 + 控制结构设计) / Agent(条件红队)；"
-                "对齐源 superpowers:writing-plans / executing-plans（checkpoint 语义真源）",
+                ref="推理(DAG 拓扑分层 + 控制结构设计) / Agent(条件红队)",
                 short="调度与检查点",
                 # 本节点存在的理由：把任务 DAG 转成运行时控制结构（design §2）。
                 # execute 愿景=无判断 executor——判据零判断词/失败路由预定义/
                 # 并行分组 plan 期定死全是硬约束不是建议。布点默认=并行组/阶段
                 # 边界（E2 复利截断）；不可逆操作强制用户暂停（E5 硬条款）。
+                # 对齐源 superpowers:writing-plans / executing-plans = 设计期
+                # 语义出处（checkpoint 语义真源）——已操作化进
+                # _EPC_STEP2_FORM_REQUIREMENTS+gate 方框；p4-sub2-cost L4 把
+                # 指针下沉本注释面（ref 旧文案是 skill 文件 locate 猎捕诱因：
+                # 基线 find/ls×5 定位 SKILL.md 全程零 Read 消费=纯税）。
                 purpose=(
                     f"调度与检查点方案提案：{_EPC_STEP2_FORM_REQUIREMENTS}。"
                     "布点默认=并行组/阶段边界，任务级加密须辩护；"
                     "条件红队（并行组数或检查点数超阈值时触发，独立上下文"
                     "反驳分组与布点）。"
+                    # p4-sub2-cost L4（designs/p4-sub2-cost-optimization-
+                    # design.md）：复用钉死（消费步形态，p1-sub4 同型平移——
+                    # 步性质=从子1 保真基线清单推导控制结构提案，零新事实
+                    # 产出职责）：
+                    "材料边界（复用钉死）：调度与检查点方案的全部输入=子1 "
+                    "五类清单 trace（任务 DAG/能力绑定/验收包/假设汇总/"
+                    "不可逆操作候选，含四源原文引用），经交接包本节点前序 "
+                    "trace 全文在包——逐字直接引用即合法出处；本步零新取证："
+                    "不跑 codegraph/grep/find/ls、不 Read 仓内文件重验重"
+                    "定位、零 evidence 全量翻找、零 phase-rules/规范文档"
+                    "翻找（红队触发判定=附并行组数/检查点数计数自主声明——"
+                    "无全局阈值定义可查，judge 不索阈值论证）、零 skill "
+                    "文件系统 locate（writing-plans/executing-plans 是设计期"
+                    "对齐源指针，checkpoint 语义已操作化进本步形式要件，"
+                    "find/ls 定位 skill 文件零收益）；唯一取证面=条件红队"
+                    "派发（触发时）。"
+                    # p4-sub2-cost L5：红队材料包三钉（#36 第三例，p1-sub4/
+                    # p3-sub3 条款平移改对象词）——方差防守主条款（基线红队
+                    # 0 重勘=链内乖形态 #43，fresh 化后链兜底消失，p1-sub4
+                    # 基线红队 58 调用重勘占步总账 73% 前科）。
+                    "红队材料包三钉（条件触发时）：①派发 prompt 逐字携带"
+                    "攻击对象材料包（调度四件提案+逐检查点三属性/goal "
+                    "anchoring/密度论证+子1 五类清单出处，均在你本会话上下"
+                    "文，复制即可）；②红队职责=基于材料的独立判断攻击"
+                    "（分组逻辑/互斥面完备性/判据可执行性/失败路由/密度"
+                    "匹配），清单条目存在性与四源出处以子1 留痕为准零重验，"
+                    "禁重跑勘察类工具（codegraph/grep 全仓/读产物文件全文），"
+                    "确需复核 Read 单点文件定点核对（每攻击点至多 1 次）；"
+                    "③攻击对象=调度与检查点提案整体一次，多攻须逐条附理由。"
+                    # p4-sub2-cost L6：交付即止（#37）+格式真源（#26）补款
+                    # ——方差防守（断链暴露面同批补款，p3-sub3/p3-sub5 同
+                    # 处置）。
+                    "交付即止：落库成功（✓ 已落库）即结束本轮——禁 locate "
+                    "产物/读 state/grep evidence 确认落库/预习下一步（含子3 "
+                    "核验手段查探），推进与门控由外部 driver 判定。载荷格式"
+                    "的唯一真源 = --scaffold 骨架+append-trace 报错文案——"
+                    "禁读引擎/测试源码/历史 trace 反推格式；被拒按报错文案"
+                    "逐字修即可。"
                 ),
                 input="step1.control_baseline",
                 record=True,
                 fence_allow=("Agent",),  # 条件红队，同 plan:1 子4/plan:3 子3
+                # p4-sub2-cost L2：Step 级 strip（第十九例——p4-sub1-cost
+                # 在飞占第十八，merge 复核）——交付物=调度四件+检查点方案+
+                # 红队留痕，正文零引用 CLAUDE.md/auto-memory 内容
+                # （_EPC_STEP2_FORM_REQUIREMENTS 自给，#23 第三核对无一等
+                # 材料依赖）。
+                segment_strip_project_context=True,
+                # p4-sub2-cost L3：pack_self_contained（非交互第九例）——
+                # 输入契约（step1.control_baseline 五类清单+四源原文引用）
+                # 经本节点前序 trace 全文通道在包，红队阈值/对齐源均非包外
+                # 材料面（#16 置位前置逐字段核对，设计 §1；装配不变量测试
+                # 钉死）。
+                pack_self_contained=True,
                 selfcheck=(
                     "调度四件都齐了吗（并行分组/文件互斥面/worker 任务包映射/"
                     "返回契约）？互斥面是从执行包改动点计算的吗（还是拍脑袋分的）？"
@@ -4286,6 +4340,9 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     "goal anchoring 重述句逐检查点都有了吗（含原目标+当前位置）？"
                     "密度论证或「零用户检查点」复利论证了吗？"
                     "红队留痕或条件未触发声明了吗？是「提案-待用户裁决」语义吗？"
+                    "材料全从交接包子1 留痕直接引用了吗（零 find/ls/grep "
+                    "locate skill 文件、零 phase-rules 翻找、零 evidence 翻找）？"
+                    "红队派发 prompt 逐字携带材料包了吗？交付即止了吗？"
                 ),
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace、"

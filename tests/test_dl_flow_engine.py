@@ -11988,6 +11988,109 @@ class TestSegmentSpawnOverrides:
         assert "零重验了吗" in step4.selfcheck
         assert "零同面复探" in step4.selfcheck
 
+    def test_p4_step2_step_level_strip_and_pack(self):
+        # p4-sub2-cost L2/L3（designs/p4-sub2-cost-optimization-design.md）：
+        # plan:4#2 置位 Step strip（第十九例——p4-sub1-cost 在飞占第十八，
+        # merge 复核；交付物=调度四件+检查点方案+红队留痕，正文零引用
+        # CLAUDE.md/auto-memory 内容，_EPC_STEP2_FORM_REQUIREMENTS 自给，
+        # #23 第三核对无一等材料依赖）+ pack_self_contained（非交互第九
+        # 例——输入契约 step1.control_baseline 经本节点前序 trace 全文
+        # 通道在包，红队阈值/对齐源均非包外材料面，设计 §1 逐字段核对）。
+        # tools 断言缺省——plan:4 Node 白名单是 p4-sub1-cost 在飞落地件，
+        # 本支不断言避免与在飞件互踩（merge 叠加后由彼臂断言）。
+        node = eng._NODES["plan:4"]
+        step2 = node.sub_steps[1]
+        ov = eng.segment_spawn_overrides(node, step2)
+        assert ov["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
+        assert ov["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
+        assert step2.pack_self_contained is True
+        strips = [bool(s_.segment_strip_project_context) for s_ in node.sub_steps]
+        assert strips == [False, True, False, False, False]
+
+    def test_p4_other_steps_no_step_strip(self):
+        # 逐步粒度不误伤兄弟步（子1 归 p4-sub1-cost 在飞——彼 merge 后本
+        # 测试豁免集并轨加 1；子3/子4/子5 逐步核对未做，钉死防未来误置位）。
+        node = eng._NODES["plan:4"]
+        for i, step in enumerate(node.sub_steps, start=1):
+            if i == 2:
+                continue
+            assert eng.segment_spawn_overrides(node, step)["env"] == {}, i
+
+    def test_p4_step2_reuse_redteam_delivery_clauses_pinned(self):
+        # p4-sub2-cost L4/L5/L6：复用钉死（消费步形态，p1-sub4 平移）+红队
+        # 材料包三钉（#36 第三例）+交付即止（#37）+格式真源（#26）关键词
+        # 钉死——防未来编辑静默改丢（条款=步体主杠杆：基线 skill 文件
+        # 猎捕×5+phase-rules 阈值 grep×1=纯税；红队零重勘=链内乖形态
+        # #43，材料包三钉=方差防守）。
+        step2 = eng._NODES["plan:4"].sub_steps[1]
+        assert "复用钉死" in step2.purpose
+        assert "零 evidence 全量翻找" in step2.purpose
+        assert "零 skill 文件系统 locate" in step2.purpose
+        assert "零 phase-rules/规范文档翻找" in step2.purpose
+        assert "唯一取证面=条件红队派发" in step2.purpose
+        assert "红队材料包三钉" in step2.purpose
+        assert "逐字携带攻击对象材料包" in step2.purpose
+        assert "每攻击点至多 1 次" in step2.purpose
+        assert "交付即止" in step2.purpose
+        assert "--scaffold 骨架" in step2.purpose
+        assert "零 evidence 翻找" in step2.selfcheck
+        assert "材料包" in step2.selfcheck
+        assert "交付即止" in step2.selfcheck
+        # ref 猎捕诱因拆除（对齐源指针下沉代码注释面）
+        assert "writing-plans" not in step2.ref
+
+    def test_p4_step2_pack_materials_invariant(self, tmp_path):
+        """装配不变量：plan:4#2（pack_self_contained）的包须含子1 trace
+        全文+尾行切换「材料已在包内」——防未来包修剪把材料修没了条款
+        变错（u2-sub2-cost 同型不变量）。"""
+        ev = tmp_path / ".claude" / "evidence"
+        ev.mkdir(parents=True, exist_ok=True)
+        recs = [
+            {
+                "kind": "skill-trace",
+                "major_stage": "Plan",
+                "minor_stage": "ExecutionPlanCheckpoints",
+                "sub_step": 1,
+                "skill": "s",
+                "purpose": "p",
+                "q": ["四源清点问"],
+                "a": ["五类清单UNIQUEP4S1附出处"],
+            },
+            # 前序节点摘要节非空是包尾行追加前提（engine handoff_pack
+            # prior_sections 门）；plan:3 子5 归一化+子6 读回=摘要通道。
+            {
+                "kind": "skill-trace",
+                "major_stage": "Plan",
+                "minor_stage": "CapabilityToolSelection",
+                "sub_step": 5,
+                "skill": "s",
+                "purpose": "p",
+                "statements": [
+                    {"text": "绑定甲UNIQUECTS5", "type_label": "t", "boundary": "b"}
+                ],
+            },
+            {
+                "kind": "skill-trace",
+                "major_stage": "Plan",
+                "minor_stage": "CapabilityToolSelection",
+                "sub_step": 6,
+                "skill": "s",
+                "purpose": "p",
+                "q": ["读回"],
+                "a": ["确认级静默通过"],
+            },
+        ]
+        (ev / "t.jsonl").write_text(
+            "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in recs),
+            encoding="utf-8",
+        )
+        _write_state_full(tmp_path, "t", "plan", 4, sub_step=2)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None
+        assert "五类清单UNIQUEP4S1附出处" in pack
+        assert "本步所需材料已全部在包内" in pack
+        assert "以上为摘要" not in pack
+
     def test_u3_step3_step_level_strip(self):
         # u3-sub3-cost（designs/u3-sub3-cost-optimization-design.md）：Step 级
         # segment_strip_project_context——B1 决议是节点级（子1/子2 须规则原文

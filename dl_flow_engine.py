@@ -154,8 +154,24 @@ SEGMENT_CHAIN_NODES = frozenset(
 # 提案+不加载清单/子4 可用性核验+假设=输入契约全集 trace 全文在包，
 # 装配不变量测试钉死）；后续步=子6 确认级无会话零暴露面（#30）。
 # plan:3 链成员仅剩子1/子6 名义在册——节点级断链重审登记（设计 §9）。
+# 2026-08-20 plan:4#2 步级摘除（p4-sub2-cost，步级第六例、plan:4 首例，
+# designs/p4-sub2-cost-optimization-design.md L1）：#20 链首调恒冷（免跑
+# 基线 p2_sub3_ab plan:4#2 链内段首调 fresh 169,338 / cr=0 = 子1 31 轮
+# transcript 冷重写实锤）+ #24 携带税主导（段 cr 1.86M / 12 轮 ≈ 155k/
+# 轮）。材料经交接包逐字段核对完备（子2 input=step1.control_baseline，
+# 本节点前序 trace 全文通道在包=输入契约全集，装配不变量测试钉死）。
+# 后续步子3 resume 换挂子2 fresh 会话（继承 transcript 从「子1 31 轮+
+# 子2」缩为「子2 ~7 轮」，携带量变小同向），无 fresh 化暴露面（#30 扩
+# 面核对）；节点白名单不动、plan:4 其余步零行为变化。
 SEGMENT_CHAIN_SKIP_STEPS = frozenset(
-    {("plan:1", 5), ("plan:3", 2), ("plan:3", 3), ("plan:3", 4), ("plan:3", 5)}
+    {
+        ("plan:1", 5),
+        ("plan:3", 2),
+        ("plan:3", 3),
+        ("plan:3", 4),
+        ("plan:3", 5),
+        ("plan:4", 2),
+    }
 )
 
 # 段内续步白名单（u2-sub4-cost，2026-08-18 用户裁决「段内续步」方案）：

@@ -2448,6 +2448,24 @@ def test_chain_resume_step_level_skip_plan3_sub5(wf_repo):
     assert drv._chain_resume_sid(state6, "plan:3", 6) == "abc"  # 兄弟步不受影响
 
 
+def test_chain_resume_step_level_skip_plan4_sub2(wf_repo):
+    """p4-sub2-cost L1：plan:4#2 命中步级豁免即不续链（fresh spawn）——
+    输入契约（子1 control_baseline 五类清单）经交接包本节点前序 trace
+    全文通道完备；兄弟步零行为变化（子1/子3 链行为不动，步级豁免不触
+    节点白名单，p1-sub5-cost 同型）。"""
+    drv = _load(DRIVER, "drv_chain_skip_p4s2")
+    state = _write_state(
+        wf_repo,
+        segment_chain={"node": "plan:4", "sid": "abc", "last_step": 1},
+    )
+    assert drv._chain_resume_sid(state, "plan:4", 2) is None  # 豁免步
+    state3 = _write_state(
+        wf_repo,
+        segment_chain={"node": "plan:4", "sid": "abc", "last_step": 2},
+    )
+    assert drv._chain_resume_sid(state3, "plan:4", 3) == "abc"  # 兄弟步不受影响
+
+
 def test_chain_skip_steps_constant():
     """豁免集单源钉死：plan:1#5 + plan:3#2/#3/#4/#5（回滚面=摘条目）。
 
@@ -2462,12 +2480,18 @@ def test_chain_skip_steps_constant():
     plan:3#5（p3-sub5-cost，步级第五例）：#20 恒冷（A 轮
     239,576/cr=1,024=链会话 211k 冷重写，pre-p3-sub4-merge 链形态=最大
     口径）+ #24 携带税主导（段 cr 1.03M/5 轮）；材料=子1-4 trace 全文
-    在包；后续子6 确认级无会话零暴露面。plan:3 链成员仅剩子1/子6。"""
+    在包；后续子6 确认级无会话零暴露面。plan:3 链成员仅剩子1/子6。
+    plan:4#2（p4-sub2-cost，步级第六例、plan:4 首例）：#20 恒冷（免跑
+    基线 p2_sub3_ab plan:4#2 链内段首调 fresh 169,338/cr=0=子1 31 轮
+    transcript 冷重写）+ #24 携带税主导（段 cr 1.86M/12 轮）；材料=
+    子1 control_baseline trace 全文在包；后续子3 resume 换挂子2 fresh
+    会话携带量变小同向。"""
     assert ("plan:1", 5) in engine.SEGMENT_CHAIN_SKIP_STEPS
     assert ("plan:3", 2) in engine.SEGMENT_CHAIN_SKIP_STEPS
     assert ("plan:3", 3) in engine.SEGMENT_CHAIN_SKIP_STEPS
     assert ("plan:3", 4) in engine.SEGMENT_CHAIN_SKIP_STEPS
     assert ("plan:3", 5) in engine.SEGMENT_CHAIN_SKIP_STEPS
+    assert ("plan:4", 2) in engine.SEGMENT_CHAIN_SKIP_STEPS
     for nid, _step in engine.SEGMENT_CHAIN_SKIP_STEPS:
         assert nid in engine.SEGMENT_CHAIN_NODES  # 豁免集 ⊆ 链白名单才有意义
 
