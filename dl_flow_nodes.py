@@ -4222,11 +4222,25 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
         # 语义全部下沉逐步 gate，plan->execute 大闸门只跑机械门（本节点亦无）。
         gate_rubric=None,
         advance="phase",  # plan 末子阶段 -> 推进到 execute（过 plan->execute 闸门）
+        # 工具白名单（plan:4 首例，节点级）——p4-sub1-cost 逐步核对：
+        # 子1=Bash+Read+Edit（三源定点 Read/scaffold/落库），子2 条件红队要
+        # Agent（fence_allow 在册）+Skill（writing-plans/executing-plans
+        # 对齐源 ref 在册），子3=Bash（dry-run/交集实算/codegraph）+Read+Edit，
+        # 子4 define-problem 归一化要 Skill，子5 tier=confirm（P3-1）无模型
+        # 会话；无 Grep（grep 走 Bash，plan:3 同判）、无 Write（载荷
+        # --scaffold+Edit 通道）；MCP 由 NO_MCP_ARGS 结构封死（既有）。
+        # Node 级 strip 不置——子2-4 逐步核对未做（p3-sub1 同处置），strip
+        # 只置 Step 级（子1 本批置位，第十八例）。
+        segment_tools=("Bash", "Read", "Edit", "Skill", "Agent"),
         sub_steps=(
             Step(
                 kind="tool",
-                ref="Read(design.md / plan.md / understand.md) / "
-                "Bash(grep evidence plan:1/2/3 trace)",
+                # p4-sub1-cost L3：grep evidence 通道退役（plan:1/2/3 末步
+                # trace 全文已在交接包），三产物文件按交接包「已装配产物」节
+                # 绝对路径指针定点 Read 各一次取行号+原文引用（plan:2/plan:3
+                # 子1 同型处置，三源变体）。
+                ref="Read(三产物文件定点各一次，指针直达) / "
+                "交接包前序留痕（免 evidence 翻找）",
                 short="四源清点",
                 # 首个四源聚合节点的保真基线（同构 plan:2/3 子1）：聚合失真（E7）
                 # 防御 = 五类清单 + 四源原文入 trace；triggered 验收项是检查点
@@ -4235,12 +4249,41 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     f"四源清点与追溯基线：{_EPC_STEP1_FORM_REQUIREMENTS}。"
                     "检出四源没有的对象=二次创作信号，显式列「新增候选」"
                     "待子5 用户裁决（禁静默混入）。"
+                    # p4-sub1-cost L3（复用钉死③型「定点一次」三源变体，#38
+                    # 判别问句：gate 出处要件钉死包外三文件行号/原文→③型；
+                    # 基线实测：产物路径猎捕 ls/find/grep×13 + evidence
+                    # grep/python×7=纯税，evidence 第四源 100% 已在交接包）
+                    # + 交付即止（#37 平移；基线落库后预习子2 徘徊×2 实锤）
+                    # + 格式真源（#26 平移）：
+                    "材料边界（复用钉死）：交接包已载前序节点归一化留痕与"
+                    "读回 trace 全文——evidence 第四源（plan:1/2/3 末步 "
+                    "trace）逐字在包，直接引用即合法（「复用 <节点>子N 留痕："
+                    "<出处逐字>」形态），零 evidence 全量翻找（前序 trace 已在"
+                    "包内，grep evidence 通道退役）。design.md/plan.md/"
+                    "understand.md 三个产物文件 = 本步权威出处源：按交接包"
+                    "「已装配产物」节绝对路径指针定点 Read 各一次取行号与"
+                    "『原文』引用，读后零重读——指针直达，禁 ls/find/grep "
+                    "locate 产物路径（路径已在包内）。"
+                    "枚举例外（逐条二值判定）：包内留痕与产物文件内容不一致时"
+                    "以产物文件为准（拍板后产物），该不一致项单点核对一次即止。"
+                    "交付即止：落库成功（✓ 已落库）即结束本轮——禁 locate 产物/"
+                    "读 state/grep evidence 确认落库/预习下一步（含红队阈值/"
+                    "后续步 skill 查探），推进与门控由外部 driver 判定。"
+                    "载荷格式的唯一真源 = --scaffold 骨架+append-trace 报错"
+                    "文案——禁读引擎/测试源码/历史 trace 反推格式；被拒按报错"
+                    "文案逐字修即可。"
                 ),
-                input="design.md + plan.md + understand.md + "
-                "evidence(plan:1/2/3 末步 trace)",
+                input="design.md + plan.md + understand.md（指针见交接包产物清单） + "
+                "交接包（plan:1/2/3 末步 trace 全文在包）",
                 record=True,
-                fence_allow=("Bash",),  # grep evidence jsonl；Read 在常驻集
+                fence_allow=("Bash",),  # scaffold/append-trace 落库通道；Read 在常驻集
                 mech_checks=("epc_quote_trace",),  # v2.115：方框四原文引用下沉生产墙
+                # p4-sub1-cost L1：Step 级 strip（第十八例——p3-sub5-cost 在飞
+                # 占第十七，merge 复核）——交付物=五类清单+源出处+四源原文
+                # 引用，五类清单逐字在 _EPC_STEP1_FORM_REQUIREMENTS 自给，
+                # 不引自动加载文档正文（gate 合法正例内「H15 触发信号」是标签
+                # 非规则正文引用职责）；gate 判材=evidence trace 不受影响。
+                segment_strip_project_context=True,
                 selfcheck=(
                     "五类清单都齐了吗（任务 DAG/能力绑定/验收包/假设汇总/"
                     "不可逆操作候选，无遗漏）？每条都附源出处且四源原文引用进 "
@@ -4248,6 +4291,9 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     "triggered 验收项显式标注了吗？"
                     "新增候选显式标注或显式「无」了吗？"
                     "有静默新增四源没有的对象吗（那是二次创作）？"
+                    # p4-sub1-cost L3
+                    "四源材料从交接包留痕/产物定点 Read 直接引用了吗？"
+                    "三文件各只 Read 一次吗？零 evidence 翻找/零路径 locate 吗？"
                 ),
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace、minor_stage=ExecutionPlanCheckpoints 且 sub_step==1 的记录。形式要件：控制结构输入五类清单齐备（①任务 DAG 与阶段边界/②能力绑定/③验收包/④假设清单汇总/⑤不可逆操作候选）；每条附源出处且四源原文引用进 trace 正文；新增候选（四源没有的对象）显式标注或显式「无」，q/a 按序对齐；只提取不创作（本步是全节点保真判定基线）。\n"
