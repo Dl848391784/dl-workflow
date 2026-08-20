@@ -321,8 +321,14 @@ text 0.8k（反降）。褶皱成分=Write 后 Edit×3 精修（轻微）。**�
 逐项报价教训（工具 schema 分量在 Node 未置白名单时留存，漏报即 ✗）；
 ④#20 补=断链暴露面预登记须含后续步轮数上限。
 
-**遗留立项**：①plan:2 Node segment_tools 白名单（-14.3k/首调残余杠杆，
-节点级五步核对程序）；②plan:2#3 步体优化（fresh 后 53 轮，复用钉死/
+**merge 注（2026-08-20 收口）**：并行会话 p2-sub1-cost 同日先 merge——已置位
+plan:2 Node 工具白名单（四件 Bash/Read/Edit/Skill，本设计遗留①残余杠杆
+由其实现）+子1 Step strip（占「第十例」编号，本设计子2 顺移第十一例）+
+交接包产物指针扩面补 design.md；冲突仅 nodes-index plan:2 行一处，双侧
+保留收口；测试对齐三处（strips 断言/Node 白名单元组/兄弟步排除集，同名
+测试去重一处理）。
+
+**遗留立项**：①~~plan:2 Node segment_tools 白名单~~（p2-sub1-cost 已做）；②plan:2#3 步体优化（fresh 后 53 轮，复用钉死/
 载荷组织钉死候选——B 轮 fresh 段基线已留存 p2_sub2_ab drive-stream）；
 ③plan:3/4 链峰值审计（plan 族断链收官项）；④子2 耗时轴=输出主导结构
 （质量形态），如需墙钟再降只能动引用厚度条款——留用户裁决，不自行撤。
