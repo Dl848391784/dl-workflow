@@ -216,9 +216,80 @@ p3_sub1_ab 起跑）：
 - 不改：SEGMENT_CHAIN_NODES、SEGMENT_CHAIN_SKIP_STEPS、MERGED_RUN_NODES、
   gate 文本、judge、pack_self_contained、产物指针扫描面。
 
-## 5. 实测收官（待填）
+## 5. 实测收官（2026-08-20，A=p2_sub3_ab plan:3#1 段[免跑基线 #30] / B=p3_sub1_ab 同种子 evidence，ac-deepseek1 headless，一轮 A/B 全验收）
 
-（A/B 后补：读数表/工具序列/机制生效实证/验收逐条/墙钟归因/遗留）
+B 轮驱动法（runtime-audit #24/#25）：种子五件套（evidence 裁 ≤plan:2 子5
+confirm trace[34 条] + ljt 裁 ≤plan:2#5 + 段记录/链/stash 清零 + state
+四字段同步 plan:3#1 + settings 名替换[drive 0 引用直 cp]）+ 产物两件
+（understand.md 0 引用 cp 改名 / plan.md 1 引用 sed 改名）+ 实例 worktree
+wf/p3_sub1_ab → 包冒烟 30,824 字符（TaskBreakdown 五键全文在包/plans 指针
+在列）→ `bash -ic` 内 `AC_WORKFLOW_LAUNCHER=<worktree>/scripts/workflow/
+dl-launch.sh ac-deepseek1 --dl p3_sub1_ab --resume --headless` → plan:3#1
+gate 通过后看护器杀 driver+段进程（子2 链段跑了 ~2min 并落了一条 trace
+才被杀——登记为驱动工件，不计入账面）。
+
+| 指标 | A（免跑基线） | B（三杠杆） | B vs A |
+|---|---|---|---|
+| 首调 fresh | 55,077（cr=0） | 24,931（cr=0） | **-54.7%** |
+| 段 fresh 合计 | 87,953 | 57,195 | **-35.0%** |
+| 段 cr 合计 | 721,024 | 292,736 | **-59.4%** |
+| 段 out 合计 | 18,792 | 15,375 | -18.2% |
+| 轮数（result 权威值） | 12 | 12 | 持平（构成改善：纯税 5 调用→0，1 拒+5 修复褶皱入） |
+| 段 dur_api | 143.6s | 95.7s | **-33.3%** |
+| 成本 | $1.270 | $0.817 | **-35.7%** |
+| 工具调用 | 11（Read×2/Bash×7/Edit×2） | 11（Read×2/Bash×4/Edit×5） | 构成：零 evidence 翻找 |
+| append-trace mech 拒 | 0 | 1（【U1】标头） | 合法履职 |
+| 门控 | 一次通过 | 一次通过，零 block | ✓ |
+
+成本等效（cr×0.1 折 fresh，#13/#24 口径）：A 160,055 → B 86,469 =
+**-46.0%**。
+
+**B 工具序列**：Read plan.md×1（指针直达，定点一次）→ scaffold → Read
+骨架 → Edit → append（**拒 1**：载荷标记解析失败「未知标头【U1】」——模型
+把任务 ID 写成段标头，报错文案逐字给出合法标头清单=报错即返工指令履职）
+→ Edit×5（标头转内容行）→ append 一次过。零 evidence 翻找、零 understand
+读取、零 locate、落库后零徘徊（工具序列止于落库，交付即止生效）。
+
+**机制生效实证**：①init 事件 tools=['Task','Bash','Edit','Read','Skill']
+= L2 白名单落地（Task=Agent 映射，u1-prefix-strip 口径）；②首调 -30.1k
+≈ strip -11.9k + 工具 schema 25→5 -13.5k + 包差（30,824 vs 32,468 字符）
++ 项目上下文方差 = L1/L2 落地；③trace q3 自述「plan.md 定点 Read 一次…
+零 evidence 翻找」+ q2「任务集判据=交接包 TaskBreakdown 子4 归一化
+statements 直接引用…零 evidence 翻找」= L3 条款落地。
+
+**验收逐条**：①首调 ≤30,000 预登记 **✓**（24,931，-54.7%）；②工具序列
+**✓**（零 evidence 翻找/plan.md 定点 Read=1≤2/落库后零徘徊）；③段 fresh
+-35.0%/cr -59.4%/等效 -46.0%；轮数持平但构成改善（纯税 5→0）；out -18.2%
+（无 thinking 放大反噬——本步引用要件原已在形式要件内，基线引用厚度已
+在，非新增厚度）；④零 block ✓，trace 质量逐条自查全过：逐任务操作类型
+清单齐备（U1-U5 各附类型标注）/任务 ID 出处 plan.md:7-11 行号在场/原文
+引用在场（「」+行号形态，gate 合法形态=行号或『』任一）/新增候选显式
+「无」逐类核查/q,a 按序对齐（4 对）/只提取不创作/零编造；⑤pytest 1193
+全绿（新增 4 例 + zero_change 例外清单更新 1 例）+ nodes-index 同步 ✓；
+⑥混淆声明全部按预登记处理。
+
+**墙钟归因（#30 双轴口径）**：out÷rate——A 18,792/143.6s≈131 tok/s vs
+B 15,375/95.7s≈161 tok/s，端点速率方差内；本轮 out 未放大（-18.2%）故
+墙钟与 token 轴同向双降（-33.3%），无反噬登记——与 p2-sub1 的「墙钟地板
+=out÷rate」不同形态：本步 B 轮轮数构成改善（无 47KB 级大读取驻留）使每
+轮前缀更小、单轮 API 更快，墙钟收益叠加在输出降之上。
+
+**mech 拒登记（方差非条款诱导）**：【U1】标头拒 1 次——#35 核对：L3 条款
+无圈码枚举，【U1】标头创意来自 plan.md 任务 ID 本身非条款镜像；报错文案
+逐字指路后模型 5 Edit 自修（修复褶皱 ~5 轮=方差观察项，不改机制——解析器
+宽容化 v2.65 已含「内容行缩进一格即不算标头」指引）。
+
+**amplitude 今日值 4929.2%**：本轮未触发（子1 清点对象是已拍板 plan.md，
+非因子数值现状——与 p1-sub1/p2-sub1 同结论）。
+
+**种子组装口径补**：产物两件可 cp/sed 改名（plan.md/understand.md 内容各
+仅 1/0 处实例名引用）——render-artifact 重渲染非必经（#38 全脚本化路径
+的轻量变体，指针路径名=slug 约定一致即可）。
+
+**B 轮有效面登记（#28/#31 三分）**：本批改动全在 driver 侧（段 prompt
+条款=worktree 引擎渲染/工具白名单+strip=driver spawn 覆盖），A/B 即全量
+生效；scaffold 落库消息内的 ref 旧文本（「grep evidence TaskBreakdown
+trace」）=引擎 CLI 走主树的 #31 第三路径，merge 后自动对齐，不影响判读。
 
 ## 6. 遗留立项
 
