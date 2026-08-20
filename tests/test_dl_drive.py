@@ -2350,14 +2350,21 @@ def test_chain_resume_plan_nodes_whitelisted(wf_repo):
     """2026-08-13 扩面（试点护栏达标：22/22 一次过+链峰值<250k+零兜底）：
     plan:1-4 全族续链；plan:1 子2 交互步由 last_step 不变式天然断链。
     2026-08-20 修订（p2-sub2-cost）：plan:2 出册（链峰值 250,669>250k 预授权
-    回滚第二例，见 test_chain_nodes_plan2_removed）——在册=plan:1/3/4。"""
+    回滚第二例，见 test_chain_nodes_plan2_removed）——在册=plan:1/3/4。
+    2026-08-20 修订（p3-sub3-cost）：plan:3 在册但子3 命中步级豁免集——
+    本测试对 plan:3 改测子4（last_step=3 连续）以维持「在册即续链」语义。"""
     drv = _load(DRIVER, "drv_chain_plan")
-    for nid in ("plan:1", "plan:3", "plan:4"):
+    for nid in ("plan:1", "plan:4"):
         state = _write_state(
             wf_repo,
             segment_chain={"node": nid, "sid": f"s-{nid}", "last_step": 2},
         )
         assert drv._chain_resume_sid(state, nid, 3) == f"s-{nid}"
+    state = _write_state(
+        wf_repo,
+        segment_chain={"node": "plan:3", "sid": "s-plan:3", "last_step": 3},
+    )
+    assert drv._chain_resume_sid(state, "plan:3", 4) == "s-plan:3"
 
 
 def test_chain_resume_rejects_step_gap(wf_repo):
@@ -2403,14 +2410,34 @@ def test_chain_resume_step_level_skip(wf_repo):
     assert drv._chain_resume_sid(state4, "plan:1", 4) == "abc"  # 兄弟步不受影响
 
 
+def test_chain_resume_step_level_skip_plan3_sub3(wf_repo):
+    """p3-sub3-cost L1：plan:3#3 命中步级豁免即不续链（fresh spawn）——
+    输入契约（子1 need_baseline/子2 capability_registry）经交接包完备；
+    兄弟步子4 零行为变化（链 resume 换挂子3 fresh 会话，同向侧效应）。"""
+    drv = _load(DRIVER, "drv_chain_skip_p3s3")
+    state = _write_state(
+        wf_repo,
+        segment_chain={"node": "plan:3", "sid": "abc", "last_step": 2},
+    )
+    assert drv._chain_resume_sid(state, "plan:3", 3) is None  # 豁免步
+    state4 = _write_state(
+        wf_repo,
+        segment_chain={"node": "plan:3", "sid": "abc", "last_step": 3},
+    )
+    assert drv._chain_resume_sid(state4, "plan:3", 4) == "abc"  # 兄弟步不受影响
+
+
 def test_chain_skip_steps_constant():
-    """豁免集单源钉死：当前 plan:1#5 + plan:3#2（回滚面=摘条目）。
+    """豁免集单源钉死：当前 plan:1#5 + plan:3#2 + plan:3#3（回滚面=摘条目）。
 
     plan:3#2（p3-sub2-cost，步级第二例）：#20 链首调恒冷（A 轮 104,483
     cr=0 = 子1 transcript 冷重写）+ #24 前序携带税主导；材料经交接包逐
-    字段核对完备（子1 need_baseline trace 全文在包）。"""
+    字段核对完备（子1 need_baseline trace 全文在包）。
+    plan:3#3（p3-sub3-cost，步级第三例）：#20 恒冷（子2 段末调 cr=0）+
+    #24 携带税主导（老链段每调 cr ~134k）；材料=子1/子2 trace 全文在包。"""
     assert ("plan:1", 5) in engine.SEGMENT_CHAIN_SKIP_STEPS
     assert ("plan:3", 2) in engine.SEGMENT_CHAIN_SKIP_STEPS
+    assert ("plan:3", 3) in engine.SEGMENT_CHAIN_SKIP_STEPS
     for nid, _step in engine.SEGMENT_CHAIN_SKIP_STEPS:
         assert nid in engine.SEGMENT_CHAIN_NODES  # 豁免集 ⊆ 链白名单才有意义
 
