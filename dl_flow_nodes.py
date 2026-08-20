@@ -4529,6 +4529,29 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     "六键、检查点项调度四键填显式「无」）。text 只留单句——"
                     "改动文件/判据命令/签名进 fields（方案名词扫描同源纪律，"
                     "text 含实现侧名词当场拒）。"
+                    # p4-sub4-cost L4（复用钉死无取证例外形态，#34 第五例——
+                    # gate 方框一「字段与子2/子3 已定内容不一致判 block」+
+                    # 命题性质「只判归一化文本形态齐备+字段忠实」结构性封死
+                    # 包外材料合法出口，条款与判据同向）+ 交付即止（#37
+                    # 平移）+ 格式真源（#26 平移）——方差防守定位（#40，
+                    # 断链暴露面同批补款）：
+                    "材料边界（复用钉死，无取证例外形态）：归一化材料=交接包"
+                    "本节点留痕全文通道（子1 五类清单+验收包 triggered 标注/"
+                    "子2 调度四件提案+检查点三属性+goal anchoring+密度论证/"
+                    "子3 四类核验留痕+三态标注+假设清单）——逐项逐字引用即"
+                    "合法形态（「复用 子N 留痕：<出处逐字>」），默认零新取证。"
+                    "无取证例外：字段与子2/子3 已定内容不一致即 gate 判据判 "
+                    "block，新取证在本步无判据出口——零 evidence 翻找（前序 "
+                    "trace 已在包内）、零产物文件重读（四源内容经子1 原文引用"
+                    "留痕承载）、零命令重跑（判据 dry-run/交集实算归子3 已"
+                    "留痕）。"
+                    "职责边界：锚点核验归子3（已留痕），本步零复核；密度与"
+                    "类型拍板归子5（本步只归一化不拍板）；为后续步预取=越界。"
+                    "交付即止：落库成功（✓ 已落库）即结束本轮——禁 locate "
+                    "产物/读 state/grep evidence 确认落库/预习下一步，推进与"
+                    "门控由外部 driver 判定。载荷格式的唯一真源 = --scaffold "
+                    "骨架+append-trace 报错文案——禁读引擎/测试源码/历史 "
+                    "trace 反推格式；被拒按报错文案逐字修即可。"
                 ),
                 input="step3.verified_controls",
                 record=True,
@@ -4545,6 +4568,22 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     "cp_acceptance_map",
                     "cp_goal_anchor",
                 ),
+                # p4-sub4-cost L2：Step 级 strip（第二十一例——p4-sub3-cost
+                # 在飞占第二十，merge 复核）——交付物=归一化 statements
+                # 十字段，正文材料全部经本节点前序 trace 逐字在包（cp_*
+                # 六键=子2 提案+子3 核验逐字携带，triggered 落点对照=子1
+                # 验收包清单留痕），不引自动加载文档本体（无 CLAUDE.md
+                # 条号/正文引用职责，#23 第三核对，u:3#1 反优化理由不
+                # 成立）；gate 判材=evidence trace 不受影响。
+                segment_strip_project_context=True,
+                # p4-sub4-cost L3：pack_self_contained（非交互第十一例——
+                # p4-sub3-cost 在飞占第十，merge 复核）——输入契约逐字段
+                # 核对（设计 §1）：子1/子2/子3 trace 全文通道在包（prior=
+                # False 路径零截断，生产代码核对）=输入契约全集；gate
+                # 方框一把「与子2/子3 已定内容不一致」判死=搬运型步结构
+                # 性佐证。#40 方差防守定位（fresh 化后包尾通用邀请=元探查
+                # 诱因，#16 反指邀请）；装配不变量测试钉死。
+                pack_self_contained=True,
                 selfcheck=(
                     "每断言 ≤1 句且自包含（零上下文 orchestrator 照做）吗？"
                     "fields 十键都填了吗（parallel_group/mutex_surface/worker_map/"
@@ -4554,6 +4593,9 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     "字段与子2/子3 已定内容一致吗（无丢失无篡改无新增）？"
                     "每 triggered 验收项有检查点落点（或显式「continuous 覆盖」"
                     "声明）吗？判据零判断词保持了吗？假设传导了吗？"
+                    # p4-sub4-cost L4/L5
+                    "材料全部引自交接包本节点前序留痕吗（零新取证/零 evidence "
+                    "翻找/零产物文件重读/零命令重跑）？落库后交付即止了吗？"
                 ),
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace、minor_stage=ExecutionPlanCheckpoints 且 sub_step==4 的记录。\n"
