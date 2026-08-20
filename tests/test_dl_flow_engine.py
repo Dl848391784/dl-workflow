@@ -11152,11 +11152,67 @@ class TestPackSelfContained:
         # plan:1#2 置位（交互步第二例）——输入契约 step1.terrain_map 经
         # 本节点前序留痕全文通道在包（ab2 真迹四步核对：零包外取证、gate
         # 凭空设计判据使包外材料结构性不可用=#19 判别意图不命中）；
-        # 兄弟步不置位（#1 勘察步/#3-4 验证评估步要跑 Bash/Agent 取证，
-        # #5 生成型/#6 确认级）。
+        # 兄弟步不置位（#1 勘察步/#3 验证步要跑 Bash 取证，#5 生成型/
+        # #6 确认级）。
+        # p1-sub4-cost：#4 置位（非交互步第三例）——输入契约（子2 候选+
+        # 子3 三态核验+must 目标集+验收包）全在包（生产真迹四步核对：
+        # 引文跨度 4/9 精确命中+5 条同源转写、事实项全命中，见设计 §2）。
         node = eng.get_node("plan", 1)
         flags = [bool(s.pack_self_contained) for s in node.sub_steps]
-        assert flags == [False, True, False, False, False, False]
+        assert flags == [False, True, False, True, False, False]
+
+    @staticmethod
+    def _ds_step23_traces():
+        return [
+            {
+                "kind": "skill-trace",
+                "major_stage": "Plan",
+                "minor_stage": "DesignSolution",
+                "sub_step": 2,
+                "skill": "s",
+                "purpose": "p",
+                "q": ["方案发散"],
+                "a": ["候选清单UNIQUEDS2六个候选锚定子1"],
+            },
+            {
+                "kind": "skill-trace",
+                "major_stage": "Plan",
+                "minor_stage": "DesignSolution",
+                "sub_step": 3,
+                "skill": "s",
+                "purpose": "p",
+                "q": ["可行性验证"],
+                "a": ["五项核验UNIQUEDS3三态标注齐备"],
+            },
+        ]
+
+    def test_p1_step4_tail_line_replaced(self, tmp_path):
+        # p1-sub4-cost L2：plan:1#4 置位 pack_self_contained 的尾行切换——
+        # 通用「按需 Read evidence」邀请对该步是反指（材料全在包）。
+        self._write_evidence(
+            tmp_path,
+            self._pc_traces() + [self._ds_step1_trace()] + self._ds_step23_traces(),
+        )
+        _write_state_full(tmp_path, "t", "plan", 1, sub_step=4)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None
+        assert "本步所需材料已全部在包内" in pack
+        assert "以上为摘要" not in pack
+
+    def test_p1_step4_materials_complete_invariant(self, tmp_path):
+        """装配不变量：plan:1#4 的包须含子1-3 留痕全文（本节点留痕节）——
+        输入契约（子2 候选+子3 三态核验）的唯一材料来源；防未来交接包
+        修剪把材料修没了、「禁读」条款变错。"""
+        self._write_evidence(
+            tmp_path,
+            self._pc_traces() + [self._ds_step1_trace()] + self._ds_step23_traces(),
+        )
+        _write_state_full(tmp_path, "t", "plan", 1, sub_step=4)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None
+        assert "现状地图UNIQUEDS1四要素齐备附fileline" in pack  # 子1 留痕全文
+        assert "候选清单UNIQUEDS2六个候选锚定子1" in pack  # 子2 留痕全文
+        assert "五项核验UNIQUEDS3三态标注齐备" in pack  # 子3 留痕全文
 
     def test_p1_step2_tail_line_replaced(self, tmp_path):
         # 尾行条件化挂在 prior_sections 非空分支——须带前序节点（understand
@@ -11374,15 +11430,44 @@ class TestSegmentSpawnOverrides:
         assert ov["tools"] == ("Bash", "Read", "Edit", "Grep", "Skill", "Agent")
 
     def test_p1_other_steps_no_step_strip(self):
-        # 逐步粒度不误伤兄弟步（子4-6 逐步核对未做，不置位——链内段 env
+        # 逐步粒度不误伤兄弟步（子5-6 逐步核对未做，不置位——链内段 env
         # 零变化=回滚面；子2 于 p1-sub2-cost 置位；子3 于 p1-sub3-cost
         # 核对后结论=不置位：④硬规则核验须点名规则条号=一等材料，#23 第三
-        # 核对不通过，u:3#1 反优化同型——钉死防未来误置位）。
+        # 核对不通过，u:3#1 反优化同型——钉死防未来误置位；子4 于
+        # p1-sub4-cost 置位——消费步，H 条号经子3 留痕逐字在场）。
         node = eng._NODES["plan:1"]
         for i, step in enumerate(node.sub_steps, start=1):
-            if i in (1, 2):
+            if i in (1, 2, 4):
                 continue
             assert eng.segment_spawn_overrides(node, step)["env"] == {}, i
+
+    def test_p1_step4_step_level_strip(self):
+        # p1-sub4-cost L1：plan:1#4 Step 级 strip（第九例）——交付物=矩阵
+        # 评分+双向追溯+红队留痕（消费步，规则事实经子3 留痕逐字在场，
+        # 不引自动加载文档为一等材料）；工具需求 Bash/Read/Edit/Agent
+        # 全在 Node 白名单既有面。
+        node = eng._NODES["plan:1"]
+        step4 = node.sub_steps[3]
+        ov = eng.segment_spawn_overrides(node, step4)
+        assert ov["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
+        assert ov["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
+        assert ov["tools"] == ("Bash", "Read", "Edit", "Grep", "Skill", "Agent")
+
+    def test_p1_step4_reuse_and_redteam_clause_pinned(self):
+        # p1-sub4-cost L3/L4/L5（designs/p1-sub4-cost-optimization-design.md）：
+        # 复用钉死（消费步形态）+格式真源钉死+红队材料包钉死关键词——
+        # 防未来编辑静默改丢（红队条款是本步主杠杆：基线红队侧等效占
+        # 子4 总账 ~73%=agent 零材料 prompt 致独立重勘 25-58 调用/agent）。
+        step4 = eng._NODES["plan:1"].sub_steps[3]
+        assert "本步零新取证" in step4.purpose
+        assert "零 evidence 全量翻找" in step4.purpose
+        assert "唯一取证面=条件红队派发" in step4.purpose
+        assert "格式与传导核对细节的唯一真源=--scaffold 骨架" in step4.purpose
+        assert "逐字携带攻击对象材料" in step4.purpose
+        assert "禁重跑 codegraph/grep 全仓勘察" in step4.purpose
+        assert "攻击对象=排序第一候选一次" in step4.purpose
+        assert "材料全部引自交接包" in step4.selfcheck
+        assert "红队只基于材料攻击、零重勘" in step4.selfcheck
 
     def test_p1_step3_reuse_clause_pinned(self):
         # p1-sub3-cost L1（designs/p1-sub3-cost-optimization-design.md）：
