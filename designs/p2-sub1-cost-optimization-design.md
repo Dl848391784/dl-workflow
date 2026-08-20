@@ -204,6 +204,68 @@ cr 主降因 = 轮数降 × 每轮前缀降 × 47KB 驻留消除）。返工褶�
 - 不改：SEGMENT_CHAIN_NODES、SEGMENT_CHAIN_SKIP_STEPS、MERGED_RUN_NODES、
   gate 文本、judge、pack_self_contained。
 
-## 5. 实测收官
+## 5. 实测收官（2026-08-20，A=p2_sub1_ab / B=p2_sub1_ab2，同种子族，ac-deepseek1 headless）
 
-（A/B 跑完后填）
+B 轮驱动法（runtime-audit #24/#25）：种子八件套（evidence ≤plan:1#5 +
+机械补 plan:1#6 confirm trace[P3-1 确认级无模型会话，种子新件——跨
+确认级读回步的种子组装首例] + state 四字段同步 plan:2#1 + 段记录/链/
+stash 清零 + settings 名替换 + designs/<name>-design.md 经 render-artifact
+从种子 evidence 机械装配 + understands/<name>.md 改名 + 包冒烟 30,117
+字符含 design.md 指针[L4 生效实证]）→ `bash -ic` 内
+`AC_WORKFLOW_LAUNCHER=<worktree>/scripts/workflow/dl-launch.sh
+ac-deepseek1 --dl <name> --resume --headless`（A=主树，B=worktree 树）。
+
+| 指标 | A（main 188c46e） | B（四杠杆） | B vs A |
+|---|---|---|---|
+| 首调 fresh | 55,015（cr=0） | 23,895（cr=0；被杀首轮 PARTIAL 同为 23,895=双样本逐字相同，机制读数钉死） | **-56.6%** |
+| 段 fresh 合计 | 118,777 | 58,747 | **-50.6%** |
+| 段 cr 合计 | 1,843,840 | 246,784 | **-86.6%** |
+| 段 out 合计 | 28,107 | 25,218 | -10.3% |
+| 轮数（result 权威值） | 21 | 6 | **-71.4%** |
+| 段 dur_api | 203.3s | 177.6s（driver 报 170s） | -12.6% |
+| 成本 | $2.218 | $1.048 | **-52.8%** |
+| 工具调用 | 20（Bash×10/Read×4/Edit×6） | 5（Read×2/Bash×2/Edit×1） | **-75%** |
+| append-trace mech 拒 | 2 | 0 | ✓ |
+| 门控 | 一次通过 | 一次通过，零 block | ✓ |
+
+成本等效（cr×0.1 折 fresh，#13/#24 口径）：A 303,161 → B 83,425 =
+**-72.5%**。
+
+**B 工具序列（理想最小形态）**：Read design.md×1（L4 指针直达，零 locate）
+→ scaffold → Read 骨架 → Edit → append-trace 一次过（零 mech 拒、零返工
+褶皱）。零 evidence 翻找、零 understand.md 读取、零环境摸索、零徘徊。
+
+**机制生效实证**：①init 事件 tools=['Bash','Edit','Read','Skill']=L2 白名单
+落地；②首调 -31.1k（包体积两臂几乎相同 30,043→30,117）≈ strip -11.9k +
+工具 schema 22→4 -14.3k+ 探针口径相符=L1/L2 落地；③包冒烟含
+designs/p2_sub1_ab2-design.md 指针=L4 落地。
+
+**验收逐条**：①首调 ≤29k 预登记 **✓**（23,895，-56.6%，双样本钉死）；
+②工具序列 **✓**（零 evidence 翻找/零 understand.md 读取/design.md 定点
+Read=1≤2/零 locate）；③段 fresh -50.6%/cr -86.6%/轮数 6 全超预登记；
+墙钟 -12.6%（见下归因）；④零 block ✓，trace 质量逐条自查全过：三清单
+齐备（E1-E9 要素 ID 连续/验收包 SC 清单/假设原样转录）、出处逐条
+design.md:行号+「原文逐字」引用在场（mech element_quote_trace 认「原文」
+标记形态通过，judge 一次 PASS）、新增候选/矛盾显式标注、零编造；
+⑤pytest 1178 全绿（新增 5 例）+ nodes-index 同步 ✓；⑥混淆声明全部按
+预登记处理。
+
+**墙钟归因（#30 双轴口径）**：out÷rate 拟合——A 28,107/203.3s≈138 tok/s
+vs B 25,218/177.6s≈142 tok/s，同端点速率稳定，墙钟差 ≈ 输出差÷速率
+拟合上=输出量主导。out 未大降（-10.3%）= 交付物厚度保留（逐字引用质量
+形态，#30 质量成分不撤）+ thinking deliberation——本步墙钟地板≈交付物
+out÷rate（~25k tok ÷ 140 tok/s ≈ 180s），token/成本轴才是本步主杠杆面
+（-72.5% 等效）。墙钟进一步杠杆=输出侧瘦身，登记观察项不立项
+（与 p1-sub1 同处置）。
+
+**种子组装新件（沉淀）**：跨确认级读回步（P3-1）的种子 = 前序 evidence +
+write_confirm_trace 机械补 confirm trace + render-artifact 从种子 evidence
+装配 design.md——确认级步无模型会话，种子组装可全脚本化（无需答案
+注入法）。amplitude 今日值 4929.2% 本轮未被触发（子1 清点对象是已拍板
+design.md，非因子数值现状——与 p1-sub1 同结论）。
+
+**遗留立项**：plan:2 链内步（子2-4）strip 逐步核对与断链收益面（须先补
+条款缺口，#30 断链暴露效应——A/B 两轮子2 段均观察到 writing-plans
+skill 不存在报错+find 翻找 skill 路径褶皱，属子2 条款缺口）；plan:3/plan:4
+Node 工具白名单与 子1 同型复用钉死（清点型步同族）；输出侧瘦身
+（观察项）。
