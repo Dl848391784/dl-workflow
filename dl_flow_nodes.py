@@ -3641,10 +3641,22 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
         # artifact_on_release 不再显式声明（字段仅 advance="phase" 编排末节点
         # 注入第三态读取，sub 节点不被读取）。
         advance="sub",
+        # p3-sub1-cost L2：Node 工具白名单（plan:3 首例，designs/
+        # p3-sub1-cost-optimization-design.md §2 L2 六步逐步核对）——
+        # 子1/2/4=Bash+Read+Edit，子3 条件红队要 Agent（fence_allow 在册），
+        # 子5 define-problem 归一化要 Skill，子6 confirm 级无会话；无 Grep
+        # （ref 未点名，u:4/plan:2 白名单同款先例）、无 Write（载荷
+        # --scaffold+Edit 通道）；MCP 由 NO_MCP_ARGS 结构封死（既有）。
+        # Node 级 strip 不置——子2 交付物正文引 CLAUDE.md §2 触发词
+        # （一等材料，u3-sub1 反优化同型），只置 Step 级子1。
+        segment_tools=("Bash", "Read", "Edit", "Skill", "Agent"),
         sub_steps=(
             Step(
                 kind="tool",
-                ref="Read(plan.md) / Bash(grep evidence TaskBreakdown trace)",
+                # p3-sub1-cost L3：grep evidence 通道退役（TaskBreakdown 子4
+                # 五键 statements 全文+子5 留痕已在交接包），plan.md 定点
+                # Read 一次取行号+原文引用（plan:2 子1 同型处置）。
+                ref="Read(plan.md 定点一次) / 交接包前序留痕（免 evidence 翻找）",
                 short="需求清点",
                 # 保真基线（同构 plan:2 子1）：本节点输入是要被「映射」的结构化
                 # 对象（plan.md 任务集）——需求失真（C6）防御 = 任务 ID 基线 +
@@ -3653,17 +3665,44 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     f"需求清点与追溯基线：{_CTS_STEP1_FORM_REQUIREMENTS}。"
                     "检出 plan.md 没有的需求=二次创作信号，显式列「新增候选」"
                     "待子6 用户裁决（禁静默混入）。"
+                    # p3-sub1-cost L3（复用钉死③型「定点一次」，#38 判别问句：
+                    # gate 出处要件钉死包外 plan.md 行号/原文→③型非①型；
+                    # 基线实测：evidence grep/python×4=纯税，材料 100% 已在
+                    # 交接包）+ 交付即止（#37 平移；基线落库后 python 验证
+                    # ×1 徘徊）+ 格式真源（#26 平移）：
+                    "材料边界（复用钉死）：交接包已载前序节点归一化留痕全文——"
+                    "任务集（TaskBreakdown 子4 归一化 statements 各字段）与子5 "
+                    "确认留痕逐字在包，直接引用即合法（「复用 <节点>子N 留痕："
+                    "<出处逐字>」形态），零 evidence 全量翻找（前序 trace 已在"
+                    "包内，grep evidence 通道退役）。plan.md = 本步权威出处源："
+                    "定点 Read 一次取行号与『原文』引用，读后零重读。"
+                    "枚举例外（逐条二值判定）：包内留痕与 plan.md 内容不一致时"
+                    "以 plan.md 为准（拍板后产物），该不一致项单点核对一次即止。"
+                    "交付即止：落库成功（✓ 已落库）即结束本轮——禁 locate 产物/"
+                    "读 state/grep evidence 确认落库/预习下一步，推进与门控由"
+                    "外部 driver 判定。载荷格式的唯一真源 = --scaffold 骨架+"
+                    "append-trace 报错文案——禁读引擎/测试源码/历史 trace 反推"
+                    "格式；被拒按报错文案逐字修即可。"
                 ),
-                input="plan.md + evidence(TaskBreakdown 子4/子5 trace)",
+                input="plan.md（指针见交接包产物清单） + 交接包（TaskBreakdown 子4/子5 留痕全文在包）",
                 record=True,
-                fence_allow=("Bash",),  # grep evidence jsonl；Read 在常驻集
+                fence_allow=("Bash",),  # scaffold/append-trace 落库通道；Read 在常驻集
                 mech_checks=("need_quote_trace",),  # v2.106：方框三原文引用下沉生产墙
+                # p3-sub1-cost L1：Step 级 strip（第十三例）——交付物=操作类型
+                # 清单+任务 ID 出处+plan.md 原文引用，六类标签逐字在
+                # _CTS_STEP1_FORM_REQUIREMENTS 自给，不引自动加载文档正文
+                # （强制路由核对引 CLAUDE.md §2 归子2 判面，非本步）；gate
+                # 判材=evidence trace 不受影响。
+                segment_strip_project_context=True,
                 selfcheck=(
                     "逐任务操作类型清单齐了吗（代码改动/测试/长 pipeline/检索/"
                     "数据读取/子代理/装配，无遗漏）？每条都附任务 ID 出处且 "
                     "plan.md 原文引用进 trace 正文了吗（judge 读不到 plan.md 文件本身）？"
                     "新增候选显式标注或显式「无」了吗？"
                     "有静默新增 plan 没有的需求吗（那是二次创作）？"
+                    # p3-sub1-cost L3
+                    "任务集/操作类型判据从交接包留痕直接引用了吗？"
+                    "plan.md 只定点 Read 一次吗？零 evidence 翻找吗？"
                 ),
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace、minor_stage=CapabilityToolSelection 且 sub_step==1 的记录。形式要件：逐任务操作类型需求清单齐备：每任务/阶段标注操作类型（代码改动[改 .py=H15 触发信号]/测试执行/长 pipeline[后台禁 pipe 信号]/外部检索/数据读取[parquet 等]/子代理扇出/文档装配）；每条附任务 ID 出处且 plan.md 原文引用进 trace 正文；新增候选（plan.md 没有的需求）显式标注或显式「无」，q/a 按序对齐；只提取不创作（本步是全节点保真判定基线）。\n"
