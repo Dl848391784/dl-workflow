@@ -2354,20 +2354,16 @@ def test_chain_resume_plan_nodes_whitelisted(wf_repo):
     2026-08-20 修订（p3-sub3~p3-sub5-cost）：plan:3 在册但子2/3/4/5
     均命中步级豁免集——本测试对 plan:3 改测子6（last_step=5 连续，链成员
     仅剩子1/子6）以维持「在册即续链」语义。
-    2026-08-20 修订（p4-sub2/p4-sub3-cost）：plan:4 在册但子2/子3 均命中
-    步级豁免集——本测试对 plan:4 改测子4（last_step=3 连续，链成员仅剩
-    子1/子4/子5）以维持「在册即续链」语义。"""
+    2026-08-21 修订（p4-sub2/3/4-cost 并轨）：plan:4 子2/子3/子4 全命中
+    步级豁免集+子5 确认级无会话——plan:4 无续链步（链成员仅剩链头子1
+    名义在册），本测试不再测 plan:4（「在册即续链」语义无可测步；
+    节点级出册重审登记=designs/p4-sub4-cost-optimization-design.md §6）。"""
     drv = _load(DRIVER, "drv_chain_plan")
     state = _write_state(
         wf_repo,
         segment_chain={"node": "plan:1", "sid": "s-plan:1", "last_step": 2},
     )
     assert drv._chain_resume_sid(state, "plan:1", 3) == "s-plan:1"
-    state = _write_state(
-        wf_repo,
-        segment_chain={"node": "plan:4", "sid": "s-plan:4", "last_step": 3},
-    )
-    assert drv._chain_resume_sid(state, "plan:4", 4) == "s-plan:4"
     state = _write_state(
         wf_repo,
         segment_chain={"node": "plan:3", "sid": "s-plan:3", "last_step": 5},
@@ -2476,7 +2472,8 @@ def test_chain_resume_step_level_skip_plan4_sub2(wf_repo):
         wf_repo,
         segment_chain={"node": "plan:4", "sid": "abc", "last_step": 3},
     )
-    assert drv._chain_resume_sid(state4, "plan:4", 4) == "abc"  # 兄弟步不受影响
+    # p4-sub4-cost L1：子4 亦入豁免集（步级第八例）——不再续链，fresh spawn。
+    assert drv._chain_resume_sid(state4, "plan:4", 4) is None  # 豁免步
 
 
 def test_chain_resume_step_level_skip_plan4_sub3(wf_repo):
@@ -2494,7 +2491,9 @@ def test_chain_resume_step_level_skip_plan4_sub3(wf_repo):
         wf_repo,
         segment_chain={"node": "plan:4", "sid": "abc", "last_step": 3},
     )
-    assert drv._chain_resume_sid(state4, "plan:4", 4) == "abc"  # 兄弟步不受影响
+    # 兄弟步子4 彼时续链；2026-08-21 并轨后子4 亦豁免（p4-sub4-cost）——
+    # 本断言随并轨翻转为「亦豁免」（步级豁免不触节点白名单语义不变）
+    assert drv._chain_resume_sid(state4, "plan:4", 4) is None
 
 
 def test_chain_resume_step_level_skip_plan4_sub4(wf_repo):
@@ -2513,7 +2512,9 @@ def test_chain_resume_step_level_skip_plan4_sub4(wf_repo):
         wf_repo,
         segment_chain={"node": "plan:4", "sid": "abc", "last_step": 2},
     )
-    assert drv._chain_resume_sid(state3, "plan:4", 3) == "abc"  # 兄弟步不受影响
+    # 兄弟步子3 彼时续链；并轨后子3 亦豁免（p4-sub3-cost）——断言随并轨
+    # 翻转（步级豁免不触节点白名单语义不变）
+    assert drv._chain_resume_sid(state3, "plan:4", 3) is None
 
 
 def test_chain_skip_steps_constant():
