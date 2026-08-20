@@ -1787,6 +1787,13 @@ def handoff_pack(project_root: Path, name: str) -> str | None:
         f = project_root / ".claude" / adir / f"{name}.md"
         if f.is_file():
             artifacts.append(f"- {f}")
+    # p2-sub1-cost L4：design.md 不入 _PHASE_ARTIFACT_DIRS（落 <root>/designs/
+    # 而非 .claude/ 下），但其 slug=工作流名（v2.62 约定）——存在即入列，
+    # 消费 design.md 的下游步（plan:2#1 首例）免 locate 翻找（p1-sub1-cost B1
+    # 「understand.md 翻找×4」同型褶皱的预防）。
+    design_md = project_root / "designs" / f"{name}-design.md"
+    if design_md.is_file():
+        artifacts.append(f"- {design_md}")
     if artifacts:
         lines.append("### 已装配产物（按需 Read，勿重复装配）")
         lines.extend(artifacts)

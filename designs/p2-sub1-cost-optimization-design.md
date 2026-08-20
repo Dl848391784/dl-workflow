@@ -47,8 +47,37 @@
 
 ## 1.5 基线实测（A = p2_sub1_ab，main HEAD 188c46e，ac-deepseek1 headless）
 
-（A 轮跑完后填：首调 fresh / 段 fresh / cr / out / 轮数 / dur_api / 成本 /
-工具序列 / 门控 + 成本归因表）
+| 指标 | A（p2_sub1_ab） |
+|---|---|
+| 首调 fresh | 55,015（cr=0——fresh spawn 符合跨节点链头预期） |
+| 段 fresh 合计 | 118,777 |
+| 段 cr 合计 | 1,843,840 |
+| 段 out 合计 | 28,107 |
+| 轮数（result 权威值） | 21 |
+| 段 dur_api | 203.3s |
+| 成本 | $2.218 |
+| 工具序列 | Bash×10 + Read×4 + Edit×6 = 20 |
+| 门控 | 一次通过（judge PASS），零 block；append-trace mech 拒 2 次（格式+element_quote_trace，合法履职） |
+
+### 成本归因（工具序列逐条核对，runtime-audit #26 三分诊）
+
+| 类别 | 调用 | 判定 |
+|---|---|---|
+| locate design.md（ls designs/ ×2 + grep evidence 找 design 路径） | 3 | **纯税**——产物指针缺口（L4 直击） |
+| Read design.md 39,953 字符 | 1 | **合法本步职责**（权威出处源，取行号+原文引用） |
+| Read understand.md 47KB 全量 | 1 | **纯税**——验收包经包内 u:4 子4 statements + design.md acceptance_map 双通道在场（L3 直击） |
+| evidence grep/python 提取 DesignSolution 子5/6 trace | 2 | **纯税**——子5 statements 八键全文+子6 裁决已在交接包（L3 直击；ref 旧通道「grep evidence」是诱因） |
+| 交付通道（scaffold/Read 骨架/Edit/落库） | 4 | 合法 |
+| 返工褶皱（mech 拒 2 次后的 Edit×4+grep 标头+Read+append×2） | 9 | 褶皱——拒1=模型把 design.md 原文写进【】标头行（格式事故，报错文案指路后自修）；拒2=element_quote_trace 逮「⑤」条缺『』原文引用（牙齿合法履职） |
+
+**三层瓶颈分诊（#1/#20/#23）**：①段边界层：子1 跨节点链头恒 fresh
+spawn，无链税；②前缀层（主税一）：首调 55,015 = harness ~22.3k + 工具
+schema 22 个 ~14.3k + 项目上下文 ~11.9k + 交接包 30,043 字符（~10k）——
+项目上下文与工具 schema 两个可裁分量未剥（plan:2 是 plan 族剩余无
+strip/无白名单节点之一）；③步体层（主税二）：20 调用中 ~6 纯税
+（locate×3+understand.md+evidence×2）+9 返工褶皱，cr 1.84M = 21 轮 ×
+单调涨上下文（understand.md 47KB 在轮 5 进入上下文后逐轮驻留重读，
+#17 驻留污染——fresh 段内同样是每轮 cache 背着它）。
 
 ## 2. 方案（机制为主、文案为辅，零 factor 化）
 
@@ -136,7 +165,12 @@ handoff_pack 产物清单现只扫 _PHASE_ARTIFACT_DIRS（.claude/ 下）。补�
 
 ## 3. 预期与验收（预登记，机制读数为主口径 #13/#23）
 
-（A 轮基线读数后填预期数值）
+预期（探针预算，机制确定性部分）：首调 fresh 55,015 → ~29k（strip -11.9k
+[四处同口径实证值] + 工具白名单 22→4 ~-14.3k [u2-residual-cost 探针
+22→5 -14.3k 口径]）；段 fresh 合计降（understand.md 47KB 不入上下文
+≈ -12k 首调后每轮不再携带 + locate/evidence 调用灭 → 轮数 21 → ~12-15；
+cr 主降因 = 轮数降 × 每轮前缀降 × 47KB 驻留消除）。返工褶皱不计入承诺
+（mech 拒是牙齿履职，格式事故是方差）。
 
 验收口径（A = §1.5 基线，B = worktree 码同种子 p2_sub1_ab2 起跑）：
 

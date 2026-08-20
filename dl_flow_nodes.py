@@ -3129,10 +3129,18 @@ _NODES: dict[str, Node] = {
         # advance="sub"（v2.20 plan:3 加入后本节点不再是 plan 末子阶段）：
         # 末子步骤 STEP_DONE:5 通过即推进 sub_index 进 plan:3（跨子阶段自动续轮）。
         advance="sub",
+        # p2-sub1-cost L2：Node 工具白名单（plan:2 首例，逐步核对——子1-3
+        # Bash+Read+Edit（fence_allow Bash=codegraph/scaffold/落库），子4 +Skill
+        # （define-problem/writing-plans），子5 tier=confirm 无模型会话；无 Agent
+        # （本节点无红队步）、无 Grep（ref 未点名，u:4 白名单同款先例）；载荷走
+        # --scaffold+Edit 零合法 Write；MCP 由 NO_MCP_ARGS 结构封死）。
+        segment_tools=("Bash", "Read", "Edit", "Skill"),
         sub_steps=(
             Step(
                 kind="tool",
-                ref="Read(design.md / understand.md) / Bash(grep evidence 设计包 trace)",
+                # p2-sub1-cost L3：grep evidence / understand.md 通道退役（材料
+                # 经交接包全文在场），design.md 定点 Read 一次取行号+原文引用。
+                ref="Read(design.md 定点一次) / 交接包前序留痕（免 evidence 翻找）",
                 short="清点基线",
                 purpose=(
                     f"设计包清点与追溯基线：{_TB_STEP1_FORM_REQUIREMENTS}。"
@@ -3141,20 +3149,40 @@ _NODES: dict[str, Node] = {
                     "「plan 与设计包一致」判定的测量仪器；检出设计包没有的要素"
                     "=二次创作信号，显式列「新增候选」待子5 用户裁决（禁静默混入）；"
                     "发现设计包内部矛盾=合法退回信号（回 plan:1）。"
+                    # p2-sub1-cost L3（复用钉死，#25/#29 收紧形态；基线实测：
+                    # understand.md 47KB 全量读 + evidence grep/python×2 = 纯税，
+                    # 材料 100% 已在交接包）：
+                    "材料边界（复用钉死）：交接包已载前序节点归一化留痕全文——"
+                    "设计包内容（前一节点末步归一化 statements 各字段）与验收包/"
+                    "假设清单逐字在包，直接引用即合法（「复用 <节点>子N 留痕："
+                    "<出处逐字>」形态），零 evidence 全量翻找（前序 trace 已在包内，"
+                    "grep evidence 通道退役）、零 understand.md 读取（验收包经包内"
+                    "留痕 + design.md 验收映射节双通道在场）。design.md = 本步权威"
+                    "出处源：定点 Read 一次取行号与『原文』引用，读后零重读。"
+                    "枚举例外（逐条二值判定）：包内留痕与 design.md 内容不一致时"
+                    "以 design.md 为准（拍板后产物），该不一致项单点核对一次即止。"
                 ),
-                input="designs/<主题>-design.md + evidence(DesignSolution 子5/子6 trace)",
+                input="designs/<name>-design.md（指针见交接包产物清单） + 交接包（DesignSolution 子5/子6 留痕全文在包）",
                 record=True,
-                fence_allow=("Bash",),  # grep evidence jsonl；Read 在常驻集
+                fence_allow=("Bash",),  # scaffold/append-trace 落库通道；Read 在常驻集
                 # v2.102（designs/plan2-sub1-gate-framing-design.md）：要素原文
                 # 引用留痕生产墙（v1 重放 vio4 2/6 掉牙——judge rubber-stamp
                 # 放过无『』原文引用的要素）。纯 token 扫描，⑯-safe。
                 mech_checks=("element_quote_trace",),
+                # p2-sub1-cost L1：Step 级 strip（第十例）——交付物=三清单+出处，
+                # 不引用自动加载文档正文（硬规则核验归 plan:1#3、锚点核验归子3、
+                # H9 预算归子2，均非本步判面）；gate 判材=evidence trace 不受影响。
+                segment_strip_project_context=True,
                 selfcheck=(
                     "三清单都齐了吗（要素/验收包/假设）？要素 ID 连续编号了吗？"
                     "每条都附出处且要素原文引用进 trace 正文了吗"
                     "（judge 读不到 design.md 文件本身）？"
                     "新增候选/矛盾显式标注或显式「无」了吗？"
                     "有静默新增设计包没有的要素吗（那是二次创作）？"
+                    # p2-sub1-cost L3
+                    "设计包内容/验收包/假设从交接包留痕直接引用了吗？"
+                    "design.md 只定点 Read 一次吗？零 evidence 翻找/"
+                    "零 understand.md 读取吗？"
                 ),
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace、"

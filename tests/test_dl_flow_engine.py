@@ -8840,6 +8840,24 @@ class TestHandoffPack:
         # 当前步最新 block 判词
         assert "缺 X 条款" in pack
 
+    def test_design_md_in_artifact_pointers(self, tmp_path):
+        # p2-sub1-cost L4：design.md（落 <root>/designs/<name>-design.md，
+        # 不在 _PHASE_ARTIFACT_DIRS 的 .claude/ 扫描面）存在即入产物指针
+        # 清单——消费 design.md 的下游步（plan:2#1 首例）免 locate 翻找；
+        # 不存在时不入列（宁纵勿枉，指针清单不编造假产物）。
+        recs = [self._trace("ProblemContext", 6, "_pc6")]
+        self._write_evidence(tmp_path, recs)
+        _write_state_full(tmp_path, "t", "understand", 2, sub_step=1)
+        # 不存在：不入列
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None and "design.md" not in pack
+        # 存在：入列
+        ddir = tmp_path / "designs"
+        ddir.mkdir()
+        (ddir / "t-design.md").write_text("# t-design", encoding="utf-8")
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert f"- {ddir / 't-design.md'}" in pack
+
 
 class TestHandoffPackSlim:
     """v4 P1-1 交接包瘦身（v4-cost-latency-optimization-design §2）：
@@ -11270,8 +11288,9 @@ class TestSegmentSpawnOverrides:
                 continue
             ov = eng.segment_spawn_overrides(node)
             assert ov["env"] == {}, key
-            if key in ("understand:4", "plan:1"):
-                continue  # u4-sub1-cost / p1-sub1-cost：tools-only 置位（env 仍空）
+            if key in ("understand:4", "plan:1", "plan:2"):
+                continue  # u4-sub1-cost / p1-sub1-cost / p2-sub1-cost：tools-only
+                # 置位（env 仍空）
             assert ov["tools"] is None, key
 
     def test_u4_tools_only_no_env_strip(self):
@@ -11542,6 +11561,53 @@ class TestSegmentSpawnOverrides:
         assert node.sub_steps[0].pack_full_prior_boundary is True
         for i, step in enumerate(node.sub_steps[1:], start=2):
             assert step.pack_full_prior_boundary is False, i
+
+    def test_p2_tools_whitelist_no_env_strip(self):
+        # p2-sub1-cost L2（designs/p2-sub1-cost-optimization-design.md）：
+        # plan:2 置位 tools-only（plan:2 首例）——逐步需求并集四件
+        # （Bash/Read/Edit/Skill：子1-3 fence_allow Bash=codegraph/scaffold/
+        # 落库，子2/子4 要 Skill，子5 tier=confirm 无模型会话；无 Agent
+        # [本节点无红队步]、无 Grep [ref 未点名]）；env 剥离不下放节点级
+        # （子2-5 逐步核对未做），子1 逐步置位见下一测试。
+        ov = eng.segment_spawn_overrides(eng._NODES["plan:2"])
+        assert ov["env"] == {}
+        assert ov["tools"] == ("Bash", "Read", "Edit", "Skill")
+
+    def test_p2_step1_step_level_strip(self):
+        # p2-sub1-cost L1：plan:2#1 Step 级 strip（第十例）——交付物=三清单
+        # （要素/验收包/假设）+出处，无点名项目硬规则条号职责（硬规则核验归
+        # plan:1#3、锚点核验归子3、H9 预算归子2，均非本步判面）。
+        node = eng._NODES["plan:2"]
+        step1 = node.sub_steps[0]
+        ov = eng.segment_spawn_overrides(node, step1)
+        assert ov["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
+        assert ov["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
+        assert ov["tools"] == ("Bash", "Read", "Edit", "Skill")
+
+    def test_p2_other_steps_no_step_strip(self):
+        # 逐步粒度不误伤兄弟步（子2-5 逐步核对未做——钉死防未来误置位）。
+        node = eng._NODES["plan:2"]
+        for i, step in enumerate(node.sub_steps, start=1):
+            if i == 1:
+                continue
+            assert eng.segment_spawn_overrides(node, step)["env"] == {}, i
+
+    def test_p2_step1_reuse_clause_pinned(self):
+        # p2-sub1-cost L3：purpose/selfcheck 复用钉死条款（#25/#29 收紧形态
+        # ——默认零重验+枚举例外[包内留痕与 design.md 不一致]+单点配额）
+        # 关键词钉死——防未来编辑静默改丢（条款是本步步体主杠杆：基线
+        # understand.md 47KB 全量读+evidence grep/python×2+locate×3=纯税）。
+        step1 = eng._NODES["plan:2"].sub_steps[0]
+        assert "复用钉死" in step1.purpose
+        assert "复用 <节点>子N 留痕" in step1.purpose
+        assert "零 evidence 全量翻找" in step1.purpose
+        assert "零 understand.md 读取" in step1.purpose
+        assert "定点 Read 一次" in step1.purpose
+        assert "零重读" in step1.purpose
+        assert "零 understand.md 读取" in step1.selfcheck
+        # ref 通道退役同步（grep evidence/understand.md 不再出现）
+        assert "grep evidence" not in step1.ref
+        assert "understand.md" not in step1.ref
 
     def test_step_level_strip_backward_compat(self):
         # step=None（MergedSession 段内续步管线不传 step）维持节点级语义——
