@@ -2348,9 +2348,11 @@ def test_whitelist_u4_neither_chain_nor_merged():
 
 def test_chain_resume_plan_nodes_whitelisted(wf_repo):
     """2026-08-13 扩面（试点护栏达标：22/22 一次过+链峰值<250k+零兜底）：
-    plan:1-4 全族续链；plan:1 子2 交互步由 last_step 不变式天然断链。"""
+    plan:1-4 全族续链；plan:1 子2 交互步由 last_step 不变式天然断链。
+    2026-08-20 修订（p2-sub2-cost）：plan:2 出册（链峰值 250,669>250k 预授权
+    回滚第二例，见 test_chain_nodes_plan2_removed）——在册=plan:1/3/4。"""
     drv = _load(DRIVER, "drv_chain_plan")
-    for nid in ("plan:1", "plan:2", "plan:3", "plan:4"):
+    for nid in ("plan:1", "plan:3", "plan:4"):
         state = _write_state(
             wf_repo,
             segment_chain={"node": nid, "sid": f"s-{nid}", "last_step": 2},
@@ -2406,6 +2408,23 @@ def test_chain_skip_steps_constant():
     assert ("plan:1", 5) in engine.SEGMENT_CHAIN_SKIP_STEPS
     for nid, _step in engine.SEGMENT_CHAIN_SKIP_STEPS:
         assert nid in engine.SEGMENT_CHAIN_NODES  # 豁免集 ⊆ 链白名单才有意义
+
+
+def test_chain_nodes_plan2_removed(wf_repo):
+    """p2-sub2-cost L1（designs/p2-sub2-cost-optimization-design.md）：plan:2 出
+    链白名单——A 轮（p2_sub2_base）实测链会话上下文 250,669 tok 突破 250k
+    护栏 + 子2 链内首调 fresh 175,890（cr=0 恒冷），#9 预授权回滚第二例
+    （u:1 324k 后）；回滚面=重新入册。链记录在位且连续也返 None（fresh
+    spawn）；plan:1/3/4 峰值未破保留（surgical）。"""
+    assert "plan:2" not in engine.SEGMENT_CHAIN_NODES
+    assert {"plan:1", "plan:3", "plan:4"} <= set(engine.SEGMENT_CHAIN_NODES)
+    drv = _load(DRIVER, "drv_chain_p2_removed")
+    state = _write_state(
+        wf_repo,
+        segment_chain={"node": "plan:2", "sid": "abc", "last_step": 1},
+    )
+    assert drv._chain_resume_sid(state, "plan:2", 2) is None  # 白名单外即 fresh
+    assert drv._chain_resume_sid(state, "plan:2", 3) is None  # 子3 同
 
 
 def test_chain_update_on_whitelisted_node(wf_repo):

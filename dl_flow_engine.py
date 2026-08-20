@@ -101,12 +101,16 @@ SUB_STEP_BLOCK_ESCALATE = 3
 # 隔离缓存下链恒冷（#20 三要素全中）；各步输入契约经交接包逐字段核对完备
 # （#2←SC#1/#3←SC#2/#4←SC#3 trace 全文在包），fresh 段恒定地板（#2 已实证
 # 13,658）。断链第五例（u:1 回滚/u:2/u:3 后），不入 MERGED（步体非极小搬运型
-# +续步暖率彩票两节点 EV 证伪，#24 口径）。plan 族链峰值未突破且无降本指令，
-# 保留（surgical）。
+# +续步暖率彩票两节点 EV 证伪，#24 口径）。
+# 2026-08-20 plan:2 断链第六例（节点级摘除，designs/
+# p2-sub2-cost-optimization-design.md L1）：p2_sub2_base A 轮实测链会话上下文
+# 250,669 tok 突破 250k 护栏（driver 日志实锤）+子2 链内首调 fresh 175,890
+# （子1 transcript 1.0MB 冷重写，cr=0 恒冷）——#9 配套范式「链峰值 250k 突破
+# 即执行回滚无需再裁决」机械触发（u:1 324k 后第二例）；交接包材料完备性逐字段
+# 核对见设计 §2 L3。回滚面=重新入册。plan:1/3/4 链峰值未破，保留（surgical）。
 SEGMENT_CHAIN_NODES = frozenset(
     {
         "plan:1",
-        "plan:2",
         "plan:3",
         "plan:4",
     }

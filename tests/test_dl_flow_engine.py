@@ -11220,6 +11220,84 @@ class TestPackSelfContained:
         for marker in ("UNIQUEDS1", "UNIQUEDS2", "UNIQUEDS3", "UNIQUEDS4"):
             assert marker in pack, marker  # 子1-子4 留痕全文
 
+    # ---------- p2-sub2-cost：plan:2#2（切分排序）置位 ----------
+
+    @staticmethod
+    def _tb_step1_trace():
+        return {
+            "kind": "skill-trace",
+            "major_stage": "Plan",
+            "minor_stage": "TaskBreakdown",
+            "sub_step": 1,
+            "skill": "s",
+            "purpose": "p",
+            "q": ["清点基线"],
+            "a": ["要素基线UNIQUETB1逐条附出处原文引用"],
+        }
+
+    @staticmethod
+    def _ds_step5_callers_trace():
+        return {
+            "kind": "skill-trace",
+            "major_stage": "Plan",
+            "minor_stage": "DesignSolution",
+            "sub_step": 5,
+            "skill": "s",
+            "purpose": "p",
+            "statements": [
+                {
+                    "text": "声明甲UNIQUEDS5",
+                    "type_label": "已验证",
+                    "boundary": "b",
+                    "fields": {"callers": "调用面UNIQUECALLERS56附fileline"},
+                }
+            ],
+        }
+
+    def test_p2_step2_pack_self_contained_flags(self):
+        # p2-sub2-cost（designs/p2-sub2-cost-optimization-design.md）：
+        # plan:2#2 置位 pack_self_contained（非交互步第五例）+ Step strip
+        # （第十例）——输入契约逐字段核对见设计 §2 L3（子1 要素基线=本节点
+        # 留痕全文通道在包；依赖材料=DS statements callers 字段在包；H9 阈值
+        # 逐字在 purpose 形式要件=消费步同 p1-sub4 型）；兄弟步不置位
+        # （#1 清点基线须 Read 设计包+grep evidence=新取证步；#3 锚点核验=
+        # 新取证步；#4/#5 未核对不置位）。
+        node = eng.get_node("plan", 2)
+        flags = [bool(s.pack_self_contained) for s in node.sub_steps]
+        assert flags == [False, True, False, False, False]
+        strips = [bool(s.segment_strip_project_context) for s in node.sub_steps]
+        assert strips == [False, True, False, False, False]
+
+    def test_p2_step2_tail_line_replaced(self, tmp_path):
+        # 尾行条件化（比照 test_p1_step2_tail_line_replaced：须带前序节点
+        # understand 族末两步留痕使 prior_sections 非空）。
+        self._write_evidence(
+            tmp_path,
+            self._pc_traces()
+            + [self._ds_step5_callers_trace(), self._tb_step1_trace()],
+        )
+        _write_state_full(tmp_path, "t", "plan", 2, sub_step=2)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None
+        assert "本步所需材料已全部在包内" in pack
+        assert "以上为摘要" not in pack
+
+    def test_p2_step2_materials_complete_invariant(self, tmp_path):
+        """装配不变量：plan:2#2 的包须含①子1 要素基线留痕全文（本节点留痕
+        节全文通道）②plan:1 归一化 statements 的 callers 字段（依赖分析材料
+        唯一来源=复用钉死条款的材料前提）——防未来交接包修剪把材料修没了、
+        「禁读/复用」条款变错。"""
+        self._write_evidence(
+            tmp_path,
+            self._pc_traces()
+            + [self._ds_step5_callers_trace(), self._tb_step1_trace()],
+        )
+        _write_state_full(tmp_path, "t", "plan", 2, sub_step=2)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None
+        assert "要素基线UNIQUETB1逐条附出处原文引用" in pack  # 子1 留痕全文
+        assert "调用面UNIQUECALLERS56附fileline" in pack  # DS callers 字段
+
 
 class TestSegmentSpawnOverrides:
     """u2-residual-cost（designs/u2-residual-cost-optimization-design.md）：
@@ -11369,6 +11447,50 @@ class TestSegmentSpawnOverrides:
         node = eng._NODES["understand:4"]
         for i, step in enumerate(node.sub_steps, start=1):
             if i in (1, 2, 3, 4):
+                continue
+            assert eng.segment_spawn_overrides(node, step)["env"] == {}, i
+
+    def test_p2_step2_step_level_strip(self):
+        # p2-sub2-cost L2：plan:2#2 Step 级 strip（第十例）——交付物=单元切分
+        # +DAG+H9 预算+出处，H9 阈值逐字在 purpose 形式要件（消费步同
+        # p1-sub4 型，交付物正文不引自动加载文档）；plan:2 Node 级未置
+        # tools 白名单——Step strip 只剥 env 不动 tools。
+        node = eng._NODES["plan:2"]
+        step2 = node.sub_steps[1]
+        ov = eng.segment_spawn_overrides(node, step2)
+        assert ov["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
+        assert ov["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
+        assert ov["tools"] is None
+
+    def test_p2_step2_reuse_and_delivery_clauses_pinned(self):
+        # p2-sub2-cost L4/L5：复用钉死（#25 枚举例外形态）+ 交付即止（#37
+        # 平移）+ 格式真源（#26 平移）关键词钉死——防未来编辑静默改丢
+        # （条款=本步步体主杠杆：A 轮基线 12 调用中 7 纯税=codegraph 重查
+        # ×4/设计文档重读/evidence 翻找/手搓 freshness SQL）。
+        step2 = eng._NODES["plan:2"].sub_steps[1]
+        assert "默认零新查询" in step2.purpose
+        assert "新查询=逐项例外" in step2.purpose
+        assert "台账缓存命中亦然" in step2.purpose
+        assert "锚点核验归子3" in step2.purpose
+        assert "交付即止" in step2.purpose
+        assert "--scaffold 骨架" in step2.purpose
+        assert "零重复 codegraph 查询" in step2.selfcheck
+
+    def test_p2_step3_step4_delivery_clause_pinned(self):
+        # p2-sub2-cost L5 断链暴露面补款（#30「断链与补款同批落地」）：
+        # plan:2 出链白名单后子3/子4 转 fresh 段——交付即止/格式真源两句
+        # 补款钉死，职责条款零触碰（超范围）。
+        for idx in (2, 3):
+            p = eng._NODES["plan:2"].sub_steps[idx].purpose
+            assert "交付即止" in p, idx
+            assert "--scaffold 骨架" in p, idx
+
+    def test_p2_other_steps_no_step_strip(self):
+        # 逐步粒度不误伤兄弟步（#1 清点基线须项目上下文读设计包/#3 新取证步/
+        # #4 未核对/#5 确认级无会话——均不置位）。
+        node = eng._NODES["plan:2"]
+        for i, step in enumerate(node.sub_steps, start=1):
+            if i == 2:
                 continue
             assert eng.segment_spawn_overrides(node, step)["env"] == {}, i
 

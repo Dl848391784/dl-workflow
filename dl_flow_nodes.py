@@ -3214,12 +3214,41 @@ _NODES: dict[str, Node] = {
                 kind="skill",
                 ref="superpowers:writing-plans(粒度与切片原则真源) / codegraph callers/impact / 推理(拓扑排序)",
                 short="切分排序",
+                # p2-sub2-cost（designs/p2-sub2-cost-optimization-design.md）：
+                # Step strip（第十例）+ pack_self_contained（非交互步第五例）——
+                # 输入契约逐字段核对（设计 §2 L3）：子1 要素基线走本节点留痕
+                # 全文通道在包、依赖分析材料=前序 DS statements callers 字段
+                # 在包、H9 阈值逐字在 purpose 形式要件（消费步同 p1-sub4 型）、
+                # design.md 不需（子1 留痕含要素原文逐字引用，gate 判材边界
+                # 封死设计包判面）。
+                segment_strip_project_context=True,
+                pack_self_contained=True,
                 purpose=(
                     f"任务切分与依赖排序：{_TB_STEP2_FORM_REQUIREMENTS}。"
                     "writing-plans Task Right-Sizing：单元=自带完整测试周期且值得"
                     "reviewer 门禁的最小单位；纵向切片优先（INVEST：Independent+"
                     "Testable——横向按层切的单元不可独立验证交付）；"
                     "依赖拓扑序（被依赖者先行，违反=执行期必撞墙）。"
+                    # p2-sub2-cost L4 复用钉死（#25 枚举例外形态——gate 未封死
+                    # 新查询出口，#34 不适用）+ L5 交付即止（#37）/格式真源（#26）：
+                    "材料边界（复用钉死）：切分材料=交接包（本节点子1 要素基线"
+                    "全文+前序节点归一化结论摘要）——要素的 file/function/调用面/"
+                    "消费点事实逐字引用前序留痕即合法形态（引用含原查询命令+返回"
+                    "概述，标注「复用」）。默认零新查询：禁重跑前序已载的 "
+                    "codegraph/影响面查询（同符号重查=重复付税，台账缓存命中亦然"
+                    "——缓存输出进上下文照付 token）；禁 Read 设计文档/"
+                    "understand.md 重读（要素原文引用已在子1 留痕）；禁 Read/grep "
+                    "evidence 翻找；索引新鲜度判定归查询发起步，本步零判定。"
+                    "新查询=逐项例外：仅当两要素间依赖关系前序留痕未覆盖且无法"
+                    "从包内材料推断时，对该要素对单点补一次台账节的 codebase "
+                    "query --symbol 通道（台账自动去重）。职责边界：符号存在性/"
+                    "可行性/影响面核验归前序节点验证步（已留痕），锚点核验归子3"
+                    "（下一步），本步零复核；为后续步预取锚点=越界。"
+                    "交付即止：落库成功（✓ 已落库）即结束本轮——禁 locate 产物/"
+                    "读 state/grep evidence 确认落库/预习下一步，推进与门控由"
+                    "外部 driver 判定。载荷格式与编号传导的唯一真源 = --scaffold "
+                    "骨架+append-trace 报错文案——禁读引擎/测试源码/历史 trace "
+                    "反推格式；被拒按报错文案逐字修即可。"
                 ),
                 input="step1.element_baseline",
                 record=True,
@@ -3238,6 +3267,9 @@ _NODES: dict[str, Node] = {
                     "DAG 排序留痕了吗（被依赖者先行）？TDD 序内嵌了吗？"
                     "每阶段附断点验证方法了吗（或②论证留痕）？"
                     "要素 ID 覆盖无漏吗？是「提案-待用户裁决」语义吗？"
+                    # p2-sub2-cost L4：复用钉死自查
+                    "依赖出处全部可溯包内前序留痕吗（零重复 codegraph 查询/"
+                    "零设计文档重读/零 evidence 翻找/零手搓 SQL/零为后续步预取）？"
                 ),
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace、"
@@ -3330,6 +3362,13 @@ _NODES: dict[str, Node] = {
                     "假设的接受留子5 用户裁决。"
                     "执行接地是本节点双轴心之一：plan 的消费者是零上下文执行者，"
                     "锚点编造会被 executor 当事实消费并沿链放大。"
+                    # p2-sub2-cost L5 断链暴露面补款（#30「断链与补款同批落地」，
+                    # 交付即止 #37 / 格式真源 #26 平移；职责条款零触碰）：
+                    "交付即止：落库成功（✓ 已落库）即结束本轮——禁 locate 产物/"
+                    "读 state/grep evidence 确认落库/预习下一步，推进与门控由"
+                    "外部 driver 判定。载荷格式的唯一真源 = --scaffold 骨架+"
+                    "append-trace 报错文案——禁读引擎/测试源码/历史 trace 反推"
+                    "格式；被拒按报错文案逐字修即可。"
                 ),
                 input="step2.task_units + step1.element_baseline",
                 record=True,
@@ -3387,6 +3426,13 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     '"fields":{change_point/interface/verify/acceptance_map/'
                     "trace_anchor}}——fields 五键逐键非空"
                     "（append-trace 机械校验，缺键即拒）。"
+                    # p2-sub2-cost L5 断链暴露面补款（#30「断链与补款同批落地」，
+                    # 交付即止 #37 / 格式真源 #26 平移；职责条款零触碰）：
+                    "交付即止：落库成功（✓ 已落库）即结束本轮——禁 locate 产物/"
+                    "读 state/grep evidence 确认落库/预习下一步，推进与门控由"
+                    "外部 driver 判定。载荷格式的唯一真源 = --scaffold 骨架+"
+                    "append-trace 报错文案——禁读引擎/测试源码/历史 trace 反推"
+                    "格式；被拒按报错文案逐字修即可。"
                 ),
                 input="step3.verified_units",
                 record=True,
