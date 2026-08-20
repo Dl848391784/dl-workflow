@@ -3454,6 +3454,16 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                 kind="skill",
                 ref="define-problem(归一化) / superpowers:writing-plans(Task Structure 形式真源)",
                 short="归一化步骤",
+                # p2-sub4-cost（designs/p2-sub4-cost-optimization-design.md）：
+                # Step strip（第十三例）+ pack_self_contained（非交互步第六例）——
+                # 输入契约逐字段核对（设计 §2 L2）：change_point/interface/verify/
+                # trace_anchor=子2 单元定义+子3 锚点核验留痕、acceptance_map=子1
+                # 验收包 SC ID、假设传导=子3 假设项——全经本节点留痕全文通道在包
+                # （A 轮零外部读取完成交付+gate 一次通过=材料充分性实测定案）；
+                # 交付物正文不引自动加载文档（原子性判据逐字在 purpose 形式要件，
+                # 消费步同 plan:1#5/plan:2#2 型）。
+                segment_strip_project_context=True,
+                pack_self_contained=True,
                 # claim normalization 职能第七次复用（ProblemContext 子6 /
                 # GoalsAndValue 子4 / ScopeAndConstraints 子4 / SuccessCriteria 子4 /
                 # DesignSolution 子5 同构）。
@@ -3480,6 +3490,19 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     '"fields":{change_point/interface/verify/acceptance_map/'
                     "trace_anchor}}——fields 五键逐键非空"
                     "（append-trace 机械校验，缺键即拒）。"
+                    # p2-sub4-cost L3：复用钉死（无取证例外形态，#34 第二例——
+                    # gate 判据二（b）封死包外材料出口「混入子2/子3 未定内容判
+                    # block」+判材边界「子3 已留痕即合规」，条款与判据同向写死；
+                    # 基线 de facto 零探索，条款=方差防守同 p1-sub2 定位）：
+                    "材料边界（复用钉死）：归一化材料=交接包本节点前序留痕全文"
+                    "（子1 要素基线+验收包/子2 单元定义+DAG/子3 锚点核验+假设"
+                    "清单）——逐项逐字引用即合法形态，默认零新取证。"
+                    "无取证例外：子2/子3 未定的改动点/接口/验证方法不得进项"
+                    "（混入即失真），新取证在本步无判据出口；零 evidence 翻找"
+                    "（前序 trace 已在包内）、零设计文档/understand.md 重读"
+                    "（要素原文引用已在子1 留痕）、零 codegraph 查询（调用面"
+                    "核验归子3 已留痕）。职责边界：存在性/影响面/可运行性"
+                    "核验归子3（已留痕），本步零复核；为后续步预取=越界。"
                     # p2-sub2-cost L5 断链暴露面补款（#30「断链与补款同批落地」，
                     # 交付即止 #37 / 格式真源 #26 平移；职责条款零触碰）：
                     "交付即止：落库成功（✓ 已落库）即结束本轮——禁 locate 产物/"
@@ -3505,6 +3528,9 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     "acceptance_map/trace_anchor——append-trace 机械校验，缺键即拒）？"
                     "字段与子2/子3 已定内容一致吗（无丢失无篡改无新增）？"
                     "验收包与要素双向覆盖无漏吗？"
+                    # p2-sub4-cost L3：复用钉死自查
+                    "材料全部引自交接包本节点前序留痕吗"
+                    "（零新取证/零 evidence 翻找/零设计文档重读）？"
                 ),
                 # v2.109（designs/plan2-sub4-gate-framing-design.md）：sc_coverage_trace
                 # 承接 default-PASS judge 判不稳且与 clean 误伤跷跷板的跨步判据
