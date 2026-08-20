@@ -3641,6 +3641,13 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
         # artifact_on_release 不再显式声明（字段仅 advance="phase" 编排末节点
         # 注入第三态读取，sub 节点不被读取）。
         advance="sub",
+        # p3-sub2-cost（designs/p3-sub2-cost-optimization-design.md L1）：
+        # 工具白名单（plan:3 首例，节点级）--逐步需求核对（设计 §2 L1）：
+        # 子1 Read+Bash / 子2 Read+Bash / 子3 Agent（条件红队）/ 子4
+        # Bash+Read / 子5 Skill（define-problem 归一化）+Edit（--scaffold
+        # 载荷填充）/ 子6 交互步（TUI 工具自动并集，不适用）。Grep 不入单
+        # （grep 走 Bash，plan:2 同判）；MCP 由 NO_MCP_ARGS 结构封死（既有）。
+        segment_tools=("Bash", "Read", "Edit", "Skill", "Agent"),
         sub_steps=(
             Step(
                 kind="tool",
@@ -3687,6 +3694,27 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     f"能力盘点与强制路由核对：{_CTS_STEP2_FORM_REQUIREMENTS}。"
                     "双结论制——「内置工具足够、零 skill」是合法结论"
                     "（小改动无触发命中），但须逐任务说明，防逼编造 skill 绑定凑数。"
+                    # p3-sub2-cost L3（复用钉死+职责边界，cost-optimization
+                    # #25/#29 收紧形态）：注册表通道默认源钉死（注入内
+                    # available-skills 列表 / 自动加载的 CLAUDE.md §2/§3 /
+                    # 交接包内子1 需求清单）+ 子4 可用性核验职责边界
+                    # （基线 17 调用中 ~11 纯税：目录重复枚举×4+预跑子4
+                    # 验证×4+交付后徘徊×1+evidence 翻找）。
+                    "材料边界（复用钉死+职责边界）：①skill 注册表清单以"
+                    "段注入内会话 available-skills 列表为默认源（零查询"
+                    "逐字引用即合法）；②内置工具集与 CLI/MCP 枚举引用"
+                    "CLAUDE.md §3、强制路由核对引用 CLAUDE.md §2（均会话"
+                    "自动加载，零重读零重跑）；子1 需求清单在交接包内"
+                    "逐字引用，零重翻 evidence。枚举例外（按条配额）："
+                    "磁盘 skill 目录（用户级/项目级）每目录 ls 一次"
+                    "（读后零重读）；路由命中条目的 SKILL.md frontmatter "
+                    "读取 ≤1 次/条目。职责边界：CLI/MCP/环境的可用性验证"
+                    "（which/版本冒烟/连接确认/db 存在性探测）归子4 "
+                    "可用性核验--本步②只枚举名称+出处，禁预跑子4 的验证。"
+                    # p3-sub2-cost L4（#37 交付即止 + #26 格式真源平移）：
+                    "交付即止：append-trace 落库后零后续动作（不预习"
+                    "子3）。载荷走 --scaffold 骨架+Edit 填充（格式真源="
+                    "报错文案，禁读引擎/测试源码反推）。"
                 ),
                 input="step1.need_baseline",
                 record=True,
@@ -3696,6 +3724,12 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     "能力名逐字引用注册表出处了吗（还是凭训练记忆写的）？"
                     "强制路由逐任务核对留痕了吗（§2 触发词/H15/superpowers 触发）？"
                     "②逐任务说明了吗（或给出了显式 skill 候选）？"
+                    # p3-sub2-cost L3/L4：
+                    "注入内与包内材料逐字引用、零重读零重翻了吗？"
+                    "目录枚举每目录 ≤1 次、SKILL.md frontmatter ≤1 次/"
+                    "命中条目了吗？有没有预跑子4 的可用性验证"
+                    "（which/冒烟/连接确认/db 存在性）？"
+                    "落库后即止了吗（零后续动作零预习子3）？"
                 ),
                 gate=(
                     # v2.105 gate framing 反转（§3.5 #30 泛化第二十二例，

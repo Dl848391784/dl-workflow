@@ -11406,9 +11406,9 @@ class TestSegmentSpawnOverrides:
                 continue
             ov = eng.segment_spawn_overrides(node)
             assert ov["env"] == {}, key
-            if key in ("understand:4", "plan:1", "plan:2"):
-                continue  # u4-sub1-cost / p1-sub1-cost / p2-sub1-cost：tools-only
-                # 置位（env 仍空）
+            if key in ("understand:4", "plan:1", "plan:2", "plan:3"):
+                continue  # u4-sub1 / p1-sub1 / p2-sub1 / p3-sub2-cost：
+                # tools-only 置位（env 仍空）
             assert ov["tools"] is None, key
 
     def test_u4_tools_only_no_env_strip(self):
@@ -11574,6 +11574,37 @@ class TestSegmentSpawnOverrides:
         assert "禁主仓+worktree 双路径核验" in step3.purpose
         assert "声明式" in step3.purpose
         assert "零重验了吗" in step3.selfcheck
+
+    def test_p3_tools_whitelist_no_env_strip(self):
+        # p3-sub2-cost L1（designs/p3-sub2-cost-optimization-design.md）：
+        # plan:3 置位 tools-only（plan:3 首例，节点级）--逐步需求并集
+        # （子1 Read+Bash / 子2 Read+Bash / 子3 Agent 条件红队 / 子4
+        # Bash+Read / 子5 Skill+Edit 载荷填充 / 子6 交互步 TUI 自动
+        # 并集不适用）；env 剥离否决（子2 trace 逐字引用 CLAUDE.md
+        # §2/§3 = 一等材料，u:3#1 反优化同型，见设计 §3 否决表）。
+        ov = eng.segment_spawn_overrides(eng._NODES["plan:3"])
+        assert ov["env"] == {}
+        assert ov["tools"] == ("Bash", "Read", "Edit", "Skill", "Agent")
+
+    def test_p3_step2_reuse_and_delivery_clauses_pinned(self):
+        # p3-sub2-cost L3/L4：复用钉死（默认源+按条配额）+ 职责边界
+        # （可用性验证归子4）+ 交付即止（#37 平移）+ 格式真源（#26 平移）
+        # 关键词钉死--防未来编辑静默改丢（条款=本步步体主杠杆：A 轮
+        # 基线 17 调用中 ~11 纯税=目录重复枚举×4+预跑子4 验证×4+交付
+        # 后徘徊×1+evidence 翻找）。
+        step2 = eng._NODES["plan:3"].sub_steps[1]
+        assert "available-skills 列表为默认源" in step2.purpose
+        assert "零重读零重跑" in step2.purpose
+        assert "零重翻 evidence" in step2.purpose
+        assert "每目录 ls 一次" in step2.purpose
+        assert "≤1 次/条目" in step2.purpose
+        assert "归子4" in step2.purpose
+        assert "禁预跑子4" in step2.purpose
+        assert "交付即止" in step2.purpose
+        assert "--scaffold 骨架" in step2.purpose
+        assert "零重读零重翻" in step2.selfcheck
+        assert "预跑子4" in step2.selfcheck
+        assert "落库后即止" in step2.selfcheck
 
     def test_p2_step3_gate_citation_legal_form_pinned(self):
         # p2-sub3-cost L4 gate 双侧修文本：引用前序出处进合法形态（负判定

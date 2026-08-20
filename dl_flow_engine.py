@@ -124,7 +124,13 @@ SEGMENT_CHAIN_NODES = frozenset(
 # 上下文巨大（子3+子4 transcript）携带税主导、断链确定优；材料经交接包
 # 逐字段核对完备（子1-子4 trace 全文在包，设计 §2 L2）；后续步=子6 交互
 # 恒 fresh spawn 零暴露面（#30 扩面核对）。豁免集即回滚面（摘条目=恢复链）。
-SEGMENT_CHAIN_SKIP_STEPS = frozenset({("plan:1", 5)})
+# 2026-08-20 plan:3#2 步级摘除（p3-sub2-cost，步级第二例，designs/
+# p3-sub2-cost-optimization-design.md L2）：#20 链首调恒冷（A 轮 104,483
+# cr=0 = 子1 transcript 冷重写）+ #24 前序上下文携带税主导；材料经交接包
+# 逐字段核对完备（子1 need_baseline trace 全文在包）。子3 侧效应 = 链
+# resume 换挂子2 fresh 会话（继承 transcript 变小，同向）。节点白名单
+# 不动、plan:3 其余步零行为变化（surgical，节点级断链否决理由见设计 §3）。
+SEGMENT_CHAIN_SKIP_STEPS = frozenset({("plan:1", 5), ("plan:3", 2)})
 
 # 段内续步白名单（u2-sub4-cost，2026-08-18 用户裁决「段内续步」方案）：
 # 名单内节点的连续非交互子步骤在同一 claude -p 进程内续跑（--input-format

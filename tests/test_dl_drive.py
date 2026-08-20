@@ -2404,8 +2404,13 @@ def test_chain_resume_step_level_skip(wf_repo):
 
 
 def test_chain_skip_steps_constant():
-    """豁免集单源钉死：白名单节点 ∩ 豁免集 = 当前仅 plan:1#5（回滚面=摘条目）。"""
+    """豁免集单源钉死：当前 plan:1#5 + plan:3#2（回滚面=摘条目）。
+
+    plan:3#2（p3-sub2-cost，步级第二例）：#20 链首调恒冷（A 轮 104,483
+    cr=0 = 子1 transcript 冷重写）+ #24 前序携带税主导；材料经交接包逐
+    字段核对完备（子1 need_baseline trace 全文在包）。"""
     assert ("plan:1", 5) in engine.SEGMENT_CHAIN_SKIP_STEPS
+    assert ("plan:3", 2) in engine.SEGMENT_CHAIN_SKIP_STEPS
     for nid, _step in engine.SEGMENT_CHAIN_SKIP_STEPS:
         assert nid in engine.SEGMENT_CHAIN_NODES  # 豁免集 ⊆ 链白名单才有意义
 
