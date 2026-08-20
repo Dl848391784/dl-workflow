@@ -12083,7 +12083,6 @@ class TestSegmentSpawnOverrides:
         assert "本步所需材料已全部在包内" in pack
         assert "以上为摘要" not in pack
 
-
     def test_p4_node_tools_whitelist(self):
         # p4-sub1-cost L2：plan:4 Node 工具白名单（plan:4 首例，designs/
         # p4-sub1-cost-optimization-design.md §2 L2 五步逐步核对）——
