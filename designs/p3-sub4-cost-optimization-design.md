@@ -144,10 +144,75 @@ trace 质量逐条自查（防 Goodhart）：每绑定四类核验留痕齐备�
 本轮收益；⑤judge replay 读数与 live 门控分开登记；⑥并行会话
 p3-sub3-cost 在飞，A/B 期间其 skip 第三例未入 main=两臂链政策一致。
 
-## 5. 实测收官
+## 5. 实测收官（2026-08-20，A=p3_sub3_base 子4 链内段 / B=p3_sub4_ab 子4 fresh 段，同种子 evidence ≤plan:3#3，ac-deepseek1/deepseek-v4-flash headless）
 
-（待 B 轮）
+| 指标 | A（链内段） | B（四杠杆） | B vs A | 预登记 | 验收 |
+|---|---|---|---|---|---|
+| 首调 fresh | 190,802（cr=1,024） | 33,258（cr=0） | **-82.6%** | ≤48,000 | ✓ 大幅超（三分量报价命中：包 ~20-24k+harness 4.8k+schema ~3.5k+rules/prompt ~2.5k≈31-35k） |
+| 段 fresh 合计 | 193,388 | 77,889 | **-59.7%** | — | ✓ |
+| 段 cr 合计 | 1,446,016 | 231,680 | **-84.0%** | -60% 起 | ✓ 超（携带税灭主驱动） |
+| 成本等效（in+cr×0.1） | 337,990 | 101,057 | **-70.1%** | -45% 起 | ✓ 超，主验收轴 |
+| 轮数（result 权威值） | 15 | 9 | **-40%** | ≤15 | ✓ |
+| 工具调用 | 14（Bash×11） | 8（Bash×3 核验+scaffold/Read/Edit×2/append） | -42.9% | ≤12 | ✓ 近理想最小形态 |
+| 段 out 合计 | 19,134 | 19,588 | +2.4% | ≤37k（1.9× 报价） | ✓ **无反噬**（见归因） |
+| 段 dur_api | 151s | 147s | -2.6% | out÷rate 拟合登记 | ✓ 双轴同降（速率 A 127/B 133 tok/s 稳定，out 持平→墙钟持平） |
+| append-trace mech 拒 | —（driver 死于 gate 前） | **0**（scaffold+一次落库） | | | ✓ |
+| 门控 | 未判 | **零 block 一次通过**（last_judged plan:3#4 落账即推进） | | 零 block | ✓ |
+
+**B 工具序列（近理想形态）**：which codegraph（单命令，禁同面复探自述）→
+test -f venv python（单命令）→ pytest --version（单命令）→ scaffold →
+Read 骨架 → Edit×2 → append 一次过。①skill 存在性零新命令（全部引用子2
+留痕逐字：磁盘清单目录行+frontmatter 留痕）=L3 兑现；同面复探两族清零
+（A 轮新鲜度×4/venv×4）=深度钉死兑现；零 evidence 翻找/零交付后徘徊。
+
+**trace 质量逐条自查（防 Goodhart）**：9 能力绑定四类留痕齐备（①引用子2
+留痕逐字/②which 单命令/③引用子2 配置留痕+会话工具面/④test -f+
+--version 单命令，不适用类附显式声明）；三态逐绑定混合（已验证附出处+
+假设 H-A/H-B 附置信度×影响）；只标注不裁决（接受留子6）；深度钉死自述
+在 trace 正文——绑定条条有出处，执行接地零稀释 ✓。
+
+**out 无反噬归因（#42 反例形态第二例）**：复用钉死的引用厚度替代的是
+A 轮命令回显厚度（留痕义务总量不变），条款新增的引用义务为零时 out
+不放大（p3-sub1-cost -18.2% 同族）；thinking 放大未现（B 核验思考量
+随复探清零同步下降）。预登记 1.9× 报价未触发=报价口径的保守方向，
+不改 #33 报价规则（报价=上限非点估计）。
+
+**replay（L5 对照组程序收官）**：现 gate（2594 字符未改）n=6——
+clean 6/6 / **clean2_引用子2留痕 6/6 全 PASS** / vio1 6/6 / vio2 6/6 /
+vio4 5/6 / vio3 1/6。**对照组结论：引用形态误 block 不存在（6/6 放行）
+→gate 零变更**（三查①mech assumption_completeness_trace 不涉引用形态
+②方框一合法形态已列「注册表列表行引用」③引用形态不命中任何 block
+条件）；clean2 入库=回归 fixture 防未来 gate 编辑误 block 引用形态。
+vio3 1/6=设计内委托（判面已下沉 assumption_completeness_trace 生产墙，
+v2.112 落地时 2/6 同族读数），非本轮改动面。
+
+**子5 暴露面登记（#30 扩面）**：B 轮顺带跑子5（resume 子4 fresh 会话）——
+首调 96,705（cr=0 恒冷）/7 轮/段合计 in=107,695 cr=536,448/out=19,620，
+无 A 对照（基线收段未跑子5）。定性：携带量=子4 单段 transcript（~78k）
+vs 断链前链内形态应为子2+3+4 三段（首调 190k 基础上再涨）——同向改善；
+轮数 7 无爆炸（#20 补暴露面上限登记 ✓）。
+
+**混淆声明复盘**：①A=链内段 vs B=fresh 段=L1 测量面（预登记已声明）；
+②A 轮①缺位=不合规少做事形态，B 以引用形态零新命令补齐——轮数口径
+按预登记不按「≤A 大降」验收（实际 -40% 仍降，纯税消灭+合规欠账补齐
+同批）；③amplitude 今日值 4929.2% vs 种子 4824.5% 漂移=#18 未触发
+（子4 核验不涉因子数值，B 轮零数据文件读取）；④Node 白名单两臂同有；
+⑤judge replay（MiniMax）与 live 门控（deepseek）分开登记；⑥并行会话
+p3-sub3-cost 在飞，两臂链政策一致（其 ("plan:3",3) 未入任何一臂）。
+
+**pytest**：1202 全绿（新增 3 例：断链豁免行为[子4 豁免+兄弟步零变化]/
+子4 strip 生效面/复用条款 pin；test_p3_other_steps_no_step_strip 豁免
+子4；test_chain_skip_steps_constant 补 ("plan:3",4)）。
 
 ## 6. 遗留
 
-（待收官）
+- plan:3 子5（归一化能力包）成本优化立项候选（B 轮顺带段读数已登记：
+  首调 96.7k 链内冷重写=断链/复用钉死面未覆盖；pack/strip 逐步核对）；
+- 子6 读回步=零成本关闭清单核对（#22 先例，plan:3#6 在册 8 读回步）；
+- 并行会话 p3-sub3-cost 收口并轨点：SEGMENT_CHAIN_SKIP_STEPS frozenset
+  行（union ("plan:3",3)）/test_chain_skip_steps_constant 断言/
+  test_p3_other_steps_no_step_strip 豁免集（加子3）/strip 例数（彼十五
+  此十六）/cost-optimization 编号（收口时 git log 最大值+1）；
+- vio3 1/6 牙齿=设计内委托登记（生产墙承托判面，judge 残留判面小）；
+- 种子八件套族补件：worktree 跑 replay 必带 .token（README 已单源化，
+  症状 V 第二形态）。
