@@ -195,6 +195,63 @@ selfcheck 追加：「子1 已载出处逐字引用零重验了吗（file:line/c
 - 不改：engine 机制代码（全现成）、dl_drive.py、gate 文本、Node
   segment_tools、SEGMENT_CHAIN_NODES、MERGED_RUN_NODES。
 
-## 5. 实测收官
+## 5. B1 轮实录（2026-08-20 09:32-09:52，worktree 码 0c87f96=L1 条款）——结构 thrash 暴露+L2 立项
 
-【待 B 轮后填】
+B1 驱动法：种子复原（evidence 裁回 24 条 ≤plan:1#2 + state 回 plan:1#3
+[sub_step_index=3/node_attempts=0/last_judged 摘 plan:1#3 键/段记录清零]
++ 台账裁回 5 条子1 落账 + drive-stream/cc_sdk.log 清空 + hook 路径指
+worktree）→ `AC_WORKFLOW_LAUNCHER=<worktree>/scripts/workflow/dl-launch.sh
+ac-deepseek1 --dl p1_sub3_ab --resume --headless`。代码路径核验：B1 段
+prompt 内条款关键词「零重验零重跑」命中=worktree 码生效。
+
+| 指标 | A（主树） | B1（L1 条款） | Δ |
+|---|---|---|---|
+| 首调 fresh | 34,312 | 35,220（cr=0） | +2.6%（条款使 step prompt 略长=预期内，无 strip 首调不变 ✓） |
+| 段 fresh 合计 | 61,669 | 116,968 | +89.6% ⚠ |
+| 段 cr 合计 | 1,268,864 | 3,995,648 | +215% ⚠ |
+| 段 out 合计 | 37,154 | 142,161 | +283% ⚠ |
+| API 调用 | 19 | 31 | +63% ⚠ |
+| 模型墙钟 | ~329s | ~1150s（01:32:20→01:51:27 UTC） | ⚠ |
+| 工具调用 | 35 | 68 | ⚠ |
+| 门控 | PASS（手工重判） | PASS（手工重判，见下） | ✓ |
+
+**B1 行为面（L1 条款兑现的部分）**：零仓内源码 Read 重验（A 轮 11 次→0）、
+零 codebase freshness 重跑、零 PROJECT.md/规范文档重读、零 evidence 翻找、
+零 daily gz 重验；探索只剩 ②功能域查询（Grep 复利/CAGR/×252 等对题查询）
++ ③影响面 2 次 + ⑤接缝定位——全部落在枚举例外面内。trace 质量：7 q/a
+按候选逐条+1 汇总条，①段「复用 子1 留痕 file:line」形态逐候选在场，
+手工重跑生产 judge（同 gate 文本同 artifact）**PASS**。
+
+**B1 总账恶化的根因（thrash 主导）**：模型把①-⑤按核验项拆成五条 q/a
+组织载荷，撞 mech `_check_feasibility_verification_trace`「含①的答案须
+①-⑤圈码齐备」逐条扫描——**7 连拒（9 次 append/35+ Edit 返工褶皱）**
+才发现问题是结构不是内容，重构为按候选组织后当场过。结构发现成本
+（~12 调用 × 逐调 cr 40-90k）淹没条款节省。A 轮同坑只踩 1 次（初始结构
+碰巧更接近）——**既有结构歧义陷阱**（mech 实质要求按候选组织，但
+purpose/scaffold/报错文案都没说），非 L1 条款引入，但优化成败被它决定。
+
+**环境事故（同 A 轮根因，第二击）**：B1 段结束时刻 judge spawn 再撞
+`Exec format error`——本会话 claude 进程（897429，cloudcli 托管，
+--resume=本会话 ID）的**内建自动更新器**于 09:50 再装 2.1.237（默认源
+npmjs.org 极慢→native optional 包拉取失败被静默跳过→stub）。已修：
+npmmirror 重装 2.1.236 + `~/.claude.json` 写 `autoUpdates=false`（当前
+进程不重读配置，残留风险=本会话再次 resume 时复发，复发则再修）。
+A/B 两轮 judge 崩溃同根因同修。
+
+### L2 载荷组织钉死（文案双修，零新机制；并行窗口实施）
+
+- `dl_flow_nodes.py` 子3 purpose 末追加「载荷组织钉死」句：每候选一对
+  q/a、a 内①-⑤圈码齐备+三态、按核验项拆 q 当场被拒的预告 + 格式真源
+  钉死（=--scaffold 骨架+报错文案，禁翻历史 trace/evidence/引擎源码
+  反推格式，#26 平移）。
+- `dl_flow_engine.py` `_check_feasibility_verification_trace` 缺项报错
+  文案追加组织形态指引（报错即返工指令原则，weak-model-mechanisms：
+  组织形态不写进报错=模型按同结构反复撞墙）。
+- 测试：报错文案钉「每候选一对」+ purpose 钉「每候选一对 q/a」「按核验项
+  拆 q」「格式真源=--scaffold 骨架+报错文案」。
+
+**gate/judge 零变更**：L2 只动模型侧指引与写侧报错文案，判据不动。
+
+## 6. 实测收官
+
+【待 B2 轮后填】
