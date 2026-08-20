@@ -12005,8 +12005,41 @@ class TestSegmentSpawnOverrides:
         assert ov["tools"] == ("Bash", "Read", "Edit", "Skill", "Agent")
         assert step2.pack_self_contained is True
         strips = [bool(s_.segment_strip_project_context) for s_ in node.sub_steps]
-        # 子1=p4-sub1-cost（第十八例），子2=p4-sub2-cost（第十九例）
-        assert strips == [True, True, False, False, False]
+        # 子1=p4-sub1-cost（第十八例），子2=p4-sub2-cost（第十九例），
+        # 子3=p4-sub3-cost（第二十例）
+        assert strips == [True, True, True, False, False]
+
+    def test_p4_step3_step_level_strip_and_pack(self):
+        # p4-sub3-cost L2/L4（designs/p4-sub3-cost-optimization-design.md）：
+        # plan:4#3 置位 Step strip（第二十例——p4-sub2 占第十九；四类核验
+        # =判据 dry-run/交集实算/锚点存在/验证手段绑定全=本仓事实核验，
+        # 无硬规则条号点名，#23 第三核对）+ pack_self_contained（非交互
+        # 第十例——核验对象 100% 源自子2 调度方案+子1 五类清单，全文在包，
+        # 设计 §2 L4 逐字段核对）。
+        node = eng._NODES["plan:4"]
+        step3 = node.sub_steps[2]
+        ov = eng.segment_spawn_overrides(node, step3)
+        assert ov["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
+        assert ov["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
+        assert ov["tools"] == ("Bash", "Read", "Edit", "Skill", "Agent")
+        assert step3.pack_self_contained is True
+
+    def test_p4_step3_reuse_delivery_clauses_pinned(self):
+        # p4-sub3-cost L3/L5：复用钉死（#39 核验步形态=出处生产时间前移+
+        # 深度钉死+枚举例外按条配额）+交付即止（#37）+格式真源（#26）关键词
+        # 钉死——防未来编辑静默改丢。R1 交集实算=判据二硬要件保留单命令
+        # （枚举例外），非「零重验」。
+        step3 = eng._NODES["plan:4"].sub_steps[2]
+        assert "复用钉死" in step3.purpose
+        assert "出处生产时间前移" in step3.purpose
+        assert "交集实算" in step3.purpose
+        assert "验存在即止" in step3.purpose
+        assert "零 codegraph 新查询" in step3.purpose
+        assert "四类以外零取证" in step3.purpose
+        assert "交付即止" in step3.purpose
+        assert "--scaffold 骨架" in step3.purpose
+        assert "零重验" in step3.selfcheck
+        assert "验存在即止" in step3.selfcheck
 
     def test_p4_step2_reuse_redteam_delivery_clauses_pinned(self):
         # p4-sub2-cost L4/L5/L6：复用钉死（消费步形态，p1-sub4 平移）+红队
@@ -12128,12 +12161,12 @@ class TestSegmentSpawnOverrides:
         assert "grep evidence" not in step1.ref
 
     def test_p4_other_steps_no_step_strip(self):
-        # 逐步粒度不误伤兄弟步（子3/子4 逐步核对未做、子5 确认级无会话——
-        # 均不置位；子1 由 p4-sub1-cost 置位，子2 由 p4-sub2-cost 置位
-        # [交付物=调度四件+检查点方案零引自动加载文档，#23 第三核对]）。
+        # 逐步粒度不误伤兄弟步（子4 逐步核对未做、子5 确认级无会话——
+        # 均不置位；子1 由 p4-sub1-cost 置位，子2 由 p4-sub2-cost 置位，
+        # 子3 由 p4-sub3-cost 置位[四类核验全=本仓事实核验，#23 第三核对]）。
         node = eng._NODES["plan:4"]
         for i, step in enumerate(node.sub_steps, start=1):
-            if i in (1, 2):
+            if i in (1, 2, 3):
                 continue
             assert eng.segment_spawn_overrides(node, step)["env"] == {}, i
 
