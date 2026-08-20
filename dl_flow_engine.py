@@ -135,18 +135,27 @@ SEGMENT_CHAIN_NODES = frozenset(
 # 子2 段末调 cr=0 实锤，链内子3 首调 = 子2 transcript ~101k 全额冷重写）
 # + #24 携带税主导（p2_sub3_ab 老链段子3 实测每调 cr ~134k×16 轮）；
 # 材料经交接包逐字段核对完备（子1 need_baseline/子2 capability_registry
-# trace 全文在包=输入契约全集）。子4/子5 侧效应 = 链 resume 换挂子3
-# fresh 会话（继承 transcript 变小，同向）。
-# 2026-08-20 plan:3#5 步级摘除（p3-sub5-cost，步级第五例——p3-sub4-cost
-# 在飞占第四例，merge 复核；designs/p3-sub5-cost-optimization-design.md
-# L1）：#20 链首调恒冷（A 轮 239,576/cr=1,024 = 子2+3+4 链会话 211k 全量
-# 冷重写）+ #24 携带税主导（段 cr 1.03M/5 轮单调涨）；材料经交接包逐字段
-# 核对完备（子1 需求清单/子2 注册表+强制路由核对/子3 绑定提案+不加载清单/
-# 子4 可用性核验+假设=输入契约全集 trace 全文在包，装配不变量测试钉死）；
-# 后续步=子6 确认级无会话零暴露面（#30）。链上下文 211k 距 250k 护栏仅
-# ~39k=结构不可持续。
+# trace 全文在包=输入契约全集）。子5 侧效应 = 链 resume 换挂 fresh 会话
+# （继承 transcript 变小，同向；子4 亦豁免见下，其「子4 resume 子3」
+# 侧效应被子4 自身摘除取代）。
+# 2026-08-20 plan:3#4 步级摘除（p3-sub4-cost，步级第四例，designs/
+# p3-sub4-cost-optimization-design.md L1）：#20 链首调恒冷（免跑基线
+# p3_sub3_base 子4 链内段首调 fresh 190,802 / cr=1,024 = 子2+子3
+# transcript 冷重写实锤）+ #24 携带税主导（段 cr 1,446,016 / 15 轮 ≈
+# 96k/轮）。材料经交接包逐字段核对完备（子4 input=step3.binding_proposals，
+# 本节点前序 trace 全文通道在包）。后续步子5 resume 子4 fresh 会话=
+# 携带量变小（一段 vs 三段），无 fresh 化暴露面（#30 扩面核对）；
+# 节点白名单不动、plan:3 其余步零行为变化。
+# 2026-08-20 plan:3#5 步级摘除（p3-sub5-cost，步级第五例，designs/
+# p3-sub5-cost-optimization-design.md L1）：#20 链首调恒冷（A 轮
+# 239,576/cr=1,024 = 子2+3+4 链会话 211k 全量冷重写，pre-p3-sub4-merge
+# 链形态=最大口径）+ #24 携带税主导（段 cr 1.03M/5 轮单调涨）；材料经
+# 交接包逐字段核对完备（子1 需求清单/子2 注册表+强制路由核对/子3 绑定
+# 提案+不加载清单/子4 可用性核验+假设=输入契约全集 trace 全文在包，
+# 装配不变量测试钉死）；后续步=子6 确认级无会话零暴露面（#30）。
+# plan:3 链成员仅剩子1/子6 名义在册——节点级断链重审登记（设计 §9）。
 SEGMENT_CHAIN_SKIP_STEPS = frozenset(
-    {("plan:1", 5), ("plan:3", 2), ("plan:3", 3), ("plan:3", 5)}
+    {("plan:1", 5), ("plan:3", 2), ("plan:3", 3), ("plan:3", 4), ("plan:3", 5)}
 )
 
 # 段内续步白名单（u2-sub4-cost，2026-08-18 用户裁决「段内续步」方案）：

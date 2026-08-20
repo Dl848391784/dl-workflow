@@ -269,14 +269,56 @@ S4_VIO4["a"][3] = (
     "三态逐绑定标注，q/a 按序对齐。"
 )
 
+# ---- clean2（p3-sub4-cost L5）：①全部引用子2 留痕形态（复用钉死落地后
+# 的合法新形态——出处生产时间前移，①零新命令），②③④单命令留痕 ----
+S4_CLEAN2 = copy.deepcopy(S4_BASE)
+S4_CLEAN2["a"][0] = (
+    "B1 `factor-development` 核验：①skill 条目存在--引用子2 留痕："
+    "available-skills 列表行『factor-development』+ 磁盘枚举 "
+    "`.claude/skills/` 目录含该条目（子2 ①注册表清点出处，零重验）；"
+    "②CLI 本绑定不适用（skill 加载不依赖外部 CLI）--显式声明；③MCP 本"
+    "绑定不适用（不依赖 MCP server）--显式声明；④环境前提--Bash "
+    "`test -d .claude/skills && echo OK` 返回 OK（项目 skill 目录可读，"
+    "无额外依赖）。三态：已验证（出处=子2 留痕+上述 Bash 命令返回）。"
+)
+S4_CLEAN2["a"][1] = (
+    "B2 `superpowers:test-driven-development` 核验：①条目存在--引用子2 "
+    "留痕：available-skills 列表行『superpowers:test-driven-development』"
+    "（子2 ①出处，零重验）；②CLI 不适用--显式声明；③MCP 不适用--显式"
+    "声明；④环境前提--plugin SessionStart 钩子自动注入，Bash `ls "
+    "~/.claude/plugins/superpowers` 返回目录内容。三态：已验证（出处="
+    "子2 留痕+上述命令返回）。"
+    "B3 `andrej-karpathy-skills:karpathy-guidelines` 核验：①条目存在--"
+    "引用子2 留痕：available-skills 列表行『andrej-karpathy-skills:"
+    "karpathy-guidelines』（子2 ①出处，零重验）；②CLI 不适用--显式声明；"
+    "③MCP 不适用--显式声明；④环境前提--plugin 目录 Bash `ls ~/.claude/"
+    "plugins/` 返回含 andrej-karpathy-skills。三态：一项假设--该 plugin "
+    "skill 磁盘 SKILL.md 路径子2 未逐一核实，仅凭列表行在册推定可加载"
+    "（置信度高×影响低：错误时 Skill 调用当场报错、可即时改走内联行为"
+    "约束，不影响 B1/B2/B4 绑定）。"
+)
+S4_CLEAN2["a"][3] = (
+    "假设项汇总：一条（B3 plugin skill 磁盘路径子2 未逐一核实，置信度高×"
+    "影响低，见 a2）。证伪项：无——四类核验无一项返回不可用，无需回子3 "
+    "换绑。只标注不裁决：B3 假设项的接受与否留子6 用户裁决，本步只标注；"
+    "①存在性出处均引用子2 注册表清点留痕零重验（复用钉死），②③④每"
+    "绑定单命令验存在即止；五绑定四类核验无遗漏（不适用类附显式声明），"
+    "三态逐绑定标注，q/a 按序对齐。"
+)
+
 CASES = {
     "clean": S4_CLEAN,
+    "clean2_引用子2留痕": S4_CLEAN2,
     "vio1_声称可用无出处": S4_VIO1,
     "vio2_无差别已验证": S4_VIO2,
     "vio3_假设缺置信度影响": S4_VIO3,
     "vio4_漏绑定核验": S4_VIO4,
 }
-EXPECT = {"clean": True, **{k: False for k in CASES if k != "clean"}}
+EXPECT = {
+    "clean": True,
+    "clean2_引用子2留痕": True,
+    **{k: False for k in CASES if not k.startswith("clean")},
+}
 
 
 def main():
