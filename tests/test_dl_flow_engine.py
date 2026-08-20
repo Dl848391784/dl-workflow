@@ -7795,6 +7795,9 @@ class TestV237FirstPassRate:
         ]
         err = eng._check_feasibility_verification_trace(qa_missing)
         assert err and "缺项" in err and "可测试性" in err
+        # p1-sub3-cost 修1：报错文案携带组织形态指引（报错即返工指令——
+        # B1 轮模型按核验项拆 q 七连拒实证）。
+        assert "每候选一对" in err
         qa_bare_exist = [
             {
                 "q": "候选A 的五项核验结果与三态标注如何？",
@@ -11371,13 +11374,42 @@ class TestSegmentSpawnOverrides:
         assert ov["tools"] == ("Bash", "Read", "Edit", "Grep", "Skill", "Agent")
 
     def test_p1_other_steps_no_step_strip(self):
-        # 逐步粒度不误伤兄弟步（子3-6 逐步核对未做，不置位——链内段 env
-        # 零变化=回滚面；子2 于 p1-sub2-cost 置位，见下一测试）。
+        # 逐步粒度不误伤兄弟步（子4-6 逐步核对未做，不置位——链内段 env
+        # 零变化=回滚面；子2 于 p1-sub2-cost 置位；子3 于 p1-sub3-cost
+        # 核对后结论=不置位：④硬规则核验须点名规则条号=一等材料，#23 第三
+        # 核对不通过，u:3#1 反优化同型——钉死防未来误置位）。
         node = eng._NODES["plan:1"]
         for i, step in enumerate(node.sub_steps, start=1):
             if i in (1, 2):
                 continue
             assert eng.segment_spawn_overrides(node, step)["env"] == {}, i
+
+    def test_p1_step3_reuse_clause_pinned(self):
+        # p1-sub3-cost L1（designs/p1-sub3-cost-optimization-design.md）：
+        # plan:1#3 purpose/selfcheck 复用钉死条款（#25 收紧形态——默认零重验+
+        # 枚举例外+按条配额+台账缓存通道钉死）关键词钉死——防未来编辑静默
+        # 改丢（条款是本步步体主杠杆：基线 35 调用中 ~15 纯税/半税=重验子1
+        # 已载出处+规范文档重读+掘进）。
+        step3 = eng._NODES["plan:1"].sub_steps[2]
+        assert "零重验零重跑" in step3.purpose
+        assert "复用 子1 留痕" in step3.purpose
+        assert "每符号最多一次" in step3.purpose
+        assert "验存在即止" in step3.purpose
+        assert "每功能域 ≤1 次查询" in step3.purpose
+        assert "零规范文档重读" in step3.purpose
+        assert "零 evidence 全量翻找" in step3.purpose
+        assert "不重跑 freshness" in step3.purpose
+        assert "零重验" in step3.selfcheck
+        assert "零规范文档重读" in step3.selfcheck
+
+    def test_p1_step3_payload_org_clause_pinned(self):
+        # p1-sub3-cost 修1（B1 轮实证）：载荷组织钉死条款——条款逐项枚举被
+        # 弱模型镜像成「按核验项拆 q」散列组织，撞 mech 逐 a 圈码齐备扫描
+        # 7 连拒（35 Edit 返工褶皱）；组织形态+格式真源钉死防复发。
+        step3 = eng._NODES["plan:1"].sub_steps[2]
+        assert "每候选一对 q/a" in step3.purpose
+        assert "按核验项拆 q" in step3.purpose
+        assert "格式真源=--scaffold 骨架+报错文案" in step3.purpose
 
     def test_p1_step2_step_level_strip(self):
         # p1-sub2-cost L1（designs/p1-sub2-cost-optimization-design.md）：
