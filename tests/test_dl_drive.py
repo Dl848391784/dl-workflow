@@ -283,6 +283,22 @@ def test_step_prompt_self_contained_clause_interactive(wf_repo):
     assert "禁 Read evidence 全量翻找" in prompt
 
 
+def test_step_prompt_self_contained_clause_p1_step5(wf_repo):
+    """p1-sub5-cost L2：plan:1#5（非交互 statements 装配步）置位
+    pack_self_contained——段 prompt 带材料边界条款（非交互 else 分支覆盖，
+    钉死防未来重构切出）；复用钉死/校验预告条款随 purpose 进 prompt。"""
+    drv = _load(DRIVER, "drv_p1_s5_clause")
+    state = _write_state(wf_repo)
+    node = engine.get_node("plan", 1)
+    step5 = engine.sub_step_at(node, 5)
+    assert step5.pack_self_contained is True  # 置位（单源核对）
+    prompt = drv.build_step_prompt(wf_repo, "t", state, node, 5, step5, rework=None)
+    assert "材料边界" in prompt
+    assert "禁 Read evidence 全量翻找" in prompt
+    assert "无取证例外" in prompt  # L1 复用钉死条款随 purpose
+    assert "校验预告" in prompt  # L4 逐项传导/ADR 预告随 purpose
+
+
 def test_bash_shape_rules_venv_absolute_form(wf_repo):
     """项目有 venv 时钉绝对路径形态（./ 前缀会让白名单前缀匹配落空）。"""
     drv = _load(DRIVER, "drv_under_test")
@@ -2365,6 +2381,30 @@ def test_chain_resume_no_chain(wf_repo):
     drv = _load(DRIVER, "drv_chain_none")
     state = _write_state(wf_repo)
     assert drv._chain_resume_sid(state, "understand:3", 2) is None
+
+
+def test_chain_resume_step_level_skip(wf_repo):
+    """p1-sub5-cost L5：步级豁免集 SEGMENT_CHAIN_SKIP_STEPS 命中即不续链
+    （fresh spawn）——plan:1#5 输入契约经交接包完备，fresh 段恒定地板优于
+    链携带税（#20/#24）；链内兄弟步（子4）零行为变化。"""
+    drv = _load(DRIVER, "drv_chain_skip")
+    state = _write_state(
+        wf_repo,
+        segment_chain={"node": "plan:1", "sid": "abc", "last_step": 4},
+    )
+    assert drv._chain_resume_sid(state, "plan:1", 5) is None  # 豁免步
+    state4 = _write_state(
+        wf_repo,
+        segment_chain={"node": "plan:1", "sid": "abc", "last_step": 3},
+    )
+    assert drv._chain_resume_sid(state4, "plan:1", 4) == "abc"  # 兄弟步不受影响
+
+
+def test_chain_skip_steps_constant():
+    """豁免集单源钉死：白名单节点 ∩ 豁免集 = 当前仅 plan:1#5（回滚面=摘条目）。"""
+    assert ("plan:1", 5) in engine.SEGMENT_CHAIN_SKIP_STEPS
+    for nid, _step in engine.SEGMENT_CHAIN_SKIP_STEPS:
+        assert nid in engine.SEGMENT_CHAIN_NODES  # 豁免集 ⊆ 链白名单才有意义
 
 
 def test_chain_update_on_whitelisted_node(wf_repo):

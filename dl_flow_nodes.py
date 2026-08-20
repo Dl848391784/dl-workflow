@@ -2847,6 +2847,27 @@ _NODES: dict[str, Node] = {
                     "rejected/assumptions/acceptance_map/h9_units}}"
                     "——fields 八键逐键非空（append-trace 机械校验，缺键即拒）；"
                     "text 只许 outcome-level，实现侧名词/file:line 进 fields/boundary。"
+                    # p1-sub5-cost L4（校验预告钉死，p1-sub3 修1 同法——基线
+                    # 两连 mech 拒=purpose 未预告组织形态，报错即返工指令已在、
+                    # 缺预告）：
+                    "校验预告：源步（子4）留痕条目编号（候选/Cx.x/Hx.x 等）逐项"
+                    "传导进 fields 对应键——缺传 append-trace 当场拒（可显式标注"
+                    "剔除理由）；rejected 字段逐被否项附「为何被否」说明（引子3 "
+                    "核验事实或子4 净分/硬规则触发/影响面/复用度任一项即可）——"
+                    "只列名单当场拒。"
+                    # p1-sub5-cost L1（复用钉死无取证例外形态，#34——gate 方框
+                    # 一/三已结构性封死包外材料出口，条款与判据同向；基线 21/41
+                    # 调用=前序已载事实的重复核验/重导）：
+                    "材料边界（复用钉死）：归一化材料=交接包（本节点子1-子4 "
+                    "各步最新留痕全文 + 前序节点归一化结论摘要）——逐字直接引用/"
+                    "忠实提取/同义转述即合法形态。本步零新取证：不跑 codegraph/"
+                    "dl codebase/grep/ls 仓内侦察、不 Read 仓内代码/数据文件"
+                    "重定位、不重读结果文件重实测前序已载现状值、不 Read "
+                    "evidence 全量翻找。无取证例外——子1-子4 未载的事实不得进 "
+                    "fields（gate 凭空新增判据同义），新取证在本步无判据出口。"
+                    "职责边界：存在性/可行性/影响面核验归子3，评估排序归子4，"
+                    "为后续节点拆解预取材料=越界（「先查清楚再归一」不是本步"
+                    "职责）。"
                 ),
                 input="step4.recommendation",
                 record=True,
@@ -2869,7 +2890,19 @@ _NODES: dict[str, Node] = {
                     "字段与子3/子4 已定内容一致吗（无丢失无篡改无新增）？"
                     "statements 载荷 text 逐条无实现侧名词吧（进 fields/boundary，"
                     "机械扫描会拒）？"
+                    # p1-sub5-cost L1 selfcheck 配套：
+                    "八字段内容全部可溯交接包子1-子4 留痕/前序节点摘要吗（零 "
+                    "codegraph/grep/仓内文件重查/结果文件重实测、零 evidence "
+                    "翻找、零为后续步预取）？"
                 ),
+                # p1-sub5-cost L2/L3（designs/p1-sub5-cost-optimization-design.md）：
+                # pack_self_contained——输入契约逐字段核对全过（子1-子4 trace 全
+                # 文在包+SC ID 在前序 statements.text 全文+H9 阈值经子3/子4 trace
+                # 逐字在场），灭 fresh 口径 evidence 翻找方差（u:4#4 断链暴露
+                # 前车）；strip——消费步（H 条号经前序 trace 逐字在场，非一等
+                # 材料直引规范文档，与 p1-sub3 验证步否决型不同型），首调 -11.9k。
+                pack_self_contained=True,
+                segment_strip_project_context=True,
                 # v2.116 framing 反转（designs/plan1-sub5-gate-framing-design.md，
                 # #30 泛化第三十三例）：基线 368 字从严 clean 0/6 + vio 全 6/6，但
                 # vio5「否决理由丢失」零轮引对条款（全靠 clean 同源的复合句误伤

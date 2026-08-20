@@ -112,6 +112,16 @@ SEGMENT_CHAIN_NODES = frozenset(
     }
 )
 
+# 段链步级豁免集（p1-sub5-cost L5，2026-08-20，designs/
+# p1-sub5-cost-optimization-design.md——断链第六例、首例步级粒度）：
+# 链白名单是节点级，本集做步级摘除——(node_id, sub_step) 命中即不续链
+# （fresh spawn），链内其余步零行为变化。plan:1#5（归一化陈述）判据：
+# #20 deepseek 会话隔离缓存下链首调冷（A 段 143k 冷重写实锤）+ #24 前序
+# 上下文巨大（子3+子4 transcript）携带税主导、断链确定优；材料经交接包
+# 逐字段核对完备（子1-子4 trace 全文在包，设计 §2 L2）；后续步=子6 交互
+# 恒 fresh spawn 零暴露面（#30 扩面核对）。豁免集即回滚面（摘条目=恢复链）。
+SEGMENT_CHAIN_SKIP_STEPS = frozenset({("plan:1", 5)})
+
 # 段内续步白名单（u2-sub4-cost，2026-08-18 用户裁决「段内续步」方案）：
 # 名单内节点的连续非交互子步骤在同一 claude -p 进程内续跑（--input-format
 # stream-json 多轮，driver 逐步注入任务 prompt，gate 照跑）——deepseek 会话

@@ -11153,10 +11153,10 @@ class TestPackSelfContained:
         # 本节点前序留痕全文通道在包（ab2 真迹四步核对：零包外取证、gate
         # 凭空设计判据使包外材料结构性不可用=#19 判别意图不命中）；
         # 兄弟步不置位（#1 勘察步/#3-4 验证评估步要跑 Bash/Agent 取证，
-        # #5 生成型/#6 确认级）。
+        # #6 确认级；#5 于 p1-sub5-cost 置位）。
         node = eng.get_node("plan", 1)
         flags = [bool(s.pack_self_contained) for s in node.sub_steps]
-        assert flags == [False, True, False, False, False, False]
+        assert flags == [False, True, False, False, True, False]
 
     def test_p1_step2_tail_line_replaced(self, tmp_path):
         # 尾行条件化挂在 prior_sections 非空分支——须带前序节点（understand
@@ -11177,6 +11177,45 @@ class TestPackSelfContained:
         pack = eng.handoff_pack(tmp_path, "t")
         assert pack is not None
         assert "现状地图UNIQUEDS1四要素齐备附fileline" in pack  # 子1 留痕全文
+
+    @staticmethod
+    def _ds_traces_thru4():
+        # p1-sub5-cost 子5 装配不变量夹具：子1-子4 留痕各带 UNIQUE 标记。
+        base = {
+            "kind": "skill-trace",
+            "major_stage": "Plan",
+            "minor_stage": "DesignSolution",
+            "skill": "s",
+            "purpose": "p",
+        }
+        return [
+            {**base, "sub_step": 1, "q": ["现状勘察"], "a": ["现状地图UNIQUEDS1"]},
+            {**base, "sub_step": 2, "q": ["方案发散"], "a": ["候选集UNIQUEDS2"]},
+            {**base, "sub_step": 3, "q": ["可行性验证"], "a": ["三态核验UNIQUEDS3"]},
+            {**base, "sub_step": 4, "q": ["评估提案"], "a": ["推荐结论UNIQUEDS4"]},
+        ]
+
+    def test_p1_step5_tail_line_replaced(self, tmp_path):
+        # p1-sub5-cost L2：plan:1#5 置位（非交互步第四例）——归一化材料=
+        # 子1-子4 留痕全文+前序节点摘要，全在包内；通用「按需 Read」邀请
+        # 对断链后 fresh 口径是 evidence 翻找反指（u:4#4 前车）。
+        self._write_evidence(tmp_path, self._pc_traces() + self._ds_traces_thru4())
+        _write_state_full(tmp_path, "t", "plan", 1, sub_step=5)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None
+        assert "本步所需材料已全部在包内" in pack
+        assert "以上为摘要" not in pack
+
+    def test_p1_step5_materials_complete_invariant(self, tmp_path):
+        """装配不变量：plan:1#5 的包须含子1-子4 各步留痕全文（本节点留痕
+        节）——归一化八键的唯一材料来源（L1 复用钉死「无取证例外」的材料
+        前提）；防未来交接包修剪把材料修没了、「禁读」条款变错。"""
+        self._write_evidence(tmp_path, self._pc_traces() + self._ds_traces_thru4())
+        _write_state_full(tmp_path, "t", "plan", 1, sub_step=5)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None
+        for marker in ("UNIQUEDS1", "UNIQUEDS2", "UNIQUEDS3", "UNIQUEDS4"):
+            assert marker in pack, marker  # 子1-子4 留痕全文
 
 
 class TestSegmentSpawnOverrides:
@@ -11374,15 +11413,28 @@ class TestSegmentSpawnOverrides:
         assert ov["tools"] == ("Bash", "Read", "Edit", "Grep", "Skill", "Agent")
 
     def test_p1_other_steps_no_step_strip(self):
-        # 逐步粒度不误伤兄弟步（子4-6 逐步核对未做，不置位——链内段 env
-        # 零变化=回滚面；子2 于 p1-sub2-cost 置位；子3 于 p1-sub3-cost
-        # 核对后结论=不置位：④硬规则核验须点名规则条号=一等材料，#23 第三
-        # 核对不通过，u:3#1 反优化同型——钉死防未来误置位）。
+        # 逐步粒度不误伤兄弟步（子3 于 p1-sub3-cost 核对后结论=不置位：④硬
+        # 规则核验须点名规则条号=一等材料，#23 第三核对不通过，u:3#1 反优化
+        # 同型；子4/子6 逐步核对未做——钉死防未来误置位；子2 于 p1-sub2-cost
+        # 置位；子5 于 p1-sub5-cost 置位=消费步，H9 阈值经子3/子4 trace 逐字
+        # 在场非一等材料，与子3 验证步不同型）。
         node = eng._NODES["plan:1"]
         for i, step in enumerate(node.sub_steps, start=1):
-            if i in (1, 2):
+            if i in (1, 2, 5):
                 continue
             assert eng.segment_spawn_overrides(node, step)["env"] == {}, i
+
+    def test_p1_step5_step_level_strip(self):
+        # p1-sub5-cost L3（designs/p1-sub5-cost-optimization-design.md）：
+        # plan:1#5 Step 级 strip——消费步（交付物正文唯一规则内容=H9 阈值，
+        # 经子3「≤3 文件」/子4「200 行」trace 逐字在包，非一等材料直引规范
+        # 文档）；工具需求 Bash/Read/Edit/Skill 全在 Node 白名单既有面。
+        node = eng._NODES["plan:1"]
+        step5 = node.sub_steps[4]
+        ov = eng.segment_spawn_overrides(node, step5)
+        assert ov["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
+        assert ov["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
+        assert ov["tools"] == ("Bash", "Read", "Edit", "Grep", "Skill", "Agent")
 
     def test_p1_step3_reuse_clause_pinned(self):
         # p1-sub3-cost L1（designs/p1-sub3-cost-optimization-design.md）：

@@ -240,8 +240,12 @@ def _chain_resume_sid(state: dict, node_id: str, cur: int) -> "str | None":
     当前节点（node-rules system prompt 同节点恒定 = 缓存前缀保真）+
     last_step == cur-1（序列连续——state-reset/back/jump/step-pass/TUI 段
     天然失配断链，无需显式清）。
+    步级豁免（p1-sub5-cost L5）：(node_id, cur) 命中 SEGMENT_CHAIN_SKIP_STEPS
+    即不续链——断链步的输入契约经交接包完备时，fresh 段恒定地板优于链携带税。
     """
     if node_id not in engine.SEGMENT_CHAIN_NODES:
+        return None
+    if (node_id, cur) in engine.SEGMENT_CHAIN_SKIP_STEPS:
         return None
     chain = state.get("segment_chain")
     if not isinstance(chain, dict):
