@@ -11262,11 +11262,15 @@ class TestPackSelfContained:
         # 逐字在 purpose 形式要件=消费步同 p1-sub4 型）；兄弟步不置位
         # （#1 清点基线须 Read 设计包+grep evidence=新取证步；#3 锚点核验=
         # 新取证步；#4/#5 未核对不置位）。
+        # p2-sub3-cost：#3 锚点核验置位 Step strip（第十一例——四类核验全=
+        # 本仓事实核验、无硬规则条号点名，p1-sub3 否决理由不适用；u4-sub3
+        # 核验步先例），pack 维持不置位（#19 验证型步——包外单点验证=合法
+        # 职责面，p1-sub3/p2-sub2 双重否决先例）。
         node = eng.get_node("plan", 2)
         flags = [bool(s.pack_self_contained) for s in node.sub_steps]
         assert flags == [False, True, False, False, False]
         strips = [bool(s.segment_strip_project_context) for s in node.sub_steps]
-        assert strips == [False, True, False, False, False]
+        assert strips == [False, True, True, False, False]
 
     def test_p2_step2_tail_line_replaced(self, tmp_path):
         # 尾行条件化（比照 test_p1_step2_tail_line_replaced：须带前序节点
@@ -11296,6 +11300,40 @@ class TestPackSelfContained:
         pack = eng.handoff_pack(tmp_path, "t")
         assert pack is not None
         assert "要素基线UNIQUETB1逐条附出处原文引用" in pack  # 子1 留痕全文
+        assert "调用面UNIQUECALLERS56附fileline" in pack  # DS callers 字段
+
+    @staticmethod
+    def _tb_step2_trace():
+        return {
+            "kind": "skill-trace",
+            "major_stage": "Plan",
+            "minor_stage": "TaskBreakdown",
+            "sub_step": 2,
+            "skill": "s",
+            "purpose": "p",
+            "q": ["切分排序"],
+            "a": ["单元定义UNIQUETB2附H9预算要素ID依赖出处"],
+        }
+
+    def test_p2_step3_materials_complete_invariant(self, tmp_path):
+        """装配不变量（p2-sub3-cost）：plan:2#3 复用钉死条款的材料前提——
+        包须含①子1 要素基线留痕全文②子2 单元定义留痕全文（本节点留痕
+        全文通道）③plan:1 归一化 statements 的 callers 字段（调用面引用
+        唯一来源）——防未来交接包修剪把材料修没了、「复用钉死」条款变错。"""
+        self._write_evidence(
+            tmp_path,
+            self._pc_traces()
+            + [
+                self._ds_step5_callers_trace(),
+                self._tb_step1_trace(),
+                self._tb_step2_trace(),
+            ],
+        )
+        _write_state_full(tmp_path, "t", "plan", 2, sub_step=3)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None
+        assert "要素基线UNIQUETB1逐条附出处原文引用" in pack  # 子1 留痕全文
+        assert "单元定义UNIQUETB2附H9预算要素ID依赖出处" in pack  # 子2 留痕全文
         assert "调用面UNIQUECALLERS56附fileline" in pack  # DS callers 字段
 
 
@@ -11486,13 +11524,45 @@ class TestSegmentSpawnOverrides:
             assert "--scaffold 骨架" in p, idx
 
     def test_p2_other_steps_no_step_strip(self):
-        # 逐步粒度不误伤兄弟步（#1 清点基线须项目上下文读设计包/#3 新取证步/
+        # 逐步粒度不误伤兄弟步（#1 清点基线须项目上下文读设计包/
         # #4 未核对/#5 确认级无会话——均不置位）。
+        # p2-sub3-cost：#3 锚点核验置位（第十一例——四类核验全=本仓事实
+        # 核验、无硬规则条号点名，交付物=留痕+三态不引用自动加载文档）。
         node = eng._NODES["plan:2"]
         for i, step in enumerate(node.sub_steps, start=1):
-            if i == 2:
+            if i in (2, 3):
                 continue
             assert eng.segment_spawn_overrides(node, step)["env"] == {}, i
+
+    def test_p2_step3_step_level_strip(self):
+        # p2-sub3-cost（designs/p2-sub3-cost-optimization-design.md）：子3
+        # Step 级 strip 生效面钉死——env 双开关置位（同 u:3#3 先例断言形态）。
+        node = eng._NODES["plan:2"]
+        step3 = node.sub_steps[2]
+        ov = eng.segment_spawn_overrides(node, step3)
+        assert ov["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
+        assert ov["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
+
+    def test_p2_step3_reuse_clause_pinned(self):
+        # p2-sub3-cost L2/L3：复用钉死+深度钉死+④留痕形态关键词钉死——
+        # 防未来编辑静默改丢（条款=本步步体主杠杆：A 轮基线 52 调用中
+        # 纯税/半税/褶皱 ~24）。
+        step3 = eng._NODES["plan:2"].sub_steps[2]
+        assert "复用钉死" in step3.purpose
+        assert "逐字引用，零重验" in step3.purpose
+        assert "验存在即止" in step3.purpose
+        assert "四类以外零取证" in step3.purpose
+        assert "禁主仓+worktree 双路径核验" in step3.purpose
+        assert "声明式" in step3.purpose
+        assert "零重验了吗" in step3.selfcheck
+
+    def test_p2_step3_gate_citation_legal_form_pinned(self):
+        # p2-sub3-cost L4 gate 双侧修文本：引用前序出处进合法形态（负判定
+        # 零改动）——判材边界钉句防 judge 以「非本步新跑命令」误 block
+        # 引用形态（replay clean2_引用前序出处 双侧 fixture 同批）。
+        gate = eng._NODES["plan:2"].sub_steps[2].gate
+        assert "引用本节点子1/子2 trace 已载出处" in gate
+        assert "出处是引用非新取证" in gate
 
     def test_u3_step3_step_level_strip(self):
         # u3-sub3-cost（designs/u3-sub3-cost-optimization-design.md）：Step 级

@@ -151,7 +151,7 @@ S3_BASE = {
         "projects/factor_ic_analyzer/paths.py` 返回空（无重复定义）；"
         "②测试接缝存在--Bash `python3 -m pytest tests/test_paths.py "
         "--collect-only -q` 返回 12 个用例，可挂新断言；③验证命令可运行--"
-        "Bash `python3 -c \"import paths\"` 返回 0。④No Placeholders：本单元扫描四模式零命中。三态：已验证（出处=上述 "
+        'Bash `python3 -c "import paths"` 返回 0。④No Placeholders：本单元扫描四模式零命中。三态：已验证（出处=上述 '
         "Bash 命令返回）。",
         "U2 核验：①文件存在--Bash `test -f /home/admin/projects/factor_ic_"
         "analyzer/summary/generate_factor_summary_report.py && echo EXISTS` 返回 "
@@ -166,7 +166,7 @@ S3_BASE = {
         "symbol `_generate_ic_section` 存在--Bash `codegraph callers "
         "_generate_ic_section` 返回 2 个调用节点；②测试接缝存在--Bash "
         "`python3 -m pytest tests/test_sections.py --collect-only -q` 返回 5 个"
-        "用例；③验证命令可运行--Bash `python3 -c \"from summary.report.sections import _generate_ic_section\"` 返回 0。三态："
+        '用例；③验证命令可运行--Bash `python3 -c "from summary.report.sections import _generate_ic_section"` 返回 0。三态：'
         "文件/symbol/命令三项已验证（出处=上述命令返回）；一项假设--`_generate_"
         "ic_section` 内插入新区块渲染不破坏既有布局（置信度高×影响低：错误时"
         "仅新区块缺失，报告其余部分不受影响，可回滚）。④No Placeholders：本单元扫描四模式零命中。",
@@ -228,7 +228,7 @@ S3_VIO4["a"][2] = (
     "symbol `_generate_ic_section` 存在--Bash `codegraph callers "
     "_generate_ic_section` 返回 2 个调用节点；②测试接缝存在--Bash "
     "`python3 -m pytest tests/test_sections.py --collect-only -q` 返回 5 个"
-    "用例；③验证命令可运行--Bash `python3 -c \"from summary.report.sections import _generate_ic_section\"` 返回 0。三态："
+    '用例；③验证命令可运行--Bash `python3 -c "from summary.report.sections import _generate_ic_section"` 返回 0。三态：'
     "文件/symbol/命令三项已验证（出处=上述命令返回）；一项假设--`_generate_"
     "ic_section` 内插入新区块渲染不破坏既有布局。④No Placeholders：本单元"
     "扫描四模式零命中。"
@@ -237,23 +237,69 @@ S3_VIO4["a"][2] = (
 # ---- vio5：漏单元核验--只核验 U1/U2，U3 无留痕，自称三单元全覆盖 ----
 S3_VIO5 = copy.deepcopy(S3_BASE)
 S3_VIO5["a"][2] = (
-    "U3 无单独核验段--其改动与 U2 同报告管线，随 U2 核验覆盖。三态：同 U2 "
-    "已验证。"
+    "U3 无单独核验段--其改动与 U2 同报告管线，随 U2 核验覆盖。三态：同 U2 已验证。"
 )
 S3_VIO5["a"][3] = (
     "No Placeholders 检出：逐单元扫描四模式，零命中。只标注不裁决。三单元"
     "四类核验全覆盖无遗漏，三态逐单元标注，q/a 按序对齐。"
 )
 
+# ---- clean2：引用前序出处形态（p2-sub3-cost L4/L5 双侧 fixture，
+# designs/p2-sub3-cost-optimization-design.md）——①文件/symbol 逐字引用
+# 子1/子2 已载出处零重验，②③单点新核验，④声明式；引用+新核验混合=合规 ----
+S3_CLEAN2 = copy.deepcopy(S3_BASE)
+S3_CLEAN2["a"][0] = (
+    "U1 核验：①文件存在与要素锚点--逐字引用子1 要素基线：E3=`paths.py` 增加 "
+    "`CATEGORY_SUMMARY_RESULT` 路径常量（增）--出处 design.md:16，原文『新增 "
+    "CATEGORY_SUMMARY_RESULT 路径常量』；命名冲突单点核验--Bash `grep -n "
+    "CATEGORY_SUMMARY_RESULT paths.py` 返回空；②测试接缝存在--Bash `python3 "
+    "-m pytest tests/test_paths.py --collect-only -q` 返回 12 个用例；"
+    '③验证命令可运行--Bash `python3 -c "import paths"` 返回 0。'
+    "④No Placeholders：本单元扫描四模式零命中。三态：已验证"
+    "（出处=子1 留痕逐字引用+上述 Bash 命令返回）。"
+)
+S3_CLEAN2["a"][1] = (
+    "U2 核验：①文件/symbol--逐字引用子2 留痕已载取证：`codegraph callers "
+    "_aggregate_positive_ic` 确认 U2 改动点被依赖方无遗漏（子2 依赖 DAG 留痕"
+    "已载）；要素锚点逐字引用子1：E1 出处 design.md:12；②测试接缝存在--Bash "
+    "`python3 -m pytest tests/test_generate_factor_summary_report.py "
+    "--collect-only -q` 返回 8 个用例；③验证命令可运行--Bash `python3 "
+    "scripts/generate_factor_summary_report.py --help` 返回 0。"
+    "④No Placeholders：本单元扫描四模式零命中。三态：已验证"
+    "（出处=子1/子2 留痕逐字引用+上述命令返回）。"
+)
+S3_CLEAN2["a"][2] = (
+    "U3 核验：①文件存在--逐字引用子1 要素基线：E2=`summary/report/sections.py` "
+    "`_generate_ic_section` 内增加八维度汇总区块渲染（改）--出处 design.md:14；"
+    'symbol 存在单点核验--Bash `grep -n "def _generate_ic_section" '
+    "summary/report/sections.py` 返回 1 行；②测试接缝存在--Bash `python3 -m "
+    "pytest tests/test_sections.py --collect-only -q` 返回 5 个用例；"
+    '③验证命令可运行--Bash `python3 -c "from summary.report.sections import '
+    '_generate_ic_section"` 返回 0。三态：文件/symbol/命令三项已验证'
+    "（出处=子1 留痕逐字引用+上述命令返回）；一项假设--`_generate_ic_section` "
+    "内插入新区块渲染不破坏既有布局（置信度高×影响低：错误时仅新区块缺失，"
+    "可回滚）。④No Placeholders：本单元扫描四模式零命中。"
+)
+S3_CLEAN2["a"][3] = (
+    "No Placeholders 检出：逐单元扫描四模式，零命中。只标注不裁决：U3 的"
+    "假设项接受与否留子5 用户裁决。三单元四类核验无遗漏（①锚点类=前序已载"
+    "出处逐字引用零重验，②③=本步单点新核验），三态逐单元标注，q/a 按序对齐。"
+)
+
 CASES = {
     "clean": S3_CLEAN,
+    "clean2_引用前序出处": S3_CLEAN2,
     "vio1_声称存在无出处": S3_VIO1,
     "vio2_无差别已验证": S3_VIO2,
     "vio3_placeholder残留": S3_VIO3,
     "vio4_假设缺置信度影响": S3_VIO4,
     "vio5_漏单元核验": S3_VIO5,
 }
-EXPECT = {"clean": True, **{k: False for k in CASES if k != "clean"}}
+EXPECT = {
+    "clean": True,
+    "clean2_引用前序出处": True,
+    **{k: False for k in CASES if not k.startswith("clean")},
+}
 
 
 def main():
