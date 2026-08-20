@@ -163,6 +163,17 @@ SEGMENT_CHAIN_NODES = frozenset(
 # 后续步子3 resume 换挂子2 fresh 会话（继承 transcript 从「子1 31 轮+
 # 子2」缩为「子2 ~7 轮」，携带量变小同向），无 fresh 化暴露面（#30 扩
 # 面核对）；节点白名单不动、plan:4 其余步零行为变化。
+# 2026-08-20 plan:4#4 步级摘除（p4-sub4-cost，步级第八例、plan:4
+# 第三例——p4-sub3-cost 在飞占第七/plan:4 第二例，merge 复核，
+# designs/p4-sub4-cost-optimization-design.md L1）：#20 链首调恒冷
+# （子4 链内首调=子2+子3 transcript 全额冷重写，A 臂 p4_sub4_base
+# 实测报价）+ #24 携带税主导（归一化步步体 ~5-8 轮小，每调背子2+
+# 子3 全量继承上下文单调涨——断链确定优，暖率彩票不赌）。材料经
+# 交接包逐字段核对完备（子4 input=step3.verified_controls，gate
+# 判材=子1/2/3 前序 trace 对照面=本节点前序 trace 全文通道在包=
+# 输入契约全集，装配不变量测试钉死）。后续步=子5 确认级（P3-1）
+# 无模型会话零暴露面（#30 扩面核对）；节点白名单不动、plan:4 其余
+# 步零行为变化（surgical——p4-sub3 在飞的子3 条目独立成立）。
 SEGMENT_CHAIN_SKIP_STEPS = frozenset(
     {
         ("plan:1", 5),
@@ -171,6 +182,7 @@ SEGMENT_CHAIN_SKIP_STEPS = frozenset(
         ("plan:3", 4),
         ("plan:3", 5),
         ("plan:4", 2),
+        ("plan:4", 4),
     }
 )
 

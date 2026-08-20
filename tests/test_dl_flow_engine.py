@@ -12005,8 +12005,10 @@ class TestSegmentSpawnOverrides:
         assert ov["tools"] == ("Bash", "Read", "Edit", "Skill", "Agent")
         assert step2.pack_self_contained is True
         strips = [bool(s_.segment_strip_project_context) for s_ in node.sub_steps]
-        # 子1=p4-sub1-cost（第十八例），子2=p4-sub2-cost（第十九例）
-        assert strips == [True, True, False, False, False]
+        # 子1=p4-sub1-cost（第十八例），子2=p4-sub2-cost（第十九例），
+        # 子4=p4-sub4-cost（第二十一例——p4-sub3-cost 在飞占第二十，
+        # merge 复核；并轨点：彼翻转子3 后本列表=[T,T,T,T,F]）
+        assert strips == [True, True, False, True, False]
 
     def test_p4_step2_reuse_redteam_delivery_clauses_pinned(self):
         # p4-sub2-cost L4/L5/L6：复用钉死（消费步形态，p1-sub4 平移）+红队
@@ -12030,6 +12032,113 @@ class TestSegmentSpawnOverrides:
         assert "交付即止" in step2.selfcheck
         # ref 猎捕诱因拆除（对齐源指针下沉代码注释面）
         assert "writing-plans" not in step2.ref
+
+    def test_p4_step4_step_level_strip_and_pack(self):
+        # p4-sub4-cost L2/L3（designs/p4-sub4-cost-optimization-design.md）：
+        # plan:4#4 置位 Step strip（第二十一例——p4-sub3-cost 在飞占第二
+        # 十，merge 复核；交付物=归一化 statements 十字段，正文材料全部
+        # 经本节点前序 trace 逐字在包，无 CLAUDE.md 条号/正文引用职责，
+        # #23 第三核对）+ pack_self_contained（非交互第十一例——输入
+        # 契约 step3.verified_controls+gate 对照面子1/子2 trace 经本
+        # 节点前序 trace 全文通道在包，设计 §1 逐字段核对）。
+        node = eng._NODES["plan:4"]
+        step4 = node.sub_steps[3]
+        ov = eng.segment_spawn_overrides(node, step4)
+        assert ov["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
+        assert ov["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
+        assert ov["tools"] == ("Bash", "Read", "Edit", "Skill", "Agent")
+        assert step4.pack_self_contained is True
+
+    def test_p4_step4_reuse_delivery_clauses_pinned(self):
+        # p4-sub4-cost L4/L5：复用钉死无取证例外形态（#34 第五例——gate
+        # 方框一「字段与子2/子3 已定内容不一致判 block」结构性封死包外
+        # 材料合法出口）+ 交付即止（#37）+ 格式真源（#26）关键词钉死——
+        # 防未来编辑静默改丢（条款=步体主杠杆，p3-sub5 同型平移）。
+        step4 = eng._NODES["plan:4"].sub_steps[3]
+        assert "复用钉死，无取证例外形态" in step4.purpose
+        assert "复用 子N 留痕" in step4.purpose
+        assert "零 evidence 翻找" in step4.purpose
+        assert "零产物文件重读" in step4.purpose
+        assert "零命令重跑" in step4.purpose
+        assert "为后续步预取=越界" in step4.purpose
+        assert "交付即止" in step4.purpose
+        assert "--scaffold 骨架" in step4.purpose
+        assert "零新取证" in step4.selfcheck
+        assert "交付即止" in step4.selfcheck
+
+    def test_p4_step4_pack_materials_invariant(self, tmp_path):
+        """装配不变量：plan:4#4（pack_self_contained）的包须含子1/2/3
+        trace 全文+尾行切换「材料已在包内」——防未来包修剪把材料修没了
+        条款变错（u2-sub2-cost 同型不变量）。"""
+        ev = tmp_path / ".claude" / "evidence"
+        ev.mkdir(parents=True, exist_ok=True)
+        recs = [
+            {
+                "kind": "skill-trace",
+                "major_stage": "Plan",
+                "minor_stage": "ExecutionPlanCheckpoints",
+                "sub_step": 1,
+                "skill": "s",
+                "purpose": "p",
+                "q": ["四源清点问"],
+                "a": ["五类清单UNIQUEP4S1附出处"],
+            },
+            {
+                "kind": "skill-trace",
+                "major_stage": "Plan",
+                "minor_stage": "ExecutionPlanCheckpoints",
+                "sub_step": 2,
+                "skill": "s",
+                "purpose": "p",
+                "q": ["调度与检查点问"],
+                "a": ["调度四件UNIQUEP4S2提案"],
+            },
+            {
+                "kind": "skill-trace",
+                "major_stage": "Plan",
+                "minor_stage": "ExecutionPlanCheckpoints",
+                "sub_step": 3,
+                "skill": "s",
+                "purpose": "p",
+                "q": ["锚点核验问"],
+                "a": ["四类核验UNIQUEP4S3留痕"],
+            },
+            # 前序节点摘要节非空是包尾行追加前提（engine handoff_pack
+            # prior_sections 门）；plan:3 子5 归一化+子6 读回=摘要通道。
+            {
+                "kind": "skill-trace",
+                "major_stage": "Plan",
+                "minor_stage": "CapabilityToolSelection",
+                "sub_step": 5,
+                "skill": "s",
+                "purpose": "p",
+                "statements": [
+                    {"text": "绑定甲UNIQUECTS5", "type_label": "t", "boundary": "b"}
+                ],
+            },
+            {
+                "kind": "skill-trace",
+                "major_stage": "Plan",
+                "minor_stage": "CapabilityToolSelection",
+                "sub_step": 6,
+                "skill": "s",
+                "purpose": "p",
+                "q": ["读回"],
+                "a": ["确认级静默通过"],
+            },
+        ]
+        (ev / "t.jsonl").write_text(
+            "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in recs),
+            encoding="utf-8",
+        )
+        _write_state_full(tmp_path, "t", "plan", 4, sub_step=4)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None
+        assert "五类清单UNIQUEP4S1附出处" in pack
+        assert "调度四件UNIQUEP4S2提案" in pack
+        assert "四类核验UNIQUEP4S3留痕" in pack
+        assert "本步所需材料已全部在包内" in pack
+        assert "以上为摘要" not in pack
 
     def test_p4_step2_pack_materials_invariant(self, tmp_path):
         """装配不变量：plan:4#2（pack_self_contained）的包须含子1 trace
@@ -12128,12 +12237,13 @@ class TestSegmentSpawnOverrides:
         assert "grep evidence" not in step1.ref
 
     def test_p4_other_steps_no_step_strip(self):
-        # 逐步粒度不误伤兄弟步（子3/子4 逐步核对未做、子5 确认级无会话——
-        # 均不置位；子1 由 p4-sub1-cost 置位，子2 由 p4-sub2-cost 置位
-        # [交付物=调度四件+检查点方案零引自动加载文档，#23 第三核对]）。
+        # 逐步粒度不误伤兄弟步（子3 逐步核对未做[p4-sub3-cost 在飞]、
+        # 子5 确认级无会话——均不置位；子1 由 p4-sub1-cost 置位，子2 由
+        # p4-sub2-cost 置位，子4 由 p4-sub4-cost 置位[交付物=归一化
+        # statements 十字段零引自动加载文档，#23 第三核对]）。
         node = eng._NODES["plan:4"]
         for i, step in enumerate(node.sub_steps, start=1):
-            if i in (1, 2):
+            if i in (1, 2, 4):
                 continue
             assert eng.segment_spawn_overrides(node, step)["env"] == {}, i
 

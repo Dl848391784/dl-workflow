@@ -2466,6 +2466,25 @@ def test_chain_resume_step_level_skip_plan4_sub2(wf_repo):
     assert drv._chain_resume_sid(state3, "plan:4", 3) == "abc"  # 兄弟步不受影响
 
 
+def test_chain_resume_step_level_skip_plan4_sub4(wf_repo):
+    """p4-sub4-cost L1：plan:4#4 命中步级豁免即不续链（fresh spawn）——
+    输入契约（子3 verified_controls+gate 对照面子1/子2 trace）经交接包
+    本节点前序 trace 全文通道完备；后续步=子5 确认级无会话零暴露面
+    （#30）；兄弟步零行为变化（子3 链行为不动，步级豁免不触节点白名单，
+    p1-sub5-cost 同型）。"""
+    drv = _load(DRIVER, "drv_chain_skip_p4s4")
+    state = _write_state(
+        wf_repo,
+        segment_chain={"node": "plan:4", "sid": "abc", "last_step": 3},
+    )
+    assert drv._chain_resume_sid(state, "plan:4", 4) is None  # 豁免步
+    state3 = _write_state(
+        wf_repo,
+        segment_chain={"node": "plan:4", "sid": "abc", "last_step": 2},
+    )
+    assert drv._chain_resume_sid(state3, "plan:4", 3) == "abc"  # 兄弟步不受影响
+
+
 def test_chain_skip_steps_constant():
     """豁免集单源钉死：plan:1#5 + plan:3#2/#3/#4/#5（回滚面=摘条目）。
 
@@ -2485,13 +2504,19 @@ def test_chain_skip_steps_constant():
     基线 p2_sub3_ab plan:4#2 链内段首调 fresh 169,338/cr=0=子1 31 轮
     transcript 冷重写）+ #24 携带税主导（段 cr 1.86M/12 轮）；材料=
     子1 control_baseline trace 全文在包；后续子3 resume 换挂子2 fresh
-    会话携带量变小同向。"""
+    会话携带量变小同向。
+    plan:4#4（p4-sub4-cost，步级第八例、plan:4 第三例——p4-sub3-cost
+    在飞占第七/plan:4 第二例，merge 复核）：#20 恒冷（子4 链内首调=
+    子2+子3 transcript 全额冷重写，A 臂 p4_sub4_base 实测报价）+ #24
+    携带税主导（归一化步步体小、每调背子2+子3 继承上下文单调涨）；
+    材料=子1/2/3 trace 全文在包；后续子5 确认级无会话零暴露面。"""
     assert ("plan:1", 5) in engine.SEGMENT_CHAIN_SKIP_STEPS
     assert ("plan:3", 2) in engine.SEGMENT_CHAIN_SKIP_STEPS
     assert ("plan:3", 3) in engine.SEGMENT_CHAIN_SKIP_STEPS
     assert ("plan:3", 4) in engine.SEGMENT_CHAIN_SKIP_STEPS
     assert ("plan:3", 5) in engine.SEGMENT_CHAIN_SKIP_STEPS
     assert ("plan:4", 2) in engine.SEGMENT_CHAIN_SKIP_STEPS
+    assert ("plan:4", 4) in engine.SEGMENT_CHAIN_SKIP_STEPS
     for nid, _step in engine.SEGMENT_CHAIN_SKIP_STEPS:
         assert nid in engine.SEGMENT_CHAIN_NODES  # 豁免集 ⊆ 链白名单才有意义
 
