@@ -3920,6 +3920,11 @@ def _check_feasibility_verification_trace(qa: list, *_ctx) -> str | None:
                 f"「{q[:16]}…」五项核验缺项（{'/'.join(missing)}）"
                 "——①-⑤ 逐项留痕是形式要件：补该项核验留痕，"
                 "或显式声明「不适用+原因」"
+                # p1-sub3-cost 修1（B1 轮 7 连拒实证）：报错即返工指令——
+                # 组织形态不写进报错，模型按核验项拆 q 反复撞墙（block 文案
+                # =返工指令原则，weak-model-mechanisms）。
+                "（组织形态=每候选一对 q/a，该候选的答案内①-⑤圈码齐备；"
+                "按核验项拆 q 的散列组织不满足本校验）"
             )
         if not any(w in a for w in _FEASIBILITY_STATE_WORDS):
             return (

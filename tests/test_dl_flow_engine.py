@@ -7795,6 +7795,9 @@ class TestV237FirstPassRate:
         ]
         err = eng._check_feasibility_verification_trace(qa_missing)
         assert err and "缺项" in err and "可测试性" in err
+        # p1-sub3-cost 修1：报错文案携带组织形态指引（报错即返工指令——
+        # B1 轮模型按核验项拆 q 七连拒实证）。
+        assert "每候选一对" in err
         qa_bare_exist = [
             {
                 "q": "候选A 的五项核验结果与三态标注如何？",
@@ -11398,6 +11401,15 @@ class TestSegmentSpawnOverrides:
         assert "不重跑 freshness" in step3.purpose
         assert "零重验" in step3.selfcheck
         assert "零规范文档重读" in step3.selfcheck
+
+    def test_p1_step3_payload_org_clause_pinned(self):
+        # p1-sub3-cost 修1（B1 轮实证）：载荷组织钉死条款——条款逐项枚举被
+        # 弱模型镜像成「按核验项拆 q」散列组织，撞 mech 逐 a 圈码齐备扫描
+        # 7 连拒（35 Edit 返工褶皱）；组织形态+格式真源钉死防复发。
+        step3 = eng._NODES["plan:1"].sub_steps[2]
+        assert "每候选一对 q/a" in step3.purpose
+        assert "按核验项拆 q" in step3.purpose
+        assert "格式真源=--scaffold 骨架+报错文案" in step3.purpose
 
     def test_p1_step2_step_level_strip(self):
         # p1-sub2-cost L1（designs/p1-sub2-cost-optimization-design.md）：
