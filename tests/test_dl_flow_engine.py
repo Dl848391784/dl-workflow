@@ -11371,13 +11371,33 @@ class TestSegmentSpawnOverrides:
         assert ov["tools"] == ("Bash", "Read", "Edit", "Grep", "Skill", "Agent")
 
     def test_p1_other_steps_no_step_strip(self):
-        # 逐步粒度不误伤兄弟步（子3-6 逐步核对未做，不置位——链内段 env
-        # 零变化=回滚面；子2 于 p1-sub2-cost 置位，见下一测试）。
+        # 逐步粒度不误伤兄弟步（子4-6 逐步核对未做，不置位——链内段 env
+        # 零变化=回滚面；子2 于 p1-sub2-cost 置位；子3 于 p1-sub3-cost
+        # 核对后结论=不置位：④硬规则核验须点名规则条号=一等材料，#23 第三
+        # 核对不通过，u:3#1 反优化同型——钉死防未来误置位）。
         node = eng._NODES["plan:1"]
         for i, step in enumerate(node.sub_steps, start=1):
             if i in (1, 2):
                 continue
             assert eng.segment_spawn_overrides(node, step)["env"] == {}, i
+
+    def test_p1_step3_reuse_clause_pinned(self):
+        # p1-sub3-cost L1（designs/p1-sub3-cost-optimization-design.md）：
+        # plan:1#3 purpose/selfcheck 复用钉死条款（#25 收紧形态——默认零重验+
+        # 枚举例外+按条配额+台账缓存通道钉死）关键词钉死——防未来编辑静默
+        # 改丢（条款是本步步体主杠杆：基线 35 调用中 ~15 纯税/半税=重验子1
+        # 已载出处+规范文档重读+掘进）。
+        step3 = eng._NODES["plan:1"].sub_steps[2]
+        assert "零重验零重跑" in step3.purpose
+        assert "复用 子1 留痕" in step3.purpose
+        assert "每符号最多一次" in step3.purpose
+        assert "验存在即止" in step3.purpose
+        assert "每功能域 ≤1 次查询" in step3.purpose
+        assert "零规范文档重读" in step3.purpose
+        assert "零 evidence 全量翻找" in step3.purpose
+        assert "不重跑 freshness" in step3.purpose
+        assert "零重验" in step3.selfcheck
+        assert "零规范文档重读" in step3.selfcheck
 
     def test_p1_step2_step_level_strip(self):
         # p1-sub2-cost L1（designs/p1-sub2-cost-optimization-design.md）：
