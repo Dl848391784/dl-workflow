@@ -1,6 +1,6 @@
 # plan:1 子4（评估收敛与选型提案）耗时/token 优化设计——红队材料包钉死 + 复用钉死（消费步形态）+ Step strip + pack_self_contained
 
-> 日期：2026-08-20 · 分支 feat/p1-sub4-cost · 状态：设计中（A 轮基线采集中）
+> 日期：2026-08-20 · 分支 feat/p1-sub4-cost · 状态：收官（一轮 A/B 全验收）
 > 上游：designs/p1-sub3-cost-optimization-design.md（子3 复用钉死验证步形态，
 >      同日 merge 54ece43）；designs/p1-sub2-cost-optimization-design.md（交互步
 >      strip+pack 置位）；designs/u4-sub2-cost-optimization-design.md（复用钉死
@@ -135,6 +135,54 @@ fresh 段口径 A/B（ac-deepseek1 headless，同种子同判据）：
    statements）+ 条款存在性测试（purpose 含材料包钉死关键词）
 3. B 轮验证（§3 验收线）
 4. nodes-index.md plan:1 子4 摘要同步（改 purpose 实质内容后手工同步）
+
+## 6. A/B 实测（同种子 p1_sub4_ab，ac-deepseek1 deepseek-v4-flash headless）
+
+A 轮（基线，主树 54ece43，2026-08-20 10:57-11:10 fresh 段口径）：
+- 主段：14 调用/首调 fresh 39,406（cr=0）/段 fresh 83,086/cr 1,215,360/
+  out 63,434/等效 204,622；工具 24=红队派发×1+交付通道 23（append×4+
+  Edit×7+python 自查×6——mech 拒收 2 次返工褶皱，forward 覆盖缺 G2/G3
+  被 pugh_traceability_forward_coverage 当场拒=生产墙正常工作）；
+  **零探索**（无 codegraph/grep/仓文件重读——pack 材料复用 de facto 成立）
+- 红队 ×1（攻击领先候选 C1）：58 调用/fresh 159,234/cr 4,382,720/
+  out 38,394/等效 597,506——工具 28 全重勘（Grep 全仓/Read 仓文件×8/
+  Bash python 重算×7/test 目录翻找）
+- A 合计：等效 802,128；墙钟 ~800s（段 10:57:20→11:10:32）
+
+B 轮（worktree 码，2026-08-20 11:36-11:46 fresh 段口径）：
+- 主段：6 调用/首调 fresh 26,614（cr=0，strip -12.8k 精确兑现≈探针
+  -11.9k）/段 fresh 66,711/cr 288,000/out 47,429/等效 95,511；
+  工具 5=理想最小形态（scaffold→Read 骨架→Agent→Edit→append 一次过，
+  零探索零返工）
+- 红队 ×1（攻击排序第一候选3）：4 调用/等效 23,247——prompt 3,791 字符
+  逐字携材料包（候选描述+子3 五项核验+评分理由）+纪律复述（禁重跑
+  codegraph/重算/零重验），工具仅 1 次定点 Read，仍产出 19k out 攻击报告
+- B 合计：等效 118,758；墙钟 ~585s
+
+验收对照（§3 预登记线）：
+
+| 指标 | A | B | Δ | 线 | 判 |
+|---|---|---|---|---|---|
+| 首调 fresh | 39,406 | 26,614 | -32.5% | ≥-30% | ✓ |
+| 段 fresh 合计 | 83,086 | 66,711 | -19.7% | ≥-25% | ✗→归因补注 |
+| 段 cr | 1,215,360 | 288,000 | -76.3% | ≥-30% | ✓✓ |
+| 成本等效（主+红队） | 802,128 | 118,758 | **-85.2%** | ≥-40% | ✓✓ |
+| 墙钟 | ~800s | ~585s | -27% | ≥-30% | 临界（单轮方差） |
+| 门控 | 2 次 mech 拒后过 | 零 block 一次过 | — | 零 block | ✓ |
+| 红队零重勘 | 58 调用全重勘 | 4 调用 1 Read | -96% | 零重勘 | ✓ |
+
+未达线归因（#13/#23 逐调用口径纪律）：段 fresh 合计被成分变化稀释——B 轮
+红队报告正文（19k out）回灌主段 fresh + A 轮返工褶皱的 fresh 占比本就小；
+前缀类固定税（strip）按首调口径验收达标（-32.5%，机制读数）。墙钟 -27%
+单轮临界——out÷rate 拟合：主段 out 63.4k→47.4k（-25%）与墙钟降幅同向
+（#30 输出主导），余差=红队串行等待（B 169s vs A 356s）已在账面。
+
+trace 质量：B 轮子4 trace 五段齐备（datum 选定/逐格矩阵/双向追溯 G1-G3/
+红队留痕/提案-待裁决语义），gate 零变更零 block 一次通过。
+
+**口径备忘**：生产=链内段（携带税 cr ~1.2M/段另计，断链否决策见 §2）——
+A/B 均 fresh 段口径，杠杆（strip/pack/条款）对两口径同向生效；链税面收益
+不在本轮验收面内。
 
 ## 5. 遗留
 
