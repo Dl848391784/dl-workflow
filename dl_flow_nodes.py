@@ -3919,16 +3919,48 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     "三态标注：已验证（附出处）/假设（置信度+错误时影响）/"
                     "证伪（回子3 换绑，附理由）。只标注不裁决——"
                     "假设的接受留子6 用户裁决。"
+                    # p3-sub4-cost L3（复用钉死，#39 核验步形态=出处生产时间
+                    # 前移+深度钉死清单；基线=p3_sub3_base 子4 链内段：同面
+                    # 复探两族[新鲜度×4 命令/venv×4 面]=纯税/半税）+L4
+                    # 交付即止（#37 平移）/格式真源（#26 平移）：
+                    "材料边界（复用钉死）：①skill 条目存在性的出处生产时间"
+                    "已前移到子2——子2 注册表清点留痕（available-skills 列表行/"
+                    "磁盘目录枚举/SKILL.md frontmatter 读取）逐字在交接包，"
+                    "直接引用即合法（「引用子2 留痕：<出处逐字>」形态），零重验"
+                    "——禁重复 ls/Read 子2 已核实的同一路径。枚举例外（逐条"
+                    "二值判定）：绑定对象在子2 留痕零出处（子3 新引入能力）时"
+                    "该条单点核验一次（ls/test -f/列表行引用任一形态）即止。"
+                    "②CLI 可用/③MCP 连接/④环境前提=本步新核验职责，深度钉死："
+                    "每绑定每类单命令验存在即止（which X / X --version / "
+                    "test -f / 配置定点 Read 一次四形态）；禁同面复探（同一事实"
+                    "多命令多角度重复核验——版本/新鲜度/可用性属同一面一次即"
+                    "止）；禁读文件全文/数据结构全文；四类以外零取证（功能"
+                    "正确性/性能/数据契约归 execute）。"
+                    "交付即止：落库成功（✓ 已落库）即结束本轮——禁 locate 产物/"
+                    "读 state/grep evidence 确认落库/预习下一步，推进与门控由"
+                    "外部 driver 判定。载荷格式的唯一真源 = --scaffold 骨架+"
+                    "append-trace 报错文案——禁读引擎/测试源码/历史 trace 反推"
+                    "格式；被拒按报错文案逐字修即可。"
                 ),
                 input="step3.binding_proposals",
                 mech_checks=("assumption_completeness_trace",),  # v2.112：假设
                 # 置信度×影响下沉（跨节点复用 plan:2 子3 同款，vio3 judge 2/6）
                 record=True,
                 fence_allow=("Bash",),
+                # p3-sub4-cost L2：Step 级 strip（第十六例——p3-sub3-cost 在飞
+                # 占第十五）——交付物=四类核验留痕+三态标注，正文零引用
+                # CLAUDE.md/auto-memory 内容（①出处=子2 留痕逐字引用在交接
+                # 包；②③④命令名来自子3 绑定提案/子2 留痕）；gate 形式要件
+                # 无一条要求引 CLAUDE.md 条号。核验步置位先例=u4-sub3（第
+                # 五例）/plan:2#3（第十二例）。
+                segment_strip_project_context=True,
                 selfcheck=(
                     "每绑定四类核验都做了吗（skill 存在/CLI 可用/MCP 连接/环境前提，"
                     "无遗漏）？三态逐绑定标注了吗？"
                     "已验证附出处、假设含置信度+错误时影响、证伪附理由了吗？"
+                    # p3-sub4-cost L3
+                    "①存在性出处引用子2 留痕零重验了吗（例外按条配额）？"
+                    "②③④每绑定每类单命令验存在即止了吗（零同面复探/零四类以外取证）？"
                 ),
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace、minor_stage=CapabilityToolSelection 且 sub_step==4 的记录。\n"

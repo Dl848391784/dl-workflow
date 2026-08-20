@@ -18,6 +18,12 @@ python3 tests/replays/replay_p1_sub1.py
 ```
 
 - `N` = 每载荷重放次数，默认 6（n=4 全对是载荷巧合假象，§3.5 #28）。
+- **worktree 里跑重放必带 .token**（2026-08-20 p3-sub4-cost 实证）：.token 已
+  gitignore 不随 `git worktree add` 分发——worktree 副本缺文件时 setup_env
+  落回 env 兜底，主会话 provider token（kimi/deepseek 等 sk- 前缀值能过
+  assert）被硬赋值的 MiniMax BASE_URL 接收=错端点流式挂起=全量
+  TimeoutExpired（症状 V「继承值优先」第二形态：文件缺失→env 兜底）。
+  处置：`cp <主树>/tests/replays/.token <worktree>/tests/replays/`。
 - `gate_file` 可选：候选 gate 文本迭代用（先跑文件再落 nodes.py，#30 ④）。
 - 判定标准：clean 全 PASS + vio 全 BLOCK（牙齿 <5/6 回炉）+ 既有 pin 测试全绿（#30 ⑥）；
   各脚本 docstring 有本节点专属读数口径（如 u11 real_borderline 1/6=设计内、

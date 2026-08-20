@@ -11768,8 +11768,9 @@ class TestSegmentSpawnOverrides:
         assert ov["tools"] == ("Bash", "Read", "Edit", "Skill", "Agent")
         assert step3.pack_self_contained is True
         strips = [bool(s.segment_strip_project_context) for s in node.sub_steps]
-        # 子1=p3-sub1-cost（第十四例），子3=p3-sub3-cost（第十五例）
-        assert strips == [True, False, True, False, False, False]
+        # 子1=p3-sub1-cost（第十四例），子3=p3-sub3-cost（第十五例），
+        # 子4=p3-sub4-cost（第十六例）
+        assert strips == [True, False, True, True, False, False]
 
     def test_p3_step3_reuse_redteam_delivery_clauses_pinned(self):
         # p3-sub3-cost L4：复用钉死+红队材料包三钉（#36 平移）+交付即止
@@ -11840,14 +11841,44 @@ class TestSegmentSpawnOverrides:
         assert "grep evidence" not in step1.ref
 
     def test_p3_other_steps_no_step_strip(self):
-        # 逐步粒度不误伤兄弟步（子2/子4/子5 逐步核对未做或已否决/子6 确认级
+        # 逐步粒度不误伤兄弟步（子2/子5 逐步核对未做或已否决/子6 确认级
         # 无会话——均不置位；子1 由 p3-sub1-cost 置位，子3 由 p3-sub3-cost
-        # 置位[交付物引子2 trace 出处非 CLAUDE.md 本体，设计 §3 L2]）。
+        # 置位[交付物引子2 trace 出处非 CLAUDE.md 本体]，子4 由
+        # p3-sub4-cost 置位[四类核验留痕+三态零引 CLAUDE.md 正文]）。
         node = eng._NODES["plan:3"]
         for i, step in enumerate(node.sub_steps, start=1):
-            if i in (1, 3):
+            if i in (1, 3, 4):
                 continue
             assert eng.segment_spawn_overrides(node, step)["env"] == {}, i
+
+    def test_p3_step4_step_level_strip(self):
+        # p3-sub4-cost L2：plan:3#4 Step 级 strip（第十六例——p3-sub3-cost
+        # 在飞占第十五）——交付物=四类核验留痕+三态标注，正文零引用
+        # CLAUDE.md/auto-memory 内容（①出处=子2 留痕逐字引用在交接包；
+        # ②③④命令名来自子3 绑定提案）；gate 形式要件无 CLAUDE.md 条号。
+        node = eng._NODES["plan:3"]
+        step4 = node.sub_steps[3]
+        ov = eng.segment_spawn_overrides(node, step4)
+        assert ov["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
+        assert ov["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
+        assert ov["tools"] == ("Bash", "Read", "Edit", "Skill", "Agent")
+
+    def test_p3_step4_reuse_clause_pinned(self):
+        # p3-sub4-cost L3/L4：purpose/selfcheck 复用钉死（#39 核验步形态——
+        # ①出处生产时间前移到子2+深度钉死清单）+交付即止（#37）/格式真源
+        # （#26）关键词钉死——防未来编辑静默改丢（条款=本步步体主杠杆：
+        # 基线同面复探两族[新鲜度×4 命令/venv×4 面]=纯税/半税）。
+        step4 = eng._NODES["plan:3"].sub_steps[3]
+        assert "复用钉死" in step4.purpose
+        assert "引用子2 留痕" in step4.purpose
+        assert "零重验" in step4.purpose
+        assert "单命令验存在即止" in step4.purpose
+        assert "禁同面复探" in step4.purpose
+        assert "四类以外零取证" in step4.purpose
+        assert "交付即止" in step4.purpose
+        assert "--scaffold 骨架" in step4.purpose
+        assert "零重验了吗" in step4.selfcheck
+        assert "零同面复探" in step4.selfcheck
 
     def test_u3_step3_step_level_strip(self):
         # u3-sub3-cost（designs/u3-sub3-cost-optimization-design.md）：Step 级
