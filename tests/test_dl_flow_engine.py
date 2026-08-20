@@ -11600,11 +11600,16 @@ class TestSegmentSpawnOverrides:
         assert "≤1 次/条目" in step2.purpose
         assert "归子4" in step2.purpose
         assert "禁预跑子4" in step2.purpose
+        # 修1（B1 轮实证：同目录复探×3+plugins/marketplace 掘进×4）：
+        assert "同一目录" in step2.purpose
+        assert "零探查" in step2.purpose
         assert "交付即止" in step2.purpose
         assert "--scaffold 骨架" in step2.purpose
         assert "零重读零重翻" in step2.selfcheck
         assert "预跑子4" in step2.selfcheck
         assert "落库后即止" in step2.selfcheck
+        assert "同一目录" in step2.selfcheck
+        assert "零探查" in step2.selfcheck
 
     def test_p2_step3_gate_citation_legal_form_pinned(self):
         # p2-sub3-cost L4 gate 双侧修文本：引用前序出处进合法形态（负判定
