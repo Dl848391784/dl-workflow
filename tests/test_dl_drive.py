@@ -297,6 +297,7 @@ def test_step_prompt_self_contained_clause_p1_step5(wf_repo):
     assert "禁 Read evidence 全量翻找" in prompt
     assert "无取证例外" in prompt  # L1 复用钉死条款随 purpose
     assert "校验预告" in prompt  # L4 逐项传导/ADR 预告随 purpose
+    assert "交付即止" in prompt  # 修1 落库即终（B1 落库后预习徘徊 6 调用实证）
 
 
 def test_bash_shape_rules_venv_absolute_form(wf_repo):

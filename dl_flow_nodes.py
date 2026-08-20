@@ -2868,6 +2868,14 @@ _NODES: dict[str, Node] = {
                     "职责边界：存在性/可行性/影响面核验归子3，评估排序归子4，"
                     "为后续节点拆解预取材料=越界（「先查清楚再归一」不是本步"
                     "职责）。"
+                    # p1-sub5-cost 修1（B1 轮实证：落库成功后模型预习下一节点
+                    # 子1「locate design.md/understand.md」徘徊 6 调用 ~340k cr
+                    # 纯税——落库消息「可输出 STEP_DONE 并 end_turn」与段 prompt
+                    # 「禁输出 STEP_DONE」两通道打架，弱模型以继续干活收场）：
+                    "交付即止：append-trace 落库成功（✓ 已落库）即结束本轮——"
+                    "禁继续探查或预习后续步骤（不 locate 产物文件、不读 state、"
+                    "不 grep evidence 确认落库——推进与门控由外部 driver 判定，"
+                    "落库后每多一次调用都是纯税）。"
                 ),
                 input="step4.recommendation",
                 record=True,
