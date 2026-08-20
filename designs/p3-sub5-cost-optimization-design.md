@@ -191,4 +191,93 @@ dl-launch.sh ac-deepseek1 --dl p3_sub5_ab --resume --headless` 后台
 例外」条款+「材料已在包内」包尾切换=worktree 引擎渲染实证（headless 段
 交接包由 driver 装配，#28 坑只适用 TUI 段）。
 ④读数：drive-stream 按 result 事件切段，首调 fresh=段内第一个 assistant
-usage，逐段合计=Σassistant usage；[log_*] 污染行按行首 { 过滤。
+usage，逐段合计=result.modelUsage（权威——assistant 事件流含增量重复，
+Σassistant 虚高 ~2.5×，本轮实证）；[log_*] 污染行按行首 { 过滤。
+
+## 8. 实测收官（2026-08-20，A=p3_sub5_ab 子5 链续段[630b604 pre-merge，链 211k] / B=同实例重置后子5 fresh 段[四杠杆]，同种子同源，ac-deepseek1/deepseek-v4-flash headless，B 轮=worktree launcher 直调）
+
+| 指标 | A（链续段） | B（四杠杆 fresh 段） | B vs A | 预登记 | 验收 |
+|---|---|---|---|---|---|
+| 首调 fresh | 239,576（cr=1,024 链冷实锤） | **35,995**（cr=0） | **-85.0%** | ≤40,000 | ✓ 超额 |
+| 轮数（result 权威值） | 5 | 7 | +2 | ≤8 | ✓（A 漏调 ref 点名 Skill define-problem=合规欠账，B 合规 +1 轮） |
+| 工具调用 | 4 | 5 | +1 | ≤6 | ✓ 理想最小形态（Skill→scaffold→Read→Edit→append 一次过） |
+| 段 fresh 合计（modelUsage input） | 240,528 | 84,334 | **-64.9%** | — | |
+| 段 cr 合计 | 1,025,152 | 252,160 | **-75.4%** | -80% 起 | ✗ 微欠 4.6pp（fresh 形态再生轮数/out 未计，#33 第三实例） |
+| 成本等效（cr×0.1+input，主验收轴） | 343,043 | 109,550 | **-68.1%** | -70% 起 | ✗ 微欠 1.9pp（机制读数[首调]全中；欠幅=fresh 形态再生，见三路分解） |
+| 段 out | 19,872 | 31,234 | +57.2% | ±15% 内 | ✗（三路分解归因=链形态再生减少，**非条款厚度**，见下） |
+| 段 dur_api | 148.5s | 222.2s | +49.6% | -30% 起 | ✗（out÷rate 双端拟合 134/141 tok/s——prefill 廉价端点墙钟=再生主导） |
+| 成本 USD | $2.212 | $1.329 | **-39.9%** | | |
+| append-trace mech 拒 | 0 | 0 | | 0 | ✓ |
+| 门控 | 零 block | 零 block（一次过，子6 确认零成本+plan:4#1 推进实证） | | 零 block | ✓ |
+
+**三路分解（同种子同码形隔离，墙钟/out 归因的关键对照）**：
+
+| 臂 | 形态 | 等效 | dur_api | out | turns |
+|---|---|---|---|---|---|
+| A | main 链续段（211k 冷重写+携带税） | 343,043 | 148.5s | 19,872 | 5 |
+| 探针（种子事故跑） | main fresh 段**无条款无 strip** | 131,683 | 203.8s | 32,753 | 7 |
+| B | fresh 段+strip+四条款 | 109,550 | 221.1s | 31,234 | 7 |
+
+- **B vs 探针（fresh↔fresh，隔离 strip+条款贡献）**：等效 -16.8%
+  （首调 50,119→35,995=-14.1k=strip -11.9k 探针口径+条款回补，机制算术
+  精确命中）/ out **-4.6%**（条款零增厚）/ dur_api +8.5%。
+- **A↔B 的 out +57% 全归链→fresh 形态差**：链上下文携带格式知识与
+  前序语境=再生减少（轮数 5 vs 7、out 20k vs 31-33k），与复用钉死
+  引用厚度无关（探针无条款 out 32.7k 反而更高）——**链形态墙钟优势=
+  再生避免，非质量更优**；prefill 廉价端点上墙钟=生成主导（#13 双轴
+  的断链镜像）。撤厚度换墙钟=质量对价，登记留用户裁决（p2-sub2/p1-sub5
+  同型先例）。
+- **token 轴断链确定优**（#24 同向）：携带税 1.03M cr 消灭是主收益，
+  fresh 形态再生（out +11k、轮数 +2）是小对价。
+
+**新基座声明（merge 时序）**：p3-sub4-cost（2666dea）先入 main——其子4
+步级断链使新 main 的子5 链形态=resume 子3 fresh 会话（其收官实测子5
+暴露面首调 96.7k 携带一段）。本设计 A 轮=pre-merge 链形态（211k，最大
+口径）；对新基座本杠杆仍足额：35,995 vs 96.7k=**-62.8% 首调**，携带税
+同源消灭（96.7k×轮 vs 36k×轮），等效降幅按新基座口径约 -55~60%。
+
+**代码路径核验（#24 三纪律）**：①A 臂 init 事件 session_id=68288809=
+链 sid（链续跑实证）/ B 臂新 sid=e4afb290（fresh spawn=skip 集生效）；
+②B 臂段 prompt（54,911 字符）含「无取证例外」「材料已全部在包内」
+「交付即止」「--scaffold 骨架」条款+包尾切换=worktree 引擎渲染实证
+（headless 段 driver 装配，#40②）；③init 事件 tools 五件（Task=Agent
+映射 #23①）、B 臂首调 35,995=strip -14.1k 机制算术命中=env 双 DISABLE
+生效。
+
+**trace 质量逐条自查（防 Goodhart）**：15 条 statements 五键逐键非空；
+五类 type_label 全覆盖（skill×4/工具×5/门禁×4/子代理×1/不加载×1）；
+能力名（factor-development/factor-summary-reporting/karpathy-guidelines/
+codegraph/pytest）与子2 注册表一致；enforce_align 含 H15/长 pipeline
+禁 pipe/H13/H9 执行映射条目；不加载清单承载（systematic-debugging/
+workflow-creation 等显式不加载）；subagent_policy 显式「单线程」；
+**假设传导保留**（「置信度」×5/「影响」×4 词形在载荷——p2-sub4 弱化
+登记形态未再现）；需求双向覆盖（U1-U5 逐任务承接）；原子性合规（单句
+配置断言，字段枚举不算复合）；TDD 技能「未注册本会话」显式标注=
+no silent fallback 诚实形态。复用钉死零稀释：工具序列零 evidence 翻找/
+零注册表重勘察/零数据文件核验/零交付后徘徊。
+
+**避免 factor 化核对**：落地条款全机制/形态级（复用钉死/职责边界/交付
+即止/格式真源），引擎 diff 零因子名/零项目文件面/零数值——通用性约束
+兑现（同 p2-sub4 §0）。
+
+**pytest**：1209 全绿（1204 基线+新增 5 例：断链豁免行为/skip 集 pin/
+strip+pack pin/条款 pin/尾行切换+材料不变量）；ruff check/format 过，
+无关文件 format 漂移已摘出（cache_probe/replays 七件 checkout 还原）。
+
+## 9. 遗留
+
+- **耗时/token 双轴对价留用户裁决**：token 轴足额（首调 -85.0%/等效
+  -68.1%/cr -75.4%/成本 -39.9%），墙钟轴 +49.6% 反升——归因=prefill
+  廉价端点上 fresh 形态再生主导（三路分解证非条款厚度），撤厚度（引用
+  精简/五字段合并）换墙钟=质量对价，先例（p2-sub2 +57%/p1-sub5 +60%）
+  均登记不撤，本轮同型登记。
+- plan:3 全节点成本优化收官：子1-5 完成，子6=确认级零成本（#22 关闭
+  清单）——plan:3 成为第二个五步全收口节点（plan:2 后）；plan:3 节点级
+  断链重审登记（链成员仅剩子1/子6 名义在册，白名单出册留整批裁决）。
+- 种子装配第八件套补件（沉淀 #45）：chain.last_step 只在 gate advance
+  落链——种子含未判 trace 时 last_step 与将跑之步错位=断链判据
+  last_step==cur-1 静默失配 fresh 化（本设计 A 臂首跑实证），种子核对
+  清单补「chain.last_step==sub_step_index-1 对齐」。
+- 段读数口径（沉淀进设计 §7④已改）：Σassistant usage 虚高 ~2.5×
+  （流式增量重复），段合计一律用 result.modelUsage——本轮初版分析
+  被虚高读数误导一次（等效 977k→343k 修正）。
