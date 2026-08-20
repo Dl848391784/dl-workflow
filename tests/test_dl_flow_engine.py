@@ -11467,9 +11467,9 @@ class TestSegmentSpawnOverrides:
                 continue
             ov = eng.segment_spawn_overrides(node)
             assert ov["env"] == {}, key
-            if key in ("understand:4", "plan:1", "plan:2"):
-                continue  # u4-sub1-cost / p1-sub1-cost / p2-sub1-cost：tools-only
-                # 置位（env 仍空）
+            if key in ("understand:4", "plan:1", "plan:2", "plan:3"):
+                continue  # u4-sub1-cost / p1-sub1-cost / p2-sub1-cost /
+                # p3-sub1-cost：tools-only 置位（env 仍空）
             assert ov["tools"] is None, key
 
     def test_u4_tools_only_no_env_strip(self):
@@ -11666,6 +11666,57 @@ class TestSegmentSpawnOverrides:
         gate = eng._NODES["plan:2"].sub_steps[2].gate
         assert "引用本节点子1/子2 trace 已载出处" in gate
         assert "出处是引用非新取证" in gate
+
+    def test_p3_node_tools_whitelist(self):
+        # p3-sub1-cost L2：plan:3 Node 工具白名单（plan:3 首例，designs/
+        # p3-sub1-cost-optimization-design.md §2 L2 六步逐步核对）——
+        # （Bash/Read/Edit/Skill/Agent：子1/2/4=Bash+Read+Edit，子3 条件
+        # 红队 fence_allow Agent 在册，子5 define-problem 归一化要 Skill，
+        # 子6 tier=confirm 无模型会话；无 Grep [ref 未点名]）；env 剥离
+        # 不下放节点级（子2 交付物正文引 CLAUDE.md §2 触发词=一等材料，
+        # u3-sub1 反优化同型），子1 逐步置位见下一测试。
+        ov = eng.segment_spawn_overrides(eng._NODES["plan:3"])
+        assert ov["env"] == {}
+        assert ov["tools"] == ("Bash", "Read", "Edit", "Skill", "Agent")
+
+    def test_p3_step1_step_level_strip(self):
+        # p3-sub1-cost L1：plan:3#1 Step 级 strip（第十四例——p2-sub4 先落地占第十三）——交付物=
+        # 操作类型清单+任务 ID 出处+plan.md 原文引用，六类标签逐字在
+        # _CTS_STEP1_FORM_REQUIREMENTS 自给，不引自动加载文档正文
+        # （强制路由核对引 §2 归子2 判面）。
+        node = eng._NODES["plan:3"]
+        step1 = node.sub_steps[0]
+        ov = eng.segment_spawn_overrides(node, step1)
+        assert ov["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
+        assert ov["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
+        assert ov["tools"] == ("Bash", "Read", "Edit", "Skill", "Agent")
+
+    def test_p3_step1_reuse_clause_pinned(self):
+        # p3-sub1-cost L3：purpose/selfcheck 复用钉死③型「定点一次」条款
+        # （#38 判别：gate 出处要件钉死包外 plan.md 行号/原文→③型）+
+        # 交付即止（#37）/格式真源（#26）关键词钉死——防未来编辑静默改丢
+        # （条款=本步步体主杠杆：基线 evidence grep/python×4+落库后验证
+        # ×1=纯税/徘徊）。
+        step1 = eng._NODES["plan:3"].sub_steps[0]
+        assert "复用钉死" in step1.purpose
+        assert "复用 <节点>子N 留痕" in step1.purpose
+        assert "零 evidence 全量翻找" in step1.purpose
+        assert "定点 Read 一次" in step1.purpose
+        assert "零重读" in step1.purpose
+        assert "交付即止" in step1.purpose
+        assert "--scaffold 骨架" in step1.purpose
+        assert "零 evidence 翻找吗" in step1.selfcheck
+        # ref 通道退役同步（grep evidence 不再出现）
+        assert "grep evidence" not in step1.ref
+
+    def test_p3_other_steps_no_step_strip(self):
+        # 逐步粒度不误伤兄弟步（子2-5 逐步核对未做/子6 确认级无会话——
+        # 均不置位；仅子1 由 p3-sub1-cost 置位）。
+        node = eng._NODES["plan:3"]
+        for i, step in enumerate(node.sub_steps, start=1):
+            if i == 1:
+                continue
+            assert eng.segment_spawn_overrides(node, step)["env"] == {}, i
 
     def test_u3_step3_step_level_strip(self):
         # u3-sub3-cost（designs/u3-sub3-cost-optimization-design.md）：Step 级
