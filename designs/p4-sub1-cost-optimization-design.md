@@ -200,10 +200,79 @@ p4_sub1_ab，逐字符等量）；③种子数值 4824.5% 与今日值 4929.2% �
 子1 一段——gate 裁决落盘后看护器杀 driver+段进程（连带 pkill 段孤儿，
 p1-sub5-cost 教训），子2 起链段不计入账面（登记为驱动工件）。
 
-## 5. 实测收官
+## 5. 实测收官（2026-08-20，A=p2_sub3_ab plan:4#1 链头段[免跑基线第五例] / B=p4_sub1_ab 同种子 evidence 裁 ≤plan:3#6[40 条]，ac-deepseek1/deepseek-v4-flash headless，一轮 A/B 全验收）
 
-（待 B 轮跑完回填：指标表/工具序列/机制生效实证/验收逐条/墙钟归因/
-trace 质量自查/混淆复盘/pytest 读数。）
+B 轮驱动法（runtime-audit #24/#25）：种子五件套（evidence 裁 ≤plan:3#6
+confirm[40 条剔 plan:4 两条] + ljt 去 plan:4#1 键 + 段记录/链回滚
+[chain={plan:3,c5da3a1f,last_step=5}=有机参照 p3_sub5_ab 同位形逐字段
+对齐] + state 四字段 + settings/node-rules 名替换）+ 产物三件（plans/
+understands/designs cp 改名）+ 实例 worktree wf/p4_sub1_ab → 包冒烟
+37,061 字符（三产物指针改名在列/plan:3 归一化 statements 在包/零名泄漏）
+→ `bash -ic` 内 `AC_WORKFLOW_LAUNCHER=<worktree>/scripts/workflow/
+dl-launch.sh ac-deepseek1 --dl p4_sub1_ab --resume --headless` → plan:4#1
+gate 通过后看护器杀 driver+段进程（子2 链段零 trace 落库即被杀——比
+p3-sub1 干净的收段）。
+
+| 指标 | A（免跑基线） | B（三杠杆） | B vs A | 预登记 | 验收 |
+|---|---|---|---|---|---|
+| 首调 fresh | 58,145（cr=0） | 27,953（cr=0） | **-51.9%** | ≤34,000 | ✓ 超（三分量命中：strip -11.9k+白名单 25→5 -13.5k≈-25.4k 实测 -30.2k，余=包差+方差） |
+| 段 fresh 合计 | 145,073 | 94,088 | **-35.1%** | — | ✓ |
+| 段 cr 合计 | 2,571,008 | 220,160 | **-91.4%** | -75% 起 | ✓ 超（纯税 22 调用清零主驱动） |
+| 成本等效（fresh+cr×0.1） | 402,174 | 116,104 | **-71.1%** | -60% 起 | ✓ 超，主验收轴 |
+| 轮数（result 权威值） | 31 | 8 | **-74.2%** | ≤12 | ✓ |
+| 工具调用 | 30 | 7 | **-76.7%** | ≤12 | ✓ 理想最小形态 |
+| 段 out 合计 | 36,693 | 18,884 | **-48.5%** | ≤69.7k（1.9× 报价） | ✓ **无反噬**（报价未触发=上限口径，#33 不改） |
+| 段 dur_api | 252.8s | 124.5s | **-50.8%** | out÷rate 登记 | ✓ 双轴同降（速率 A 145/B 152 tok/s 稳定，out 降+轮数降叠加） |
+| 成本 | $2.928 | $1.053 | **-64.0%** | — | ✓ |
+| append-trace mech 拒 | 0 | **0**（scaffold+一次落库） | | | ✓ |
+| 门控 | 一次通过零 block | **零 block 一次通过**（ljt plan:4#1 落账即推进） | | 零 block | ✓ |
+
+**B 工具序列（理想最小形态）**：Read understand.md（指针直达）→ Read
+plan.md（指针直达）→ Read design.md（指针直达）→ scaffold → Read 骨架
+→ Edit → append 一次过 = 7 调用。零 ls/find/grep locate（A 轮路径猎捕
+13 调用清零）、零 evidence 翻找（A 轮 7 调用清零）、零交付后徘徊（A 轮
+2 调用清零——工具序列止于落库，交付即止生效）。
+
+**机制生效实证**：①init 事件 tools=['Task','Bash','Edit','Read','Skill']
+= L2 白名单落地（Task=Agent 映射，u1-prefix-strip 口径）；②首调 -30.2k
+≈ strip -11.9k + 工具 schema -13.5k + 包差/方差 = L1/L2 落地（B1/B2 双样
+本首调同为 27,953±0=机制读数稳定）；③trace q6 自述「三文件各只 Read
+一次/零 evidence 翻找/零路径 locate」+ q1-q5 「复用 TaskBreakdown 子4
+留痕」「复用 CapabilityToolSelection 子5 留痕」形态在正文 = L3 条款落地。
+
+**trace 质量逐条自查（防 Goodhart）**：五类清单齐备（①U1-U5 任务 DAG
+附 plan.md:5-11 行号+原文/②能力绑定 10 条附 plan.md:13-24/③验收包
+SC-G1/G2/G3 附 understand.md:53-57+triggered 显式标注×6/④假设 11 条附
+design.md 行号+plan.md H-1/2/3 传导/⑤不可逆候选逐项二值判定）；行号
+引用密度 plan.md×41+understand.md×13+design.md×11+『』原文×6；新增
+候选显式「无」+枚举例外逐条判定；q,a 按序对齐（6 对）；只提取不创作、
+零编造——执行接地零稀释（引用密度反升：A 轮猎捕噪音位置被出处引用
+取代）✓。
+
+**out 无反噬归因（#44 零触发形态第三例）**：复用钉死的引用义务替代的是
+A 轮猎捕/翻找的命令回显与推理叙述厚度（留痕义务总量不变），条款净增量
+≈0 时 out 不放大（p3-sub1 -18.2%/p3-sub4 +2.4% 同族）。
+
+**B1 污染轮登记（驱动工件，不入账）**：首轮种子组装脚本 bug——
+`open(p,'w').write(open(p).read().replace(...))` 求值顺序先截断后读，
+plans/p4_sub1_ab.md 落 0 字节；B1 模型按枚举例外条款单点核对一次后回落
+包内留痕（「以产物文件为准→产物为空→改引交接包留痕」），条款在对抗性
+种子下行为正确（枚举例外通道顺带实证有效），门控一次通过；但 B1 trace
+形态（①②类引留痕非 plan.md 行号）≠ 干净种子形态，读数剔出对比面，
+种子重组装后 B2 为上表读数。**种子八件套族补件：产物文件改名必须
+「先读后写」分两句**（open(p,'w') 先求值截断陷阱）。
+
+**混淆声明复盘**：①A/B 均 fresh 段（链头 cr=0 双实锤）无链形态差；
+②种子 evidence 逐字同源、包差异=实例名替换；③amplitude 今日值 4929.2%
+vs 种子 4824.5% 漂移=#18 未触发（子1 清点对象=已拍板产物文件，B 轮零
+因子数值询问）；④A 轮 launcher=80de063 与 main 的 plan:4#1 可见面逐字
+相同（三查① diff 零命中）；⑤白名单/strip 是本设计落地件非外部漂移；
+⑥p3-sub5-cost 在飞，两臂链政策一致且子1 链头不受链政策影响；⑦子2 链段
+零 trace 落库即被杀=驱动工件不计账。
+
+**pytest**：1211 全绿（新增 4 例：Node 白名单 pin/子1 strip 生效面/复用
+条款 pin/兄弟步零行为变化；test_other_nodes_zero_change 豁免集加
+plan:4）。
 
 ## 6. 遗留立项
 
