@@ -11152,11 +11152,14 @@ class TestPackSelfContained:
         # plan:1#2 置位（交互步第二例）——输入契约 step1.terrain_map 经
         # 本节点前序留痕全文通道在包（ab2 真迹四步核对：零包外取证、gate
         # 凭空设计判据使包外材料结构性不可用=#19 判别意图不命中）；
-        # 兄弟步不置位（#1 勘察步/#3-4 验证评估步要跑 Bash/Agent 取证，
-        # #6 确认级；#5 于 p1-sub5-cost 置位）。
+        # 兄弟步不置位（#1 勘察步/#3 验证步要跑 Bash 取证，#6 确认级；
+        # #5 于 p1-sub5-cost 置位）。
+        # p1-sub4-cost：#4 置位（非交互步第三例）——输入契约（子2 候选+
+        # 子3 三态核验+must 目标集+验收包）全在包（生产真迹四步核对：
+        # 引文跨度 4/9 精确命中+5 条同源转写、事实项全命中，见设计 §2）。
         node = eng.get_node("plan", 1)
         flags = [bool(s.pack_self_contained) for s in node.sub_steps]
-        assert flags == [False, True, False, False, True, False]
+        assert flags == [False, True, False, True, True, False]
 
     def test_p1_step2_tail_line_replaced(self, tmp_path):
         # 尾行条件化挂在 prior_sections 非空分支——须带前序节点（understand
@@ -11413,14 +11416,15 @@ class TestSegmentSpawnOverrides:
         assert ov["tools"] == ("Bash", "Read", "Edit", "Grep", "Skill", "Agent")
 
     def test_p1_other_steps_no_step_strip(self):
-        # 逐步粒度不误伤兄弟步（子3 于 p1-sub3-cost 核对后结论=不置位：④硬
-        # 规则核验须点名规则条号=一等材料，#23 第三核对不通过，u:3#1 反优化
-        # 同型；子4/子6 逐步核对未做——钉死防未来误置位；子2 于 p1-sub2-cost
-        # 置位；子5 于 p1-sub5-cost 置位=消费步，H9 阈值经子3/子4 trace 逐字
-        # 在场非一等材料，与子3 验证步不同型）。
+        # 逐步粒度不误伤兄弟步（子6 确认级逐步核对未做——钉死防未来误置位；
+        # 子2 于 p1-sub2-cost 置位；子3 于 p1-sub3-cost 核对后结论=不置位：
+        # ④硬规则核验须点名规则条号=一等材料，#23 第三核对不通过，u:3#1 反
+        # 优化同型；子4 于 p1-sub4-cost 置位=消费步（H 条号经子3 留痕逐字
+        # 在场）；子5 于 p1-sub5-cost 置位=消费步（H9 阈值经子3/子4 trace
+        # 逐字在场非一等材料，与子3 验证步不同型））。
         node = eng._NODES["plan:1"]
         for i, step in enumerate(node.sub_steps, start=1):
-            if i in (1, 2, 5):
+            if i in (1, 2, 4, 5):
                 continue
             assert eng.segment_spawn_overrides(node, step)["env"] == {}, i
 
@@ -11435,6 +11439,34 @@ class TestSegmentSpawnOverrides:
         assert ov["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
         assert ov["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
         assert ov["tools"] == ("Bash", "Read", "Edit", "Grep", "Skill", "Agent")
+
+    def test_p1_step4_step_level_strip(self):
+        # p1-sub4-cost L1：plan:1#4 Step 级 strip（第九例）——交付物=矩阵
+        # 评分+双向追溯+红队留痕（消费步，规则事实经子3 留痕逐字在场，
+        # 不引自动加载文档为一等材料）；工具需求 Bash/Read/Edit/Agent
+        # 全在 Node 白名单既有面。
+        node = eng._NODES["plan:1"]
+        step4 = node.sub_steps[3]
+        ov = eng.segment_spawn_overrides(node, step4)
+        assert ov["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
+        assert ov["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
+        assert ov["tools"] == ("Bash", "Read", "Edit", "Grep", "Skill", "Agent")
+
+    def test_p1_step4_reuse_and_redteam_clause_pinned(self):
+        # p1-sub4-cost L3/L4/L5（designs/p1-sub4-cost-optimization-design.md）：
+        # 复用钉死（消费步形态）+格式真源钉死+红队材料包钉死关键词——
+        # 防未来编辑静默改丢（红队条款是本步主杠杆：基线红队侧等效占
+        # 子4 总账 ~73%=agent 零材料 prompt 致独立重勘 25-58 调用/agent）。
+        step4 = eng._NODES["plan:1"].sub_steps[3]
+        assert "本步零新取证" in step4.purpose
+        assert "零 evidence 全量翻找" in step4.purpose
+        assert "唯一取证面=条件红队派发" in step4.purpose
+        assert "格式与传导核对细节的唯一真源=--scaffold 骨架" in step4.purpose
+        assert "逐字携带攻击对象材料" in step4.purpose
+        assert "禁重跑 codegraph/grep 全仓勘察" in step4.purpose
+        assert "攻击对象=排序第一候选一次" in step4.purpose
+        assert "材料全部引自交接包" in step4.selfcheck
+        assert "红队只基于材料攻击、零重勘" in step4.selfcheck
 
     def test_p1_step3_reuse_clause_pinned(self):
         # p1-sub3-cost L1（designs/p1-sub3-cost-optimization-design.md）：
