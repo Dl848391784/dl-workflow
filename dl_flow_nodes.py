@@ -3973,6 +3973,26 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     '"fields":{skill_first/tools/enforce_align/subagent_policy/'
                     "no_load}}——fields 五键逐键非空"
                     "（append-trace 机械校验，缺键即拒；无内容键填显式「无」）。"
+                    # p3-sub5-cost L4（复用钉死无取证例外形态，#34 第四例——
+                    # gate 方框一「字段与子3/子4 已定内容不一致判 block」+
+                    # 方框三「能力名与子2 注册表逐字性」结构性封死包外材料
+                    # 合法出口，条款与判据同向）+ 交付即止（#37 平移）+
+                    # 格式真源（#26 平移）：
+                    "材料边界（复用钉死，无取证例外形态）：归一化材料=交接包"
+                    "本节点留痕全文通道（子1 需求清单/子2 注册表+强制路由核对/"
+                    "子3 绑定提案+最小集不加载清单/子4 可用性核验+假设清单）——"
+                    "逐项逐字引用即合法形态（「复用 子N 留痕：<出处逐字>」），"
+                    "默认零新取证。无取证例外：字段与子3/子4 已定内容不一致即"
+                    "gate 判据判 block，新取证在本步无判据出口——零 evidence "
+                    "翻找（前序 trace 已在包内）、零注册表重勘察（子2 已留痕）、"
+                    "零数据文件核验（本步不碰数据面）。"
+                    "职责边界：可用性核验归子4（已留痕），本步零复核；绑定映射"
+                    "拍板归子6（本步只提案）；为后续节点预取=越界。"
+                    "交付即止：落库成功（✓ 已落库）即结束本轮——禁 locate 产物/"
+                    "读 state/grep evidence 确认落库/预习下一步，推进与门控由"
+                    "外部 driver 判定。载荷格式的唯一真源 = --scaffold 骨架+"
+                    "append-trace 报错文案——禁读引擎/测试源码/历史 trace 反推"
+                    "格式；被拒按报错文案逐字修即可。"
                 ),
                 input="step4.verified_bindings",
                 record=True,
@@ -3984,6 +4004,19 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     "subagent_policy",
                     "no_load",
                 ),
+                # p3-sub5-cost L2：Step 级 strip（第十七例——p3-sub4-cost 在飞
+                # 占第十六例，merge 复核）——交付物=归一化 statements 五字段，
+                # 正文材料全部经本节点前序 trace 逐字在包（enforce_align 的
+                # 执行映射条目=子2 强制路由核对留痕/子3 绑定提案逐字携带，
+                # 能力名=子2 注册表出处），不引自动加载文档本体（#23 第三核对，
+                # u:3#1 反优化理由不成立）；gate 判材=evidence trace 不受影响。
+                segment_strip_project_context=True,
+                # p3-sub5-cost L3：pack_self_contained（非交互步第八例）——
+                # 输入契约逐字段核对：skill_first/tools/enforce_align/
+                # subagent_policy/no_load/假设传导=子1-4 留痕全文通道全在包
+                # （装配不变量测试钉死）；gate 方框一把「与子3/子4 已定内容
+                # 不一致」判死=搬运型步结构性佐证。#40 方差防守定位。
+                pack_self_contained=True,
                 selfcheck=(
                     "每项 = 1 个可独立执行的配置断言且自包含"
                     "（零上下文执行者照做）吗？"
@@ -3991,6 +4024,9 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     "subagent_policy/no_load——append-trace 机械校验，缺键即拒）？"
                     "字段与子3/子4 已定内容一致吗（无丢失无篡改无新增）？"
                     "能力名与子2 注册表出处逐字一致吗？假设传导了吗？"
+                    # p3-sub5-cost L4
+                    "材料全部引自交接包本节点前序留痕吗（零新取证/零 evidence "
+                    "翻找/零注册表重勘察）？落库后交付即止了吗？"
                 ),
                 # v2.117（designs/plan3-sub5-gate-framing-design.md）：不加载清单
                 # 丢失 + 假设传导丢失/淡化下沉跨步 mech（出席型负判定，⑭ 注意力
