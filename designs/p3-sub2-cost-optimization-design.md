@@ -146,3 +146,34 @@ sub_index=3）+ **sub_step_index=2（将跑之步 1-based）** + problem_stateme
 `AC_WORKFLOW_LAUNCHER=<wt>/scripts/workflow/dl-launch.sh ac-deepseek1 --dl
 p3_sub2_ab --resume --headless` 后台；driver 日志核对断链生效（「⟂ 段链
 续跑」特征行缺席）+ init 事件 tools 白名单；目标步 gate 过即收段统计。
+
+## 9. 收官（B1->修1->B2，2026-08-20）
+
+| 指标 | A 基线 | B1 | B2 | 预登记线 | B2 判定 |
+|---|---|---|---|---|---|
+| 首调 fresh | 104,483 | 42,088 | 42,288 | <=55k | OK -59.5% |
+| 段 fresh | 116,032 | 52,834 | 57,073 | -- | OK -50.8% |
+| 段 cr | 1,273,216 | 816,896 | 384,768 | 大降 | OK -69.8% |
+| 轮数 | 18 | 16 | 10 | <=12 | OK |
+| 工具调用 | 17 | 15 | 9 | <=9 | OK |
+| out | 15,981 | 33,900 | 31,832 | <=14k | X +99% 反噬（#41 第五实例，登记不撤） |
+| dur_api | 127.2s | 217.6s | 208.0s | <=90s | X +63.5%（out 驱动，out÷rate ~155 tok/s 拟合上） |
+| 等效 | 243,354 | 134,523 | 95,549 | <=130k | OK -60.7% |
+| block | 0 | 0 | 0 | 0 | OK |
+
+- B1 未兑现两族纯税：同目录复探 x3（ls/find/python os 同面三变体）+
+  plugins/marketplace 表面外掘进 x4 -> 修1 双侧补钉（同一目录累计一次
+  按面不按词形 + 注册表面显式排除）-> B2 9 调用理想最小形态。
+- B2 工具序列：ls 两目录各一次 + MCP 配置读 + SKILL.md frontmatter
+  Read x2 + scaffold/Read/Edit/落库四件；零 which/冒烟/db 探测（职责边界
+  兑现）、零 evidence 翻找、零交付后徘徊、零 block（gate 零变更三查
+  实证成立）。
+- 首调 fresh 双样本收敛 +/-0.5%（42,088/42,288）= 断链+白名单机制读数
+  确定性再实证。
+- trace 质量自查（防 Goodhart）：三通道齐备（available-skills 逐字列表+
+  磁盘目录 ls 出处+CLAUDE.md §2/§3 引用）、H15/codegraph 路由核对在场、
+  逐任务说明在场——out 增厚成分为引用厚度非褶皱。
+- 沉淀：cost-optimization #40（注册表枚举型第四型：默认源+按面配额+
+  表面显式排除）/ #41（out 反噬第五实例，枚举型步 2.0-2.1x 报价样本）。
+- 混淆复核：amplitude 4929.2% 漂移面零判面接触（trace 无数值断言）；
+  A 链内/B fresh 口径差=处置本身。
