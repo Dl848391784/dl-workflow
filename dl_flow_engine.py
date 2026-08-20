@@ -130,7 +130,15 @@ SEGMENT_CHAIN_NODES = frozenset(
 # 逐字段核对完备（子1 need_baseline trace 全文在包）。子3 侧效应 = 链
 # resume 换挂子2 fresh 会话（继承 transcript 变小，同向）。节点白名单
 # 不动、plan:3 其余步零行为变化（surgical，节点级断链否决理由见设计 §3）。
-SEGMENT_CHAIN_SKIP_STEPS = frozenset({("plan:1", 5), ("plan:3", 2)})
+# 2026-08-20 plan:3#4 步级摘除（p3-sub4-cost，步级第四例——p3-sub3-cost
+# 在飞占第三，designs/p3-sub4-cost-optimization-design.md L1）：#20 链
+# 首调恒冷（免跑基线 p3_sub3_base 子4 链内段首调 fresh 190,802 / cr=1,024
+# = 子2+子3 transcript 冷重写实锤）+ #24 携带税主导（段 cr 1,446,016 /
+# 15 轮 ≈ 96k/轮）。材料经交接包逐字段核对完备（子4 input=
+# step3.binding_proposals，本节点前序 trace 全文通道在包）。后续步子5
+# resume 子4 fresh 会话=携带量变小（一段 vs 三段），无 fresh 化暴露面
+# （#30 扩面核对）；节点白名单不动、plan:3 其余步零行为变化。
+SEGMENT_CHAIN_SKIP_STEPS = frozenset({("plan:1", 5), ("plan:3", 2), ("plan:3", 4)})
 
 # 段内续步白名单（u2-sub4-cost，2026-08-18 用户裁决「段内续步」方案）：
 # 名单内节点的连续非交互子步骤在同一 claude -p 进程内续跑（--input-format

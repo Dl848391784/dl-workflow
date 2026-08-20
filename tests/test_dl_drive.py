@@ -2404,15 +2404,35 @@ def test_chain_resume_step_level_skip(wf_repo):
 
 
 def test_chain_skip_steps_constant():
-    """豁免集单源钉死：当前 plan:1#5 + plan:3#2（回滚面=摘条目）。
+    """豁免集单源钉死：当前 plan:1#5 + plan:3#2 + plan:3#4（回滚面=摘条目）。
 
     plan:3#2（p3-sub2-cost，步级第二例）：#20 链首调恒冷（A 轮 104,483
     cr=0 = 子1 transcript 冷重写）+ #24 前序携带税主导；材料经交接包逐
-    字段核对完备（子1 need_baseline trace 全文在包）。"""
+    字段核对完备（子1 need_baseline trace 全文在包）。
+    plan:3#4（p3-sub4-cost，步级第四例——p3-sub3-cost 在飞占第三）：#20
+    链首调恒冷（免跑基线 p3_sub3_base 子4 链内段首调 190,802 / cr=1,024）
+    + #24 携带税（段 cr 1.45M/15 轮）；材料=本节点前序 trace 全文在包。"""
     assert ("plan:1", 5) in engine.SEGMENT_CHAIN_SKIP_STEPS
     assert ("plan:3", 2) in engine.SEGMENT_CHAIN_SKIP_STEPS
+    assert ("plan:3", 4) in engine.SEGMENT_CHAIN_SKIP_STEPS
     for nid, _step in engine.SEGMENT_CHAIN_SKIP_STEPS:
         assert nid in engine.SEGMENT_CHAIN_NODES  # 豁免集 ⊆ 链白名单才有意义
+
+
+def test_chain_resume_step_level_skip_plan3_sub4(wf_repo):
+    """p3-sub4-cost L1：plan:3#4 命中豁免集即不续链（fresh spawn）；链内
+    兄弟步（子3）零行为变化（步级豁免不触节点白名单，p1-sub5-cost 同型）。"""
+    drv = _load(DRIVER, "drv_chain_skip_p3s4")
+    state = _write_state(
+        wf_repo,
+        segment_chain={"node": "plan:3", "sid": "abc", "last_step": 3},
+    )
+    assert drv._chain_resume_sid(state, "plan:3", 4) is None  # 豁免步
+    state3 = _write_state(
+        wf_repo,
+        segment_chain={"node": "plan:3", "sid": "abc", "last_step": 2},
+    )
+    assert drv._chain_resume_sid(state3, "plan:3", 3) == "abc"  # 兄弟步不受影响
 
 
 def test_chain_nodes_plan2_removed(wf_repo):
