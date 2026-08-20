@@ -11394,6 +11394,47 @@ class TestPackSelfContained:
         assert "本步所需材料已全部在包内" in pack
         assert "以上为摘要" not in pack
 
+    # ---------- p3-sub3-cost：plan:3#3（匹配选型）置位 ----------
+
+    @staticmethod
+    def _cts_step1_trace():
+        return {
+            "kind": "skill-trace",
+            "major_stage": "Plan",
+            "minor_stage": "CapabilityToolSelection",
+            "sub_step": 1,
+            "skill": "s",
+            "purpose": "p",
+            "q": ["需求清点"],
+            "a": ["需求基线UNIQUECTS1逐任务操作类型附任务ID出处"],
+        }
+
+    @staticmethod
+    def _cts_step2_trace():
+        return {
+            "kind": "skill-trace",
+            "major_stage": "Plan",
+            "minor_stage": "CapabilityToolSelection",
+            "sub_step": 2,
+            "skill": "s",
+            "purpose": "p",
+            "q": ["能力盘点"],
+            "a": ["能力注册表UNIQUECTS2三通道附trigger出处"],
+        }
+
+    def test_p3_step3_tail_line_replaced(self, tmp_path):
+        # 尾行条件化（plan:3#3 置位 pack_self_contained，非交互第七例）——
+        # headless 段 driver 装配即生效（#40②）。
+        self._write_evidence(
+            tmp_path,
+            self._pc_traces() + [self._cts_step1_trace(), self._cts_step2_trace()],
+        )
+        _write_state_full(tmp_path, "t", "plan", 3, sub_step=3)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None
+        assert "本步所需材料已全部在包内" in pack
+        assert "以上为摘要" not in pack
+
     def test_p2_step4_materials_complete_invariant(self, tmp_path):
         """装配不变量（p2-sub4-cost）：plan:2#4 pack_self_contained+复用钉死
         的材料前提——包须含①子1 要素基线留痕全文（acceptance_map 的 SC ID
@@ -11416,6 +11457,22 @@ class TestPackSelfContained:
         assert "要素基线UNIQUETB1逐条附出处原文引用" in pack  # 子1 留痕全文
         assert "单元定义UNIQUETB2附H9预算要素ID依赖出处" in pack  # 子2 留痕全文
         assert "锚点核验UNIQUETB3四类留痕三态标注假设H1" in pack  # 子3 留痕全文
+
+    def test_p3_step3_materials_complete_invariant(self, tmp_path):
+        """装配不变量（p3-sub3-cost）：plan:3#3 复用钉死/断链的材料前提——
+        包须含①子1 需求基线留痕全文②子2 能力注册表留痕全文（本节点留痕
+        全文通道=输入契约 step1.need_baseline+step2.capability_registry
+        唯一来源，红队材料包同源）——防未来交接包修剪把材料修没了、
+        「复用钉死」条款变错。"""
+        self._write_evidence(
+            tmp_path,
+            self._pc_traces() + [self._cts_step1_trace(), self._cts_step2_trace()],
+        )
+        _write_state_full(tmp_path, "t", "plan", 3, sub_step=3)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None
+        assert "需求基线UNIQUECTS1逐任务操作类型附任务ID出处" in pack  # 子1 留痕全文
+        assert "能力注册表UNIQUECTS2三通道附trigger出处" in pack  # 子2 留痕全文
 
 
 class TestSegmentSpawnOverrides:
@@ -11695,6 +11752,43 @@ class TestSegmentSpawnOverrides:
         assert "同一目录" in step2.selfcheck
         assert "零探查" in step2.selfcheck
 
+    def test_p3_step3_step_level_strip_and_pack(self):
+        # p3-sub3-cost L2/L3：子3 置位 Step strip（第十五例——交付物正文
+        # 引子2 trace 出处非 CLAUDE.md 本体，子2 env 否决理由反向，
+        # #23 第三核对）+ pack_self_contained（非交互第七例，#40 方差
+        # 防守——输入契约 step1.need_baseline+step2.capability_registry
+        # ⊆ 包内前序 trace 全文通道，基线 de facto 零 evidence 翻找）。
+        # env 生效面断言同 u:3#3 先例形态；tools 沿用 Node 白名单五件
+        # （子3 条件红队要 Agent）。
+        node = eng._NODES["plan:3"]
+        step3 = node.sub_steps[2]
+        ov = eng.segment_spawn_overrides(node, step3)
+        assert ov["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
+        assert ov["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
+        assert ov["tools"] == ("Bash", "Read", "Edit", "Skill", "Agent")
+        assert step3.pack_self_contained is True
+        strips = [bool(s.segment_strip_project_context) for s in node.sub_steps]
+        # 子1=p3-sub1-cost（第十四例），子3=p3-sub3-cost（第十五例）
+        assert strips == [True, False, True, False, False, False]
+
+    def test_p3_step3_reuse_redteam_delivery_clauses_pinned(self):
+        # p3-sub3-cost L4：复用钉死+红队材料包三钉（#36 平移）+交付即止
+        # （#37）+格式真源（#26）关键词钉死——防未来编辑静默改丢（条款=
+        # 方差防守主杠杆：红队无条款时 p1-sub4 基线退化 58 调用重勘占步
+        # 成本 73%；交付后徘徊/格式猎捕=断链暴露面 #30）。
+        step3 = eng._NODES["plan:3"].sub_steps[2]
+        assert "复用钉死" in step3.purpose
+        assert "零注册表重勘察" in step3.purpose
+        assert "红队材料包三钉" in step3.purpose
+        assert "逐字携带攻击对象材料包" in step3.purpose
+        assert "零重验" in step3.purpose
+        assert "每攻击点至多 1 次" in step3.purpose
+        assert "交付即止" in step3.purpose
+        assert "--scaffold 骨架" in step3.purpose
+        assert "零注册表" in step3.selfcheck
+        assert "材料包" in step3.selfcheck
+        assert "交付即止" in step3.selfcheck
+
     def test_p2_step3_gate_citation_legal_form_pinned(self):
         # p2-sub3-cost L4 gate 双侧修文本：引用前序出处进合法形态（负判定
         # 零改动）——判材边界钉句防 judge 以「非本步新跑命令」误 block
@@ -11746,11 +11840,12 @@ class TestSegmentSpawnOverrides:
         assert "grep evidence" not in step1.ref
 
     def test_p3_other_steps_no_step_strip(self):
-        # 逐步粒度不误伤兄弟步（子2-5 逐步核对未做/子6 确认级无会话——
-        # 均不置位；仅子1 由 p3-sub1-cost 置位）。
+        # 逐步粒度不误伤兄弟步（子2/子4/子5 逐步核对未做或已否决/子6 确认级
+        # 无会话——均不置位；子1 由 p3-sub1-cost 置位，子3 由 p3-sub3-cost
+        # 置位[交付物引子2 trace 出处非 CLAUDE.md 本体，设计 §3 L2]）。
         node = eng._NODES["plan:3"]
         for i, step in enumerate(node.sub_steps, start=1):
-            if i == 1:
+            if i in (1, 3):
                 continue
             assert eng.segment_spawn_overrides(node, step)["env"] == {}, i
 

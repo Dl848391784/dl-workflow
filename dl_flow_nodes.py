@@ -3831,6 +3831,27 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                 purpose=(
                     f"匹配选型提案：{_CTS_STEP3_FORM_REQUIREMENTS}。"
                     "条件红队（绑定数超阈值或含高成本项时触发，独立上下文反驳映射）。"
+                    # p3-sub3-cost L4（designs/p3-sub3-cost-optimization-design.md）：
+                    # 复用钉死（gate 方框二同向——绑定理由出处=子2 trace 引用
+                    # 即合规）+ 红队材料包三钉（#36 平移）+ 交付即止（#37）+
+                    # 格式真源（#26，断链暴露面同批补款 #30）：
+                    "材料边界（复用钉死）：子1 需求清单与子2 能力注册表"
+                    "（含 trigger/description 出处）经交接包前序 trace 全文在包，"
+                    "逐字引用即合法（「复用 子2 留痕：<出处逐字>」形态），"
+                    "零 evidence 翻找、零注册表重勘察（available-skills/磁盘目录/"
+                    "CLAUDE.md §2§3/SKILL.md 的勘察归子2 已完成面，本步零重跑）。"
+                    "红队材料包三钉（条件触发时）：①派发 prompt 逐字携带攻击对象"
+                    "材料包（需求清单+能力注册表出处+映射提案与理由，均在本步会话"
+                    "上下文）；②红队职责=基于材料的独立判断攻击（映射逻辑/最小集/"
+                    "成本相称/强制优先），注册表存在性与需求出处以前序留痕为准"
+                    "零重验，禁重跑勘察类工具（codegraph/grep/ls 注册表目录/读 "
+                    "SKILL.md 全文），确需复核 Read 单点文件定点核对（每攻击点"
+                    "至多 1 次）；③攻击对象=映射提案整体一次。"
+                    "交付即止：落库成功（✓ 已落库）即结束本轮——禁 python/Bash "
+                    "验证落库、禁 locate 产物/读 state/grep evidence/预习子4，"
+                    "推进与门控由外部 driver 判定。载荷格式的唯一真源 = "
+                    "--scaffold 骨架+append-trace 报错文案——禁读引擎/测试源码/"
+                    "历史 trace 反推格式；被拒按报错文案逐字修即可。"
                 ),
                 input="step2.capability_registry + step1.need_baseline",
                 record=True,
@@ -3839,12 +3860,26 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                 # 残留=跨步差集（S2 注册表①枚举 vs S3 出现集），judge 判不了
                 # （显式遍历指令 1/6），下沉 binding_residue_trace 生产墙。
                 mech_checks=("binding_residue_trace",),
+                # p3-sub3-cost L2：Step 级 strip（第十五例——收口按 git log 核定）
+                # ——交付物正文引子2 trace 出处（gate 方框二合法形态），非
+                # CLAUDE.md 本体（判材边界明示 §2 原文结构性不可见）=无自动
+                # 加载文档一等材料依赖（子2 env 否决理由反向，#23 第三核对）。
+                segment_strip_project_context=True,
+                # p3-sub3-cost L3：pack_self_contained（非交互步第七例，#40
+                # 方差防守定位）——输入契约 step1.need_baseline +
+                # step2.capability_registry ⊆ 包内前序 trace 全文通道；基线
+                # de facto 零 evidence 翻找（工具序列实证）。
+                pack_self_contained=True,
                 selfcheck=(
                     "双向追溯矩阵齐了吗（每需求有绑定或显式「内置足够」；"
                     "每能力绑定到需求，无无绑定能力残留）？"
                     "每条绑定附理由+子2 出处+被否替代了吗？"
                     "重型手段附成本辩护了吗？红队留痕或条件未触发声明了吗？"
                     "是「提案-待用户裁决」语义吗？"
+                    # p3-sub3-cost L4
+                    "子1/子2 留痕逐字引用零重验了吗（零 evidence 翻找/零注册表"
+                    "重勘察）？红队 prompt 逐字携带材料包并写入零重勘纪律了吗？"
+                    "落库后交付即止了吗（零验证/零徘徊）？"
                 ),
                 gate=(
                     # v2.110 gate framing 反转（§3.5 #30 泛化第二十七例，
