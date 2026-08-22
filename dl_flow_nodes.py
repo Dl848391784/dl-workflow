@@ -1066,7 +1066,7 @@ _NODES: dict[str, Node] = {
                     "按档取证（标称档 = 子2 atomic_questions，本步只执行不重定档；"
                     "外部层卸子代理，主会话只收蒸馏报告；"
                     f"{_FETCH_AUTHORITY_REGISTRY}"
-                    "执行序钉死=①→②→③→④，禁调换）："
+                    "执行序钉死=①→②（骨架+claim 填写→预检→派发）→③→④，禁调换）："
                     "①主张可检验化（主会话做）——每个 tier≠none 的原子问题 → "
                     "可证伪 claim + 事先写死「什么证据会证实/什么证据会证伪」；"
                     "不可检验的主张退回子2，不进入取证。"
@@ -1074,7 +1074,15 @@ _NODES: dict[str, Node] = {
                     "落盘子代理 prompt 骨架到本工作流目录（stdout 打印路径，Read 该文件取骨架；"
                     "骨架自动携带子1-2 trace + 已分档原子清单 + "
                     "已验证命令模板 + 返回契约），只在末尾 claim 补充区逐原子填 claim"
-                    "（骨架其余一字不动，禁手拼，禁自选落盘路径）；none 档原子禁派发（仅③内查）；"
+                    "（骨架其余一字不动，禁手拼，禁自选落盘路径）；"
+                    "claim 填完后**先预检后派发**（fetch-preflight-probe）——对 claim 指定的"
+                    "全部外部源 URL（去重；检索类源写站点根 URL，如 api.openalex.org）跑 "
+                    "`python3 ~/.dl-workflow/dl_flow_engine.py fetch-preflight --url <URL> [<URL> ...]`"
+                    "（脚本逐 URL 探测网络可达性并落盘 fetch-preflight.json，stdout 打印结果）；"
+                    "不可达的源从该原子源清单剔除+载荷留痕；**某 tier≠none 原子全部源不可达 -> "
+                    "不派发该原子 agent、不升档**——载荷记「预检不可达」q 项（引用预检结果），"
+                    "升档治档位不够、不治网络死；部分可达照常派发（agent 仍可去其余源）；"
+                    "none 档原子禁派发（仅③内查）；"
                     "light 档原子按骨架【分档执行参数】light 参数块执行，claim 区"
                     "另指定 ≤2 层源；**禁降档**——标 full 的原子必须按 full 参数跑"
                     "（五层源双向；分档纠偏归子2 gate，不在本步）；每原子一个 Agent 子代理"
@@ -1102,6 +1110,9 @@ _NODES: dict[str, Node] = {
                 selfcheck=(
                     "每个 tier≠none 的原子问题有可检验 claim（含证实/证伪判定标准）吗？"
                     "none 档原子未派发 agent（仅③内查）吗？"
+                    "claim 填完后、Agent 派发前对全部外部源 URL 跑了 fetch-preflight 预检"
+                    "（fetch-preflight.json 落盘）吗？全部源不可达的原子未派发未升档、"
+                    "记了「预检不可达」项吗？"
                     "fetch-prompt 骨架经 --out 落盘到本工作流目录（未自选共享路径）、"
                     "只补了 claim 区、其余一字未动吗？"
                     "light 档按 light 参数块（≤2 层源/≤4 curl/单向锚点）执行、"
@@ -1123,10 +1134,17 @@ _NODES: dict[str, Node] = {
                 fence_allow=("Bash", "Agent", "TaskOutput"),
                 # v2.38：报告收录形式要件机械化——judge 重放实证旧形态（无报告项）
                 # 也被判 PASS（内容丰富被当实质满足），形式核验下沉机械层。
+                # fetch-preflight-probe：fetch_preflight_out——外部源预检
+                # 落盘机械核验（EXISTS+entered_at 新鲜度，fetch_skeleton_out
+                # 同范式），「模型是否真的预检了网络可达性」不再靠文案。
                 # v2.43：fetch_skeleton_out——骨架 --out 落盘机械核验
                 # （EXISTS+entered_at 新鲜度，§8.3 同范式），「模型是否真的
                 # 用了 --out」不再靠文案。
-                mech_checks=("fetch_report_recorded", "fetch_skeleton_out"),
+                mech_checks=(
+                    "fetch_report_recorded",
+                    "fetch_skeleton_out",
+                    "fetch_preflight_out",
+                ),
                 # v2.77-v2.79（2026-08-04，designs/u1-sub3-gate-framing-design.md）：
                 # §3.5 #28 泛化第三例——framing 反转（从严→默认-PASS）+ 方框化
                 # 5 条真值判据 + 每条近端双侧钉死。基线 n=6：612 字从严版
@@ -1145,8 +1163,8 @@ _NODES: dict[str, Node] = {
                     "evidence/<name>.jsonl 含 kind=skill-trace 且 sub_step==4 的记录。"
                     "形式要件：每个 tier≠none 的原子问题有可检验化 claim（含证实/"
                     "证伪判定标准）；light 档报告为锚点值+来源+量级对比；codegraph "
-                    "新鲜度查询留痕。（报告收录项数按档核验/骨架 --out 落盘存在性与"
-                    "新鲜度 已由 append-trace 机械校验通过——你不得以这些形式要件"
+                    "新鲜度查询留痕。（报告收录项数按档核验/骨架 --out 落盘存在性与新鲜度/外部源预检落盘"
+                    " 已由 append-trace 机械校验通过——你不得以这些形式要件"
                     "为由 block，只判下面五件事的真实性。）\n"
                     "默认 pass--仅当以下成立才判 block（每条附合法形态，"
                     "合法形态在场不得判）：\n"
@@ -1177,7 +1195,7 @@ _NODES: dict[str, Node] = {
                     "五层状态表/仅 1-2 层源）判 block；light 报告标「建议升档 full」"
                     "而未补派 full agent（或未原文收录升档理由）判 block；none 档"
                     "原子出现外部取证报告 = 违规派发或子2 档标错，判 block；执行档"
-                    "与标称档逐项一致（none 仅内查、light/full 各按其参数）即合规。\n"
+                    "与标称档逐项一致（none 仅内查、light/full 各按其参数）即合规。「预检不可达」项（fetch-preflight 预检该原子全部源不可达、不派发不升档的留痕）= 环境阻断合法形态，不得以「未跑 agent/未升档」为由 block；不可达源已从源清单剔除的原子按剩余源取证不算档不一致。\n"
                     "【合法正例】light 档报告单段「锚点值…（真实 URL）…来源=N 层…"
                     "量级对比…」即合规——不要求反证独立成段、不要求五层状态表、"
                     "不要求主会话 curl 留痕；none 档原子只有仓内内查结果（无 claim、"
