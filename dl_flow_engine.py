@@ -61,6 +61,7 @@ from dl_flow_nodes import (
     sub_total,
     subphase_labels,
     tacet_silent_steps,  # force-tacet 实验轨道（designs/force-tacet-experiment-design.md）
+    TACET_SPINE_STEPS,  # noqa: F401  # re-export：tests 经 eng.TACET_SPINE_STEPS 访问
 )
 
 # 组件 B：项目工具注册发现（list-tools / S15 白名单用；scripts 为命名空间包）。
@@ -1217,10 +1218,14 @@ def render_artifact(
     if not text:
         return False, f"evidence 缺失——{name}.jsonl 不存在或为空"
     latest: dict[tuple, dict] = {}
+    tacet_silent: set[tuple] = set()  # force-tacet：沉默源步（占位节依据，design §5）
     for line in text.splitlines():
         try:
             rec = json.loads(line)
         except json.JSONDecodeError:
+            continue
+        if rec.get("kind") == "tacet":
+            tacet_silent.add((rec.get("minor_stage"), rec.get("sub_step")))
             continue
         if rec.get("kind") != "skill-trace":
             continue
@@ -1239,6 +1244,16 @@ def render_artifact(
         rec = latest.get((minor, stp))
         stmts = (rec or {}).get("statements")
         if not stmts:
+            if (minor, stp) in tacet_silent:
+                # force-tacet：沉默源节占位装配（防下游路径断 + 诚实可见），
+                # 计入已装配节（require_all 视为满足）。
+                parts.append(f"## {sec}")
+                parts.append("")
+                parts.append(
+                    "**[TACET 沉默：本节来源步未执行（force-tacet 实验轨道）]**"
+                )
+                parts.append("")
+                continue
             missing.append(f"{sec}（{minor} 子{stp} 无 statements trace）")
             continue
         parts.append(f"## {sec}")
@@ -1864,6 +1879,15 @@ def handoff_pack(project_root: Path, name: str) -> str | None:
     ]
     if problem:
         lines.append(f"### 用户问题陈述（开场采集原话）\n{problem}\n")
+    if state.get("force_tacet"):
+        # force-tacet：告知下游材料薄是设计内状态（design §5），防模型把
+        # 沉默当缺漏自行补做。
+        lines.append(
+            "### 运行轨道：force-tacet 实验轨道\n"
+            "understand/plan 仅五步脊柱执行（问题陈述 u:1#1 / 根因 u:1#3 / 取证 "
+            "u:1#4 / 修法 plan:1#2 / 计划包 plan:4#4），其余步 TACET 静默--"
+            "上游材料薄是设计内状态，非缺漏；禁自行补做已沉默的步骤。\n"
+        )
     lines += [
         f"### 当前位置：{cur_node.label}（{node_id(cur_phase, cur_sub)}）子步骤 {cur_step}",
         "",
@@ -1976,10 +2000,27 @@ def _advance_sub_step(
         save_state(project_root, name, state)
         return state
     if node.hold_for_gate:
-        state["held_for_gate"] = True
-        state["updated_at"] = _now()
-        save_state(project_root, name, state)
-        return state
+        if state.get("force_tacet"):
+            # force-tacet（design §5）：门栏自动放行--写 autorelease 裁决留痕后
+            # 直接推进，不设 held_for_gate。bug 级轨道无 plan 裁决仪式（计划包
+            # 已由脊柱步 plan:4#4 合法装配）；plan->execute 大闸门随
+            # advance_state（is_gated_after("plan") -> gate=passed）一并穿越。
+            ok = write_gate_verdict(
+                project_root,
+                name,
+                node,
+                state.get("node_attempts", 0),
+                str(project_root),
+                via="tacet-subgate-autorelease",
+                sub_step=cur,
+            )
+            if not ok:
+                raise OSError("tacet-subgate-autorelease 裁决记录写 evidence 失败")
+        else:
+            state["held_for_gate"] = True
+            state["updated_at"] = _now()
+            save_state(project_root, name, state)
+            return state
     # 末步：推进子阶段（advance_state 含 normalize + save）
     return advance_state(project_root, name, via=via)
 
@@ -6328,12 +6369,16 @@ def progress_rows(state: dict[str, Any]) -> list[dict[str, Any]]:
                         if si < cur_step
                         else ("current" if si == cur_step else "todo")
                     )
+                    # force-tacet：静默步标「tacet」（LiveProgress/快照均透传 extra）
+                    s_extra = ""
+                    if st.get("force_tacet") and f"{nid}#{si}" not in TACET_SPINE_STEPS:
+                        s_extra = "tacet"
                     rows.append(
                         {
                             "depth": 2,
                             "label": f"{si} {step.short}",
                             "status": s_status,
-                            "extra": "",
+                            "extra": s_extra,
                         }
                     )
     return rows
