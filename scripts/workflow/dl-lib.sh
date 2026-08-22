@@ -211,8 +211,9 @@ wf_state_mark_artifact() {
 # worktree 内无 project settings.json（.gitignore *.json 规则致 settings.json 未入库），
 # 故 per-wf settings 须自包含全部 hook + outputStyle。
 #
-# **dl-workflow 版本**：hook 直接引用源 `~/.dl-workflow/hooks/*.py`（不 copy 到 ~/.claude/hooks/）。
-# settings.json 的 command 是自由字符串，Claude Code 执行时 shell 展开 `~`。
+# **dl-workflow 版本**：hook 直接引用源码树 `hooks/*.py`（不 copy 到 ~/.claude/hooks/）。
+# 路径按 WF_LIB_DIR 解析（2026-08-22 worktree 承载修复：force-tacet 分支从
+# worktree 运行时 hooks 须同树，否则 advance hook 跑主树 engine，tacet 跳步失效）。
 # 好处：改 hook 后 git pull 即生效，无需重跑 install.sh 同步副本。
 # hook 内已改造为 payload.cwd -> git 反查主 repo 根（不再依赖 __file__.parents[2]）。
 #
@@ -220,8 +221,7 @@ wf_state_mark_artifact() {
 # 不由 dl-workflow 管，由项目自己的 `.claude/settings.json` 注册即可。
 # dl-workflow 生成的 per-wf settings 只登 workflow + codegraph_gate/audit 这 4 个。
 #
-# `hk` 用字面 `~`（不展开成绝对路径）-> per-wf settings 跨用户 home 通用；
-# heredoc 内 `~` 不展开（bash tilde 只在命令行词首展开），$hk 取变量字面值。
+# `hk` = $WF_LIB_DIR/../hooks（绝对路径，source 时钉死，不依赖调用方注入 LIB_DIR）。
 #
 # permissions.allow 宽白名单（2026-07-30 审计实测）：会话跑在 auto 权限模式时，
 # 每次改造型工具调用都要过一次端点裁决（慢 provider 上实测中位 14-17s/次，
@@ -261,7 +261,11 @@ wf_state_mark_artifact() {
 wf_write_settings() {
   local name="$1"
   local dir="$WF_META_ROOT/$name"
-  local hk="~/.dl-workflow/hooks"
+  # 自引用按本脚本自身位置解析（force-tacet worktree 承载：hooks 须同树，否则主树
+  # hooks 派发主树 driver，tacet 跳步逻辑失效）。WF_LIB_DIR 在 source 时即钉死
+  # （dl-lib.sh:15），不依赖调用方注入 LIB_DIR（测试直调时未定义会退化成 cwd）。
+  local LIB_DIR_ABS="$WF_LIB_DIR"
+  local hk="$WF_LIB_DIR/../hooks"
   mkdir -p "$dir"
   cat > "$dir/settings.json" <<JSON
 {
@@ -269,7 +273,7 @@ wf_write_settings() {
   "outputStyle": "workflow",
   "statusLine": {
     "type": "command",
-    "command": "python3 ~/.dl-workflow/scripts/workflow/dl_statusline.py --project ${WF_REPO_ROOT} --name ${name}",
+    "command": "python3 ${LIB_DIR_ABS}/dl_statusline.py --project ${WF_REPO_ROOT} --name ${name}",
     "refreshInterval": 10
   },
   "permissions": {
@@ -286,7 +290,7 @@ wf_write_settings() {
       "Agent",
       "Bash(bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh:*)",
       "Bash(python3 ~/.dl-workflow/dl_flow_engine.py:*)",
-      "Bash(python3 ~/.dl-workflow/scripts/workflow/dl_drive.py:*)",
+      "Bash(python3 ${LIB_DIR_ABS}/dl_drive.py:*)",
       "Bash(sqlite3:*)",
       "Bash(codegraph:*)",
       "Bash(echo:*)",

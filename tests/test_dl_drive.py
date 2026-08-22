@@ -1804,7 +1804,10 @@ def test_settings_allowlist_covers_segment_dispatch(wf_repo):
     assert r.returncode == 0, r.stderr
     data = json.loads((wf_repo / SEG_META / "settings.json").read_text())
     allow = data["permissions"]["allow"]
-    assert "Bash(python3 ~/.dl-workflow/scripts/workflow/dl_drive.py:*)" in allow
+    # 派发白名单按 LIB_DIR 动态解析（2026-08-22 worktree 承载修复）：
+    # 分支从 worktree 运行时须放行 worktree 自己的 dl_drive.py，
+    # 硬编码 ~/.dl-workflow 会把段工人派回主树（tacet 失效根因）。
+    assert f"Bash(python3 {DLWF_ROOT}/scripts/workflow/dl_drive.py:*)" in allow
     assert data["wf_settings_template_version"] == engine.SETTINGS_TEMPLATE_VERSION
 
 

@@ -6789,8 +6789,15 @@ def set_force_tacet(project_root: Path, name: str, on: bool) -> tuple[bool, str]
 
 
 def front_segment_command(name: str) -> str:
-    """前台派发命令逐字单源（phase 注入 / advance 兜底 / fence 白名单三通道共用）。"""
-    return f"python3 ~/.dl-workflow/scripts/workflow/dl_drive.py {name} --segment"
+    """前台派发命令逐字单源（phase 注入 / advance 兜底 / fence 白名单三通道共用）。
+
+    路径按 engine 自身位置解析（2026-08-22）：分支从 worktree 承载运行时，
+    派发 worktree 的 dl_drive.py（tacet 跳步逻辑在 driver 侧）；硬编码
+    ~/.dl-workflow 会把段工人派到主树 driver（无 tacet 逻辑）--实证
+    interaction_amplitude 首跑 force_tacet=True 却全量轨道、零 tacet 落痕。
+    """
+    drive = Path(__file__).resolve().parent / "scripts" / "workflow" / "dl_drive.py"
+    return f"python3 {drive} {name} --segment"
 
 
 def _front_pid_gone(pid: object) -> bool:
