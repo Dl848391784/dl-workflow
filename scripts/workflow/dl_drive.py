@@ -2166,6 +2166,19 @@ def _run_boundary_loop(
                         return 0
                     continue
 
+                # ---- force-tacet（force-tacet-experiment-design §5）：TACET 步整步
+                # 静默--不派段/零 token/不跑 judge/不回交互屏，engine 落痕+装配+推进
+                # （末步门栏 force 模式自动放行）。脊柱步不命中，走正常分支。----
+                if engine.step_tacet_forced(state, node, cur):
+                    ok_t, msg_t = engine.apply_tacet_skip(project_root, name)
+                    if not ok_t:
+                        disp.log(f"✗ TACET 跳步失败：{msg_t}")
+                        if on_breakpoint("TACET 跳步失败", SEG_BREAKPOINT) == "quit":
+                            return 0
+                        continue
+                    disp.log(f"  ♪ tacet · {step.short}（静默通过）")
+                    continue
+
                 total = len(node.sub_steps)
                 disp.begin(f"子步骤 {cur}/{total} · {step.short}")
                 bare_open = _is_bare_open(
