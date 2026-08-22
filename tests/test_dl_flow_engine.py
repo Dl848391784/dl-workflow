@@ -12661,3 +12661,100 @@ class TestForceTacet:
             body.count("[TACET 沉默：本节来源步未执行") == 2
         )  # 执行步骤/能力与工具占位
 
+    def test_render_artifact_missing_without_tacet_still_fails(self, tmp_path):
+        # 回归保护：非 force 运行（无 tacet 记录）缺源节仍按旧语义拒装配
+        # （require_all）--占位只在 tacet-record 在场时生效，防静默放水。
+        _write_state_full(tmp_path, "t", "understand", 4, sub_step=5)
+        node = eng._NODES["understand:4"]
+        rec = {
+            "kind": "skill-trace",
+            "major_stage": "Understand",
+            "minor_stage": node.minor_key,
+            "sub_step": 1,
+            "skill": "x",
+            "statements": [
+                {"text": "y", "type_label": "", "boundary": "", "fields": {}}
+            ],
+            "q": ["q"],
+            "a": ["a"],
+        }
+        p = tmp_path / ".claude" / "evidence" / "t.jsonl"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        ok, msg = eng.render_artifact(tmp_path, "t", "understand.md")
+        assert ok is False
+        assert "装配源 trace 缺失" in msg
+
+    def test_progress_rows_tacet_mark(self, tmp_path):
+        # 进度标记：force 下当前节点（understand:1，7 步）子步行--
+        # 脊柱（子1/3/4）extra 空，其余 4 步 extra='tacet'；无 force 全空（回归）。
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=2)
+        st = eng.load_state(tmp_path, "t")
+        rows = eng.progress_rows(st)
+        depth2 = [r for r in rows if r["depth"] == 2]
+        assert len(depth2) == 7
+        assert all(r["extra"] == "" for r in depth2)  # 零 force 零变化
+        st["force_tacet"] = True
+        rows = eng.progress_rows(st)
+        depth2 = [r for r in rows if r["depth"] == 2]
+        marked = {r["label"].split()[0]: r["extra"] for r in depth2}
+        assert marked == {
+            "1": "",
+            "2": "tacet",
+            "3": "",
+            "4": "",
+            "5": "tacet",
+            "6": "tacet",
+            "7": "tacet",
+        }
+
+    def test_handoff_pack_force_tacet_note(self, tmp_path):
+        # 交接包：force 下带轨道说明（防下游模型把沉默当缺漏自行补做）。
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=2)
+        st = eng.load_state(tmp_path, "t")
+        st["problem_statement"] = "argparse 报错 unrecognized arguments"
+        eng.save_state(tmp_path, "t", st)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert "force-tacet 实验轨道" not in pack  # 零 force 无说明（回归）
+        st["force_tacet"] = True
+        eng.save_state(tmp_path, "t", st)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert "force-tacet 实验轨道" in pack
+        assert "禁自行补做已沉默的步骤" in pack
+
+    def test_set_force_tacet_toggle(self, tmp_path):
+        # CLI 开关（launch --force-tacet 的落点）：on/off 落 state 且可复位。
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        ok, msg = eng.set_force_tacet(tmp_path, "t", True)
+        assert ok is True and "开启" in msg
+        assert eng.load_state(tmp_path, "t")["force_tacet"] is True
+        ok, _ = eng.set_force_tacet(tmp_path, "t", False)
+        assert ok is True
+        assert eng.load_state(tmp_path, "t")["force_tacet"] is False
+
+    def test_read_evidence_for_step_skips_tacet_records(self, tmp_path):
+        # judge 输入裁剪：tacet-record 不喂 judge（read_evidence_for_step 只认
+        # skill-trace）--脊柱步 gate 拿不到沉默步的占位材料，天然零干扰。
+        _write_state_full(tmp_path, "t", "understand", 2, sub_step=2)
+        node = eng._NODES["understand:2"]
+        eng.write_tacet_trace(tmp_path, "t", node, 1)
+        rec = {
+            "kind": "skill-trace",
+            "major_stage": "Understand",
+            "minor_stage": node.minor_key,
+            "sub_step": 2,
+            "skill": "align-check",
+            "statements": [
+                {"text": "x", "type_label": "", "boundary": "", "fields": {}}
+            ],
+            "q": ["q1"],
+            "a": ["a1"],
+        }
+        p = tmp_path / ".claude" / "evidence" / "t.jsonl"
+        with open(p, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        out = eng.read_evidence_for_step(tmp_path, "t", 2, node.minor_key)
+        assert out is not None
+        assert "align-check" in out
+        assert "tacet" not in out
