@@ -6572,9 +6572,9 @@ def set_force_tacet(project_root: Path, name: str, on: bool) -> tuple[bool, str]
     """force-tacet 实验轨道开关（force-tacet-experiment-design §5-6）。
 
     state.force_tacet=True（sticky，resume/续跑保持）：understand/plan 仅五步
-    脊柱执行，其余 39 步 TACET 静默；门栏/闸门自动放行。仅支持 --headless
-    driver（launch --force-tacet 隐含置位并强制 headless）；v1 不支持
-    front/TUI。关闭 = 回全量编排（FORTE）。
+    脊柱执行，其余 39 步 TACET 静默；门栏/闸门自动放行。front（默认，段工人
+    与 headless 共用主循环单源）与 --headless driver 均支持；WF_TUI=1 旧 TUI
+    路径不支持（launch fail loud）。关闭 = 回全量编排（FORTE）。
     """
     state = load_state(project_root, name)
     if state is None:
@@ -6584,7 +6584,7 @@ def set_force_tacet(project_root: Path, name: str, on: bool) -> tuple[bool, str]
     save_state(project_root, name, state)
     return True, (
         "force-tacet 实验轨道已开启（五步脊柱执行，其余步 TACET 静默；"
-        "门栏/闸门自动放行；仅支持 --headless driver）"
+        "门栏/闸门自动放行；front（默认）与 --headless 均支持）"
         if on
         else "force-tacet 实验轨道已关闭（回全量编排）"
     )

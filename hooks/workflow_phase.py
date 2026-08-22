@@ -661,15 +661,15 @@ def main() -> int:
         )
 
     context = _format_injection(state, project_root, captured_statement)
-    # force-tacet 防御（force-tacet-experiment-design §5，纵深非主防线）：launch
-    # 已限 --headless，此处对误入的 TUI/front 会话（如手动 attach 旧 session）
-    # 显式提示轨道与限制，防前台模型按全量编排自作主张补做已沉默步。
+    # force-tacet 轨道告知（force-tacet-experiment-design §5，纵深非主防线）：
+    # front（默认）/headless 均为合法宿主，注入轨道状态防前台模型按全量编排
+    # 自作主张补做已沉默步（静默步由段工人/驱动循环自动跳过，非前台职责）。
     if state.get("force_tacet"):
         context = (
-            "## ⚠️ force-tacet 实验轨道（仅支持 --headless driver）\n"
+            "## ⚠️ force-tacet 实验轨道（材料薄是设计内状态）\n"
             "本运行 understand/plan 仅五步脊柱执行（u:1#1/u:1#3/u:1#4/plan:1#2/"
-            "plan:4#4），其余步 TACET 静默；门栏/闸门自动放行。TUI/front 会话不应"
-            "承接本工作流；已沉默步骤禁自行补做。\n\n" + context
+            "plan:4#4），其余步 TACET 静默（段工人/驱动循环自动跳过）；门栏/闸门"
+            "自动放行。已沉默步骤禁自行补做。\n\n" + context
         )
     if plan_warn:
         context = plan_warn + context

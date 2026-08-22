@@ -11,7 +11,7 @@
 #   dl <name> --debug      debug 落盘到 per-wf 目录（cc_debug.log + cc_sdk.log）
 #   dl <name> --verbose    子会话输出尾随上屏（默认静默只落 drive-stream.jsonl）
 #   dl <name> --headless   v3 全程 headless driver（driver 占终端，stdin 断点）
-#   dl <name> --force-tacet  force-tacet 实验轨道（隐含 --headless：五步脊柱执行，其余步 TACET 静默）
+#   dl <name> --force-tacet  force-tacet 实验轨道（五步脊柱执行，其余步 TACET 静默；front 默认 / --headless 均可）
 #   dl list                列举所有工作流
 #   dl <name> --done       归档工作流（删 worktree，保留元数据）
 
@@ -78,7 +78,7 @@ while [ $# -gt 0 ]; do
     --debug) WF_DEBUG=1;;
     --verbose) WF_VERBOSE=1;;
     --headless) WF_HEADLESS=1;;
-    --force-tacet) WF_FORCE_TACET=1; WF_HEADLESS=1;;
+    --force-tacet) WF_FORCE_TACET=1;;
     -h|--help) usage 0;;
     *) echo "wf-launch: 未知参数 '$1'" >&2; usage 1;;
   esac
@@ -149,11 +149,12 @@ else
 fi
 
 # ---------- force-tacet（force-tacet-experiment-design §5-6）：实验轨道开关 ----------
-# 隐含 --headless（v1 仅支持 headless driver）；WF_TUI=1 旧路径不支持 -> fail loud。
+# front（默认，段工人与 headless 共用主循环单源）与 --headless 均支持；
+# WF_TUI=1 旧 TUI 路径无共享循环 -> fail loud。
 # sticky：续跑/再次 launch 同名 flag 会重置为 on；off 用 engine force-tacet <name> off。
 if [ "$WF_FORCE_TACET" = "1" ]; then
   if [ "${WF_TUI:-0}" = "1" ]; then
-    echo "wf-launch: --force-tacet 不支持 WF_TUI=1 旧 TUI 路径（实验轨道仅 --headless driver）" >&2
+    echo "wf-launch: --force-tacet 不支持 WF_TUI=1 旧 TUI 路径（用默认 front 或 --headless）" >&2
     exit 1
   fi
   if ! python3 "$LIB_DIR/../../dl_flow_engine.py" force-tacet "$WF_NAME" on >/dev/null; then
@@ -161,7 +162,7 @@ if [ "$WF_FORCE_TACET" = "1" ]; then
     exit 1
   fi
   echo "  ♪ force-tacet 实验轨道：五步脊柱执行（u:1#1/u:1#3/u:1#4/plan:1#2/plan:4#4），其余 39 步 TACET 静默"
-  echo "    门栏/闸门自动放行；仅支持 --headless driver（已隐含置位）"
+  echo "    门栏/闸门自动放行；front（默认）与 --headless 均支持（静默步由段工人/驱动循环自动跳过）"
 fi
 
 # 阶段跳转（--phase 或新建后默认 understand 已由 init 设置）
