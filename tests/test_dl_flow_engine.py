@@ -12275,7 +12275,6 @@ class TestSegmentSpawnOverrides:
         node = eng._NODES["plan:4"]
         for i, step in enumerate(node.sub_steps, start=1):
             if i in (1, 2, 3, 4):
-
                 continue
             assert eng.segment_spawn_overrides(node, step)["env"] == {}, i
 
@@ -12506,3 +12505,159 @@ class TestSegmentSpawnOverrides:
             if i in (3, 4):
                 continue
             assert eng.segment_spawn_overrides(node, step)["env"] == {}, i
+
+
+class TestForceTacet:
+    """force-tacet 实验轨道（force-tacet-experiment-design §2-§7，2026-08-21）。
+
+    五步脊柱 = bug 级任务 u/p 最小执行集；其余 44-5=39 步 force_tacet 下整步
+    静默；门栏/闸门自动放行；沉默源节占位装配。脊柱步质量门不放水（gate 逻辑
+    零改动，由其余测试回归覆盖）。
+    """
+
+    def test_silent_set_derivation(self):
+        # 步集机械推导单源：全编排 44 子步 − 五步脊柱 = 39；脊柱与沉默集零交集；
+        # 每个脊柱键都在节点树内且步号有效（防拼错静默失效）。
+        total = sum(len(nd.sub_steps) for nd in eng._NODES.values() if nd.sub_steps)
+        assert total == 44
+        silent = eng.tacet_silent_steps()
+        assert len(silent) == 39
+        assert eng.TACET_SPINE_STEPS & silent == frozenset()
+        for key in eng.TACET_SPINE_STEPS:
+            nid, si = key.rsplit("#", 1)
+            assert nid in eng._NODES
+            assert 1 <= int(si) <= len(eng._NODES[nid].sub_steps)
+
+    def test_step_tacet_forced_flag_gated(self, tmp_path):
+        # 开关门控：无 force_tacet 标志时任何步都 False（零 force 零行为变化）；
+        # 有标志时沉默步 True、脊柱步 False（脊柱正常执行含质量门）。
+        node = eng._NODES["understand:2"]
+        _write_state_full(tmp_path, "t", "understand", 2, sub_step=2)
+        st = eng.load_state(tmp_path, "t")
+        assert eng.step_tacet_forced(st, node, 2) is False
+        st["force_tacet"] = True
+        assert eng.step_tacet_forced(st, node, 2) is True  # u:2#2 沉默
+        # u:2#1 不在脊柱 -> 沉默（force 下交互步同样被跳，design §4）
+        assert eng.step_tacet_forced(st, node, 1) is True
+        node1 = eng._NODES["understand:1"]
+        assert eng.step_tacet_forced(st, node1, 1) is False  # u:1#1 脊柱
+        assert eng.step_tacet_forced(st, node1, 3) is False  # u:1#3 脊柱（根因）
+        assert eng.step_tacet_forced(st, node1, 4) is False  # u:1#4 脊柱（取证）
+        plan1 = eng._NODES["plan:1"]
+        assert eng.step_tacet_forced(st, plan1, 2) is False  # plan:1#2 脊柱（修法）
+        plan4 = eng._NODES["plan:4"]
+        assert eng.step_tacet_forced(st, plan4, 4) is False  # plan:4#4 脊柱（计划包）
+
+    def test_write_tacet_trace_kind_isolated(self, tmp_path):
+        # 落痕形态：kind=tacet + skill=tacet；与 skill-trace 面隔离--
+        # _iter_trace_segments（judge evidence 裁剪/gate 匹配）不匹配 tacet 记录。
+        _write_state_full(tmp_path, "t", "understand", 2, sub_step=2)
+        node = eng._NODES["understand:2"]
+        eng.write_tacet_trace(tmp_path, "t", node, 2)
+        text = eng.read_evidence(tmp_path, "t")
+        rec = json.loads(text.strip().splitlines()[-1])
+        assert rec["kind"] == "tacet"
+        assert rec["skill"] == "tacet"
+        assert rec["minor_stage"] == node.minor_key
+        assert rec["sub_step"] == 2
+        segs = list(eng._iter_trace_segments(text, 2, node.minor_key))
+        assert segs == []  # 不入 skill-trace 匹配面 = 不进 judge 输入
+
+    def test_apply_tacet_skip_mid_step_advances(self, tmp_path):
+        # 非末步跳过：写 tacet-record + sub_step_index++，无 held、无产物副作用。
+        _write_state_full(tmp_path, "t", "understand", 2, sub_step=2)
+        st = eng.load_state(tmp_path, "t")
+        st["force_tacet"] = True
+        eng.save_state(tmp_path, "t", st)
+        ok, msg = eng.apply_tacet_skip(tmp_path, "t")
+        assert ok is True, msg
+        reread = eng.load_state(tmp_path, "t")
+        assert reread["sub_step_index"] == 3
+        assert "held_for_gate" not in reread
+        rec = json.loads(eng.read_evidence(tmp_path, "t").strip().splitlines()[-1])
+        assert rec["kind"] == "tacet"
+
+    def test_apply_tacet_skip_u4_assembles_placeholder(self, tmp_path):
+        # understand:4 末步（u:4#5 沉默）：understand.md 四节来源全沉默 ->
+        # 全占位装配（require_all 视为满足）+ 推进进 plan（understand 无大闸门）。
+        _write_state_full(tmp_path, "t", "understand", 4, sub_step=5)
+        st = eng.load_state(tmp_path, "t")
+        st["force_tacet"] = True
+        eng.save_state(tmp_path, "t", st)
+        # 四节来源步的 tacet 落痕（占位节依据；来源分布在前序节点：
+        # u:1#6/u:2#4/u:3#4/u:4#4，_ARTIFACT_RENDER_SOURCES spec）
+        for nid, si in (
+            ("understand:1", 6),
+            ("understand:2", 4),
+            ("understand:3", 4),
+            ("understand:4", 4),
+        ):
+            eng.write_tacet_trace(tmp_path, "t", eng._NODES[nid], si)
+        ok, msg = eng.apply_tacet_skip(tmp_path, "t")
+        assert ok is True, msg
+        reread = eng.load_state(tmp_path, "t")
+        assert reread["phase"] == "plan"
+        assert reread["sub_index"] == 1
+        art = tmp_path / ".claude" / "understands" / "t.md"
+        assert art.is_file()
+        body = art.read_text(encoding="utf-8")
+        for sec in ("真实问题重述", "目标价值", "范围约束", "成功标准验收包"):
+            assert f"## {sec}" in body
+        assert body.count("[TACET 沉默：本节来源步未执行") == 4
+
+    def test_apply_tacet_skip_plan4_autorelease_and_gate(self, tmp_path):
+        # plan:4 末步（子5 沉默）：门栏自动放行（写 tacet-subgate-autorelease 裁决）
+        # + plan->execute 大闸门一并穿越（gate=passed）；计划包节真实（脊柱
+        # plan:4#4 statements 在场）、其余节占位。
+        _write_state_full(tmp_path, "t", "plan", 4, sub_step=5)
+        st = eng.load_state(tmp_path, "t")
+        st["force_tacet"] = True
+        eng.save_state(tmp_path, "t", st)
+        node = eng._NODES["plan:4"]
+        # plan:4#1-#3 沉默落痕 + 其余两节源（plan:2#4 执行步骤/plan:3#5 能力与工具）
+        # 沉默落痕；#4 脊柱步的真实 statements trace（计划包源）
+        for i in (1, 2, 3):
+            eng.write_tacet_trace(tmp_path, "t", node, i)
+        eng.write_tacet_trace(tmp_path, "t", eng._NODES["plan:2"], 4)
+        eng.write_tacet_trace(tmp_path, "t", eng._NODES["plan:3"], 5)
+        rec = {
+            "kind": "skill-trace",
+            "major_stage": "Plan",
+            "minor_stage": node.minor_key,
+            "sub_step": 4,
+            "skill": "normalize-plan",
+            "statements": [
+                {
+                    "text": "修 dl_launch 的参数解析",
+                    "type_label": "计划项",
+                    "boundary": "scripts/workflow/dl-launch.sh",
+                    "fields": {},
+                }
+            ],
+            "q": ["t"],
+            "a": ["t"],
+        }
+        p = tmp_path / ".claude" / "evidence" / "t.jsonl"
+        with open(p, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        ok, msg = eng.apply_tacet_skip(tmp_path, "t")
+        assert ok is True, msg
+        reread = eng.load_state(tmp_path, "t")
+        assert reread["phase"] == "execute"  # 大闸门随 autorelease 穿越已通过
+        assert reread["gate"] == "passed"
+        assert "held_for_gate" not in reread
+        verdicts = [
+            json.loads(ln)
+            for ln in eng.read_evidence(tmp_path, "t").splitlines()
+            if '"gate"' in ln
+        ]
+        assert any(v.get("via") == "tacet-subgate-autorelease" for v in verdicts)
+        art = tmp_path / ".claude" / "plans" / "t.md"
+        assert art.is_file()
+        body = art.read_text(encoding="utf-8")
+        assert "## 执行计划与检查点" in body
+        assert "修 dl_launch 的参数解析" in body  # 脊柱源真实渲染
+        assert (
+            body.count("[TACET 沉默：本节来源步未执行") == 2
+        )  # 执行步骤/能力与工具占位
+
