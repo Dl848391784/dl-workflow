@@ -4845,7 +4845,49 @@ _MECH_EXTRA_STR_CHECKS = {
 _TASK_ID_RE = re.compile(r"(?<![0-9a-f.])\b(?=[0-9a-f]*[a-f])[0-9a-f]{16,17}\b")
 
 
-def _dispatched_vs_unrecorded_task_ids(qa: list) -> list[str]:
+def _recorded_task_ids_in_evidence(project_root: Path, name: str) -> set[str]:
+    """evidence 已有记录 qa 标题里的 task-id 集合（跨步已归位豁免数据源）。
+
+    redteam-taskid-pairing（2026-08-22 interaction_turnover u:1 子5 实证）：
+    配对判据「文本出现即派发」只读本步 qa，不知道哪些 id 已在之前子步骤
+    归位——红队报告收录原文引用子4 取证 agent 的 task-id（审前步证据链
+    天然引用），被误判「已派发未收录」拒收，且拒收消息指路重复收录、
+    级联触发三件套拒收，模型烧 ~10min 返工后靠编辑收录原文删 id 过关。
+    收录即带 id 到标题由 ingest_agent_report() 脚本保证（模型无法伪造），
+    故 evidence 标题 id = 已归位，豁免其引用。
+    """
+    text = read_evidence(project_root, name)
+    if not text:
+        return set()
+    ids: set[str] = set()
+    decoder = json.JSONDecoder()
+    for line in text.splitlines():
+        s = line.strip()
+        idx = 0
+        while idx < len(s):
+            nxt = s.find("{", idx)
+            if nxt == -1:
+                break
+            idx = nxt
+            try:
+                rec, end = decoder.raw_decode(s, idx)
+            except json.JSONDecodeError:
+                break  # 此行剩余部分不是合法 JSON（截断/损坏）-> 下一行
+            idx = end
+            if not isinstance(rec, dict):
+                continue
+            qs = rec.get("q")
+            if isinstance(qs, str):
+                qs = [qs]
+            if isinstance(qs, list):
+                for q in qs:
+                    ids.update(_TASK_ID_RE.findall(str(q)))
+    return ids
+
+
+def _dispatched_vs_unrecorded_task_ids(
+    qa: list, project_root: Path | None = None, name: str | None = None
+) -> list[str]:
     """派发但未收录的子代理 task-id（v2.118 修 B，类型无关配对）。
 
     实证（tail_volume u:1 子3）：light 报告零命中 -> 按契约升档补派 full agent，
@@ -4863,6 +4905,12 @@ def _dispatched_vs_unrecorded_task_ids(qa: list) -> list[str]:
     类型无关是要点：子4 同时有取证 agent 与红队 agent，按类型分别计数需两套
     易错规则；按 id 配对只问「派了几个收了几个」。真实载荷双向重放：
     子3 = BLOCK（full 缺席）/ 子4 = PASS（full + 红队均收录），见 design §3 修 B。
+
+    redteam-taskid-pairing 扩面（跨步已归位豁免）：recorded 并入 evidence
+    已有记录 qa 标题里的 task-id——前步已归位 id 的引用（收录报告原文对
+    前步 agent 的引用是天然合法形态）不再误判为本步派发。缺省参数
+    （旧直调）= 不豁免，行为不变。宁纵勿枉方向不变：豁免只放过「前步
+    标题里确已归位」的 id，全新派发 id 无前步记录仍逮。
     """
     dispatched: set[str] = set()
     recorded: set[str] = set()
@@ -4871,6 +4919,8 @@ def _dispatched_vs_unrecorded_task_ids(qa: list) -> list[str]:
         dispatched.update(_TASK_ID_RE.findall(q))
         dispatched.update(_TASK_ID_RE.findall(str(item.get("a", ""))))
         recorded.update(_TASK_ID_RE.findall(q))
+    if project_root is not None and name is not None:
+        recorded |= _recorded_task_ids_in_evidence(project_root, name)
     return sorted(dispatched - recorded)
 
 
@@ -4892,7 +4942,9 @@ def _check_fetch_report_recorded(qa: list, *_ctx) -> str | None:
     都有收录项」——升档补派的 full agent 缺席由此逮住（原判据放过，实证见
     _dispatched_vs_unrecorded_task_ids docstring）。
     """
-    missing = _dispatched_vs_unrecorded_task_ids(qa)
+    missing = _dispatched_vs_unrecorded_task_ids(
+        qa, _ctx[0] if _ctx else None, _ctx[1] if len(_ctx) > 1 else None
+    )
     if missing:
         return (
             f"子代理报告未归位就提交——trace 提到 task-id {', '.join(missing)} "
@@ -4900,9 +4952,18 @@ def _check_fetch_report_recorded(qa: list, *_ctx) -> str | None:
             "--ingest-agent <task-id> 收录其报告（脚本按 id 落原文，标题自动带 "
             "task-id）。等 agent 归位后再提交；light 报告标「建议升档 full」而"
             "补派的 full agent 同样须收录（升档留痕）；agent 失败/空结果则重派"
+            "（已收录于前步 trace 的 task-id 引用不算本步派发，已豁免）"
             "或升级用户裁决——「已派发运行中」式状态说明不算收录"
         )
-    found = sum(1 for item in qa if "蒸馏报告" in str(item.get("q", "")))
+    # fetch-preflight-probe：「预检不可达」项计入--全源不可达的原子不派发
+    # agent（环境阻断合法路径），无报告项，机械计数须认可该留痕形态
+    # （v2.118 修 B 对偶：配对判据覆盖「合法不派发」）。
+    found = sum(
+        1
+        for item in qa
+        if "蒸馏报告" in str(item.get("q", ""))
+        or "预检不可达" in str(item.get("q", ""))
+    )
     required = 1
     if _ctx and _ctx[0] is not None:
         aq = _load_atomic_questions(_ctx[0], _ctx[1])
@@ -4924,6 +4985,25 @@ def _check_fetch_report_recorded(qa: list, *_ctx) -> str | None:
     )
 
 
+def _wf_artifact_mtime_stale(f: Path, project_root: Path, name: str) -> bool:
+    """per-workflow 产物新鲜度：mtime 早于当前节点 entered_at = 陈旧残留。
+
+    fetch_skeleton_out / fetch_preflight_out 共用（单源）；entered_at 不可考
+    （state 缺失/无 history）-> False（降级仅存在性，宁纵勿枉）。
+    """
+    state = load_state(project_root, name)
+    if state is None:
+        return False
+    state = normalize_state(state)
+    try:
+        not_before = _node_entered_at(
+            state, get_node(state["phase"], state["sub_index"])
+        )
+    except KeyError:
+        return False
+    return not_before is not None and f.stat().st_mtime < not_before
+
+
 def _check_fetch_skeleton_out(qa, project_root, name):
     """fetch_skeleton_out：子4 骨架 --out 落盘机械核验（u:1 子4 专属，v2.43）。
 
@@ -4943,20 +5023,46 @@ def _check_fetch_skeleton_out(qa, project_root, name):
             "（骨架路径钉死 per-workflow 目录，禁 stdout 重定向自选路径），"
             "落盘后重试"
         )
-    state = load_state(project_root, name)
-    if state is not None:
-        state = normalize_state(state)
-        try:
-            not_before = _node_entered_at(
-                state, get_node(state["phase"], state["sub_index"])
-            )
-        except KeyError:
-            not_before = None
-        if not_before is not None and f.stat().st_mtime < not_before:
-            return (
-                f"骨架陈旧：{f} 最后修改早于本节点进入时间——须在本节点内重新 "
-                "fetch-prompt --out 落盘（禁残留），落盘后重试"
-            )
+    if _wf_artifact_mtime_stale(f, project_root, name):
+        return (
+            f"骨架陈旧：{f} 最后修改早于本节点进入时间——须在本节点内重新 "
+            "fetch-prompt --out 落盘（禁残留），落盘后重试"
+        )
+    return None
+
+
+def _check_fetch_preflight_out(qa, project_root, name):
+    """fetch_preflight_out：子4 外部源预检落盘机械核验（fetch-preflight-probe）。
+
+    实证（2026-08-22 interaction_turnover u:1 子4）：light agent 环境性失败
+    （网络超时）空跑 3.2min 后又串行升档 full 5.5min。用户裁决：外部取证
+    派发前须对全部计划内外部源 URL 预检可达性。「模型是否真的预检了」
+    下沉机械层（fetch_skeleton_out §8.3 同范式）：预检结果文件须存在于
+    per-workflow 目录且 mtime 不早于本节点 entered_at。
+
+    豁免：子2 atomic_questions 全 none 档（无外部源可预检）。aq 缺失
+    （v2.40 前实例）-> 按 legacy=有外部取证处理，仍要求（对齐
+    _check_fetch_report_recorded 的 required 口径）。
+    """
+    if project_root is None or name is None:
+        return None
+    aq = _load_atomic_questions(project_root, name)
+    if aq and all(isinstance(it, dict) and it.get("tier") == "none" for it in aq):
+        return None
+    f = project_root / ".claude" / "workflows" / name / "fetch-preflight.json"
+    if not f.is_file():
+        return (
+            f"外部源预检未落盘：{f} 不存在——子4 派发取证子代理前须先对全部"
+            "计划内外部源 URL 跑 `python3 ~/.dl-workflow/dl_flow_engine.py "
+            "fetch-preflight [name] --url <URL> [<URL> ...]`（逐 URL 探测网络"
+            "可达性并落盘；全源不可达的原子不派发不升档、载荷记「预检不可达」），"
+            "落盘后重试"
+        )
+    if _wf_artifact_mtime_stale(f, project_root, name):
+        return (
+            f"预检结果陈旧：{f} 最后修改早于本节点进入时间——须在本节点内重新 "
+            "fetch-preflight（禁残留），落盘后重试"
+        )
     return None
 
 
@@ -5027,13 +5133,14 @@ def _check_redteam_report_recorded(
         )
     # 红队收录项在场后，再查是否有**其它**派发的 agent 缺席（子4 升档补派的
     # 取证 agent 可跨步归位到子5——仅判「有没有红队收录项」逮不住它）。
-    missing = _dispatched_vs_unrecorded_task_ids(qa)
+    missing = _dispatched_vs_unrecorded_task_ids(qa, project_root, name)
     if missing:
         return (
             f"子代理已派发但输出未收录——trace 提到 task-id {', '.join(missing)} "
             "却无对应收录项（正确动作：append-trace --ingest-agent <task-id>，"
             "脚本提取报告原文落载荷、标题自动带 task-id，禁手工粘贴）。"
             "等 Agent 归位收录原文后再提交；agent 失败/空结果则重派或升级用户"
+            "（已收录于前步 trace 的 task-id 引用不算本步派发，已豁免）"
             "裁决——「已派发等归位」式状态说明不算记录（提前提交 = 对抗复核"
             "缺席的裁决，下游子6 会拿到未经复核的问题集）"
         )
@@ -5283,6 +5390,7 @@ _MECH_QA_CHECKS = {
     "assumption_completeness_trace": _check_assumption_completeness_trace,
     "fetch_report_recorded": _check_fetch_report_recorded,
     "fetch_skeleton_out": _check_fetch_skeleton_out,
+    "fetch_preflight_out": _check_fetch_preflight_out,
     "redteam_report_recorded": _check_redteam_report_recorded,
     "redteam_three_piece": _check_redteam_three_piece,
     "user_decision_recorded": _check_user_decision_recorded,
@@ -6313,6 +6421,96 @@ def fetch_prompt(project_root: Path, name: str) -> str | None:
     )
 
 
+# ---------- fetch-preflight：外部源网络可达性预检（fetch-preflight-probe-design）----------
+#
+# 实证（2026-08-22 interaction_turnover u:1 子4）：原子 B light agent 3.2min
+# 全花在网络超时，返回「未取证+建议升档 full」又串行补派 5.5min--环境性
+# 失败在派发前不可见，升档救不了网络死。用户裁决：外部取证派发前对全部
+# 计划内外部源 URL 逐个预检可达性；不可达的不派发（留痕即可）。
+# 模型只决定 URL 清单（claim 源），探测归脚本（v2.118 同范式）。
+
+
+def _curl_probe(url: str, timeout: int = 8) -> tuple[bool, str | None, str]:
+    """单 URL 网络可达性探测：任意 HTTP 状态码（含 403/404）= 可达。
+
+    可达性 ≠ 内容成功--服务器应答即证明网络路径通；curl exit≠0 或
+    http_code=000 才是不可达。返回 (ok, http_code, error)。
+    """
+    try:
+        proc = subprocess.run(
+            [
+                "curl",
+                "-s",
+                "-o",
+                os.devnull,
+                "-w",
+                "%{http_code}",
+                "-m",
+                str(timeout),
+                url,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=timeout + 4,
+        )
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return False, None, f"probe error: {e}"
+    code = (proc.stdout or "").strip()
+    if proc.returncode == 0 and code and code != "000":
+        return True, code, ""
+    return (
+        False,
+        (code if code and code != "000" else None),
+        (f"curl exit {proc.returncode}"),
+    )
+
+
+def run_fetch_preflight(project_root: Path, name: str, urls: list[str]) -> int:
+    """fetch-preflight 子命令体：逐 URL 探测并落盘 per-workflow 目录。
+
+    失败重试一次（对齐骨架纪律 7；≤16s/URL 上界）。部分不可达仍 rc=0
+    （不可达是信息不是命令失败）。结果文件是 mech fetch_preflight_out
+    的核验对象（EXISTS+新鲜度），故始终落盘、无 stdout-only 模式。
+    """
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for u in urls:
+        u = u.strip()
+        if not u:
+            continue
+        if "://" not in u:
+            u = f"https://{u}"
+        if u not in seen:
+            seen.add(u)
+            ordered.append(u)
+    if not ordered:
+        print("✗ 用法: fetch-preflight [name] --url <URL> [<URL> ...]", file=sys.stderr)
+        return 1
+    results = []
+    ok_count = 0
+    for u in ordered:
+        ok, code, err = _curl_probe(u)
+        if not ok:  # 抖动防误判：失败重试一次（宁纵勿枉）
+            ok, code, err = _curl_probe(u)
+        results.append({"url": u, "ok": ok, "http_code": code, "error": err or None})
+        if ok:
+            ok_count += 1
+            print(f"✓ {u} HTTP {code}")
+        else:
+            print(f"✗ {u} 不可达（{err}）")
+    out_path = project_root / ".claude" / "workflows" / name / "fetch-preflight.json"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(
+        json.dumps(
+            {"checked_at": _now(), "results": results}, ensure_ascii=False, indent=2
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    print(f"可达 {ok_count}/{len(ordered)}，预检结果落盘 {out_path}")
+    return 0
+
+
 # ---------- drive 模式进度快照（drive-tasklist-render-design §2.2）----------
 
 
@@ -6688,6 +6886,7 @@ def main(argv: list[str] | None = None) -> int:
             "append-trace",
             "redteam-prompt",
             "fetch-prompt",
+            "fetch-preflight",
             "render-artifact",
             "render-readback",
             "list-tools",
@@ -6736,6 +6935,13 @@ def main(argv: list[str] | None = None) -> int:
         "--out",
         action="store_true",
         help="fetch-prompt：骨架落盘 .claude/workflows/<name>/fetch-prompt-skeleton.md 并打印路径（替代 stdout）",
+    )
+    parser.add_argument(
+        "--url",
+        action="extend",
+        nargs="+",
+        metavar="URL",
+        help="fetch-preflight：要预检网络可达性的外部源 URL（可多个；可重复给 --url；裸域名自动补 https://）",
     )
     # parse_intermixed_args（v2.67）：argparse 已知缺陷——nargs='?' 位置参数
     # （name/value）前隔 optional 时 parse_args 报 unrecognized arguments
@@ -6844,6 +7050,11 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         sys.stdout.write(prompt + "\n")
         return 0
+    if args.cmd == "fetch-preflight":
+        # fetch-preflight-probe：外部源网络可达性预检（派发取证子代理前）。
+        # 部分不可达 rc=0（不可达是信息不是命令失败）；无 URL = 用法错。
+        urls = [u for group in (args.url or []) for u in group]
+        return run_fetch_preflight(project_root, name, urls)
     if args.cmd == "render-artifact":
         if not args.value:
             print(

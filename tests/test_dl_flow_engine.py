@@ -8459,6 +8459,12 @@ class TestFetchSkeletonOut:
         (tmp_path / "payload.json").write_text(
             json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
         )
+        # fetch-preflight-probe 起子4 append-trace 前置：外部源预检落盘
+        # （失败类用例断言前序 skeleton 检查报错，预检文件在场不干扰）
+        (tmp_path / ".claude" / "workflows" / "t" / "fetch-preflight.json").write_text(
+            json.dumps({"checked_at": "2026-08-22T00:00:00", "results": []}),
+            encoding="utf-8",
+        )
 
     def _skeleton_path(self, tmp_path) -> Path:
         return tmp_path / ".claude" / "workflows" / "t" / "fetch-prompt-skeleton.md"
@@ -8501,6 +8507,164 @@ class TestFetchSkeletonOut:
         assert ok, msg
 
 
+class TestFetchPreflightOut:
+    """fetch_preflight_out：子4 外部源预检落盘机械核验（fetch-preflight-probe）。
+
+    实证（2026-08-22 interaction_turnover u:1 子4）：light agent 环境性失败
+    （网络超时）空跑 3.2min 后串行升档 full 5.5min。用户裁决：外部取证
+    派发前对全部计划内外部源 URL 预检可达性。EXISTS+entered_at 新鲜度
+    （fetch_skeleton_out §8.3 同范式）；全 none 档豁免（无外部源可预检）。
+    """
+
+    def _setup_sub4(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=4)
+        qa = [
+            {"q": "原子 A 可检验 claim", "a": "claim：X；证实：Y；证伪：Z"},
+            {
+                "q": "原子 A 子代理蒸馏报告（原文收录）",
+                "a": "反证查询（先）：…；支持证据（后）：…；五层状态表：…",
+            },
+        ]
+        (tmp_path / "payload.json").write_text(
+            json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
+        )
+        (
+            tmp_path / ".claude" / "workflows" / "t" / "fetch-prompt-skeleton.md"
+        ).write_text("骨架", encoding="utf-8")
+
+    def _preflight_path(self, tmp_path) -> Path:
+        return tmp_path / ".claude" / "workflows" / "t" / "fetch-preflight.json"
+
+    def _write_all_none_aq(self, tmp_path):
+        rec = json.dumps(
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "ProblemContext",
+                "sub_step": 2,
+                "skill": "causal-inference-root-cause",
+                "purpose": "p",
+                "q": ["清单"],
+                "a": ["…"],
+                "atomic_questions": [
+                    {"q": "A", "tier": "none", "tier_reason": "x.py:1 仓内可证伪"}
+                ],
+            },
+            ensure_ascii=False,
+        )
+        _write_evidence(tmp_path, "t", [rec])
+
+    def test_missing_preflight_blocked(self, tmp_path):
+        self._setup_sub4(tmp_path)
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert not ok and "外部源预检未落盘" in msg and "fetch-preflight" in msg
+
+    def test_fresh_preflight_passes(self, tmp_path):
+        self._setup_sub4(tmp_path)
+        self._preflight_path(tmp_path).write_text("{}", encoding="utf-8")
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert ok, msg
+
+    def test_stale_preflight_blocked(self, tmp_path):
+        self._setup_sub4(tmp_path)
+        self._preflight_path(tmp_path).write_text("{}", encoding="utf-8")
+        st = eng.load_state(tmp_path, "t")
+        st["history"] = [
+            {
+                "phase": "understand",
+                "sub": 1,
+                "entered_at": "2099-01-01T00:00:00",
+                "exited_at": None,
+                "via": "test",
+            }
+        ]
+        eng.save_state(tmp_path, "t", st)
+        # 隔离被测对象：skeleton 置未来 mtime 保持新鲜（否则前序 skeleton
+        # 检查先报错，预检陈旧不可见）
+        future = time.mktime(time.strptime("2100-01-01T00:00:00", "%Y-%m-%dT%H:%M:%S"))
+        os.utime(
+            tmp_path / ".claude" / "workflows" / "t" / "fetch-prompt-skeleton.md",
+            (future, future),
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert not ok and "预检结果陈旧" in msg
+
+    def test_all_none_tier_exempt(self, tmp_path):
+        # 全 none 档无外部源可预检 -> 豁免（无预检文件也过）
+        self._setup_sub4(tmp_path)
+        self._write_all_none_aq(tmp_path)
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert ok, msg
+
+
+class TestFetchPreflightCmd:
+    """fetch-preflight 子命令体：逐 URL 探测+落盘（fetch-preflight-probe）。
+
+    _curl_probe monkeypatch 隔离网络（测试零网络依赖）；覆盖去重保序、
+    裸域名补 https、失败重试一次、部分不可达 rc=0、无 URL 用法错。
+    """
+
+    def _read_preflight(self, tmp_path) -> dict:
+        return json.loads(
+            (
+                tmp_path / ".claude" / "workflows" / "t" / "fetch-preflight.json"
+            ).read_text(encoding="utf-8")
+        )
+
+    def test_probe_writes_json_dedup_and_scheme(self, tmp_path, capsys, monkeypatch):
+        calls = []
+
+        def fake_probe(url, timeout=8):
+            calls.append(url)
+            ok = url == "https://ok.example.com"
+            return (ok, "200" if ok else None, "" if ok else "curl exit 7")
+
+        monkeypatch.setattr(eng, "_curl_probe", fake_probe)
+        rc = eng.run_fetch_preflight(
+            tmp_path,
+            "t",
+            [
+                "ok.example.com",
+                "https://bad.example.com/x",
+                "https://bad.example.com/x",
+            ],
+        )
+        assert rc == 0
+        # 去重保序 + 裸域名自动补 https://（bad 失败后重试一次 = 第 3 次调用）
+        assert calls == [
+            "https://ok.example.com",
+            "https://bad.example.com/x",
+            "https://bad.example.com/x",
+        ]
+        assert "可达 1/2" in capsys.readouterr().out
+        data = self._read_preflight(tmp_path)
+        assert [r["url"] for r in data["results"]] == [
+            "https://ok.example.com",
+            "https://bad.example.com/x",
+        ]
+        assert data["results"][0]["ok"] is True
+        assert data["results"][1]["ok"] is False
+
+    def test_retry_once_on_failure(self, tmp_path, capsys, monkeypatch):
+        state = {"n": 0}
+
+        def flaky(url, timeout=8):
+            state["n"] += 1
+            if state["n"] == 1:
+                return False, None, "curl exit 28"
+            return True, "200", ""
+
+        monkeypatch.setattr(eng, "_curl_probe", flaky)
+        rc = eng.run_fetch_preflight(tmp_path, "t", ["https://x.example.com"])
+        assert rc == 0
+        assert state["n"] == 2  # 失败重试一次后转可达（抖动防误判）
+        assert self._read_preflight(tmp_path)["results"][0]["ok"] is True
+
+    def test_no_urls_usage_error(self, tmp_path, capsys):
+        assert eng.run_fetch_preflight(tmp_path, "t", []) == 1
+        assert "用法" in capsys.readouterr().err
+
+
 class TestFetchReportRecorded:
     """v2.38 fetch_report_recorded：子4 报告收录形式要件机械化。
 
@@ -8522,6 +8686,68 @@ class TestFetchReportRecorded:
         ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
         assert not ok and "蒸馏报告" in msg and "fetch-prompt" in msg
 
+    def test_prior_recorded_task_id_reference_exempt(self, tmp_path):
+        # redteam-taskid-pairing：子4 载荷引用前步已收录 id 不拒
+        # （跨步已归位豁免两侧对称：fetch 与 redteam 检查共用同一配对函数）
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=4)
+        (
+            tmp_path / ".claude" / "workflows" / "t" / "fetch-prompt-skeleton.md"
+        ).write_text("骨架", encoding="utf-8")
+        (tmp_path / ".claude" / "workflows" / "t" / "fetch-preflight.json").write_text(
+            json.dumps({"checked_at": "2026-08-22T00:00:00", "results": []}),
+            encoding="utf-8",
+        )
+        prior = json.dumps(
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "ProblemContext",
+                "sub_step": 3,
+                "skill": "x",
+                "purpose": "p",
+                "q": ["遗留 agent 蒸馏报告原文收录（task-id a1001db34a6f2c799）"],
+                "a": ["报告"],
+            },
+            ensure_ascii=False,
+        )
+        _write_evidence(tmp_path, "t", [prior])
+        qa = [
+            {"q": "原子 A 可检验 claim", "a": "claim：X；证实：Y；证伪：Z"},
+            {
+                "q": "原子 A 子代理蒸馏报告（原文收录）",
+                "a": "反证查询（先）：引用前步结论（task-id a1001db34a6f2c799）…",
+            },
+        ]
+        (tmp_path / "payload.json").write_text(
+            json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert ok, msg
+
+    def test_preflight_blocked_item_counts(self, tmp_path):
+        # fetch-preflight-probe：全源不可达原子的「预检不可达」q 项计入
+        # required（环境阻断合法路径，无报告项不得机械拒）
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=4)
+        (
+            tmp_path / ".claude" / "workflows" / "t" / "fetch-prompt-skeleton.md"
+        ).write_text("骨架", encoding="utf-8")
+        (tmp_path / ".claude" / "workflows" / "t" / "fetch-preflight.json").write_text(
+            json.dumps({"checked_at": "2026-08-22T00:00:00", "results": []}),
+            encoding="utf-8",
+        )
+        qa = [
+            {"q": "原子 A 可检验 claim", "a": "claim：X；证实：Y；证伪：Z"},
+            {
+                "q": "原子 A 预检不可达（原文收录）",
+                "a": "fetch-preflight 全源不可达：curl exit 7；未派发未升档",
+            },
+        ]
+        (tmp_path / "payload.json").write_text(
+            json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert ok, msg
+
     def test_report_item_present_accepted(self, tmp_path):
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=4)
         qa = [
@@ -8540,6 +8766,10 @@ class TestFetchReportRecorded:
         (
             tmp_path / ".claude" / "workflows" / "t" / "fetch-prompt-skeleton.md"
         ).write_text("骨架", encoding="utf-8")
+        (tmp_path / ".claude" / "workflows" / "t" / "fetch-preflight.json").write_text(
+            json.dumps({"checked_at": "2026-08-22T00:00:00", "results": []}),
+            encoding="utf-8",
+        )
         ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
         assert ok, msg
 
@@ -8649,6 +8879,55 @@ class TestRedteamReportRecorded:
         ]
         ok, msg = self._append_s5(tmp_path, qa)
         assert ok, msg
+
+    def test_prior_recorded_task_id_reference_exempt(self, tmp_path):
+        # redteam-taskid-pairing（2026-08-22 interaction_turnover u:1 子5 实证）：
+        # 红队报告收录原文引用子4 已归位取证 agent 的 task-id，旧判据误判
+        # 「已派发未收录」连拒 5 轮白烧 ~10min；前步标题已收录的 id 豁免。
+        prior = json.dumps(
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "ProblemContext",
+                "sub_step": 4,
+                "skill": "x",
+                "purpose": "p",
+                "q": [
+                    "原子 C 子代理蒸馏报告原文收录（task-id a1001db34a6f2c799）",
+                    "原子 B 子代理蒸馏报告原文收录（task-id a9db63e8c214b1fbe）",
+                ],
+                "a": ["报告 A", "报告 B"],
+            },
+            ensure_ascii=False,
+        )
+        _write_evidence(tmp_path, "t", [prior])
+        qa = [
+            {"q": "① 三关质检", "a": "E1 针对性 pass / 独立性 pass / 可追溯 pass"},
+            {
+                "q": "红队输出原文收录（driver 预派发）",
+                "a": "点查完成。子4 取证报告（task-id a1001db34a6f2c799、"
+                "task-id a9db63e8c214b1fbe）的外部证据反向削弱原子 B 子项。"
+                "总判断：维持。推理链：E1 证实->收窄边界；置信度：置信 96%",
+            },
+            {"q": "③ 四态结论合成", "a": "原子 A 证实"},
+        ]
+        ok, msg = self._append_s5(tmp_path, qa)
+        assert ok, msg
+
+    def test_unrecorded_task_id_reference_still_blocked(self, tmp_path):
+        # 对照组：无前步记录的 task-id 在正文出现且无收录项 -> 仍 BLOCK
+        # （豁免只放过「前步标题里确已归位」的 id，全新派发 id 保留牙齿）
+        qa = [
+            {"q": "① 三关质检", "a": "E1 针对性 pass / 独立性 pass / 可追溯 pass"},
+            {
+                "q": "红队输出原文收录（driver 预派发）",
+                "a": "点查完成。另派取证 agent（task-id a1001db34a6f2c799）运行中。"
+                "总判断：维持。推理链：E1 证实->收窄边界；置信度：置信 96%",
+            },
+            {"q": "③ 四态结论合成", "a": "原子 A 证实"},
+        ]
+        ok, msg = self._append_s5(tmp_path, qa)
+        assert not ok and "a1001db34a6f2c799" in msg and "豁免" in msg
 
 
 class TestRedteamThreePiece:
@@ -9184,6 +9463,10 @@ class TestFetchTier:
         (
             tmp_path / ".claude" / "workflows" / "t" / "fetch-prompt-skeleton.md"
         ).write_text("骨架", encoding="utf-8")
+        (tmp_path / ".claude" / "workflows" / "t" / "fetch-preflight.json").write_text(
+            json.dumps({"checked_at": "2026-08-22T00:00:00", "results": []}),
+            encoding="utf-8",
+        )
         qa = [
             {
                 "q": f"原子{i} 子代理蒸馏报告（原文收录）",
