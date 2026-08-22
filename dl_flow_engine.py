@@ -4723,7 +4723,49 @@ _MECH_EXTRA_STR_CHECKS = {
 _TASK_ID_RE = re.compile(r"(?<![0-9a-f.])\b(?=[0-9a-f]*[a-f])[0-9a-f]{16,17}\b")
 
 
-def _dispatched_vs_unrecorded_task_ids(qa: list) -> list[str]:
+def _recorded_task_ids_in_evidence(project_root: Path, name: str) -> set[str]:
+    """evidence 已有记录 qa 标题里的 task-id 集合（跨步已归位豁免数据源）。
+
+    redteam-taskid-pairing（2026-08-22 interaction_turnover u:1 子5 实证）：
+    配对判据「文本出现即派发」只读本步 qa，不知道哪些 id 已在之前子步骤
+    归位——红队报告收录原文引用子4 取证 agent 的 task-id（审前步证据链
+    天然引用），被误判「已派发未收录」拒收，且拒收消息指路重复收录、
+    级联触发三件套拒收，模型烧 ~10min 返工后靠编辑收录原文删 id 过关。
+    收录即带 id 到标题由 ingest_agent_report() 脚本保证（模型无法伪造），
+    故 evidence 标题 id = 已归位，豁免其引用。
+    """
+    text = read_evidence(project_root, name)
+    if not text:
+        return set()
+    ids: set[str] = set()
+    decoder = json.JSONDecoder()
+    for line in text.splitlines():
+        s = line.strip()
+        idx = 0
+        while idx < len(s):
+            nxt = s.find("{", idx)
+            if nxt == -1:
+                break
+            idx = nxt
+            try:
+                rec, end = decoder.raw_decode(s, idx)
+            except json.JSONDecodeError:
+                break  # 此行剩余部分不是合法 JSON（截断/损坏）-> 下一行
+            idx = end
+            if not isinstance(rec, dict):
+                continue
+            qs = rec.get("q")
+            if isinstance(qs, str):
+                qs = [qs]
+            if isinstance(qs, list):
+                for q in qs:
+                    ids.update(_TASK_ID_RE.findall(str(q)))
+    return ids
+
+
+def _dispatched_vs_unrecorded_task_ids(
+    qa: list, project_root: Path | None = None, name: str | None = None
+) -> list[str]:
     """派发但未收录的子代理 task-id（v2.118 修 B，类型无关配对）。
 
     实证（tail_volume u:1 子3）：light 报告零命中 -> 按契约升档补派 full agent，
@@ -4741,6 +4783,12 @@ def _dispatched_vs_unrecorded_task_ids(qa: list) -> list[str]:
     类型无关是要点：子4 同时有取证 agent 与红队 agent，按类型分别计数需两套
     易错规则；按 id 配对只问「派了几个收了几个」。真实载荷双向重放：
     子3 = BLOCK（full 缺席）/ 子4 = PASS（full + 红队均收录），见 design §3 修 B。
+
+    redteam-taskid-pairing 扩面（跨步已归位豁免）：recorded 并入 evidence
+    已有记录 qa 标题里的 task-id——前步已归位 id 的引用（收录报告原文对
+    前步 agent 的引用是天然合法形态）不再误判为本步派发。缺省参数
+    （旧直调）= 不豁免，行为不变。宁纵勿枉方向不变：豁免只放过「前步
+    标题里确已归位」的 id，全新派发 id 无前步记录仍逮。
     """
     dispatched: set[str] = set()
     recorded: set[str] = set()
@@ -4749,6 +4797,8 @@ def _dispatched_vs_unrecorded_task_ids(qa: list) -> list[str]:
         dispatched.update(_TASK_ID_RE.findall(q))
         dispatched.update(_TASK_ID_RE.findall(str(item.get("a", ""))))
         recorded.update(_TASK_ID_RE.findall(q))
+    if project_root is not None and name is not None:
+        recorded |= _recorded_task_ids_in_evidence(project_root, name)
     return sorted(dispatched - recorded)
 
 
@@ -4770,7 +4820,9 @@ def _check_fetch_report_recorded(qa: list, *_ctx) -> str | None:
     都有收录项」——升档补派的 full agent 缺席由此逮住（原判据放过，实证见
     _dispatched_vs_unrecorded_task_ids docstring）。
     """
-    missing = _dispatched_vs_unrecorded_task_ids(qa)
+    missing = _dispatched_vs_unrecorded_task_ids(
+        qa, _ctx[0] if _ctx else None, _ctx[1] if len(_ctx) > 1 else None
+    )
     if missing:
         return (
             f"子代理报告未归位就提交——trace 提到 task-id {', '.join(missing)} "
@@ -4778,6 +4830,7 @@ def _check_fetch_report_recorded(qa: list, *_ctx) -> str | None:
             "--ingest-agent <task-id> 收录其报告（脚本按 id 落原文，标题自动带 "
             "task-id）。等 agent 归位后再提交；light 报告标「建议升档 full」而"
             "补派的 full agent 同样须收录（升档留痕）；agent 失败/空结果则重派"
+            "（已收录于前步 trace 的 task-id 引用不算本步派发，已豁免）"
             "或升级用户裁决——「已派发运行中」式状态说明不算收录"
         )
     # fetch-preflight-probe：「预检不可达」项计入--全源不可达的原子不派发
@@ -4958,13 +5011,14 @@ def _check_redteam_report_recorded(
         )
     # 红队收录项在场后，再查是否有**其它**派发的 agent 缺席（子4 升档补派的
     # 取证 agent 可跨步归位到子5——仅判「有没有红队收录项」逮不住它）。
-    missing = _dispatched_vs_unrecorded_task_ids(qa)
+    missing = _dispatched_vs_unrecorded_task_ids(qa, project_root, name)
     if missing:
         return (
             f"子代理已派发但输出未收录——trace 提到 task-id {', '.join(missing)} "
             "却无对应收录项（正确动作：append-trace --ingest-agent <task-id>，"
             "脚本提取报告原文落载荷、标题自动带 task-id，禁手工粘贴）。"
             "等 Agent 归位收录原文后再提交；agent 失败/空结果则重派或升级用户"
+            "（已收录于前步 trace 的 task-id 引用不算本步派发，已豁免）"
             "裁决——「已派发等归位」式状态说明不算记录（提前提交 = 对抗复核"
             "缺席的裁决，下游子6 会拿到未经复核的问题集）"
         )

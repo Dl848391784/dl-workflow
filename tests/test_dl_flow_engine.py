@@ -8686,6 +8686,44 @@ class TestFetchReportRecorded:
         ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
         assert not ok and "蒸馏报告" in msg and "fetch-prompt" in msg
 
+    def test_prior_recorded_task_id_reference_exempt(self, tmp_path):
+        # redteam-taskid-pairing：子4 载荷引用前步已收录 id 不拒
+        # （跨步已归位豁免两侧对称：fetch 与 redteam 检查共用同一配对函数）
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=4)
+        (
+            tmp_path / ".claude" / "workflows" / "t" / "fetch-prompt-skeleton.md"
+        ).write_text("骨架", encoding="utf-8")
+        (tmp_path / ".claude" / "workflows" / "t" / "fetch-preflight.json").write_text(
+            json.dumps({"checked_at": "2026-08-22T00:00:00", "results": []}),
+            encoding="utf-8",
+        )
+        prior = json.dumps(
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "ProblemContext",
+                "sub_step": 3,
+                "skill": "x",
+                "purpose": "p",
+                "q": ["遗留 agent 蒸馏报告原文收录（task-id a1001db34a6f2c799）"],
+                "a": ["报告"],
+            },
+            ensure_ascii=False,
+        )
+        _write_evidence(tmp_path, "t", [prior])
+        qa = [
+            {"q": "原子 A 可检验 claim", "a": "claim：X；证实：Y；证伪：Z"},
+            {
+                "q": "原子 A 子代理蒸馏报告（原文收录）",
+                "a": "反证查询（先）：引用前步结论（task-id a1001db34a6f2c799）…",
+            },
+        ]
+        (tmp_path / "payload.json").write_text(
+            json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(tmp_path / "payload.json"))
+        assert ok, msg
+
     def test_preflight_blocked_item_counts(self, tmp_path):
         # fetch-preflight-probe：全源不可达原子的「预检不可达」q 项计入
         # required（环境阻断合法路径，无报告项不得机械拒）
@@ -8841,6 +8879,55 @@ class TestRedteamReportRecorded:
         ]
         ok, msg = self._append_s5(tmp_path, qa)
         assert ok, msg
+
+    def test_prior_recorded_task_id_reference_exempt(self, tmp_path):
+        # redteam-taskid-pairing（2026-08-22 interaction_turnover u:1 子5 实证）：
+        # 红队报告收录原文引用子4 已归位取证 agent 的 task-id，旧判据误判
+        # 「已派发未收录」连拒 5 轮白烧 ~10min；前步标题已收录的 id 豁免。
+        prior = json.dumps(
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "ProblemContext",
+                "sub_step": 4,
+                "skill": "x",
+                "purpose": "p",
+                "q": [
+                    "原子 C 子代理蒸馏报告原文收录（task-id a1001db34a6f2c799）",
+                    "原子 B 子代理蒸馏报告原文收录（task-id a9db63e8c214b1fbe）",
+                ],
+                "a": ["报告 A", "报告 B"],
+            },
+            ensure_ascii=False,
+        )
+        _write_evidence(tmp_path, "t", [prior])
+        qa = [
+            {"q": "① 三关质检", "a": "E1 针对性 pass / 独立性 pass / 可追溯 pass"},
+            {
+                "q": "红队输出原文收录（driver 预派发）",
+                "a": "点查完成。子4 取证报告（task-id a1001db34a6f2c799、"
+                "task-id a9db63e8c214b1fbe）的外部证据反向削弱原子 B 子项。"
+                "总判断：维持。推理链：E1 证实->收窄边界；置信度：置信 96%",
+            },
+            {"q": "③ 四态结论合成", "a": "原子 A 证实"},
+        ]
+        ok, msg = self._append_s5(tmp_path, qa)
+        assert ok, msg
+
+    def test_unrecorded_task_id_reference_still_blocked(self, tmp_path):
+        # 对照组：无前步记录的 task-id 在正文出现且无收录项 -> 仍 BLOCK
+        # （豁免只放过「前步标题里确已归位」的 id，全新派发 id 保留牙齿）
+        qa = [
+            {"q": "① 三关质检", "a": "E1 针对性 pass / 独立性 pass / 可追溯 pass"},
+            {
+                "q": "红队输出原文收录（driver 预派发）",
+                "a": "点查完成。另派取证 agent（task-id a1001db34a6f2c799）运行中。"
+                "总判断：维持。推理链：E1 证实->收窄边界；置信度：置信 96%",
+            },
+            {"q": "③ 四态结论合成", "a": "原子 A 证实"},
+        ]
+        ok, msg = self._append_s5(tmp_path, qa)
+        assert not ok and "a1001db34a6f2c799" in msg and "豁免" in msg
 
 
 class TestRedteamThreePiece:
