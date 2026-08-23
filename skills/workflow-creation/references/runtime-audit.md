@@ -111,3 +111,11 @@
 ## 26. 优化轮总账不降 ≠ 优化失败——工具序列逐条归因三分诊（杠杆未生效 / 预算再投资 / license 有洞）
 
 **优化轮总账不降的归因分诊**（2026-08-19 u3-sub3-cost 四轮 A/B，designs/u3-sub3-cost-optimization-design.md §6）：前缀/复用类优化落地后总账（段 fresh/cr/墙钟）不降甚至反升时，别急着判失败也别急着收——**把该轮段的工具序列逐条过一遍**，三分诊：①**杠杆未生效**——首调/逐调用机制读数没降（代码路径跑错、注入没到、字段没接线；先核 driver 日志特征行与首调 fresh，#24 代码路径核验）；②**预算再投资**——机制读数降了（首调 -45% 稳定），但模型把省下的预算花在**新的合法工作**上（本轮：发现 daily companion 文件纠正子2 C4 假设=质量真实收益，cr 反 +87%）——症状=工具调用数涨但每个调用都是新事实不是重查，处置=登记混淆、按机制读数验收（#13/#23 首调口径）、把「放弃还是保留这部分深取证」写成明示取舍；③**license 有洞**——条款里的开放谓词（「缺口/未覆盖/必要时才新查」）被弱模型当探索许可证（本轮：「仅缺口才新跑」→ 主动找缺口验证 + roam 工具从 codegraph 切到 grep 规避字面；另轮：包尾「按需 Read」邀请 → 15 次 evidence/state 元探查）——症状=调用在「为条款找合法化依据」而非产出交付物，处置=收紧条款写法（cost-optimization #25：默认零新查询+枚举例外），不是加探索预算（会连真缺口一起堵）。**相邻步重复取证的检测手法**：把相邻两步的工具序列并排对照，「同 symbol 的 callers/impact、同文件的 grep/Read 在两步各出现一次」= 重复取证（本轮基线 13 调用中 9 个）——与 #14「串行两会话读同一文件」同族，但从「文件」粒度泛化到「结构查询」粒度；判别料 = 前序步 trace 是否已含该查询的逐字结果（在交接包内=纯税）。
+
+## 27. 段会话 -> 步骤映射三通道：segment_sessions 是权威但有交互步盲区（2026-08-23 TACET 首跑统计实证）
+
+**审计前先把 session 对到步骤，别急着拉数**（interaction_amplitude__ret3d_abs_test_1 统计实操，连试 3 种解析法才闭合）：
+- **主通道 = state.json `segment_sessions`**：每段完成时记 `session_id/node/sub_step/ts(完成时刻)`，headless 步全覆盖。**盲区 = 交互型步骤不进台账**（u:1#1 逼问定义的 prep 段、plan:1#2 方案发散的 AskUserQuestion 段都不在列）--只看台账会少数步、误判「9 步只有 8 个 session」。
+- **补交互步 = evidence skill-trace 顺序**：`evidence/<name>.jsonl` 里 kind=skill-trace 按时间序排列，交互步在其中（内容含 AskUserQuestion/NEED_USER 字样）；killed 的 TUI 前台会话无 result 行，成本不可考（审计口径里要标注，别硬归零）。
+- **步骤键 = 首条 user 消息里的 `Launching skill: <name>` tool_result**：段会话第一条 user 消息是 Skill 调用的 tool_result（`content: "Launching skill: X"`），按 session_id 聚合提取即得步骤标签。**坑：对 user 消息做「取 text 字段」提取必得空**（content 是 tool_result 列表不是文本）；先 dump 一条原始 JSON 看结构再写解析。
+- 跨通道对齐法：session 首末时间戳 vs state history 的 entered/exited_at 逐段卡位（hold 等用户的时间落在两 session 间隙，不计模型成本）。

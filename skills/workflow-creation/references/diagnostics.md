@@ -102,6 +102,7 @@ claude --settings <per-wf settings> --append-system-prompt-file phase-rules.md \
 - **清单状态与当前阶段/子阶段不符**：读注入段「任务清单」看 hook 给的目标状态，与实际 TaskList 对比。目标错 -> hook bug（查 state.json 的 index/sub_index）；目标对但清单错 -> 模型漏 TaskUpdate，用 `/dl status` 促模型下一轮对齐。
 - **execute 工作子任务把阶段任务顶掉**：模型违规改了阶段任务(含 1.1-1.4)的 subject/顺序。规则：工作子任务追加在下方，阶段任务及其子任务全程保留。
 - **1.1-1.4 顺序错乱**：首轮 TaskCreate 建齐顺序必须是 1, 1.1, 1.2, 1.3, 1.4, 2, 3, 4, 5（靠创建顺序）。旧工作流续接首次建子任务会落底部（边角，已知，用 `/dl jump understand` 触发重建注入无法修，需模型意识到）。
+- **front 模式段推进期间清单原地踏步（2026-08-23 修 9830f4d）**：静默步秒级推进多节点时（TACET 最显眼），TUI 里清单停在旧位置数分钟。根因 = 目标状态原先只经 UserPromptSubmit 注入，而段推进期间 TUI 只被**段完成通知 / Stop 续轮**两通道唤醒，都不带清单状态。修 = 行构建单源 `engine.tui_tasklist_lines(state)`，`workflow_advance.py` 两条 front 续轮消息（`_front_stall_reprompt` / `_front_dispatch_continue`）尾部追加同步块，Stop 续轮即对齐。改清单行构建只动 engine 单源，勿回填双份。
 - **显示细节时有时无（如 subject 编号有的会话带、有的不带）**：根因套路 = **subject 契约歧义**——注入（attachment）与 output-style（system-prompt）对 subject 写法措辞不一致时，模型各按各的解读，表现随会话漂移（2026-07-25 实例：注入写 `subject=各阶段中文名`、output-style 枚举却带 `1./1.1` 编号 -> 编号时有时无；修复 commit 5215b63 两通道统一为"编号是 subject 一部分"）。**诊断法（实证模型实际建了什么，别猜）**：
   ```bash
   # 1. 模型实际建的 subject（session jsonl 在 ~/.claude/projects/-...-worktrees-<name>/）

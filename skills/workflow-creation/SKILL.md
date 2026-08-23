@@ -1,7 +1,7 @@
 ---
 name: workflow-creation
-description: 建工作流系统 + 运行诊断 + 运行审计。触发：新建/改工作流、dl 命令、阶段不推进、注入没生效、/dl 报错、hook 装错位置、模型否认收到注入、5 阶段不显示、gate 裁决记录(evidence)不落地、子步骤编排(sub_steps/STEP_DONE) 不推进、evidence 写到 worktree、审计一轮运行(可避免的 error/返工/耗时/token 优化)。
-version: 2.5
+description: 建工作流系统 + 运行诊断 + 运行审计。触发：新建/改工作流、dl 命令、阶段不推进、注入没生效、/dl 报错、hook 装错位置、模型否认收到注入、5 阶段不显示、gate 裁决记录(evidence)不落地、子步骤编排(sub_steps/STEP_DONE) 不推进、evidence 写到 worktree、审计一轮运行(可避免的 error/返工/耗时/token 优化)、tacet 实验轨道/dlt/force-tacet 行为。
+version: 2.6
 ---
 
 # workflow-creation
@@ -31,6 +31,8 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
 ```
 
 **运行模式三态**（入口唯一决定，state 磁盘真源互通可续）：v4 默认 = `dl <name>` 常驻 TUI 前台 + 会话内派发 `dl_drive.py --segment` 后台段跑非交互步（designs/front-tui-hybrid-design.md，2026-08-11——hooks 走 front 分支：phase 注入派发块 / advance stall 兜底 3 次计数闸 / fence 非交互步白名单；**同日用户裁决默认翻转**）；v3 = `dl <name> --headless` 全程 headless driver（designs/headless-driver-arch-design.md）；WF_TUI=1 = v2 旧 TUI hook 编排（回滚面）。
+
+**TACET 实验轨道**（2026-08-23 收口合并 main，designs/force-tacet-experiment-design.md）：`dlt <name>` = 同一 launcher 自动附加 `--force-tacet`--六步脊柱（u:1#1/u:1#2/u:1#3/u:1#4/plan:1#2/plan:4#4）全额执行，其余 38 子步 engine 机械静默（零 token/零 judge），到 plan:4 门栏与 main 同路径停等。`force_tacet` 是 per-instance sticky state 开关（engine 全程 state.get 判定、默认 off），**模型无权自封**；普通 `dl` 永远全量 44 步。实例开关：`dl_flow_engine.py force-tacet <name> on|off`。
 
 **judge 成本基线**（2026-07-25 实测，commit 8f6eaee 起）：judge 单次新鲜输入曾 ~2.1-2.4 万 token，其中 ~95% 是 harness 开销（全套工具 schema + 默认 system prompt + skill 列表 attachment），判决载荷仅 ~0.5-0.9k。已用 `claude -p --tools "" --system-prompt <judge人设>` 裁剪（-84%~-91%，实测单次 ~2.2-3.3k），判决 prompt 逐字不动、settings/认证链不碰（env 继承与 settings.json env 块用户都照常）。**若审计发现 judge 又回到 ~2 万级，先查 run_judge 的这两个 flag 是否被改丢**。**v2.44 输出侧裁剪**：judge 子进程 `MAX_THINKING_TOKENS=0`（2026-08-02 tail_volume u:1 审计——推理模型 judge 两次离群 115s/99s、输出 10.8k/11.4k tok 而可见判词仅数百字，thinking 占输出 ~92%；MiniMax-M3 同一真实载荷 A/B：3529 tok/39.2s -> 278 tok/6.3s，真实被 block/通过载荷重放判决方向均一致；K3 端点忽略该 var 无副作用）。**judge 耗时/输出再离群，先查这个 env 是否被改丢**。准确性靠重放回归保证（同一真实案例新旧判决必须一致），见 tests TestRunJudgeHarnessTrim。~~caveat：judge 输入随 evidence.jsonl 线性增长~~ **已修（2026-07-26 v2.12）**：子步骤 gate 的 artifact 改由 `read_evidence_for_step` 裁剪——只喂当前步 + 前序各步**最新** trace（子5 跨步 verdict 上下文保留；返工历史/kind=gate 记录不喂），真实 demo evidence 冒烟：子1 -97%、子3 -65%。后期步骤 judge 输入仍随步数缓涨（每步一条 trace）是设计内现象。**judge 失败重试策略**：bad_verdict_json 与 TimeoutExpired 各重试一次（递归爆炸根因已被 cwd=tempdir 修掉；超时降级会让模型白返工一轮，demo fbdb6ebd 子2 实测），API 错/exit 非零/OSError 不重试。
 
@@ -103,6 +105,7 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
 - "段在跑没动静 / 是否卡死 / headless 秒退 rc=1 / Input must be provided / 前台模型非交互位置自行干活抢活" → references/diagnostics.md 症状 Z
 - "Argument list too long / E2BIG / 段异常起不来 / fence off 了仍被拦 / 段工人故障接管" → references/diagnostics.md 症状 AA + 症状 Z 末条
 - "审计这轮运行 / 符合预期吗 / 哪些 error 返工可避免 / judge 输入膨胀 / 重建丢弃" → references/runtime-audit.md
+- "tacet / dlt / force-tacet / 脊柱步 / 静默步 / 为啥这步没跑" -> designs/force-tacet-experiment-design.md（轨道语义）；统计/审计 tacet 实例 -> references/runtime-audit.md #27（段->步骤映射三通道）
 - "设计新编排节点 / 拆几个子步骤 / 每步什么目的 / 要不要取证步 / 步数怎么定 / 代码设计拆步 / 拆解任务 / 任务切分 / 执行计划 plan.md" → references/node-split-methodology.md；查某节点有几步/关键不对称 → references/nodes-index.md
 - "另一会话在改同仓库 / 文件被外部修改 / 两批改动怎么分开 commit / 测试全红是不是我的问题" → references/collab.md
 - "证据链 / evidence / no_markers / evidence.jsonl 不生成 / 证据不落地" → references/diagnostics.md 症状 I

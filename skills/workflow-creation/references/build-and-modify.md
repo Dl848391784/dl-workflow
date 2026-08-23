@@ -30,6 +30,11 @@ dl <name> --done          # 归档（删 worktree+分支+元数据）
 
 **与 v1.x 项目内嵌版本对比**：v1.x 里 hook 在 `<项目>/.claude/hooks/` 是 git 快照，改后必须 commit + 重建 worktree；本版本 hook 在 `~/.dl-workflow/hooks/` 直接引用（不 copy），无此约束。
 
+**worktree 异位承载分支的自引用检查（2026-08-23 force-tacet 承载两连坑：961d86d + 1576686）**：把分支检出进独立 worktree 跑 launch 链路（worktree-per-session 协议的常规操作）前，必查三件：
+- **grep 全部主树绝对路径自引用**：分支代码硬编码 `~/.dl-workflow` 的每一处（engine 派发命令 / dl-lib.sh hooks+statusline+白名单 / prompt 文案里的 CLI 指路），全部改按 `__file__`/`WF_LIB_DIR` 解析。**编排面断链 = tacet 整轨静默跑错形态而非报错**（state force_tacet=True 但段工人派到主树 driver，evidence 零 tacet 记录）。
+- **hooks 路径逐层数清**：hooks 在**仓库根**，`$WF_LIB_DIR`（=scripts/workflow）到它是 `../../hooks`--差一层解析成不存在的 `scripts/hooks/`，UserPromptSubmit 全灭（用户每输一句话都被 hook 拦死）。
+- **冒烟必须真执行，打印命令字符串逮不住路径错**：改后冒烟 = 逐 hook 真跑 `rc=0` + 测试断言每条 hook/statusline 命令 `Path.resolve().exists()`（只打印不验存在性 = 上述两坑双漏）。
+
 - 多 commit 拆分提交时**每个 commit 前跑 `ruff format --check`**（2026-08-13 P2-4 实例）：只在一批改动全完成后查一次，format drift 会落进已提交的 commit，事后修补再叠 stash 操作即出冲突链（stash → format 改到 stash 涉及的文件 → pop 冲突）。拆 commit 的粒度纪律要与 format 检查的粒度一致。
 
 **hook 协议能力边界**（2026-08-05 围栏兜底三修实证，设计新 hook/围栏前必读）：
