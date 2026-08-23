@@ -16,17 +16,18 @@ execute 需要的四样输入--问题、根因、证据、修法+施工图--由�
 | 脊柱步 | 供给 | 形态 |
 |---|---|---|
 | u:1#1 逼问定义 | 问题陈述 | **交互**（TUI 段，用户陈述 bug） |
+| u:1#2 拆解深挖 | 原子分档清单 | 正常跑（u:1#4 fetch-prompt 硬依赖，2026-08-23 补入） |
 | u:1#3 因果链挖掘 | 根因 | 正常跑（根因=修 bug 的核心理解） |
 | u:1#4 双向取证 | discovered 证据 | 正常跑（per-atom 三档已内建，简单 bug 自然走 light/none） |
 | plan:1#2 方案发散 | 修法 | **交互**（用户拍板修法方向） |
 | plan:4#4 归一化计划包 | 施工图 | 正常跑（装配 plan.md「执行计划与检查点」节，gate 照常可过） |
 
-**其余 39 步（44−5）全部 TACET 沉默**：不派段、零 token、不跑 judge、不交互--含规划拆解/质检裁决/归一化陈述×4/目标障碍成功标准引出三连/读回确认×8/任务切分/能力选型等重仪式步。
+**其余 38 步（44−6）全部 TACET 沉默**：不派段、零 token、不跑 judge、不交互--含规划拆解/质检裁决/归一化陈述×4/目标障碍成功标准引出三连/读回确认×8/任务切分/能力选型等重仪式步。
 
 **门栏与闸门**（2026-08-23 用户修订：「到 p 默认停止，与 main 一致」）：plan:4 门栏 force_tacet 下**不再自动放行**--plan 完成 held_for_gate 停等，用户 `/dl gate` 放行后才继续（原首版自动放行导致直接跑进 execute/review/evolution，已废除）。
 
 ```
-u:1#1(交互) → [39步 TACET 沉默，其中 u:1#3、u:1#4、plan:1#2(交互)、plan:4#4 在位] → 门栏/闸门自动放行 → execute(纯执行) → review → evolution
+u:1#1(交互) -> u:1#2 -> u:1#3 -> u:1#4 -> [38步 TACET 沉默] -> plan:1#2(交互) -> plan:4#4 -> plan:4 门栏停等（/dl gate 放行）-> execute(纯执行) -> review -> evolution
 ```
 
 TACET 沉默步集 = engine 机械推导：44 子步 − 六步脊柱。
@@ -41,7 +42,7 @@ TACET 沉默步集 = engine 机械推导：44 子步 − 六步脊柱。
 
 1. **修对没有**（主验收轴）：review 结论 + 人工验 diff。
 2. **成本账**：token/墙钟 vs 全量轨道基线。预期：understand+plan 段成本 ≈ 5 步脊柱（其中 2 步交互、取证自带轻档），全程成本由 execute/review 主导。
-3. **观察点**：五步脊柱供给的材料对 bug 级任务是否够 execute 纯执行（不需要段内自行分析）；39 步沉默有没有埋下隐性返工。
+3. **观察点**：六步脊柱供给的材料对 bug 级任务是否够 execute 纯执行（不需要段内自行分析）；38 步沉默有没有埋下隐性返工。
 
 跑通标准：不卡死跑到 plan:4 门栏停等（到 p 默认停止；继续 execute 由用户 /dl gate 决定）。
 
@@ -72,7 +73,7 @@ TACET 沉默步集 = engine 机械推导：44 子步 − 六步脊柱。
 
 ## 7. 测试与影响面
 
-- **测试**：TACET_SET=39 且恰为「44 子步 − 五步脊柱」/ launch flag->state sticky / apply_tacet_skip 写 record+推进 / 门栏+闸门 force_tacet 自动放行+记录 / render_artifact 沉默节占位 / 脊柱步 gate 不放水（含 plan:4#4 CONTAINS 正常判）/ 交互步在 force 下也被跳（脊柱交互步除外）/ tacet 步零 judge / progress_rows tacet 标记 / 段模式（front）同样跳静默步（--segment 共用主循环）/ 零 force 全行为不变（回归）。
+- **测试**：TACET_SET=38 且恰为「44 子步 − 六步脊柱」/ launch flag->state sticky / apply_tacet_skip 写 record+推进 / 门栏+闸门 force_tacet 自动放行+记录 / render_artifact 沉默节占位 / 脊柱步 gate 不放水（含 plan:4#4 CONTAINS 正常判）/ 交互步在 force 下也被跳（脊柱交互步除外）/ tacet 步零 judge / progress_rows tacet 标记 / 段模式（front）同样跳静默步（--segment 共用主循环）/ 零 force 全行为不变（回归）。
 - **文件**：dl-launch.sh / dl_flow_nodes.py（TACET_SET 推导）/ dl_flow_engine.py（apply_tacet_skip + 门栏闸门放行 + render_artifact 占位 + read_evidence_for_step + handoff_pack + progress_rows）/ dl_drive.py（跳派段）/ hooks/workflow_phase.py（front 防御）/ tests。
 - **H9 预算**：拆 commit--①engine 核心 ②driver+launch ③门栏闸门放行+artifact 占位 ④测试。实现按 worktree-per-session 协议（feat/force-tacet）。
 
@@ -82,4 +83,4 @@ TACET 沉默步集 = engine 机械推导：44 子步 − 六步脊柱。
 - **不做 PIANO**（轻奏中间档）--本期只有 TACET/全量两态。
 - **不做 WF_TUI=1 旧 TUI 路径支持**（无共享主循环，launch fail loud）；**不改 execute/review/evolution 行为**；**不给 execute 注入勘察指令**（观察它是否纯执行）。
 - **不动阶段语义**：u/p 仍产出理解与计划，e 仍纯执行--TACET 只裁剪 u/p 内部的步骤数，不重定义职责边界。
-- **脊柱步 gate 不放水**：五步的质量门原样保留，TACET 省的是仪式步不是质量步。
+- **脊柱步 gate 不放水**：六步的质量门原样保留，TACET 省的是仪式步不是质量步。

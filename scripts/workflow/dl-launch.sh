@@ -11,7 +11,7 @@
 #   dl <name> --debug      debug 落盘到 per-wf 目录（cc_debug.log + cc_sdk.log）
 #   dl <name> --verbose    子会话输出尾随上屏（默认静默只落 drive-stream.jsonl）
 #   dl <name> --headless   v3 全程 headless driver（driver 占终端，stdin 断点）
-#   dl <name> --force-tacet  force-tacet 实验轨道（五步脊柱执行，其余步 TACET 静默；front 默认 / --headless 均可）
+#   dl <name> --force-tacet  force-tacet 实验轨道（六步脊柱执行，其余 38 步 TACET 静默；到 plan:4 门栏停等；front 默认 / --headless 均可）
 #   dl list                列举所有工作流
 #   dl <name> --done       归档工作流（删 worktree，保留元数据）
 
@@ -161,7 +161,7 @@ if [ "$WF_FORCE_TACET" = "1" ]; then
     echo "wf-launch: force-tacet 置位失败（state 写入异常）" >&2
     exit 1
   fi
-  echo "  ♪ force-tacet 实验轨道：五步脊柱执行（u:1#1/u:1#3/u:1#4/plan:1#2/plan:4#4），其余 39 步 TACET 静默"
+  echo "  ♪ force-tacet 实验轨道：六步脊柱执行（u:1#1/u:1#2/u:1#3/u:1#4/plan:1#2/plan:4#4），其余 38 步 TACET 静默，到 plan:4 门栏停等"
   echo "    门栏/闸门自动放行；front（默认）与 --headless 均支持（静默步由段工人/驱动循环自动跳过）"
 fi
 
