@@ -1808,6 +1808,15 @@ def test_settings_allowlist_covers_segment_dispatch(wf_repo):
     # 分支从 worktree 运行时须放行 worktree 自己的 dl_drive.py，
     # 硬编码 ~/.dl-workflow 会把段工人派回主树（tacet 失效根因）。
     assert f"Bash(python3 {DLWF_ROOT}/scripts/workflow/dl_drive.py:*)" in allow
+    # hook 路径须真实存在（2026-08-23 首跑实证：../hooks 差一层解析成
+    # scripts/hooks/ 不存在，UserPromptSubmit 全灭；冒烟只看字符串不验文件逮不住）
+    for hs in data["hooks"].values():
+        for h in hs:
+            cmd = h.get("command") or h.get("hooks", [{}])[0].get("command", "")
+            hook_path = next((t for t in cmd.split() if t.endswith(".py")), None)
+            if hook_path:
+                assert Path(hook_path).resolve().exists(), hook_path
+    assert Path(data["statusLine"]["command"].split()[1]).resolve().exists()
     assert data["wf_settings_template_version"] == engine.SETTINGS_TEMPLATE_VERSION
 
 

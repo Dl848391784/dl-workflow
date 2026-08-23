@@ -264,8 +264,10 @@ wf_write_settings() {
   # 自引用按本脚本自身位置解析（force-tacet worktree 承载：hooks 须同树，否则主树
   # hooks 派发主树 driver，tacet 跳步逻辑失效）。WF_LIB_DIR 在 source 时即钉死
   # （dl-lib.sh:15），不依赖调用方注入 LIB_DIR（测试直调时未定义会退化成 cwd）。
+  # hooks 在仓库根（scripts/workflow 的上两级）：../../hooks--差一层会解析成
+  # scripts/hooks/（不存在，UserPromptSubmit 全灭，2026-08-23 首跑实证）。
   local LIB_DIR_ABS="$WF_LIB_DIR"
-  local hk="$WF_LIB_DIR/../hooks"
+  local hk="$WF_LIB_DIR/../../hooks"
   mkdir -p "$dir"
   cat > "$dir/settings.json" <<JSON
 {
