@@ -7060,7 +7060,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "fetch-preflight":
         # fetch-preflight-probe：外部源网络可达性预检（派发取证子代理前）。
         # 部分不可达 rc=0（不可达是信息不是命令失败）；无 URL = 用法错。
-        urls = [u for group in (args.url or []) for u in group]
+        # --url 是 action="extend"+nargs="+" -> args.url 已是扁平 str 列表，
+        # 禁再展平（旧写法 for group in args.url 逐字符迭代 str -> 每个 URL
+        # 拆成单字符碎片全判不可达，2026-08-23 amplitude 首跑实证）。
+        urls = list(args.url or [])
         return run_fetch_preflight(project_root, name, urls)
     if args.cmd == "render-artifact":
         if not args.value:
