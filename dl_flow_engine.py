@@ -6392,6 +6392,38 @@ def run_fetch_preflight(project_root: Path, name: str, urls: list[str]) -> int:
 # ---------- drive 模式进度快照（drive-tasklist-render-design §2.2）----------
 
 
+def tui_tasklist_lines(state: dict[str, Any]) -> list[str]:
+    """TUI 原生任务清单目标状态行（镜像 state 当前 index/sub_index）。
+
+    单源：workflow_phase.py（UserPromptSubmit 注入）与 workflow_advance.py
+    （front 模式 Stop 续轮注入）共用--2026-08-23 前只在 UserPromptSubmit 注入，
+    两次用户输入间 TUI 只被段完成通知/Stop 续轮唤起，任务清单原地踏步
+    （tacet 快速推进时最显眼）。纯函数，零 IO；行格式与 output-style
+    规则 1 的建齐/对齐契约一致（phase 行 + 子阶段行，全程保留）。
+    """
+    st = normalize_state(dict(state))
+    idx = st["index"]
+    sub_index = st["sub_index"]
+    rows: list[str] = []
+    for i, p in enumerate(PHASES, 1):
+        lbl = PHASE_LABELS.get(p, p)
+        stt = "completed" if i < idx else ("in_progress" if i == idx else "pending")
+        rows.append(f"  {i}. {lbl} -> {stt}")
+        for j, slabel in enumerate(subphase_labels(p), 1):
+            if i < idx:
+                sst = "completed"
+            elif i == idx:
+                sst = (
+                    "completed"
+                    if j < sub_index
+                    else ("in_progress" if j == sub_index else "pending")
+                )
+            else:
+                sst = "pending"
+            rows.append(f"    {i}.{j} {slabel} -> {sst}")
+    return rows
+
+
 def progress_rows(state: dict[str, Any]) -> list[dict[str, Any]]:
     """drive 模式进度快照的结构化行（driver rich Live 渲染数据源）。
 
