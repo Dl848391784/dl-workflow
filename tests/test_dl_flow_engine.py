@@ -10837,6 +10837,32 @@ def _mem_state(phase, sub, sub_step=0, **extra):
     return st
 
 
+class TestTuiTasklistLines:
+    """tui_tasklist_lines：TUI 原生任务清单目标状态行（2026-08-23 单源化）。
+
+    workflow_phase（UserPromptSubmit 注入）与 workflow_advance（front Stop
+    续轮注入）共用--此前只在用户发消息时同步，front 模式段推进期间清单
+    原地踏步。纯函数：行数=5 阶段+8 子阶段，状态镜像 index/sub_index。
+    """
+
+    def test_rows_mirror_position(self):
+        rows = eng.tui_tasklist_lines(_mem_state("plan", 4, 3))
+        assert len(rows) == 5 + 8  # 5 阶段行 + understand/plan 各 4 子阶段行
+        text = "\n".join(rows)
+        assert "  1. 理解和求证问题 -> completed" in text
+        assert "  2. 生成执行计划 -> in_progress" in text
+        assert "    2.4 制定执行计划和检查点 -> in_progress" in text
+        assert "    2.3 选择能力与工具 -> completed" in text
+        assert "  3. 执行 -> pending" in text
+
+    def test_rows_initial_state(self):
+        rows = eng.tui_tasklist_lines(_mem_state("understand", 1, 1))
+        text = "\n".join(rows)
+        assert "  1. 理解和求证问题 -> in_progress" in text
+        assert "    1.1 理解问题和背景 -> in_progress" in text
+        assert "    1.2 明确目标和价值 -> pending" in text
+
+
 class TestProgressRows:
     """drive-tasklist-render-design §2.2：progress_rows 结构化行进数据（driver
     rich Live 渲染数据源；状态映射：节点线性序 < 当前=done / ==current / >todo，

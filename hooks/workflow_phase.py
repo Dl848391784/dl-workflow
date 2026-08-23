@@ -250,24 +250,9 @@ def _format_injection(
     )
 
     # 任务清单目标状态（镜像 state.json 当前 index/sub_index；供模型同步原生 TaskList）
-    # 阶段有子阶段时，紧跟该阶段任务后插入子任务 1.1..1.N（全程保留，已完成的也显示 completed）
-    task_rows = []
-    for i, p in enumerate(PHASES, 1):
-        lbl = PHASE_LABELS.get(p, p)
-        st = "completed" if i < idx else ("in_progress" if i == idx else "pending")
-        task_rows.append(f"  {i}. {lbl} -> {st}")
-        for j, slabel in enumerate(_subphases(p), 1):
-            if i < idx:
-                sst = "completed"
-            elif i == idx:
-                sst = (
-                    "completed"
-                    if j < sub_index
-                    else ("in_progress" if j == sub_index else "pending")
-                )
-            else:
-                sst = "pending"
-            task_rows.append(f"    {i}.{j} {slabel} -> {sst}")
+    # 行构建单源 engine.tui_tasklist_lines（2026-08-23：workflow_advance 的 front
+    # Stop 续轮同用--否则两次用户输入间清单原地踏步）
+    task_rows = engine.tui_tasklist_lines(state)
 
     header = f"工作流: {name} | 阶段: **{PHASE_LABELS.get(phase, phase)}** [{idx}/{total}] | gate: {gate}"
     if has_sub:

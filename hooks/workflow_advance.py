@@ -397,10 +397,24 @@ def _front_stall_reprompt(project_root: Path, name: str, state: dict) -> int:
         "段跑完会自动回到本会话。若你刚派发（段启动中）忽略本提示；"
         "上轮段结局可 Read segment_summary.json 按 code 行动"
         "（11=等 /dl gate 放行 / 12=等用户处置——未裁决前勿重派）。"
+        + _tui_tasklist_block(state)
     )
 
 
-def _front_dispatch_continue(name: str, node, n: int) -> int:
+def _tui_tasklist_block(state: dict) -> str:
+    """front 续轮消息的任务清单同步块（2026-08-23）。
+
+    任务清单目标状态此前只在 UserPromptSubmit 注入（用户发消息才同步）--
+    front 模式下两次用户输入之间，TUI 只被段完成通知/Stop 续轮唤起，清单
+    原地踏步（tacet 快速推进最显眼）。行构建单源 engine.tui_tasklist_lines。
+    """
+    return (
+        "\n任务清单同步（镜像 state 当前位置，一条消息内批量 TaskUpdate 对齐）：\n"
+        + "\n".join(engine.tui_tasklist_lines(state))
+    )
+
+
+def _front_dispatch_continue(name: str, node, n: int, state: dict | None = None) -> int:
     """front 模式 pass 续轮：新步非交互 → 续轮正文 = 逐字派发命令（非干活指令）。"""
     return _stop_continue(
         f"## WORKFLOW 已过门控——下一位置（{node.label} 子步骤 {n}）"
@@ -409,6 +423,7 @@ def _front_dispatch_continue(name: str, node, n: int) -> int:
         f"  {engine.front_segment_command(name)}\n"
         "段跑完会自动回到本会话；等待期间只回应用户，"
         "不要主动探查源码或调用工具（活归后台段工人）。"
+        + (_tui_tasklist_block(state) if state else "")
     )
 
 
@@ -693,7 +708,7 @@ def main() -> int:
                     if state.get("front_mode"):
                         nxt_step_f = engine.sub_step_at(nxt_node, 1)
                         if nxt_step_f is not None and not nxt_step_f.interactive:
-                            return _front_dispatch_continue(name, nxt_node, 1)
+                            return _front_dispatch_continue(name, nxt_node, 1, state)
                     return _sub_step_continue(
                         f"子阶段「{cur_node0.label}」的全部子步骤",
                         nxt_node,
@@ -718,7 +733,7 @@ def main() -> int:
             if state.get("front_mode"):
                 nxt_step_f = engine.sub_step_at(cur_node0, nxt)
                 if nxt_step_f is not None and not nxt_step_f.interactive:
-                    return _front_dispatch_continue(name, cur_node0, nxt)
+                    return _front_dispatch_continue(name, cur_node0, nxt, state)
             return _sub_step_continue(
                 f"子步骤 {judged_step}",
                 cur_node0,
