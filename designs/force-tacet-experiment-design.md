@@ -23,7 +23,7 @@ execute 需要的四样输入--问题、根因、证据、修法+施工图--由�
 
 **其余 39 步（44−5）全部 TACET 沉默**：不派段、零 token、不跑 judge、不交互--含规划拆解/质检裁决/归一化陈述×4/目标障碍成功标准引出三连/读回确认×8/任务切分/能力选型等重仪式步。
 
-**门栏与闸门**：plan:4 门栏 + plan->execute 闸门在 force_tacet 下**自动放行**（写 `tacet_gate_autorelease` 记录；计划包由脊柱步合法产出，但 bug 级任务不需要用户双重裁决仪式）。
+**门栏与闸门**（2026-08-23 用户修订：「到 p 默认停止，与 main 一致」）：plan:4 门栏 force_tacet 下**不再自动放行**--plan 完成 held_for_gate 停等，用户 `/dl gate` 放行后才继续（原首版自动放行导致直接跑进 execute/review/evolution，已废除）。
 
 ```
 u:1#1(交互) → [39步 TACET 沉默，其中 u:1#3、u:1#4、plan:1#2(交互)、plan:4#4 在位] → 门栏/闸门自动放行 → execute(纯执行) → review → evolution
@@ -43,7 +43,7 @@ TACET 沉默步集 = engine 机械推导：44 子步 − 六步脊柱。
 2. **成本账**：token/墙钟 vs 全量轨道基线。预期：understand+plan 段成本 ≈ 5 步脊柱（其中 2 步交互、取证自带轻档），全程成本由 execute/review 主导。
 3. **观察点**：五步脊柱供给的材料对 bug 级任务是否够 execute 纯执行（不需要段内自行分析）；39 步沉默有没有埋下隐性返工。
 
-跑通标准：不卡死走完全程（自动放行链路生效）。
+跑通标准：不卡死跑到 plan:4 门栏停等（到 p 默认停止；继续 execute 由用户 /dl gate 决定）。
 
 ## 4. TACET 步语义
 
@@ -55,7 +55,7 @@ TACET 沉默步集 = engine 机械推导：44 子步 − 六步脊柱。
 
 - **开关**：`dl <name> --force-tacet` -> dl-launch.sh 写 `state.force_tacet=true`（sticky，resume 保持）。**front（默认）与 `--headless` 均支持**--tacet 判定在 dl_drive.py 主循环，而段工人（front 的 `--segment`）与 headless driver 共用该循环单源（front-tui-hybrid §2.2），天然生效；WF_TUI=1 旧 TUI 路径无共享循环 -> launch fail loud。
 - **跳步**：dl_drive.py 段循环派段前查 `state.force_tacet and step in TACET_SET` -> 新 engine 函数 `apply_tacet_skip()`（写 tacet-record + advance）-> 不派段继续。
-- **门栏/闸门自动放行**：`held_for_gate`（engine:1887-1976）与 plan->execute 闸门检测 `state.force_tacet` -> 写 autorelease 记录 + 直接放行。
+- **门栏不豁免（2026-08-23 修订）**：`_advance_sub_step` 对 hold_for_gate（全系统唯一处 = plan:4）不再检测 `state.force_tacet`--tacet 与 main 同路径停等 `/dl gate`，到 p 默认停止。
 - **产物**：脊柱步在位，plan.md 由 plan:4#4 正常装配（「执行计划与检查点」节真实存在，ARTIFACT_CONTAINS 门合法通过）；understand.md 各节来源步大多沉默 -> render_artifact（engine:1186）对来源全沉默的节装配 `**[TACET 沉默：本节来源步未执行]**` 占位（防下游路径断 + 诚实可见）。
 - **交接包**（handoff_pack，engine:1714）：execute 拿到 = u:1#1 问题陈述 + u:1#3 根因 + u:1#4 证据 trace + plan:1#2 修法 + plan:4#4 计划包 + 「其余步 TACET 沉默」说明。
 - **脊柱步 gate 照常**：u:1#3 因果链 mech 检查、u:1#4 取证档位台账、plan:4#4 ARTIFACT_CONTAINS 均正常执行（它们是质量的底线，不因 TACET 放水）。

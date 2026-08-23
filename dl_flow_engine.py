@@ -1513,8 +1513,8 @@ def apply_tacet_skip(project_root: Path, name: str) -> tuple[bool, str]:
 
     三件事：①写 tacet-record 落痕；②装配义务（确认级读回步=各节点末步承载
     产物装配，静默步上由 engine 代跑 render_artifact，沉默源节占位）；③推进
-    （末步门栏 force 模式自动放行，见 _advance_sub_step；plan->execute 大闸门
-    随 advance_state gate=passed 一并自动穿越）。
+    （末步门栏不豁免：plan:4 完成 held_for_gate 停等 /dl gate，与 main 一致，
+    2026-08-23 用户裁决「到 p 默认停止」）。
     """
     state = load_state(project_root, name)
     if state is None:
@@ -2000,27 +2000,15 @@ def _advance_sub_step(
         save_state(project_root, name, state)
         return state
     if node.hold_for_gate:
-        if state.get("force_tacet"):
-            # force-tacet（design §5）：门栏自动放行--写 autorelease 裁决留痕后
-            # 直接推进，不设 held_for_gate。bug 级轨道无 plan 裁决仪式（计划包
-            # 已由脊柱步 plan:4#4 合法装配）；plan->execute 大闸门随
-            # advance_state（is_gated_after("plan") -> gate=passed）一并穿越。
-            ok = write_gate_verdict(
-                project_root,
-                name,
-                node,
-                state.get("node_attempts", 0),
-                str(project_root),
-                via="tacet-subgate-autorelease",
-                sub_step=cur,
-            )
-            if not ok:
-                raise OSError("tacet-subgate-autorelease 裁决记录写 evidence 失败")
-        else:
-            state["held_for_gate"] = True
-            state["updated_at"] = _now()
-            save_state(project_root, name, state)
-            return state
+        # force-tacet 不豁免门栏（2026-08-23 用户裁决「到 p 默认停止，与 main
+        # 一致」）：hold_for_gate 全系统唯一处 = plan:4（围栏设在 plan 完成），
+        # 此前 force_tacet 自动放行+advance_state 一并穿越 plan->execute 大闸门
+        # = 首跑直接跑进 execute/review/evolution。现 tacet 与 main 同路径：
+        # plan 完成 -> held_for_gate 停等 -> 用户 /dl gate 放行才继续。
+        state["held_for_gate"] = True
+        state["updated_at"] = _now()
+        save_state(project_root, name, state)
+        return state
     # 末步：推进子阶段（advance_state 含 normalize + save）
     return advance_state(project_root, name, via=via)
 
@@ -6782,7 +6770,8 @@ def set_force_tacet(project_root: Path, name: str, on: bool) -> tuple[bool, str]
     save_state(project_root, name, state)
     return True, (
         "force-tacet 实验轨道已开启（六步脊柱执行，其余步 TACET 静默；"
-        "门栏/闸门自动放行；front（默认）与 --headless 均支持）"
+        "plan 完成 held_for_gate 停等 /dl gate（与 main 一致）；"
+        "front（默认）与 --headless 均支持）"
         if on
         else "force-tacet 实验轨道已关闭（回全量编排）"
     )

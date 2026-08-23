@@ -12923,10 +12923,10 @@ class TestForceTacet:
             assert f"## {sec}" in body
         assert body.count("[TACET 沉默：本节来源步未执行") == 4
 
-    def test_apply_tacet_skip_plan4_autorelease_and_gate(self, tmp_path):
-        # plan:4 末步（子5 沉默）：门栏自动放行（写 tacet-subgate-autorelease 裁决）
-        # + plan->execute 大闸门一并穿越（gate=passed）；计划包节真实（脊柱
-        # plan:4#4 statements 在场）、其余节占位。
+    def test_apply_tacet_skip_plan4_holds_like_main(self, tmp_path):
+        # plan:4 末步（子5 沉默）：门栏不豁免（2026-08-23 用户裁决「到 p 默认
+        # 停止，与 main 一致」）--held_for_gate 停等 /dl gate，phase 留在 plan；
+        # 计划包节真实（脊柱 plan:4#4 statements 在场）、其余节占位仍装配。
         _write_state_full(tmp_path, "t", "plan", 4, sub_step=5)
         st = eng.load_state(tmp_path, "t")
         st["force_tacet"] = True
@@ -12961,15 +12961,17 @@ class TestForceTacet:
         ok, msg = eng.apply_tacet_skip(tmp_path, "t")
         assert ok is True, msg
         reread = eng.load_state(tmp_path, "t")
-        assert reread["phase"] == "execute"  # 大闸门随 autorelease 穿越已通过
-        assert reread["gate"] == "passed"
-        assert "held_for_gate" not in reread
+        # 与 main 同路径：plan 完成 held_for_gate 停等，phase 不穿越
+        assert reread["phase"] == "plan"
+        assert reread["held_for_gate"] is True
         verdicts = [
             json.loads(ln)
             for ln in eng.read_evidence(tmp_path, "t").splitlines()
             if '"gate"' in ln
         ]
-        assert any(v.get("via") == "tacet-subgate-autorelease" for v in verdicts)
+        assert not any(
+            v.get("via") == "tacet-subgate-autorelease" for v in verdicts
+        )  # 自动放行已废除
         art = tmp_path / ".claude" / "plans" / "t.md"
         assert art.is_file()
         body = art.read_text(encoding="utf-8")
