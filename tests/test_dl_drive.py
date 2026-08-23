@@ -1067,27 +1067,29 @@ def test_segment_runs_headless_steps_then_prep_exits_13(wf_repo, monkeypatch):
 
 def test_segment_force_tacet_skips_silent_steps(wf_repo, monkeypatch):
     """force-tacet（force-tacet-experiment-design §5）：段模式（front 段工人
-    与 headless 共用主循环单源）跳静默步零会话--u:1#2 起跑：#2/#5/#6 静默
-    零 token，脊柱 #3/#4 各一个会话，推进至 u:2#1 交互步 prep 退出 13。"""
+    与 headless 共用主循环单源）跳静默步零会话--u:1#2 起跑：#2 起为脊柱
+    （2026-08-23 补入，u:1#4 fetch-prompt 依赖其 atomic_questions），#5/#6
+    静默零 token，推进至 plan:1#2 交互步 prep 退出 13。"""
     drv = _load(DRIVER, "drv_seg")
     _seg_write_state(wf_repo, sub_step_index=2, force_tacet=True)
     need_out = 'ok\n### NEED_USER\n```json\n{"questions": [{"question": "q"}]}```'
     calls = _run_session_stub(
-        drv, monkeypatch, [(0, "", "s"), (0, "", "s"), (0, need_out, "s")]
+        drv, monkeypatch,
+        [(0, "", "s"), (0, "", "s"), (0, "", "s"), (0, need_out, "s")],
     )
     monkeypatch.setattr(engine, "gate_sub_step_at_stop", _gate_advancing(wf_repo))
     rc = drv.run_segment(wf_repo, "t")
     assert rc == 13
-    # 仅脊柱 u:1#3/#4 两个干活会话 + 第三个 = plan:1#2 交互 prep；静默步零会话
-    assert len(calls) == 3
-    assert "因果链" in calls[0] and "取证" in calls[1]
-    assert "预处理" in calls[2]  # 级联跳过后停在脊柱交互步（plan:1#2 修法拍板）
+    # 脊柱 u:1#2/#3/#4 三个干活会话 + 第四个 = plan:1#2 交互 prep；静默步零会话
+    assert len(calls) == 4
+    assert "拆解" in calls[0] and "因果链" in calls[1] and "取证" in calls[2]
+    assert "预处理" in calls[3]  # 级联跳过后停在脊柱交互步（plan:1#2 修法拍板）
     st = _read_state(wf_repo)
     assert st["node"] == "plan:1" and st["sub_step_index"] == 2
     # 静默步 tacet 痕落 evidence（kind=tacet，不入 judge/装配源面）：
-    # u:1{2,5,6}+u:2/u:3/u:4 全部+plan:1#1 = 20 步
+    # u:1{5,6}+u:2/u:3/u:4 全部+plan:1#1 = 19 步
     ev = (wf_repo / ".claude" / "evidence" / "t.jsonl").read_text(encoding="utf-8")
-    assert ev.count('"kind": "tacet"') == 20
+    assert ev.count('"kind": "tacet"') == 19
 
 
 def test_segment_lock_live_during_run(wf_repo, monkeypatch):

@@ -1467,7 +1467,7 @@ _TACET_SILENT_CACHE: frozenset[str] | None = None
 
 
 def step_tacet_forced(state: dict[str, Any], node: "Node", cur: int) -> bool:
-    """该步是否处于强制 TACET（state.force_tacet + 静默步集 = 44 子步 − 五步脊柱）。
+    """该步是否处于强制 TACET（state.force_tacet + 静默步集 = 44 子步 − 六步脊柱）。
 
     脊柱步（问题陈述/根因/取证/修法/计划包）正常执行且质量门不放水（design §8）；
     模型无权自选 tacet（档位不进模型可写面--防偷工通道）。
@@ -1884,7 +1884,7 @@ def handoff_pack(project_root: Path, name: str) -> str | None:
         # 沉默当缺漏自行补做。
         lines.append(
             "### 运行轨道：force-tacet 实验轨道\n"
-            "understand/plan 仅五步脊柱执行（问题陈述 u:1#1 / 根因 u:1#3 / 取证 "
+            "understand/plan 仅六步脊柱执行（问题陈述 u:1#1 / 拆解分档 u:1#2 / 根因 u:1#3 / 取证 "
             "u:1#4 / 修法 plan:1#2 / 计划包 plan:4#4），其余步 TACET 静默--"
             "上游材料薄是设计内状态，非缺漏；禁自行补做已沉默的步骤。\n"
         )
@@ -6781,7 +6781,7 @@ def set_force_tacet(project_root: Path, name: str, on: bool) -> tuple[bool, str]
     state["force_tacet"] = on
     save_state(project_root, name, state)
     return True, (
-        "force-tacet 实验轨道已开启（五步脊柱执行，其余步 TACET 静默；"
+        "force-tacet 实验轨道已开启（六步脊柱执行，其余步 TACET 静默；"
         "门栏/闸门自动放行；front（默认）与 --headless 均支持）"
         if on
         else "force-tacet 实验轨道已关闭（回全量编排）"

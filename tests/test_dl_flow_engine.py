@@ -12826,18 +12826,19 @@ class TestSegmentSpawnOverrides:
 class TestForceTacet:
     """force-tacet 实验轨道（force-tacet-experiment-design §2-§7，2026-08-21）。
 
-    五步脊柱 = bug 级任务 u/p 最小执行集；其余 44-5=39 步 force_tacet 下整步
-    静默；门栏/闸门自动放行；沉默源节占位装配。脊柱步质量门不放水（gate 逻辑
-    零改动，由其余测试回归覆盖）。
+    六步脊柱 = bug 级任务 u/p 最小执行集（u:1#2 2026-08-23 补入：u:1#4 的
+    fetch-prompt 骨架硬依赖其 atomic_questions，沉默即断供）；其余 44-6=38
+    步 force_tacet 下整步静默；门栏/闸门自动放行；沉默源节占位装配。
+    脊柱步质量门不放水（gate 逻辑零改动，由其余测试回归覆盖）。
     """
 
     def test_silent_set_derivation(self):
-        # 步集机械推导单源：全编排 44 子步 − 五步脊柱 = 39；脊柱与沉默集零交集；
+        # 步集机械推导单源：全编排 44 子步 − 六步脊柱 = 38；脊柱与沉默集零交集；
         # 每个脊柱键都在节点树内且步号有效（防拼错静默失效）。
         total = sum(len(nd.sub_steps) for nd in eng._NODES.values() if nd.sub_steps)
         assert total == 44
         silent = eng.tacet_silent_steps()
-        assert len(silent) == 39
+        assert len(silent) == 38
         assert eng.TACET_SPINE_STEPS & silent == frozenset()
         for key in eng.TACET_SPINE_STEPS:
             nid, si = key.rsplit("#", 1)
@@ -12857,6 +12858,7 @@ class TestForceTacet:
         assert eng.step_tacet_forced(st, node, 1) is True
         node1 = eng._NODES["understand:1"]
         assert eng.step_tacet_forced(st, node1, 1) is False  # u:1#1 脊柱
+        assert eng.step_tacet_forced(st, node1, 2) is False  # u:1#2 脊柱（u:1#4 依赖）
         assert eng.step_tacet_forced(st, node1, 3) is False  # u:1#3 脊柱（根因）
         assert eng.step_tacet_forced(st, node1, 4) is False  # u:1#4 脊柱（取证）
         plan1 = eng._NODES["plan:1"]
@@ -13004,7 +13006,7 @@ class TestForceTacet:
 
     def test_progress_rows_tacet_mark(self, tmp_path):
         # 进度标记：force 下当前节点（understand:1，7 步）子步行--
-        # 脊柱（子1/3/4）extra 空，其余 4 步 extra='tacet'；无 force 全空（回归）。
+        # 脊柱（子1/2/3/4）extra 空，其余 3 步 extra='tacet'；无 force 全空（回归）。
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=2)
         st = eng.load_state(tmp_path, "t")
         rows = eng.progress_rows(st)
@@ -13017,7 +13019,7 @@ class TestForceTacet:
         marked = {r["label"].split()[0]: r["extra"] for r in depth2}
         assert marked == {
             "1": "",
-            "2": "tacet",
+            "2": "",
             "3": "",
             "4": "",
             "5": "tacet",
