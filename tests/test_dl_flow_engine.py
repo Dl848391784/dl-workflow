@@ -8664,6 +8664,39 @@ class TestFetchPreflightCmd:
         assert eng.run_fetch_preflight(tmp_path, "t", []) == 1
         assert "用法" in capsys.readouterr().err
 
+    def test_cli_url_channel_no_char_split(self, tmp_path, capsys, monkeypatch):
+        """CLI --url 通道回归（2026-08-23 amplitude 首跑实证）：args.url 是
+        action="extend"+nargs="+" 的扁平 str 列表，旧展平写法逐字符迭代 str
+        -> 每个 URL 拆成单字符碎片（https://h 式）全判不可达。现有测试全直调
+        run_fetch_preflight 传正常 list，CLI 解析层零覆盖=盲区根源。"""
+        calls = []
+
+        def fake_probe(url, timeout=8):
+            calls.append(url)
+            return (True, "200", "")
+
+        monkeypatch.setattr(eng, "_curl_probe", fake_probe)
+        _init_git(tmp_path)  # CLI 通道要求 git 仓（--cwd 反查 project_root）
+        rc = eng.main(
+            [
+                "fetch-preflight",
+                "t",
+                "--url",
+                "https://a.example.com/x",
+                "https://b.example.com/y",
+                "--cwd",
+                str(tmp_path),
+            ]
+        )
+        assert rc == 0
+        # 探测收到的是完整 URL，不是单字符碎片
+        assert calls == ["https://a.example.com/x", "https://b.example.com/y"]
+        data = self._read_preflight(tmp_path)
+        assert [r["url"] for r in data["results"]] == [
+            "https://a.example.com/x",
+            "https://b.example.com/y",
+        ]
+
 
 class TestFetchReportRecorded:
     """v2.38 fetch_report_recorded：子4 报告收录形式要件机械化。
