@@ -60,6 +60,8 @@ from dl_flow_nodes import (
     phase_index,
     sub_total,
     subphase_labels,
+    tacet_silent_steps,  # force-tacet 实验轨道（designs/force-tacet-experiment-design.md）
+    TACET_SPINE_STEPS,  # noqa: F401  # re-export：tests 经 eng.TACET_SPINE_STEPS 访问
 )
 
 # 组件 B：项目工具注册发现（list-tools / S15 白名单用；scripts 为命名空间包）。
@@ -1216,10 +1218,14 @@ def render_artifact(
     if not text:
         return False, f"evidence 缺失——{name}.jsonl 不存在或为空"
     latest: dict[tuple, dict] = {}
+    tacet_silent: set[tuple] = set()  # force-tacet：沉默源步（占位节依据，design §5）
     for line in text.splitlines():
         try:
             rec = json.loads(line)
         except json.JSONDecodeError:
+            continue
+        if rec.get("kind") == "tacet":
+            tacet_silent.add((rec.get("minor_stage"), rec.get("sub_step")))
             continue
         if rec.get("kind") != "skill-trace":
             continue
@@ -1238,6 +1244,16 @@ def render_artifact(
         rec = latest.get((minor, stp))
         stmts = (rec or {}).get("statements")
         if not stmts:
+            if (minor, stp) in tacet_silent:
+                # force-tacet：沉默源节占位装配（防下游路径断 + 诚实可见），
+                # 计入已装配节（require_all 视为满足）。
+                parts.append(f"## {sec}")
+                parts.append("")
+                parts.append(
+                    "**[TACET 沉默：本节来源步未执行（force-tacet 实验轨道）]**"
+                )
+                parts.append("")
+                continue
             missing.append(f"{sec}（{minor} 子{stp} 无 statements trace）")
             continue
         parts.append(f"## {sec}")
@@ -1439,6 +1455,86 @@ def write_confirm_trace(project_root: Path, name: str, node: "Node", cur: int) -
     p.parent.mkdir(parents=True, exist_ok=True)
     with open(p, "a", encoding="utf-8") as f:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+
+# ---------- force-tacet 实验轨道（force-tacet-experiment-design §4-5，2026-08-21）----------
+#
+# TACET 步整步静默：不派段（无模型会话、零 token）、不跑 judge（无 Stop 无
+# trace 判决）、跳过交互回屏。driver 派段前查 step_tacet_forced 命中即调
+# apply_tacet_skip。跳步决策只在机械层 + 用户开关（launch --force-tacet）。
+
+_TACET_SILENT_CACHE: frozenset[str] | None = None
+
+
+def step_tacet_forced(state: dict[str, Any], node: "Node", cur: int) -> bool:
+    """该步是否处于强制 TACET（state.force_tacet + 静默步集 = 44 子步 − 六步脊柱）。
+
+    脊柱步（问题陈述/根因/取证/修法/计划包）正常执行且质量门不放水（design §8）；
+    模型无权自选 tacet（档位不进模型可写面--防偷工通道）。
+    """
+    if not state.get("force_tacet"):
+        return False
+    global _TACET_SILENT_CACHE
+    if _TACET_SILENT_CACHE is None:
+        _TACET_SILENT_CACHE = tacet_silent_steps()
+    return f"{node_id(node.phase, node.sub)}#{cur}" in _TACET_SILENT_CACHE
+
+
+def write_tacet_trace(project_root: Path, name: str, node: "Node", cur: int) -> None:
+    """TACET 静默步的机械 trace（无模型会话，driver 侧调用；write_confirm_trace 同范式）。
+
+    kind=tacet：不入 skill-trace 面--_iter_trace_segments/render_artifact 节源
+    匹配/read_evidence_for_step（judge 输入裁剪）均只认 kind=skill-trace，
+    天然零干扰（design §5「tacet-record 不进任何 judge 输入」）。q/a 平行
+    数组形态对齐读侧 _trace_qa_items；skill=tacet 标记来源与职责归属。
+    """
+    rec = {
+        "kind": "tacet",
+        "major_stage": node.phase.capitalize(),
+        "minor_stage": node.minor_key,
+        "sub_step": cur,
+        "skill": "tacet",
+        "purpose": "TACET 强制档（机械落库，无模型会话）",
+        "q": [f"tacet（强制档·静默）：{node.label} · 子步骤{cur}"],
+        "a": [
+            "force-tacet 实验轨道：本步整步静默（不派段/零 token/不跑 judge），"
+            "由 engine 机械落痕并通过。触发 = launch --force-tacet（state.force_tacet），"
+            "跳步决策只在机械层，模型无权自选。"
+        ],
+    }
+    p = _evidence_path(project_root, name)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with open(p, "a", encoding="utf-8") as f:
+        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+
+def apply_tacet_skip(project_root: Path, name: str) -> tuple[bool, str]:
+    """TACET 步机械跳过（driver 派段前调用，design §4-5）。
+
+    三件事：①写 tacet-record 落痕；②装配义务（确认级读回步=各节点末步承载
+    产物装配，静默步上由 engine 代跑 render_artifact，沉默源节占位）；③推进
+    （末步门栏不豁免：plan:4 完成 held_for_gate 停等 /dl gate，与 main 一致，
+    2026-08-23 用户裁决「到 p 默认停止」）。
+    """
+    state = load_state(project_root, name)
+    if state is None:
+        return False, f"工作流 {name} 的 state.json 缺失"
+    state = normalize_state(state)
+    try:
+        node = get_node(state["phase"], state["sub_index"])
+    except KeyError:
+        return False, f"节点 {state['phase']}:{state['sub_index']} 不存在"
+    cur = state.get("sub_step_index", 1)
+    write_tacet_trace(project_root, name, node, cur)
+    if cur == len(node.sub_steps):
+        art = confirm_artifact(node)
+        if art is not None:
+            slug = name if art[1] == "USE_WORKFLOW_NAME" else art[1]
+            ok, msg = render_artifact(project_root, name, art[0], slug=slug)
+            if not ok:
+                return False, f"tacet 装配失败（{art[0]}）：{msg}"
+    _advance_sub_step(project_root, name, state, node, cur, via="tacet-skip")
+    return True, ""
 
 
 def estimate_context_tokens(transcript_path: str | Path) -> int | None:
@@ -1783,6 +1879,15 @@ def handoff_pack(project_root: Path, name: str) -> str | None:
     ]
     if problem:
         lines.append(f"### 用户问题陈述（开场采集原话）\n{problem}\n")
+    if state.get("force_tacet"):
+        # force-tacet：告知下游材料薄是设计内状态（design §5），防模型把
+        # 沉默当缺漏自行补做。
+        lines.append(
+            "### 运行轨道：force-tacet 实验轨道\n"
+            "understand/plan 仅六步脊柱执行（问题陈述 u:1#1 / 拆解分档 u:1#2 / 根因 u:1#3 / 取证 "
+            "u:1#4 / 修法 plan:1#2 / 计划包 plan:4#4），其余步 TACET 静默--"
+            "上游材料薄是设计内状态，非缺漏；禁自行补做已沉默的步骤。\n"
+        )
     lines += [
         f"### 当前位置：{cur_node.label}（{node_id(cur_phase, cur_sub)}）子步骤 {cur_step}",
         "",
@@ -1895,6 +2000,11 @@ def _advance_sub_step(
         save_state(project_root, name, state)
         return state
     if node.hold_for_gate:
+        # force-tacet 不豁免门栏（2026-08-23 用户裁决「到 p 默认停止，与 main
+        # 一致」）：hold_for_gate 全系统唯一处 = plan:4（围栏设在 plan 完成），
+        # 此前 force_tacet 自动放行+advance_state 一并穿越 plan->execute 大闸门
+        # = 首跑直接跑进 execute/review/evolution。现 tacet 与 main 同路径：
+        # plan 完成 -> held_for_gate 停等 -> 用户 /dl gate 放行才继续。
         state["held_for_gate"] = True
         state["updated_at"] = _now()
         save_state(project_root, name, state)
@@ -6477,12 +6587,16 @@ def progress_rows(state: dict[str, Any]) -> list[dict[str, Any]]:
                         if si < cur_step
                         else ("current" if si == cur_step else "todo")
                     )
+                    # force-tacet：静默步标「tacet」（LiveProgress/快照均透传 extra）
+                    s_extra = ""
+                    if st.get("force_tacet") and f"{nid}#{si}" not in TACET_SPINE_STEPS:
+                        s_extra = "tacet"
                     rows.append(
                         {
                             "depth": 2,
                             "label": f"{si} {step.short}",
                             "status": s_status,
-                            "extra": "",
+                            "extra": s_extra,
                         }
                     )
     return rows
@@ -6672,9 +6786,39 @@ def set_front_mode(project_root: Path, name: str, on: bool) -> tuple[bool, str]:
     return True, (f"front 模式已{'开启（前台会话 + 后台段工人）' if on else '关闭'}")
 
 
+def set_force_tacet(project_root: Path, name: str, on: bool) -> tuple[bool, str]:
+    """force-tacet 实验轨道开关（force-tacet-experiment-design §5-6）。
+
+    state.force_tacet=True（sticky，resume/续跑保持）：understand/plan 仅五步
+    脊柱执行，其余 39 步 TACET 静默；门栏/闸门自动放行。front（默认，段工人
+    与 headless 共用主循环单源）与 --headless driver 均支持；WF_TUI=1 旧 TUI
+    路径不支持（launch fail loud）。关闭 = 回全量编排（FORTE）。
+    """
+    state = load_state(project_root, name)
+    if state is None:
+        return False, f"工作流 {name} 的 state.json 缺失"
+    state = normalize_state(state)
+    state["force_tacet"] = on
+    save_state(project_root, name, state)
+    return True, (
+        "force-tacet 实验轨道已开启（六步脊柱执行，其余步 TACET 静默；"
+        "plan 完成 held_for_gate 停等 /dl gate（与 main 一致）；"
+        "front（默认）与 --headless 均支持）"
+        if on
+        else "force-tacet 实验轨道已关闭（回全量编排）"
+    )
+
+
 def front_segment_command(name: str) -> str:
-    """前台派发命令逐字单源（phase 注入 / advance 兜底 / fence 白名单三通道共用）。"""
-    return f"python3 ~/.dl-workflow/scripts/workflow/dl_drive.py {name} --segment"
+    """前台派发命令逐字单源（phase 注入 / advance 兜底 / fence 白名单三通道共用）。
+
+    路径按 engine 自身位置解析（2026-08-22）：分支从 worktree 承载运行时，
+    派发 worktree 的 dl_drive.py（tacet 跳步逻辑在 driver 侧）；硬编码
+    ~/.dl-workflow 会把段工人派到主树 driver（无 tacet 逻辑）--实证
+    interaction_amplitude 首跑 force_tacet=True 却全量轨道、零 tacet 落痕。
+    """
+    drive = Path(__file__).resolve().parent / "scripts" / "workflow" / "dl_drive.py"
+    return f"python3 {drive} {name} --segment"
 
 
 def _front_pid_gone(pid: object) -> bool:
@@ -6764,6 +6908,7 @@ def main(argv: list[str] | None = None) -> int:
             "fence",
             "drive-mode",
             "front-mode",
+            "force-tacet",
             "dispute",
             "render-phase-rules",
             "append-trace",
@@ -7020,6 +7165,13 @@ def main(argv: list[str] | None = None) -> int:
             print("✗ 用法: front-mode <name> on|off", file=sys.stderr)
             return 1
         ok, msg = set_front_mode(project_root, name, args.value == "on")
+        print(("✓ " if ok else "✗ ") + msg, file=sys.stdout if ok else sys.stderr)
+        return 0 if ok else 1
+    if args.cmd == "force-tacet":
+        if args.value not in ("on", "off"):
+            print("✗ 用法: force-tacet <name> on|off", file=sys.stderr)
+            return 1
+        ok, msg = set_force_tacet(project_root, name, args.value == "on")
         print(("✓ " if ok else "✗ ") + msg, file=sys.stdout if ok else sys.stderr)
         return 0 if ok else 1
     return 1

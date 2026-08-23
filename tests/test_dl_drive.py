@@ -1065,6 +1065,33 @@ def test_segment_runs_headless_steps_then_prep_exits_13(wf_repo, monkeypatch):
     assert st["node"] == "understand:2" and st["sub_step_index"] == 1
 
 
+def test_segment_force_tacet_skips_silent_steps(wf_repo, monkeypatch):
+    """force-tacet（force-tacet-experiment-design §5）：段模式（front 段工人
+    与 headless 共用主循环单源）跳静默步零会话--u:1#2 起跑：#2 起为脊柱
+    （2026-08-23 补入，u:1#4 fetch-prompt 依赖其 atomic_questions），#5/#6
+    静默零 token，推进至 plan:1#2 交互步 prep 退出 13。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(wf_repo, sub_step_index=2, force_tacet=True)
+    need_out = 'ok\n### NEED_USER\n```json\n{"questions": [{"question": "q"}]}```'
+    calls = _run_session_stub(
+        drv, monkeypatch,
+        [(0, "", "s"), (0, "", "s"), (0, "", "s"), (0, need_out, "s")],
+    )
+    monkeypatch.setattr(engine, "gate_sub_step_at_stop", _gate_advancing(wf_repo))
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 13
+    # 脊柱 u:1#2/#3/#4 三个干活会话 + 第四个 = plan:1#2 交互 prep；静默步零会话
+    assert len(calls) == 4
+    assert "拆解" in calls[0] and "因果链" in calls[1] and "取证" in calls[2]
+    assert "预处理" in calls[3]  # 级联跳过后停在脊柱交互步（plan:1#2 修法拍板）
+    st = _read_state(wf_repo)
+    assert st["node"] == "plan:1" and st["sub_step_index"] == 2
+    # 静默步 tacet 痕落 evidence（kind=tacet，不入 judge/装配源面）：
+    # u:1{5,6}+u:2/u:3/u:4 全部+plan:1#1 = 19 步
+    ev = (wf_repo / ".claude" / "evidence" / "t.jsonl").read_text(encoding="utf-8")
+    assert ev.count('"kind": "tacet"') == 19
+
+
 def test_segment_lock_live_during_run(wf_repo, monkeypatch):
     """段运行期间 front_segment.json 锁活（pid=本进程+起跑位置），退出即删。"""
     drv = _load(DRIVER, "drv_seg")
@@ -1779,7 +1806,19 @@ def test_settings_allowlist_covers_segment_dispatch(wf_repo):
     assert r.returncode == 0, r.stderr
     data = json.loads((wf_repo / SEG_META / "settings.json").read_text())
     allow = data["permissions"]["allow"]
-    assert "Bash(python3 ~/.dl-workflow/scripts/workflow/dl_drive.py:*)" in allow
+    # 派发白名单按 LIB_DIR 动态解析（2026-08-22 worktree 承载修复）：
+    # 分支从 worktree 运行时须放行 worktree 自己的 dl_drive.py，
+    # 硬编码 ~/.dl-workflow 会把段工人派回主树（tacet 失效根因）。
+    assert f"Bash(python3 {DLWF_ROOT}/scripts/workflow/dl_drive.py:*)" in allow
+    # hook 路径须真实存在（2026-08-23 首跑实证：../hooks 差一层解析成
+    # scripts/hooks/ 不存在，UserPromptSubmit 全灭；冒烟只看字符串不验文件逮不住）
+    for hs in data["hooks"].values():
+        for h in hs:
+            cmd = h.get("command") or h.get("hooks", [{}])[0].get("command", "")
+            hook_path = next((t for t in cmd.split() if t.endswith(".py")), None)
+            if hook_path:
+                assert Path(hook_path).resolve().exists(), hook_path
+    assert Path(data["statusLine"]["command"].split()[1]).resolve().exists()
     assert data["wf_settings_template_version"] == engine.SETTINGS_TEMPLATE_VERSION
 
 

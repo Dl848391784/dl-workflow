@@ -4825,6 +4825,47 @@ def subphase_labels(phase: str) -> list[str]:
     return labels
 
 
+# ---------- force-tacet 实验轨道（force-tacet-experiment-design §2，2026-08-21）----------
+#
+# 六步脊柱 = bug 级任务的 u/p 最小执行集（用户裁决）。阶段语义不可动：
+# execute = 纯执行（只拿 evidence+discovered 施工，不做分析），故 u/p 不能
+# 整体沉默--脊柱供给 execute 四样输入：
+#   问题陈述(u:1#1) / 根因(u:1#3) / discovered 证据(u:1#4) / 修法(plan:1#2) + 施工图(plan:4#4)。
+# u:1#2（拆解深挖/原子分档）2026-08-23 补入：u:1#4 的 fetch-prompt 骨架硬依赖
+# 其 atomic_questions--首跑实证沉默即断供（fetch-prompt 报错、模型即兴拼
+# 原子清单污染脊柱步对比面）。其余 44-6=38 步在 state.force_tacet 下整步静默
+# （driver 不派段、零 token、不跑 judge、跳过交互回屏）。档位划分机制与
+# PIANO 本期不做（design §8）。
+TACET_SPINE_STEPS: frozenset[str] = frozenset(
+    {
+        "understand:1#1",  # 逼问定义（交互：问题陈述）
+        "understand:1#2",  # 拆解深挖（原子分档清单；u:1#4 fetch-prompt 硬依赖）
+        "understand:1#3",  # 因果链挖掘（根因）
+        "understand:1#4",  # 双向取证（discovered 证据；per-atom 三档内建）
+        "plan:1#2",  # 方案发散（交互：修法拍板）
+        "plan:4#4",  # 归一化计划包（施工图）
+    }
+)
+
+
+def tacet_silent_steps() -> frozenset[str]:
+    """force_tacet 下整步静默的步集 = 全编排子步骤 − 六步脊柱（机械推导单源）。
+
+    仅含有 sub_steps 的编排节点（execute/review/evolution 整阶段节点不进实验面）。
+    跳步决策只在 engine 机械层 + 用户开关（launch --force-tacet），模型无权
+    选择/修改/自封 TACET（防偷工通道）。
+    """
+    silent: set[str] = set()
+    for nid, node in _NODES.items():
+        if not node.sub_steps:
+            continue
+        for i in range(1, len(node.sub_steps) + 1):
+            key = f"{nid}#{i}"
+            if key not in TACET_SPINE_STEPS:
+                silent.add(key)
+    return frozenset(silent)
+
+
 def minor_key_map() -> dict[str, str]:
     """minor_key -> 中文 label 映射（viewer 英转中用;single source）。
 

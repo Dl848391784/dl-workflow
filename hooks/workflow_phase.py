@@ -646,6 +646,16 @@ def main() -> int:
         )
 
     context = _format_injection(state, project_root, captured_statement)
+    # force-tacet 轨道告知（force-tacet-experiment-design §5，纵深非主防线）：
+    # front（默认）/headless 均为合法宿主，注入轨道状态防前台模型按全量编排
+    # 自作主张补做已沉默步（静默步由段工人/驱动循环自动跳过，非前台职责）。
+    if state.get("force_tacet"):
+        context = (
+            "## ⚠️ force-tacet 实验轨道（材料薄是设计内状态）\n"
+            "本运行 understand/plan 仅五步脊柱执行（u:1#1/u:1#3/u:1#4/plan:1#2/"
+            "plan:4#4），其余步 TACET 静默（段工人/驱动循环自动跳过）；门栏/闸门"
+            "自动放行。已沉默步骤禁自行补做。\n\n" + context
+        )
     if plan_warn:
         context = plan_warn + context
     # v2.35：settings 模板版本落后警告（防静默权限税，症状 R）置注入最前。
