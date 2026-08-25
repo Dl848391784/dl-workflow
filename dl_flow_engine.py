@@ -50,7 +50,9 @@ from dl_flow_nodes import (
     GateMech,
     Node,
     Step,
+    _CHANGE_SPEC_RULE,
     _NODES,  # tests 经 eng._NODES 访问（有意 re-export）
+    _ROOT_CAUSE_LINE_RULE,
     current_node_id,
     get_node,
     is_gated_after,
@@ -4572,6 +4574,274 @@ def _check_assumption_propagation_trace(
     return None
 
 
+# ---------- 改动规格锚点验真（up-change-spec-gate，2026-08-25，
+# designs/up-change-spec-gate-design.md）----------
+# 用户决议：u/p（特别是 p）完成的唯一验收标准 = 改动规格五要素（文件/类/
+# 方法/行号/怎么改）明确且准确。「明确」=语法齐备（本层①），「准确」=
+# codegraph 机械三验（本层②③④——judge 判不了真值，§3.5 #1 三层分工；
+# judge gate 零语义变更，免重放回归义务）。定位=归一化转录失真兜底：
+# codegraph 新鲜度前置归 plan:1#1、锚点存在性核验归 plan:1#3/plan:2#3/
+# u:1 子2b 取证步，前序已验真 → 归一化步转录编造/写错才会被本层拒，
+# 正常路径零拦截。语法真源 = _CHANGE_SPEC_RULE/_ROOT_CAUSE_LINE_RULE
+# （dl_flow_nodes 单源常量，purpose/gate/selfcheck/报错文案四处同文）。
+
+# 条目行常见列表前缀（「- 」「①」「1. 」）——解析器宽容 defense-in-depth
+# （v2.65 先例：格式归脚本，模型写的合理形态不该被死板正则误伤）。
+_LIST_PREFIX_RE = re.compile(r"^(?:[-*•]|[0-9]+[.、)）]|[①-⑨])\s*")
+
+_CHANGE_SPEC_ENTRY_RE = re.compile(
+    r"^(?P<file>[\w./-]+\.\w{1,10}):(?P<symbol>[A-Za-z_][\w.]*|-)"
+    r"(?::L(?P<l1>\d+)(?:-(?P<l2>\d+))?)?"
+    r"（(?P<kind>改|删|增)(?:@(?P<anchor>[^）]+))?）"
+    r"[：:]\s*(?P<how>\S.*)$"
+)
+
+# 改法纯动词独占词表（无宾语无改前改后=「怎么改」要素空壳）。
+_HOW_PURE_VERB_RE = re.compile(
+    r"^(优化|修复|调整|改进|重构|修改|处理|完善|更新|改动|改造|迭代|增强)一下?吧?[。．.!！]?$"
+)
+
+
+def _git_tracked_files(project_root: Path) -> set[str] | None:
+    """git ls-files 全集（锚点验真用）；失败 -> None（跳过文件层核验，
+    宁纵勿枉——与 _implementation_nouns 降级先例同款，不算 silent fallback）。"""
+    try:
+        res = subprocess.run(
+            ["git", "ls-files"],
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    if res.returncode != 0:
+        return None
+    return set(res.stdout.splitlines())
+
+
+def _file_line_count(path: Path) -> int | None:
+    try:
+        with path.open("rb") as f:
+            return sum(1 for _ in f)
+    except OSError:
+        return None
+
+
+def _codegraph_symbol_spans(
+    project_root: Path, file: str, symbol: str
+) -> list[tuple[int, int]] | None:
+    """symbol 在 codegraph db 的行号跨度集。
+
+    None = db 缺失/索引过期于该文件/查询失败（跳过验真，宁纵勿枉——
+    归一化步材料边界禁步内新取证，模型无合法刷索引路径，拒=逼编造，
+    §3.5 #7）；[] = db 健康但该 file 内查无此 symbol（硬拒）。
+    qualified_name 分隔符双形态（Class::method / Class.method）都认；
+    带点 symbol 尾名兜底（模块前缀省略形态）。
+    """
+    db = project_root / ".codegraph" / "codegraph.db"
+    if not db.exists():
+        return None
+    src = project_root / file
+    try:
+        if src.exists() and src.stat().st_mtime > db.stat().st_mtime:
+            return None  # 索引过期于该文件
+    except OSError:
+        return None
+    try:
+        import sqlite3
+
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            rows = con.execute(
+                "SELECT start_line, end_line FROM nodes"
+                " WHERE file_path=? AND kind IN ('class','function','method')"
+                " AND (name=? OR qualified_name=? OR qualified_name=?)",
+                (file, symbol, symbol, symbol.replace(".", "::")),
+            ).fetchall()
+            if not rows and "." in symbol:
+                rows = con.execute(
+                    "SELECT start_line, end_line FROM nodes"
+                    " WHERE file_path=? AND kind IN ('class','function','method')"
+                    " AND name=?",
+                    (file, symbol.split(".")[-1]),
+                ).fetchall()
+        finally:
+            con.close()
+    except (sqlite3.Error, OSError):
+        return None
+    return [(int(a), int(b)) for a, b in rows]
+
+
+def _verify_anchor_parts(
+    project_root: Path,
+    file: str,
+    symbol: str,
+    l1: str | None,
+    l2: str | None,
+    *,
+    context: str,
+) -> str | None:
+    """锚点三验共享核心（改动规格 改/删 路径 + u 侧根因行复用）。
+
+    context = 报错文案里的对象称呼（「改动规格条目」/「根因行」）。
+    file 存在性由调用方先判（本函数不查 tracked）；这里验：行号 ≤ 文件
+    当前行数；symbol ≠「-」时 codegraph 查有 + 行号与 symbol 跨度有交集
+    （交集判而非严格包含——索引 stale 容差，design §8 已知边界）。
+    """
+    n = _file_line_count(project_root / file)
+    if l1 is not None and n is not None and int(l1) > n:
+        return (
+            f"{context}行号 L{l1} 超出 {file} 当前总行数（{n}）——"
+            "行号须落在文件实存行内：回前序留痕/重读该文件取真实行号后改写"
+        )
+    if symbol == "-":
+        return None
+    spans = _codegraph_symbol_spans(project_root, file, symbol)
+    if spans is None:
+        return None  # db 缺失/过期/失败——跳过（宁纵勿枉）
+    if not spans:
+        return (
+            f"{context}的 symbol「{symbol}」在 codegraph 索引的 {file} 内查无"
+            "——锚点须真实存在：跑 dl codebase query --symbol 核实正确符号名"
+            "（类.方法 分隔符 . / :: 都认；模块级改动 symbol 填 -），"
+            "或回前序留痕逐字取已核验的锚点"
+        )
+    if l1 is not None:
+        a, b = int(l1), int(l2 or l1)
+        if not any(a <= e and s <= b for s, e in spans):
+            return (
+                f"{context}行号 L{a}-{b} 与 {file} 的 symbol「{symbol}」索引跨度"
+                f"（{spans[0][0]}-{spans[0][1]}）无交集——行号须落在 symbol 实存"
+                "跨度内：重读该文件核实（行号漂移）或修正 symbol 归属"
+            )
+    return None
+
+
+def _verify_change_spec_entry(
+    line: str,
+    *,
+    require_lines: bool,
+    tracked: set[str] | None,
+    tracked_dirs: set[str],
+    project_root: Path,
+) -> str | None:
+    """单条改动规格条目：①语法齐备 ②file ③symbol ④行号 + 改法非空壳。"""
+    text = _LIST_PREFIX_RE.sub("", line.strip())
+    m = _CHANGE_SPEC_ENTRY_RE.match(text)
+    if not m:
+        return f"改动规格条目语法不合：「{text[:60]}」——{_CHANGE_SPEC_RULE}"
+    file = m.group("file")
+    symbol = m.group("symbol")
+    kind = m.group("kind")
+    anchor = (m.group("anchor") or "").strip()
+    how = m.group("how").strip()
+    l1, l2 = m.group("l1"), m.group("l2")
+    if len(how) < 4 or _HOW_PURE_VERB_RE.match(how):
+        return (
+            f"改动规格条目改法是空壳：「{how}」——「怎么改」须写改前→改后具体"
+            "内容（改什么逻辑/加什么参数/删哪段），纯动词独占不算"
+        )
+    if kind != "增" and anchor:
+        return (
+            f"改动规格条目「{kind}」带 @锚点是语法错（锚点只属「增」）："
+            f"「{text[:60]}」——{_CHANGE_SPEC_RULE}"
+        )
+    if kind in ("改", "删"):
+        if tracked is not None and file not in tracked:
+            return (
+                f"改动规格条目「{kind}」的文件 {file} 不在 git 仓内（新文件配"
+                f"「{kind}」=矛盾，新文件应用「增」）——核实路径或改改动类型"
+            )
+        if require_lines and l1 is None:
+            return (
+                f"改动规格条目缺行号要素：「{text[:60]}」——执行级改动点五要素"
+                "（文件/类/方法/行号/怎么改）行号必给，"
+                "语法=file:symbol:L<a>-<b>（改|删）：改法"
+            )
+        return _verify_anchor_parts(
+            project_root, file, symbol, l1, l2, context="改动规格条目"
+        )
+    # 增：锚点验真（新 symbol 尚不存在不验，验的是落点锚）
+    if tracked is not None and file not in tracked:
+        parent = file.rsplit("/", 1)[0] if "/" in file else ""
+        if parent and parent not in tracked_dirs:
+            return (
+                f"改动规格条目「增」的新文件 {file} 父目录 {parent}/ 不在 git "
+                "仓内——核实目录路径（git ls-files 对齐）"
+            )
+        return None  # 新文件：锚点（文件内位置）无对象可验，跳过
+    if not anchor:
+        return (
+            f"改动规格条目「增」缺 @锚点：「{text[:60]}」——增须给落点锚"
+            "（增@<现有 symbol|L 行号|文件尾>），标明新代码加在哪"
+        )
+    if anchor == "文件尾":
+        return None
+    am = re.fullmatch(r"L(\d+)", anchor)
+    if am:
+        n = _file_line_count(project_root / file)
+        if n is not None and int(am.group(1)) > n:
+            return (
+                f"改动规格条目「增」的锚点 {anchor} 超出 {file} 当前总行数"
+                f"（{n}）——锚点行号须落在文件实存行内"
+            )
+        return None
+    return _verify_anchor_parts(
+        project_root, file, anchor, None, None, context="改动规格条目「增」锚点"
+    )
+
+
+def _check_change_spec_anchor(
+    statements: list,
+    project_root: Path,
+    _name: str,
+    *,
+    field: str,
+    require_lines: bool,
+) -> str | None:
+    """change_spec 锚点验真驱动（plan:1#5 change_list / plan:2#4 change_point）。
+
+    逐 statement 取 fields[field]，每非空行须为一条合法改动规格条目。
+    tracked=None（git 失败）时文件层核验跳过、codegraph 层照跑（两源独立降级）。
+    """
+    tracked = _git_tracked_files(project_root)
+    tracked_dirs = (
+        {f.rsplit("/", 1)[0] for f in tracked if "/" in f} if tracked else set()
+    )
+    for it in statements:
+        v = (it.get("fields") or {}).get(field)
+        if not isinstance(v, str) or not v.strip():
+            continue  # 缺键/空键已由逐键非空校验拒，本层不重复判
+        for ln in v.splitlines():
+            if not ln.strip():
+                continue
+            err = _verify_change_spec_entry(
+                ln,
+                require_lines=require_lines,
+                tracked=tracked,
+                tracked_dirs=tracked_dirs,
+                project_root=project_root,
+            )
+            if err:
+                return err
+    return None
+
+
+def _check_change_list_anchor(statements: list, project_root: Path, name) -> str | None:
+    """change_list_anchor_verify：plan:1#5 设计级四要素（行号豁免）。"""
+    return _check_change_spec_anchor(
+        statements, project_root, name, field="change_list", require_lines=False
+    )
+
+
+def _check_change_point_anchor(statements: list, project_root: Path, name) -> str | None:
+    """change_point_anchor_verify：plan:2#4 执行级五要素（行号必给）。"""
+    return _check_change_spec_anchor(
+        statements, project_root, name, field="change_point", require_lines=True
+    )
+
+
 # statements 格式步的写侧机械校验注册表（Step.mech_checks 声明名 -> 检查函数，
 # 签名 (statements, project_root, name)）。statements 首个 mech 注册表
 # （u:2#4 预留独立项，#30 ⑰ 的解）。未注册名 = nodes 与 engine 配置漂移，fail loud。
@@ -4580,6 +4850,8 @@ _MECH_STATEMENTS_CHECKS = {
     "rejected_rationale_trace": _check_rejected_rationale_trace,
     "no_load_trace": _check_no_load_trace,
     "assumption_propagation_trace": _check_assumption_propagation_trace,
+    "change_list_anchor_verify": _check_change_list_anchor,
+    "change_point_anchor_verify": _check_change_point_anchor,
 }
 
 
@@ -5351,6 +5623,78 @@ def _check_hypothesis_exclude_no_absence(qa: list, *_ctx) -> str | None:
     return None
 
 
+# u 侧根因行（up-change-spec-gate，2026-08-25，与 statements 侧改动规格
+# 锚点验真同设计）：understand 完成的验收标准 = 根因定位五要素（文件/类/
+# 方法/行号 + 问题机制）明确且准确。语法真源 = _ROOT_CAUSE_LINE_RULE。
+_ROOT_CAUSE_LINE_RE = re.compile(r"根因@([A-Z])@([^\n]+)")
+_ROOT_CAUSE_CODE_RE = re.compile(
+    r"^(?P<file>[\w./-]+\.\w{1,10}):(?P<symbol>[A-Za-z_][\w.]*|-)"
+    r":L(?P<l1>\d+)(?:-(?P<l2>\d+))?[：:](?P<mech>.+)$"
+)
+# 子2a atomic_questions 的原子标签（覆盖差集的源侧）——在 atomic_questions
+# 数组段内提 "q": "A. 形态首字母（qa 配对的 q 键会误匹配，须先锁数组段）。
+_AQ_ARRAY_RE = re.compile(r'"atomic_questions"\s*:\s*\[(.*?)\]', re.S)
+_AQ_ITEM_LABEL_RE = re.compile(r'"q"\s*:\s*"\s*([A-Z])(?=[._、：:\s])')
+
+
+def _check_root_cause_anchor_verify(qa: list, project_root: Path, name) -> str | None:
+    """root_cause_anchor_verify：u:1 子2b 根因行覆盖 + 代码侧锚点三验。
+
+    ①覆盖：子2a 原子标签集 vs 本步根因行标签集差集（atomic_mece_alignment /
+    sc_coverage_trace 差集下沉范式第三例）；子2a 缺失/无标签 -> 跳过覆盖判
+    （宁纵勿枉）。②每条代码侧根因行过锚点三验（db 缺失/过期跳过——
+    codegraph 新鲜度前置归 plan:1#1 不归本步，拒=无合法修复路径，§3.5 #7）。
+    ③「会话事实」根因行不验（用户决策瓶颈类问题以原话为环合法——双结论制，
+    本校验不破既有 gate 合法正例）。
+    """
+    blob = "\n".join(str(it.get("a", "")) for it in qa)
+    found = _ROOT_CAUSE_LINE_RE.findall(blob)
+    s2a = read_evidence_for_step(project_root, name, 2, "ProblemContext")
+    labels_2a: set[str] = set()
+    if s2a:
+        m = _AQ_ARRAY_RE.search(s2a)
+        if m:
+            labels_2a = set(_AQ_ITEM_LABEL_RE.findall(m.group(1)))
+    if labels_2a:
+        missing = sorted(labels_2a - {lb for lb, _ in found})
+        if missing:
+            return (
+                f"根因行覆盖缺原子 {missing}——每个原子问题的因果链末须落一行"
+                f"根因行：{_ROOT_CAUSE_LINE_RULE}"
+            )
+    elif not found:
+        return None  # 双侧都无机械基准——交 judge（宁纵勿枉）
+    tracked = _git_tracked_files(project_root)
+    for lb, rest in found:
+        rest = rest.strip()
+        if rest.startswith("会话事实"):
+            continue  # 用户决策/外部因素豁免（双结论制）
+        m = _ROOT_CAUSE_CODE_RE.match(rest)
+        if not m:
+            return (
+                f"根因行（原子 {lb}）语法不合：「{rest[:60]}」——"
+                f"{_ROOT_CAUSE_LINE_RULE}"
+            )
+        file = m.group("file")
+        if tracked is not None and file not in tracked:
+            return (
+                f"根因行（原子 {lb}）的文件 {file} 不在 git 仓内——"
+                "锚点须真实存在：回链内已引用的 file:line 逐字取，"
+                "或跑 dl codebase query 核实"
+            )
+        err = _verify_anchor_parts(
+            project_root,
+            file,
+            m.group("symbol"),
+            m.group("l1"),
+            m.group("l2"),
+            context=f"根因行（原子 {lb}）",
+        )
+        if err:
+            return err
+    return None
+
+
 # qa 格式步的写侧机械校验注册表（Step.mech_checks 声明名 -> 检查函数）。
 # 未注册名 = nodes 与 engine 配置漂移，fail loud 不静默跳过。
 _MECH_QA_CHECKS = {
@@ -5359,6 +5703,7 @@ _MECH_QA_CHECKS = {
     "answer_no_reverse_inference": _check_answer_no_reverse_inference,
     "who_no_repo_fact": _check_who_no_repo_fact,
     "hypothesis_exclude_no_absence": _check_hypothesis_exclude_no_absence,
+    "root_cause_anchor_verify": _check_root_cause_anchor_verify,
     "value_no_unsourced_inference": _check_value_no_unsourced_inference,
     "goal_candidate_traceability_alignment": _check_goal_candidate_traceability_alignment,
     "answer_source_marker": _check_answer_source_marker,
@@ -5850,6 +6195,21 @@ def ingest_redteam_report(
     )
 
 
+# statements 字段的骨架占位提示（up-change-spec-gate）：格式真源通道之一
+# （#26：载荷格式唯一真源=scaffold 骨架+append-trace 报错文案）——
+# change_list/change_point 的改动规格条目语法直接写进骨架待填占位符。
+_FIELD_SCAFFOLD_HINTS = {
+    "change_list": (
+        "每条改动一行：file:symbol（改|删）：改前→改后要点（设计级行号豁免）；"
+        "增=file:symbol（增@现有 symbol|L 行号|文件尾）：新增要点；模块级 symbol=-"
+    ),
+    "change_point": (
+        "每条改动一行：file:symbol:L<a>-<b>（改|删）：改前→改后要点（五要素必给）；"
+        "增=file:symbol（增@现有 symbol|L 行号|文件尾）：新增要点；模块级 symbol=-"
+    ),
+}
+
+
 def scaffold_payload(project_root: Path, name: str) -> tuple[bool, str]:
     """append-trace --scaffold：当前子步骤载荷骨架生成并落盘钉死路径。
 
@@ -5892,7 +6252,7 @@ def scaffold_payload(project_root: Path, name: str) -> tuple[bool, str]:
             "\n【type_label】\n待填：类型标签（如 in/out）\n【boundary】\n待填：边界/实现指针"
         )
         for k in getattr(step, "statement_fields", ()) or ():
-            seg += f"\n【fields.{k}】\n待填：{k}"
+            seg += f"\n【fields.{k}】\n待填：{_FIELD_SCAFFOLD_HINTS.get(k, k)}"
         parts.append(seg)
     else:
         parts.append(

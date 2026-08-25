@@ -2116,8 +2116,13 @@ class TestPlan1Orchestration:
             "rejected_rationale_trace",
         ):
             assert needle in s5.gate, f"子5 gate 缺字段传导判面「{needle}」"
-        assert s5.mech_checks == ("rejected_rationale_trace",), (
+        assert s5.mech_checks == (
+            "rejected_rationale_trace",
+            "change_list_anchor_verify",
+        ), (
             "子5 缺 ADR 理由传导 mech（v2.116 缺席型负判定下沉，design §3）"
+            "或改动规格锚点三验 mech（up-change-spec-gate，"
+            "designs/up-change-spec-gate-design.md）"
         )
 
     def test_step6_readback_gate_none(self):
@@ -5721,7 +5726,10 @@ class TestStatementFieldsMigration:
         return {"purpose": "p", "statements": [item]}
 
     def _full_fields(self, keys):
-        return {k: f"{k} 内容" for k in keys}
+        # up-change-spec-gate：change_list/change_point 占位内容须过锚点语法
+        # （tmp_path 无 git/db——三验走降级跳过，语法齐备是判面）。
+        spec = "src/foo.py:bar:L10-20（改）：改 X 计算逻辑为 Y"
+        return {k: (spec if k in ("change_list", "change_point") else f"{k} 内容") for k in keys}
 
     def test_three_steps_declare_statements_and_fields(self):
         for phase, sub, step_no, keys in self._MIGRATED:
@@ -5808,13 +5816,18 @@ class TestStatementFieldsMigration:
     def test_replay_att2_legal_shape_passes(self, tmp_path):
         # 重放 att2 形态（v2.32 已判合法）：text 单句决策 + fields 键值枚举携带
         # ——字段枚举不触发复合句判定，append 直接通过
+        # up-change-spec-gate：change_list 对齐新规格语法（旧格式「1 处内部
+        # 计算式（改/增/删=改）」按新标准必拒=有意的行为变更，design §7.3）。
         _write_state_full(tmp_path, "t", "plan", 1, sub_step=5)
         item = {
             "text": "在因子卡片渲染层内部取消二次放大",
             "type_label": "推荐",
             "boundary": "边界：仅指当前产物渲染链路",
             "fields": {
-                "change_list": "1 处内部计算式（改/增/删=改）",
+                "change_list": (
+                    "web_ui/templates/_macros.html:render_factor_card"
+                    "（改）：取消宏内二次放大计算式，改为直接渲染传入值"
+                ),
                 "interface_sig": "现有宏签名不变",
                 "data_contract": "caller 传入与现状一致",
                 "callers": "被 6 处 import 引用的因子卡片宏 + 4 模板 8 处散落点另列",
@@ -7513,6 +7526,178 @@ class TestV237FirstPassRate:
             [stmt("候选B 被否——理由=净分 −2"), stmt("候选C 已被否")], None, None
         )
         assert err_second and "statements[1]" in err_second, "逐项扫描须拒第 2 项"
+
+    # ---- up-change-spec-gate（2026-08-25 用户决议，
+    # designs/up-change-spec-gate-design.md）：改动规格五要素（文件/类/方法/
+    # 行号/怎么改）明确且准确 = u/p 完成唯一验收硬标准。明确=语法齐备，
+    # 准确=codegraph 机械三验（judge 判不了真值，judge gate 零变更）----
+
+    @staticmethod
+    def _spec_repo(tmp_path):
+        """tmp git 仓 + codegraph db fixture：src/foo.py（100 行）；
+        bar=function L10-20，Cls.m=method L30-40（qualified_name Cls::m）。"""
+        import sqlite3
+        import subprocess as sp
+
+        sp.run(["git", "init"], cwd=tmp_path, capture_output=True)
+        (tmp_path / "src").mkdir(exist_ok=True)
+        (tmp_path / "src" / "foo.py").write_text("\n".join(["# x"] * 100), encoding="utf-8")
+        sp.run(["git", "add", "."], cwd=tmp_path, capture_output=True)
+        (tmp_path / ".codegraph").mkdir(exist_ok=True)
+        db = tmp_path / ".codegraph" / "codegraph.db"
+        db.unlink(missing_ok=True)  # 幂等（degrade 测试二次建仓）
+        con = sqlite3.connect(str(db))
+        con.execute(
+            "CREATE TABLE nodes (kind TEXT, name TEXT, qualified_name TEXT,"
+            " file_path TEXT, start_line INTEGER, end_line INTEGER)"
+        )
+        con.execute(
+            "INSERT INTO nodes VALUES ('function','bar','bar','src/foo.py',10,20)"
+        )
+        con.execute(
+            "INSERT INTO nodes VALUES ('method','m','Cls::m','src/foo.py',30,40)"
+        )
+        con.commit()
+        con.close()
+
+    @staticmethod
+    def _stmt(field, value):
+        return {
+            "text": "t",
+            "type_label": "推荐",
+            "boundary": "b",
+            "fields": {field: value},
+        }
+
+    def test_change_point_anchor_block_pass_skip(self, tmp_path):
+        self._spec_repo(tmp_path)
+        fn = eng._check_change_point_anchor
+        st = lambda v: [self._stmt("change_point", v)]  # noqa: E731
+        # 合规：改（symbol 跨度内）/ 删 / 增@锚点 / 增@文件尾 / 增新文件 / 模块级 -
+        for ok in (
+            "src/foo.py:bar:L12-15（改）：改返回值为绝对值后再返回",
+            "src/foo.py:Cls.m:L30-40（删）：删冗余分支并改走统一出口",
+            "- src/foo.py:bar:L10（改）：列表前缀宽容形态也合法",
+            "src/foo.py:bar（增@Cls.m）：新增辅助函数供 m 调用",
+            "src/foo.py:bar（增@文件尾）：文件尾新增常量定义",
+            "src/new_mod.py:helper（增@文件尾）：新文件新增入口函数",
+            "src/foo.py:-:L1-3（改）：模块级 import 区改引入路径",
+        ):
+            assert fn(st(ok), tmp_path, "t") is None, f"合规应过：{ok}"
+        # 行号交集容差（索引 stale 容差）：L15-25 与 bar[10,20] 有交集 -> 过
+        assert fn(st("src/foo.py:bar:L15-25（改）：改中间段计算逻辑"), tmp_path, "t") is None
+        # 违规逐项：语法/缺行号/假 file/假 symbol/行号出界/跨度无交集/纯动词/新增配改
+        for bad, needle in (
+            ("把 bar 改一下", "语法不合"),
+            ("src/foo.py:bar（改）：改返回值逻辑", "缺行号"),
+            ("src/ghost.py:bar:L1-2（改）：改 X 为 Y 的具体逻辑", "不在 git 仓内"),
+            ("src/foo.py:nosuch:L10-12（改）：改 X 为 Y 的具体逻辑", "查无"),
+            ("src/foo.py:bar:L500（改）：改 X 为 Y 的具体逻辑", "超出"),
+            ("src/foo.py:bar:L50-60（改）：改 X 为 Y 的具体逻辑", "无交集"),
+            ("src/foo.py:bar:L10-12（改）：优化", "空壳"),
+            ("src/foo.py:new_fn:L10-12（改@Cls.m）：语法错锚点属增", "语法错"),
+            ("src/foo.py:bar（增@nosuch）：新增逻辑调用假锚点", "查无"),
+            ("src/foo.py:bar（增）：缺锚点形态写新增要点", "缺 @锚点"),
+            ("bad/dir.py:fn（增@文件尾）：父目录不在仓内形态", "父目录"),
+        ):
+            err = fn(st(bad), tmp_path, "t")
+            assert err and needle in err, f"应拒且含「{needle}」：{bad} -> {err}"
+
+    def test_change_list_anchor_lines_exempt(self, tmp_path):
+        self._spec_repo(tmp_path)
+        fn = eng._check_change_list_anchor
+        # 设计级行号豁免：无 L 行号合法；写了行号照验（出界拒）
+        ok = self._stmt("change_list", "src/foo.py:bar（改）：改返回值为绝对值")
+        assert fn([ok], tmp_path, "t") is None
+        bad = self._stmt("change_list", "src/foo.py:bar:L500（改）：改返回值为绝对值")
+        err = fn([bad], tmp_path, "t")
+        assert err and "超出" in err
+
+    def test_change_spec_degrade_skip(self, tmp_path):
+        # db 缺失 -> 假 symbol 也放过（宁纵勿枉：步内无合法刷索引路径）
+        import subprocess as sp
+
+        sp.run(["git", "init"], cwd=tmp_path, capture_output=True)
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "foo.py").write_text("# x\n", encoding="utf-8")
+        sp.run(["git", "add", "."], cwd=tmp_path, capture_output=True)
+        ok = self._stmt("change_point", "src/foo.py:nosuch:L1（改）：改 X 为 Y 逻辑")
+        assert eng._check_change_point_anchor([ok], tmp_path, "t") is None, "db 缺失应跳过"
+        # db 过期于被验文件 -> 跳过
+        self._spec_repo(tmp_path)
+        import os
+
+        f = tmp_path / "src" / "foo.py"
+        os.utime(f, (os.path.getmtime(f) + 100,) * 2)
+        assert eng._check_change_point_anchor([ok], tmp_path, "t") is None, "db 过期应跳过"
+
+    def test_change_spec_scaffold_hint(self, tmp_path):
+        _write_state_full(tmp_path, "t", "plan", 2, sub_step=4)
+        ok, _msg = eng.scaffold_payload(tmp_path, "t")
+        assert ok
+        text = eng.trace_payload_path(tmp_path, "t", eng.load_state(tmp_path, "t")).read_text(
+            encoding="utf-8"
+        )
+        assert "每条改动一行" in text and "file:symbol:L" in text
+
+    def test_root_cause_anchor_verify(self, tmp_path):
+        import json as _json
+
+        self._spec_repo(tmp_path)
+        s2a = _json.dumps(
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "ProblemContext",
+                "sub_step": 2,
+                "q": ["MECE 拆解？"],
+                "a": ["原子 A 原子 B 两原子"],
+                "atomic_questions": [
+                    {"q": "A. 数值为何偏大", "tier": "light"},
+                    {"q": "B. 用户为何不采信", "tier": "none"},
+                ],
+            },
+            ensure_ascii=False,
+        )
+        _write_evidence(tmp_path, "t", [s2a])
+        fn = eng._check_root_cause_anchor_verify
+        # 合规：A 代码侧真锚点 + B 会话事实豁免
+        qa_ok = [
+            {
+                "q": "A/B 因果链？",
+                "a": (
+                    "链略。\n根因@A@src/foo.py:bar:L10-20：返回值未取绝对值导致偏大\n"
+                    "根因@B@会话事实：用户原话「数字不合常理不敢用」（AskUserQuestion 选中）"
+                ),
+            }
+        ]
+        assert fn(qa_ok, tmp_path, "t") is None
+        # 覆盖缺原子 B -> 拒并点名
+        qa_miss = [{"q": "q", "a": "根因@A@src/foo.py:bar:L10-20：机制说明文字"}]
+        err = fn(qa_miss, tmp_path, "t")
+        assert err and "B" in err and "根因行" in err
+        # 代码侧假 symbol -> 拒；语法不合 -> 拒
+        err2 = fn(
+            [{"q": "q", "a": "根因@A@src/foo.py:nosuch:L1-2：机制说明文字\n根因@B@会话事实：原话"}],
+            tmp_path,
+            "t",
+        )
+        assert err2 and "查无" in err2
+        err3 = fn(
+            [{"q": "q", "a": "根因@A@没有 file 锚点：机制说明\n根因@B@会话事实：原话"}],
+            tmp_path,
+            "t",
+        )
+        assert err3 and "语法不合" in err3
+        # 宁纵勿枉：无子2a 且无根因行 -> 过（交 judge）
+        assert fn([{"q": "q", "a": "无根因行内容"}], tmp_path, "no_such") is None
+        # 无子2a 但有根因行 -> 锚点照验（假锚点拒）
+        err4 = fn(
+            [{"q": "q", "a": "根因@A@src/foo.py:nosuch:L1：机制说明"}],
+            tmp_path,
+            "no_such",
+        )
+        assert err4 and "查无" in err4
 
     # ---- plan:3 子3 framing 反转配套 mech（v2.110，无绑定能力残留跨步差集，
     # designs/plan3-sub3-gate-framing-design.md §3）----

@@ -631,6 +631,30 @@ _ATOMIC_ITEM_RULE = (
     "复合句 = 一项合并 ≥2 个可独立成立的项（可分别拍板/分别提交）"
 )
 
+# 改动规格条目语法（up-change-spec-gate，2026-08-25 用户决议，
+# designs/up-change-spec-gate-design.md）：u/p（特别是 p）完成的唯一验收
+# 标准 = 改动规格五要素（文件/类/方法/行号/怎么改）明确且准确。
+# 单源常量：plan:1#5/plan:2#4 的 purpose/selfcheck（模型侧）与 gate（judge 侧）
+# 引用 + engine 机械校验报错文案引用（四处同文，§3.5 #11 双侧钉死）。
+_CHANGE_SPEC_RULE = (
+    "改动规格条目语法（每条改动一行）：改/删="
+    "<file>:<symbol>:L<a>-<b>（改|删）：<改法——改前→改后要点>；增="
+    "<file>:<symbol>（增@<锚点：现有 symbol|L 行号|文件尾>）：<新增内容要点>；"
+    "file=git 仓内相对路径；symbol=函数名或 类.方法（模块级 import/常量填 -）；"
+    "改法=改前→改后具体内容（「优化/修复」式纯动词无内容不算）"
+)
+
+# u 侧根因行语法（同设计）：understand 完成的验收标准 = 根因定位五要素
+# （文件/类/方法/行号 + 问题机制）。单源：u:1 子2b purpose/selfcheck/gate +
+# engine 机械校验报错文案。「会话事实」豁免 = 用户决策瓶颈类问题以原话为环
+# 合法（双结论制，与既有 gate 合法正例一致）。
+_ROOT_CAUSE_LINE_RULE = (
+    "根因行语法（每原子问题链末一行）：代码侧根因="
+    "根因@<原子标签>@<file>:<symbol>:L<a>-<b>：<问题机制一句话>；"
+    "用户决策/外部因素根因=根因@<原子标签>@会话事实：<原话/选择记录指针>；"
+    "file/symbol/L 行号要求同改动规格条目"
+)
+
 # plan:1 子1 的形式要件（单源：purpose 模型侧与 gate judge 侧都引用）。
 # 对齐原则同 _STEP1_FORM_REQUIREMENTS：形式要件披露降形式性返工，
 # 质量判据（非编造/非漫游）只留 gate 黑盒。
@@ -962,6 +986,14 @@ _NODES: dict[str, Node] = {
                     "每环必须有可观察证据，禁纯叙事——"
                     f"{_CAUSAL_CHAIN_EVIDENCE_RULE}；"
                     "每个问题 ≥1 个竞争假设 + 排除/保留理由；区分近因与根因，标注置信度。"
+                    # up-change-spec-gate（2026-08-25 用户决议）：understand 完成
+                    # 的验收标准=根因定位五要素（文件/类/方法/行号+机制）——
+                    "每原子问题链末落一行根因行（understand 验收硬标准=根因"
+                    f"定位到具体符号+行号）——{_ROOT_CAUSE_LINE_RULE}。"
+                    "校验预告：根因行原子覆盖（子2a 标签差集）与代码侧锚点"
+                    "三验（file 在仓/symbol 在索引/行号在跨度）由 append-trace "
+                    "机械校验——链内已引用的 file:line 逐字搬进根因行即过，"
+                    "编造锚点当场拒。"
                     "**按子2a 的档执行，不重定档**（发现子2a 漏原子/档错→就地补并在 "
                     "trace 标「执行期补规划」+原因，留痕即可，不回退子2a）。"
                     "输出走 evidence skill-trace（q/a 数组），不建单独 md。"
@@ -980,6 +1012,10 @@ _NODES: dict[str, Node] = {
                     "每环回答的是「异常数值如何形成」还是「谁调用谁/产物路径/"
                     "schema 描述」（后者有 file:line 也不算因果环）？"
                     "每个问题有 ≥1 竞争假设+排除/保留理由吗？近因/根因区分和置信度标了吗？"
+                    # up-change-spec-gate selfcheck 配套：
+                    "每个原子问题链末落根因行了吗（根因@<原子标签>@file:symbol:"
+                    "L<a>-<b>：机制——代码侧锚点与链内已引用 file:line 逐字一致吗？"
+                    "机械校验拒缺覆盖与假锚点；用户决策类根因用 @会话事实 豁免形态）？"
                     "按子2a 的档执行、未重定档吗（就地补原子/改档须标「执行期补规划」+原因）？"
                 ),
                 # 门控分工：子2b 只判「因果链证据」质量（编造/同义反复/稻草人），
@@ -989,9 +1025,14 @@ _NODES: dict[str, Node] = {
                 # 保留「默认 pass」字面 + 合法正例段（§3.5 #28 牙齿不丢）。
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace 且 sub_step==3 的记录。"
-                    "形式要件：①每问题 ≥2 环因果链到根因；②每问题 ≥1 竞争"
+                    "形式要件：①每问题 ≥2 环因果链到根因（「到根因」操作化"
+                    "=链末根因行在场：根因@<原子标签>@锚点——根因行原子覆盖与"
+                    "代码侧锚点真伪已由 append-trace 机械校验，你不得以"
+                    "「缺根因行/未逐原子落根因行/根因锚点可能不存在/行号可能"
+                    "不准」为由 block）；②每问题 ≥1 竞争"
                     "假设+排除/保留理由；③近因与根因区分+置信度。"
-                    "（链环禁词/占环位/行号跨度/全局否定扫描留痕 已由 append-trace "
+                    "（链环禁词/占环位/行号跨度/全局否定扫描留痕/根因行覆盖与"
+                    "锚点三验 已由 append-trace "
                     "机械校验通过--你不得以这些形式要件为由 block，只判下面三件事"
                     "的真实性。）\n"
                     "默认 pass--仅当以下成立才判 block（每条附合法形态，"
@@ -1009,7 +1050,9 @@ _NODES: dict[str, Node] = {
                     "断言已由 append-trace 机械拒，你不再判排除理由的指针形态）。\n"
                     "【合法正例】用户原话/会话事实是合法环证据指针（判据明文"
                     "枚举）--用户决策瓶颈类问题的因果环以用户原话为环合法，不得"
-                    "发明「原话不是因果机制/必须 file:line」要件；「排除」以用户"
+                    "发明「原话不是因果机制/必须 file:line」要件；根因行的"
+                    "「根因@<标签>@会话事实：<原话指针>」形态对这类问题合法，"
+                    "不得要求改 file:symbol 形态；「排除」以用户"
                     "选择/原话留痕为证据指针合法；置信度说明中「待子3验证」是"
                     "合法标注不算占环位；根因未证明不判--根因对不对归子4/子5 "
                     "验真与子7 用户认可，方框以外一律不判。\n"
@@ -1026,6 +1069,7 @@ _NODES: dict[str, Node] = {
                 mech_checks=(
                     "causal_ring_no_untested",
                     "hypothesis_exclude_no_absence",
+                    "root_cause_anchor_verify",
                 ),
                 # 执行步禁 raw grep/rg：symbol 关系查询只能走 dl codebase trace，
                 # 字符串搜索走 dl codebase query --string（grep 的"堵入口"正治，
@@ -1351,6 +1395,10 @@ _NODES: dict[str, Node] = {
                     "②去上下文（脱离本会话可独立理解：对象+动作+约束自包含；"
                     "中文省略主语合法，动宾短语「统计 X 的数量」即合规，不必凑语法主语）；"
                     "③携带 verdict 边界与置信度（部分成立项陈述只覆盖已证实边界）；"
+                    # up-change-spec-gate（2026-08-25 用户决议）：根因锚点经
+                    # boundary 流入 understand.md——
+                    "代码侧根因的 boundary 须携带子2b 根因行锚点"
+                    "（file:symbol:L<a>-<b>，逐字引用子2b 留痕即合法，零新取证）；"
                     "放不进一句=未定义完。"
                     '载荷格式：statements 逐项 {"text":单句陈述,'
                     '"type_label":verdict（证实/部分成立/证据不足——证伪项已剔除不入集）,'
@@ -2901,8 +2949,10 @@ _NODES: dict[str, Node] = {
                     "归一化设计陈述：①原子（每项 = 1 个可独立拍板的设计决策——"
                     f"{_ATOMIC_ITEM_RULE}）；"
                     "②去上下文（主语+动词+约束自包含）；"
-                    "③携带代码设计包八字段——改动清单（file→function→改动类型："
-                    "改/增/删）/接口签名/数据契约变更/受影响 callers 清单"
+                    "③携带代码设计包八字段——改动清单（每条改动一行，"
+                    f"{_CHANGE_SPEC_RULE}；设计级行号豁免——选型后才定精确行，"
+                    "写 file:symbol（改|删）：改法 即合法）/接口签名/数据契约变更"
+                    "/受影响 callers 清单"
                     "（codegraph 出处）/被否方案+逐项否决理由（ADR）/"
                     "假设清单+置信度×影响/验收包映射（每条 SuccessCriteria "
                     "验收包由哪个设计要素承接）/H9 执行单元划分；"
@@ -2922,6 +2972,11 @@ _NODES: dict[str, Node] = {
                     "剔除理由）；rejected 字段逐被否项附「为何被否」说明（引子3 "
                     "核验事实或子4 净分/硬规则触发/影响面/复用度任一项即可）——"
                     "只列名单当场拒。"
+                    # up-change-spec-gate 校验预告（机械三验在场即拒假锚点——
+                    # 锚点与子3 留痕逐字一致是零成本合法路径，#7）：
+                    "change_list 每条改动规格条目过机械验真：file 须在 git 仓内、"
+                    "symbol 须在 codegraph 索引、写了行号则须在 symbol 跨度内"
+                    "——锚点与子3 核验留痕逐字一致即过，编造/写错锚点当场拒。"
                     # p1-sub5-cost L1（复用钉死无取证例外形态，#34——gate 方框
                     # 一/三已结构性封死包外材料出口，条款与判据同向；基线 21/41
                     # 调用=前序已载事实的重复核验/重导）：
@@ -2962,6 +3017,10 @@ _NODES: dict[str, Node] = {
                     "fields 八键都填了吗（change_list/interface_sig/data_contract/"
                     "callers/rejected/assumptions/acceptance_map/h9_units——"
                     "append-trace 机械校验，缺键即拒）？"
+                    # up-change-spec-gate selfcheck 配套：
+                    "change_list 每条改动是规格条目语法吗"
+                    "（file:symbol（改|删|增@锚点）：改法——改法写了改前→改后"
+                    "具体内容、锚点与子3 留痕一致吗？机械三验拒语法缺要素与假锚点）？"
                     "字段与子3/子4 已定内容一致吗（无丢失无篡改无新增）？"
                     "statements 载荷 text 逐条无实现侧名词吧（进 fields/boundary，"
                     "机械扫描会拒）？"
@@ -2984,7 +3043,7 @@ _NODES: dict[str, Node] = {
                 # 词形接住=㉖「错理由拦对」教科书实例）。反转 + 五方框近端双侧
                 # 钉死；vio5 卡 ㉗ 抖动带（v1 5/6 -> v2/v3 4/6）后按区分线下沉
                 # rejected_rationale_trace mech（statements 侧第二个）。
-                mech_checks=("rejected_rationale_trace",),
+                mech_checks=("rejected_rationale_trace", "change_list_anchor_verify"),
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace、"
                     "minor_stage=DesignSolution 且 sub_step==5 的记录（产物含 "
@@ -2992,7 +3051,12 @@ _NODES: dict[str, Node] = {
                     "不得以「无 sub_step==5 记录/仅见 1-4」为由 block）。"
                     "形式要件：每项 = 1 个可独立拍板的设计决策（text 单句）；"
                     "fields 八键齐备（append-trace 已逐键 JSON 校验，勿再数字段）；"
-                    "text 无实现侧名词（已机械扫描 codegraph 符号 + 仓内文件名）。\n"
+                    "text 无实现侧名词（已机械扫描 codegraph 符号 + 仓内文件名）；"
+                    # up-change-spec-gate mech_scope 钉句（v2.34 存在性钉死同范式）：
+                    "change_list 改动规格条目语法齐备与锚点真伪（file 在仓/"
+                    "symbol 在索引/行号在跨度）已由 append-trace 机械三验——"
+                    "你不得以「改动规格缺要素/锚点可能不存在/行号可能不准」"
+                    "为由 block（写侧已过的机械判项勿重复判）。\n"
                     "默认 pass——仅当以下成立才判 block（每条附合法形态，合法形态"
                     "在场不得判）：\n"
                     "一、字段与子3/子4 已定内容不一致（丢失/篡改/新增）：某项八字段"
@@ -3507,7 +3571,9 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     f"{_ATOMIC_ITEM_RULE}）；"
                     "②去上下文（零上下文执行者可做：步骤自包含，禁「同上」"
                     "「类似任务 N」，跨任务接口走 Consumes/Produces 签名显式传递）；"
-                    "③携带执行包五字段——改动点（file:line→改动类型）/"
+                    "③携带执行包五字段——改动点（每条改动一行，"
+                    f"{_CHANGE_SPEC_RULE}；执行级五要素必给——文件/类/方法/"
+                    "行号/怎么改，行号缺即当场拒）/"
                     "前置接口（Consumes+Produces 精确签名）/验证方法"
                     "（failing test 名+命令+期望输出，或命令+期望退出码——"
                     "可执行验证优先，specification by example 接 TDD；"
@@ -3533,6 +3599,12 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     "（要素原文引用已在子1 留痕）、零 codegraph 查询（调用面"
                     "核验归子3 已留痕）。职责边界：存在性/影响面/可运行性"
                     "核验归子3（已留痕），本步零复核；为后续步预取=越界。"
+                    # up-change-spec-gate 校验预告（机械三验在场即拒假锚点——
+                    # 锚点与子3 留痕逐字一致是零成本合法路径，#7）：
+                    "校验预告：change_point 每条改动规格条目过机械验真——"
+                    "file 须在 git 仓内、symbol 须在 codegraph 索引、"
+                    "行号必给且须在 symbol 跨度内；锚点与子3 锚点核验留痕"
+                    "逐字一致即过，编造/写错/缺行号当场拒。"
                     # p2-sub2-cost L5 断链暴露面补款（#30「断链与补款同批落地」，
                     # 交付即止 #37 / 格式真源 #26 平移；职责条款零触碰）：
                     "交付即止：落库成功（✓ 已落库）即结束本轮——禁 locate 产物/"
@@ -3556,6 +3628,11 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     "（零上下文执行者可做）吗？"
                     "fields 五键都填了吗（change_point/interface/verify/"
                     "acceptance_map/trace_anchor——append-trace 机械校验，缺键即拒）？"
+                    # up-change-spec-gate selfcheck 配套：
+                    "change_point 每条改动是五要素规格条目吗"
+                    "（file:symbol:L<a>-<b>（改|删|增@锚点）：改法——行号必给、"
+                    "改法写了改前→改后具体内容、锚点与子3 留痕逐字一致吗？"
+                    "机械三验拒缺要素与假锚点）？"
                     "字段与子2/子3 已定内容一致吗（无丢失无篡改无新增）？"
                     "验收包与要素双向覆盖无漏吗？"
                     # p2-sub4-cost L3：复用钉死自查
@@ -3567,7 +3644,7 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                 # （验收包映射漏项=子1 验收包 SC ID vs 子4 acceptance_map 差集，
                 # 强措辞伤 clean[judge 发明映射归属要件]/弱措辞漏判 vio4=⑤ 实锤）。
                 # statements 侧首个 mech（u:2#4 预留独立项 #30 ⑰ 的解）。纯 token 扫描，⑯-safe。
-                mech_checks=("sc_coverage_trace",),
+                mech_checks=("sc_coverage_trace", "change_point_anchor_verify"),
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace、"
                     "minor_stage=TaskBreakdown 且 sub_step==4 的记录。"
@@ -3575,7 +3652,12 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     "（TDD 微循环「失败测试→最小实现→验证→提交」= 内含流程，不算复合）；"
                     "fields 五键齐备（append-trace 已机械校验，勿再数字段）；"
                     "验收包覆盖=子1 每个 SC ID 至少一项 acceptance_map 承接，"
-                    "要素覆盖=每项 trace_anchor 至少一项承接。\n"
+                    "要素覆盖=每项 trace_anchor 至少一项承接；"
+                    # up-change-spec-gate mech_scope 钉句（v2.34 存在性钉死同范式）：
+                    "change_point 改动规格条目语法齐备与锚点真伪（file 在仓/"
+                    "symbol 在索引/行号在跨度）已由 append-trace 机械三验——"
+                    "你不得以「改动点缺行号/缺改法/锚点可能不存在」为由 block"
+                    "（写侧已过的机械判项勿重复判）。\n"
                     "默认 pass——仅当以下成立才判 block（每条附合法形态，"
                     "合法形态在场不得判）：\n"
                     "一、验收包映射已由 sc_coverage_trace 机械校验——子1 验收包 SC ID "
