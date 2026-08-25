@@ -4589,6 +4589,10 @@ def _check_assumption_propagation_trace(
 # （v2.65 先例：格式归脚本，模型写的合理形态不该被死板正则误伤）。
 _LIST_PREFIX_RE = re.compile(r"^(?:[-*•]|[0-9]+[.、)）]|[①-⑨])\s*")
 
+# 可选行首类型前缀（「改=」「删=」「增=」）——与 _LIST_PREFIX_RE 同款宽容；
+# 剥离后与（kind）交叉核对（_verify_change_spec_entry）。
+_KIND_PREFIX_RE = re.compile(r"^(?P<pk>改|删|增)=\s*")
+
 _CHANGE_SPEC_ENTRY_RE = re.compile(
     r"^(?P<file>[\w./-]+\.\w{1,10}):(?P<symbol>[A-Za-z_][\w.]*|-)"
     r"(?::L(?P<l1>\d+)(?:-(?P<l2>\d+))?)?"
@@ -4728,12 +4732,26 @@ def _verify_change_spec_entry(
 ) -> str | None:
     """单条改动规格条目：①语法齐备 ②file ③symbol ④行号 + 改法非空壳。"""
     text = _LIST_PREFIX_RE.sub("", line.strip())
+    # 可选行首类型前缀（change-spec-prefix-tolerance，2026-08-25，
+    # designs/change-spec-prefix-tolerance-design.md）：_CHANGE_SPEC_RULE 旧表述
+    # 「改/删=」被模型读作字面前缀（pos_annualized 实跑 19 次拒绝中 ~17 次由此），
+    # 按 v2.65 宽容先例接受并与（kind）交叉核对——双声明矛盾才拒。
+    pk = None
+    pm = _KIND_PREFIX_RE.match(text)
+    if pm:
+        pk = pm.group("pk")
+        text = text[pm.end() :]
     m = _CHANGE_SPEC_ENTRY_RE.match(text)
     if not m:
         return f"改动规格条目语法不合：「{text[:60]}」——{_CHANGE_SPEC_RULE}"
     file = m.group("file")
     symbol = m.group("symbol")
     kind = m.group("kind")
+    if pk is not None and pk != kind:
+        return (
+            f"改动规格条目前缀类型「{pk}」与（{kind}）矛盾——类型声明两处"
+            "须一致（前缀可省，省略后类型以（）内为准）"
+        )
     anchor = (m.group("anchor") or "").strip()
     how = m.group("how").strip()
     l1, l2 = m.group("l1"), m.group("l2")
@@ -4835,7 +4853,9 @@ def _check_change_list_anchor(statements: list, project_root: Path, name) -> str
     )
 
 
-def _check_change_point_anchor(statements: list, project_root: Path, name) -> str | None:
+def _check_change_point_anchor(
+    statements: list, project_root: Path, name
+) -> str | None:
     """change_point_anchor_verify：plan:2#4 执行级五要素（行号必给）。"""
     return _check_change_spec_anchor(
         statements, project_root, name, field="change_point", require_lines=True
@@ -5675,8 +5695,7 @@ def _check_root_cause_anchor_verify(qa: list, project_root: Path, name) -> str |
         m = _ROOT_CAUSE_CODE_RE.match(rest)
         if not m:
             return (
-                f"根因行（原子 {lb}）语法不合：「{rest[:60]}」——"
-                f"{_ROOT_CAUSE_LINE_RULE}"
+                f"根因行（原子 {lb}）语法不合：「{rest[:60]}」——{_ROOT_CAUSE_LINE_RULE}"
             )
         file = m.group("file")
         if tracked is not None and file not in tracked:
@@ -6203,12 +6222,14 @@ def ingest_redteam_report(
 # change_list/change_point 的改动规格条目语法直接写进骨架待填占位符。
 _FIELD_SCAFFOLD_HINTS = {
     "change_list": (
-        "每条改动一行：file:symbol（改|删）：改前→改后要点（设计级行号豁免）；"
-        "增=file:symbol（增@现有 symbol|L 行号|文件尾）：新增要点；模块级 symbol=-"
+        "每条改动一行，类型词写括号内：file:symbol（改|删）：改前→改后要点（设计级行号豁免）；"
+        "file:symbol（增@现有 symbol|L 行号|文件尾）：新增要点；模块级 symbol=-；"
+        "正例：src/foo.py:bar（改）：改前 X → 改后 Y（行首 改= 类前缀可省）"
     ),
     "change_point": (
-        "每条改动一行：file:symbol:L<a>-<b>（改|删）：改前→改后要点（五要素必给）；"
-        "增=file:symbol（增@现有 symbol|L 行号|文件尾）：新增要点；模块级 symbol=-"
+        "每条改动一行，类型词写括号内：file:symbol:L<a>-<b>（改|删）：改前→改后要点（五要素必给）；"
+        "file:symbol（增@现有 symbol|L 行号|文件尾）：新增要点；模块级 symbol=-；"
+        "正例：src/foo.py:bar:L10-12（改）：改前 X → 改后 Y（行首 改= 类前缀可省）"
     ),
 }
 

@@ -5729,7 +5729,10 @@ class TestStatementFieldsMigration:
         # up-change-spec-gate：change_list/change_point 占位内容须过锚点语法
         # （tmp_path 无 git/db——三验走降级跳过，语法齐备是判面）。
         spec = "src/foo.py:bar:L10-20（改）：改 X 计算逻辑为 Y"
-        return {k: (spec if k in ("change_list", "change_point") else f"{k} 内容") for k in keys}
+        return {
+            k: (spec if k in ("change_list", "change_point") else f"{k} 内容")
+            for k in keys
+        }
 
     def test_three_steps_declare_statements_and_fields(self):
         for phase, sub, step_no, keys in self._MIGRATED:
@@ -7541,7 +7544,9 @@ class TestV237FirstPassRate:
 
         sp.run(["git", "init"], cwd=tmp_path, capture_output=True)
         (tmp_path / "src").mkdir(exist_ok=True)
-        (tmp_path / "src" / "foo.py").write_text("\n".join(["# x"] * 100), encoding="utf-8")
+        (tmp_path / "src" / "foo.py").write_text(
+            "\n".join(["# x"] * 100), encoding="utf-8"
+        )
         sp.run(["git", "add", "."], cwd=tmp_path, capture_output=True)
         (tmp_path / ".codegraph").mkdir(exist_ok=True)
         db = tmp_path / ".codegraph" / "codegraph.db"
@@ -7585,7 +7590,10 @@ class TestV237FirstPassRate:
         ):
             assert fn(st(ok), tmp_path, "t") is None, f"合规应过：{ok}"
         # 行号交集容差（索引 stale 容差）：L15-25 与 bar[10,20] 有交集 -> 过
-        assert fn(st("src/foo.py:bar:L15-25（改）：改中间段计算逻辑"), tmp_path, "t") is None
+        assert (
+            fn(st("src/foo.py:bar:L15-25（改）：改中间段计算逻辑"), tmp_path, "t")
+            is None
+        )
         # 违规逐项：语法/缺行号/假 file/假 symbol/行号出界/跨度无交集/纯动词/新增配改
         for bad, needle in (
             ("把 bar 改一下", "语法不合"),
@@ -7622,23 +7630,119 @@ class TestV237FirstPassRate:
         (tmp_path / "src" / "foo.py").write_text("# x\n", encoding="utf-8")
         sp.run(["git", "add", "."], cwd=tmp_path, capture_output=True)
         ok = self._stmt("change_point", "src/foo.py:nosuch:L1（改）：改 X 为 Y 逻辑")
-        assert eng._check_change_point_anchor([ok], tmp_path, "t") is None, "db 缺失应跳过"
+        assert eng._check_change_point_anchor([ok], tmp_path, "t") is None, (
+            "db 缺失应跳过"
+        )
         # db 过期于被验文件 -> 跳过
         self._spec_repo(tmp_path)
         import os
 
         f = tmp_path / "src" / "foo.py"
         os.utime(f, (os.path.getmtime(f) + 100,) * 2)
-        assert eng._check_change_point_anchor([ok], tmp_path, "t") is None, "db 过期应跳过"
+        assert eng._check_change_point_anchor([ok], tmp_path, "t") is None, (
+            "db 过期应跳过"
+        )
 
     def test_change_spec_scaffold_hint(self, tmp_path):
         _write_state_full(tmp_path, "t", "plan", 2, sub_step=4)
         ok, _msg = eng.scaffold_payload(tmp_path, "t")
         assert ok
-        text = eng.trace_payload_path(tmp_path, "t", eng.load_state(tmp_path, "t")).read_text(
-            encoding="utf-8"
-        )
+        text = eng.trace_payload_path(
+            tmp_path, "t", eng.load_state(tmp_path, "t")
+        ).read_text(encoding="utf-8")
         assert "每条改动一行" in text and "file:symbol:L" in text
+        assert "正例" in text, "骨架提示须携带具体正例（#31 骨架表达力缺口修法）"
+
+    def test_change_spec_rule_carries_positive_example(self):
+        # change-spec-prefix-tolerance（designs/change-spec-prefix-tolerance-design.md）：
+        # 报错文案零正例 = 模型 11 次试错无法实例化文法（#31）；规则常量单源，
+        # purpose/selfcheck/gate/报错四处同步。
+        from dl_flow_nodes import _CHANGE_SPEC_RULE
+
+        assert "正例" in _CHANGE_SPEC_RULE and "（改）" in _CHANGE_SPEC_RULE
+
+    def test_change_spec_kind_prefix_tolerance(self, tmp_path):
+        # 主根因修复：_CHANGE_SPEC_RULE 的「改/删=」表述被模型读作行首字面前缀
+        # （真实运行 19 次拒绝中 ~17 次由此），解析器按 v2.65 宽容先例接受
+        # 可选前缀并交叉核对双声明一致性。
+        self._spec_repo(tmp_path)
+        fn = eng._check_change_point_anchor
+        st = lambda v: [self._stmt("change_point", v)]  # noqa: E731
+        for ok in (
+            "改=src/foo.py:bar:L12-15（改）：改返回值为绝对值后再返回",
+            "删=src/foo.py:Cls.m:L30-40（删）：删冗余分支并改走统一出口",
+            "增=src/new_mod.py:helper（增@文件尾）：新文件新增入口函数",
+            "- 改=src/foo.py:bar:L10（改）：列表前缀与类型前缀叠加也合法",
+        ):
+            assert fn(st(ok), tmp_path, "t") is None, f"类型前缀合规应过：{ok}"
+        # 双声明矛盾 -> 拒，报错指名两种类型
+        err = fn(
+            st("删=src/foo.py:bar:L10-12（改）：改 X 为 Y 的具体逻辑"), tmp_path, "t"
+        )
+        assert err and "矛盾" in err and "删" in err and "改" in err
+
+    def test_change_spec_prefix_replay_pos_annualized(self, tmp_path):
+        # 真实载荷重放（interaction_amplitude__ret3d_pos_annualized plan:1#5/plan:2#4，
+        # 19 次被拒条目）：前缀形态语法层应通过；语法外各层照拒（防宽容放错方向）。
+        import sqlite3
+        import subprocess as sp
+
+        self._spec_repo(tmp_path)
+        (tmp_path / "web_ui" / "templates").mkdir(parents=True)
+        (tmp_path / "web_ui" / "templates" / "_section_backtest.html").write_text(
+            "\n".join(["<!-- x -->"] * 100), encoding="utf-8"
+        )
+        (tmp_path / "web_ui" / "app.py").write_text(
+            "\n".join(["# x"] * 200), encoding="utf-8"
+        )
+        (tmp_path / "backtest" / "common").mkdir(parents=True)
+        (tmp_path / "backtest" / "common" / "layered_backtest.py").write_text(
+            "\n".join(["# x"] * 800), encoding="utf-8"
+        )
+        sp.run(["git", "add", "."], cwd=tmp_path, capture_output=True)
+        db = tmp_path / ".codegraph" / "codegraph.db"
+        con = sqlite3.connect(str(db))
+        con.execute(
+            "INSERT INTO nodes VALUES ('function','show_report','show_report',"
+            " 'web_ui/app.py',50,120)"
+        )
+        con.execute(
+            "INSERT INTO nodes VALUES ('function','_aggregate_results',"
+            "'_aggregate_results','backtest/common/layered_backtest.py',700,720)"
+        )
+        con.commit()
+        con.close()
+        fnc = eng._check_change_point_anchor
+        fnl = eng._check_change_list_anchor
+        stc = lambda v: [self._stmt("change_point", v)]  # noqa: E731
+        stl = lambda v: [self._stmt("change_list", v)]  # noqa: E731
+        # 重放被拒条目（前缀形态，尾部按 evidence 通过形态补全）-> 应过
+        for ok in (
+            "改=web_ui/templates/_section_backtest.html:-:L38-38（改）：KPI 卡与表格区删除模板内二次换算",
+            "改=backtest/common/layered_backtest.py:_aggregate_results:L711-713（改）：改前线性年化改后几何复利",
+            "改=web_ui/app.py:show_report:L100-102（改）：改前读百分数改后直显小数",
+        ):
+            assert fnc(stc(ok), tmp_path, "t") is None, f"重放应过：{ok}"
+        # change_list 层（设计级行号豁免）同款前缀形态 -> 应过
+        ok = "改=web_ui/templates/_section_backtest.html:-（改）：删除模板内二次换算"
+        assert fnl(stl(ok), tmp_path, "t") is None, f"change_list 重放应过：{ok}"
+        # 宽容不放错：空 how 照拒语法 / 错路径照拒 file 层 / 假 symbol 照拒锚点层
+        err = fnc(stc("改=web_ui/app.py:show_report（改）："), tmp_path, "t")
+        assert err and "语法不合" in err
+        err = fnc(
+            stc(
+                "改=layered_backtest.py:_aggregate_results:L711-713（改）：改 X 为 Y 的具体逻辑"
+            ),
+            tmp_path,
+            "t",
+        )
+        assert err and "不在 git 仓内" in err
+        err = fnc(
+            stc("改=web_ui/app.py:nosuch:L10-12（改）：改 X 为 Y 的具体逻辑"),
+            tmp_path,
+            "t",
+        )
+        assert err and "查无" in err
 
     def test_root_cause_anchor_verify(self, tmp_path):
         import json as _json
@@ -7680,7 +7784,12 @@ class TestV237FirstPassRate:
         assert err and "B" in err and "根因行" in err
         # 代码侧假 symbol -> 拒；语法不合 -> 拒
         err2 = fn(
-            [{"q": "q", "a": "根因@A@src/foo.py:nosuch:L1-2：机制说明文字\n根因@B@会话事实：原话"}],
+            [
+                {
+                    "q": "q",
+                    "a": "根因@A@src/foo.py:nosuch:L1-2：机制说明文字\n根因@B@会话事实：原话",
+                }
+            ],
             tmp_path,
             "t",
         )
