@@ -7654,7 +7654,9 @@ class TestV237FirstPassRate:
                 "a": ["原子 A 原子 B 两原子"],
                 "atomic_questions": [
                     {"q": "A. 数值为何偏大", "tier": "light"},
-                    {"q": "B. 用户为何不采信", "tier": "none"},
+                    # 原子前缀形（interaction_amplitude 真实实例生产形态——
+                    # 2026-08-25 重放逮住：只认首字母形则覆盖判静默空转）
+                    {"q": "原子B【用户采信】：用户为何不采信", "tier": "none"},
                 ],
             },
             ensure_ascii=False,

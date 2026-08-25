@@ -5632,9 +5632,12 @@ _ROOT_CAUSE_CODE_RE = re.compile(
     r":L(?P<l1>\d+)(?:-(?P<l2>\d+))?[：:](?P<mech>.+)$"
 )
 # 子2a atomic_questions 的原子标签（覆盖差集的源侧）——在 atomic_questions
-# 数组段内提 "q": "A. 形态首字母（qa 配对的 q 键会误匹配，须先锁数组段）。
+# 数组段内提 "q" 首标签（qa 配对的 q 键会误匹配，须先锁数组段）。
+# 标签双形态（2026-08-25 真实证据重放逮住）：「A. 问题」首字母形 +
+# 「原子A【数据源事实】：问题」原子前缀形（interaction_amplitude 实例生产
+# 形态——只认首字母形则覆盖判静默空转=宁纵勿枉变永远勿枉）。
 _AQ_ARRAY_RE = re.compile(r'"atomic_questions"\s*:\s*\[(.*?)\]', re.S)
-_AQ_ITEM_LABEL_RE = re.compile(r'"q"\s*:\s*"\s*([A-Z])(?=[._、：:\s])')
+_AQ_ITEM_LABEL_RE = re.compile(r'"q"\s*:\s*"\s*(?:原子\s*)?([A-Z])(?=[._、：:\s【])')
 
 
 def _check_root_cause_anchor_verify(qa: list, project_root: Path, name) -> str | None:
