@@ -7778,6 +7778,9 @@ class TestV237FirstPassRate:
             "\n".join(["<!-- x -->"] * 100), encoding="utf-8"
         )
         sp.run(["git", "add", "."], cwd=tmp_path, capture_output=True)
+        # 新鲜度竞态钉死（合入实测：html 后写 mtime > db → 「索引过期于该文件」
+        # 跳过验真 = 测试假绿，隔离跑必现）——db 摸到最新，确保走进 spans 查询分支
+        (tmp_path / ".codegraph" / "codegraph.db").touch()
         fn = eng._check_change_point_anchor
         st = lambda v: [self._stmt("change_point", v)]  # noqa: E731
         err = fn(
@@ -7802,6 +7805,41 @@ class TestV237FirstPassRate:
             tmp_path, "t", eng.load_state(tmp_path, "t")
         ).read_text(encoding="utf-8")
         assert "只写可执行改动条目" in text
+
+    def test_change_spec_field_contract_disclosure(self, tmp_path):
+        # change-spec-field-contract-disclosure（designs/
+        # change-spec-field-contract-disclosure-design.md，2026-08-26）：第二形态
+        # 打地鼠（Run 3 return_5d plan:1#5 实锤）——披露层补契约句 +
+        # 空白符锚点精确报错。与 round2（注记分诊/非代码文件指路）并集，
+        # 散文条目分诊用例归 test_change_spec_note_entry_targeted_error。
+        from dl_flow_nodes import _CHANGE_SPEC_RULE
+
+        # ① 规则文案与骨架提示披露「每行一条目/被否写 rejected/锚点三形态禁自然语言」
+        assert "禁自然语言" in _CHANGE_SPEC_RULE and "rejected" in _CHANGE_SPEC_RULE
+        for k in ("change_list", "change_point"):
+            hint = eng._FIELD_SCAFFOLD_HINTS[k]
+            assert "禁自然语言" in hint and "rejected" in hint, f"{k} 骨架提示缺契约句"
+        # ② 空白符锚点 = 必然自然语言 → 精确报错（非笼统「查无」）
+        self._spec_repo(tmp_path)
+        fnc = eng._check_change_point_anchor
+        stc = lambda v: [self._stmt("change_point", v)]  # noqa: E731
+        err = fnc(
+            stc(
+                "src/foo.py:bar（增@TestT1Alignment 类内现有引擎测试函数尾部）：新增 CAGR 单测用例"
+            ),
+            tmp_path,
+            "t",
+        )
+        assert err and "自然语言" in err and "三形态" in err, (
+            f"空白符锚点应精确报错：{err}"
+        )
+        # ③ 合法锚点三形态不受新规影响（symbol 名 / L 行号 / 文件尾）
+        for ok in (
+            "src/foo.py:bar（增@Cls.m）：新增辅助函数供 m 调用",
+            "src/foo.py:bar（增@L20）：第 20 行后新增常量",
+            "src/foo.py:bar（增@文件尾）：文件尾新增常量定义",
+        ):
+            assert fnc(stc(ok), tmp_path, "t") is None, f"合法锚点应过：{ok}"
 
     def test_root_cause_anchor_verify(self, tmp_path):
         import json as _json

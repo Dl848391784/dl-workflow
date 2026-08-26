@@ -4717,6 +4717,15 @@ def _verify_anchor_parts(
     当前行数；symbol ≠「-」时 codegraph 查有 + 行号与 symbol 跨度有交集
     （交集判而非严格包含——索引 stale 容差，design §8 已知边界）。
     """
+    # 空白符锚点 = 必然自然语言（symbol 名无空格；change-spec-field-contract-
+    # disclosure，2026-08-26——Run 3 实锤模型把出处说明写进锚点位）——
+    # 报错从笼统「查无」精确为三形态指引。CJK 无空格 symbol 不拦（Unicode
+    # 合法标识符，宁纵勿枉）。
+    if re.search(r"\s", symbol):
+        return (
+            f"{context}「{symbol[:40]}」是自然语言描述（含空白符）——锚点只接受"
+            "三形态：现有 symbol 名 / L 行号 / 文件尾；出处说明写 boundary 不写锚点"
+        )
     n = _file_line_count(project_root / file)
     if l1 is not None and n is not None and int(l1) > n:
         return (
@@ -6263,14 +6272,16 @@ _FIELD_SCAFFOLD_HINTS = {
         "file:symbol（增@现有 symbol|L 行号|文件尾）：新增要点；模块级 symbol=-；"
         "正例：src/foo.py:bar（改）：改前 X → 改后 Y（行首 改= 类前缀可省）；"
         "只写可执行改动条目——决策注记/承接链写 boundary 字段、被否方案写 rejected 字段；"
-        "html 模板/Jinja/fixture 等无 codegraph symbol 的文件：symbol 填 -、行号锚定"
+        "html 模板/Jinja/fixture 等无 codegraph symbol 的文件：symbol 填 -、行号锚定；"
+        "增@锚点只三形态：symbol 名 / L 行号 / 文件尾，禁自然语言"
     ),
     "change_point": (
         "每条改动一行，类型词写括号内：file:symbol:L<a>-<b>（改|删）：改前→改后要点（五要素必给）；"
         "file:symbol（增@现有 symbol|L 行号|文件尾）：新增要点；模块级 symbol=-；"
         "正例：src/foo.py:bar:L10-12（改）：改前 X → 改后 Y（行首 改= 类前缀可省）；"
         "只写可执行改动条目——决策注记/承接链写 boundary 字段、被否方案写 rejected 字段；"
-        "html 模板/Jinja/fixture 等无 codegraph symbol 的文件：symbol 填 -、行号锚定"
+        "html 模板/Jinja/fixture 等无 codegraph symbol 的文件：symbol 填 -、行号锚定；"
+        "增@锚点只三形态：symbol 名 / L 行号 / 文件尾，禁自然语言"
     ),
 }
 
