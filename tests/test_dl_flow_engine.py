@@ -9012,7 +9012,7 @@ class TestFetchPreflightCmd:
             ok = url == "https://ok.example.com"
             return (ok, "200" if ok else None, "" if ok else "curl exit 7")
 
-        monkeypatch.setattr(eng, "_curl_probe", fake_probe)
+        monkeypatch.setattr("dl_flow_trace._curl_probe", fake_probe)
         rc = eng.run_fetch_preflight(
             tmp_path,
             "t",
@@ -9047,7 +9047,7 @@ class TestFetchPreflightCmd:
                 return False, None, "curl exit 28"
             return True, "200", ""
 
-        monkeypatch.setattr(eng, "_curl_probe", flaky)
+        monkeypatch.setattr("dl_flow_trace._curl_probe", flaky)
         rc = eng.run_fetch_preflight(tmp_path, "t", ["https://x.example.com"])
         assert rc == 0
         assert state["n"] == 2  # 失败重试一次后转可达（抖动防误判）
@@ -9068,7 +9068,7 @@ class TestFetchPreflightCmd:
             calls.append(url)
             return (True, "200", "")
 
-        monkeypatch.setattr(eng, "_curl_probe", fake_probe)
+        monkeypatch.setattr("dl_flow_trace._curl_probe", fake_probe)
         _init_git(tmp_path)  # CLI 通道要求 git 仓（--cwd 反查 project_root）
         rc = eng.main(
             [

@@ -228,7 +228,7 @@ class TestFixCLightQuota:
         if str(REPO) not in sys.path:
             sys.path.insert(0, str(REPO))
 
-        src = (REPO / "dl_flow_engine.py").read_text(encoding="utf-8")
+        src = (REPO / "dl_flow_trace.py").read_text(encoding="utf-8")  # 2026-08-27 骨架真源随 trace 块迁出 engine
         assert "层配额（上限≠配额）" in src, "配额纪律未进骨架源"
         return src
 
