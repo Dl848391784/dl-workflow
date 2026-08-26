@@ -1,6 +1,6 @@
 # u:4#3（验收方式设计）fermate 裁剪设计——声明-核验对范式（v2 专项）
 
-> 状态：**设计待确认（2026-08-26）**
+> 状态：**已实现（2026-08-26，feat/fermate 分支 commit 048eca0，1278 tests 全绿）**——§4 触点全项落地（含渲染注记 polish）。待：live judge 重放（既有 clean/vio fixture 方向不变 + fermate 声明载荷 PASS）与真实实例验证，均归用户统一验证。
 > 确认史：2026-08-26 用户裁决立项（fermate v1 收口时留的 v2 专项）。同日**设计评估修正**：v1 设计期判「u:4#3 裁剪牵连 state-conditional gate 新机制类」系保守估计——查实契约真源后确认既有「声明-核验对 + judge 静态兜底」范式可零 gate 变体落地（§1.1）。
 > 父文档：`fermate-plan-only-design.md`（v1，§2.6 v1 边界留本项）、`success-criteria-substeps-design.md`（u:4 原始拆步）、`u4-sub4-cost-optimization-design.md`（u:4#4 无编号传导机械核对的出处）、mechanical-checks 参考（声明-核验对范式：`assumption_completeness_trace`/`no_load_trace`/`redteam_report_recorded`）
 
