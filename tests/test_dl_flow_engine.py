@@ -13497,3 +13497,134 @@ class TestForceTacet:
         assert out is not None
         assert "align-check" in out
         assert "tacet" not in out
+
+
+class TestForceFermate:
+    """fermate（plan-only）维度（fermate-plan-only-design，2026-08-26）。
+
+    第二正交开关：tacet 管步骤密度（44 步内 38 静默），fermate 管流程深度
+    （plan 止于 plan:2，plan:3/plan:4 不存在——能力包/检查点消费方全在
+    execute，无执行=产物纯税）。plan:2 末步门栏扣留，/dl gate 确认收货即
+    完结（gate="done"）。模型无权自封（sticky state，同 force_tacet 论证）。
+    """
+
+    def test_set_force_fermate_toggle(self, tmp_path):
+        # CLI 开关（launch --fermate 的落点）：on/off 落 state 且可复位。
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=1)
+        ok, msg = eng.set_force_fermate(tmp_path, "t", True)
+        assert ok is True and "开启" in msg
+        assert eng.load_state(tmp_path, "t")["force_fermate"] is True
+        ok, _ = eng.set_force_fermate(tmp_path, "t", False)
+        assert ok is True
+        assert eng.load_state(tmp_path, "t")["force_fermate"] is False
+
+    def test_node_holds_for_gate_single_source(self):
+        # 门栏判据单源：plan:4 恒扣留（全量唯一门栏）；plan:2 仅 fermate 扣留；
+        # 其余节点任何轨道都不扣留。
+        plan2 = eng._NODES["plan:2"]
+        plan4 = eng._NODES["plan:4"]
+        u3 = eng._NODES["understand:3"]
+        assert eng.node_holds_for_gate({}, plan4) is True
+        assert eng.node_holds_for_gate({"force_fermate": True}, plan4) is True
+        assert eng.node_holds_for_gate({}, plan2) is False
+        assert eng.node_holds_for_gate({"force_fermate": True}, plan2) is True
+        assert eng.node_holds_for_gate({"force_fermate": True}, u3) is False
+
+    def test_advance_sub_step_fermate_plan2_holds(self, tmp_path):
+        # 终点语义：fermate 下 plan:2 末步(5)推进被扣留（held_for_gate），
+        # 不进 plan:3；无 fermate 时同位置正常推进 plan:3（回归）。
+        _write_state_full(tmp_path, "t", "plan", 2, sub_step=5)
+        st = eng.load_state(tmp_path, "t")
+        st["force_fermate"] = True
+        eng.save_state(tmp_path, "t", st)
+        node = eng._NODES["plan:2"]
+        new_state = eng._advance_sub_step(tmp_path, "t", st, node, 5, via="test")
+        assert new_state["held_for_gate"] is True
+        assert new_state["phase"] == "plan"
+        assert new_state["sub_index"] == 2
+
+        _write_state_full(tmp_path, "t2", "plan", 2, sub_step=5)
+        st2 = eng.load_state(tmp_path, "t2")
+        new2 = eng._advance_sub_step(tmp_path, "t2", st2, node, 5, via="test")
+        assert "held_for_gate" not in new2
+        assert new2["sub_index"] == 3  # 全量轨道：正常进 plan:3
+
+    def test_release_subgate_fermate_terminal(self, tmp_path):
+        # 确认收货即完结：fermate + plan:2 门栏放行 -> gate="done"，不推进
+        # plan:3，裁决留痕；phase/sub 停 plan:2（实例终态）。
+        _write_state_full(tmp_path, "t", "plan", 2, sub_step=5)
+        st = eng.load_state(tmp_path, "t")
+        st["force_fermate"] = True
+        st["held_for_gate"] = True
+        eng.save_state(tmp_path, "t", st)
+        ok, msg = eng.release_subgate(tmp_path, "t", str(tmp_path))
+        assert ok is True, msg
+        assert "fermate" in msg
+        reread = eng.load_state(tmp_path, "t")
+        assert reread["gate"] == "done"
+        assert reread["phase"] == "plan"
+        assert reread["sub_index"] == 2  # 不推进 plan:3
+        assert "held_for_gate" not in reread
+        rec = json.loads(eng.read_evidence(tmp_path, "t").strip().splitlines()[-1])
+        assert rec["via"] == "manual-subgate-pass"
+
+    def test_tacet_spine_remap_under_fermate(self, tmp_path):
+        # 组合脊柱重映射（§2.4，F5）：fermate 下 plan:4#4 沉默（节点不存在）、
+        # plan:2#4 升脊柱（终端产物步不被静默=交付物不消失）；两缓存互不污染。
+        silent_full = eng.tacet_silent_steps()
+        silent_fermate = eng.tacet_silent_steps(fermate=True)
+        assert "plan:4#4" not in silent_full and "plan:2#4" in silent_full
+        assert "plan:4#4" in silent_fermate and "plan:2#4" not in silent_fermate
+        assert len(silent_full) == len(silent_fermate) == 38
+        _write_state_full(tmp_path, "t", "plan", 2, sub_step=4)
+        st = eng.load_state(tmp_path, "t")
+        st["force_tacet"] = True
+        node2 = eng._NODES["plan:2"]
+        assert eng.step_tacet_forced(st, node2, 4) is True  # 纯 tacet：plan:2#4 沉默
+        st["force_fermate"] = True
+        assert eng.step_tacet_forced(st, node2, 4) is False  # 组合：升脊柱
+        node4 = eng._NODES["plan:4"]
+        assert eng.step_tacet_forced(st, node4, 4) is True  # 组合：plan:4#4 沉默
+
+    def test_render_phase_rules_fermate_variant(self):
+        # 条件块渲染（§2.5）：fermate 变体剔 plan:3/plan:4 整段 + 终点文案在场；
+        # 全量变体剔 FERMATE_ONLY 块且 plan:3/plan:4 完整（回归）；标记零残留。
+        template = (Path(__file__).parent.parent / "scripts" / "workflow" /
+                    "phase-rules.md").read_text(encoding="utf-8")
+        full = eng.render_phase_rules(template)
+        ferm = eng.render_phase_rules(template, fermate=True)
+        assert "选择能力与工具" in full and "制定执行计划和检查点" in full
+        assert "选择能力与工具" not in ferm and "制定执行计划和检查点" not in ferm
+        assert "确认收货即实例完结" in ferm
+        assert "确认收货即实例完结" not in full
+        for out in (full, ferm):
+            assert "FERMATE_ONLY" not in out and "NO_FERMATE" not in out
+            assert "BEGIN GENERATED" in out  # GENERATED 段正常渲染
+
+    def test_tui_and_progress_rows_hide_plan34(self):
+        # 显示面（§2.5）：fermate 下 TUI 清单与 progress 快照都不枚举 plan:3/4；
+        # 全量轨道照常枚举（回归）。
+        base = {"phase": "plan", "sub_index": 2, "index": 2, "node": "plan:2",
+                "sub_step_index": 1}
+        rows = eng.tui_tasklist_lines({**base, "force_fermate": True})
+        assert not any("2.3" in r or "2.4" in r for r in rows)
+        rows_full = eng.tui_tasklist_lines(dict(base))
+        assert any("2.3" in r for r in rows_full) and any("2.4" in r for r in rows_full)
+        pr = eng.progress_rows({**base, "force_fermate": True})
+        assert not any(r["label"].startswith(("2.3", "2.4")) for r in pr)
+        pr_full = eng.progress_rows(dict(base))
+        assert any(r["label"].startswith("2.3") for r in pr_full)
+
+    def test_handoff_pack_fermate_note(self, tmp_path):
+        # 交接包：fermate 下带终点形态告知（F1：防模型按全量记忆预期 plan:3）。
+        _write_state_full(tmp_path, "t", "plan", 2, sub_step=1)
+        st = eng.load_state(tmp_path, "t")
+        st["problem_statement"] = "输出改动点清单"
+        eng.save_state(tmp_path, "t", st)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert "fermate" not in pack  # 零 flag 无告知（回归）
+        st["force_fermate"] = True
+        eng.save_state(tmp_path, "t", st)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert "fermate（plan-only）" in pack
+        assert "禁预期/预习 plan:3/plan:4" in pack
