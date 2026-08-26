@@ -64,6 +64,7 @@ from dl_flow_nodes import (
     subphase_labels,
     tacet_silent_steps,  # force-tacet 实验轨道（designs/force-tacet-experiment-design.md）
     TACET_SPINE_STEPS,  # noqa: F401  # re-export：tests 经 eng.TACET_SPINE_STEPS 访问
+    TACET_SPINE_STEPS_FERMATE,  # fermate 组合脊柱（fermate-plan-only-design §2.4）
 )
 
 # 组件 B：项目工具注册发现（list-tools / S15 白名单用；scripts 为命名空间包）。
@@ -1465,7 +1466,7 @@ def write_confirm_trace(project_root: Path, name: str, node: "Node", cur: int) -
 # trace 判决）、跳过交互回屏。driver 派段前查 step_tacet_forced 命中即调
 # apply_tacet_skip。跳步决策只在机械层 + 用户开关（launch --force-tacet）。
 
-_TACET_SILENT_CACHE: frozenset[str] | None = None
+_TACET_SILENT_CACHE: dict[bool, frozenset[str]] = {}
 
 
 def step_tacet_forced(state: dict[str, Any], node: "Node", cur: int) -> bool:
@@ -1473,13 +1474,16 @@ def step_tacet_forced(state: dict[str, Any], node: "Node", cur: int) -> bool:
 
     脊柱步（问题陈述/根因/取证/修法/计划包）正常执行且质量门不放水（design §8）；
     模型无权自选 tacet（档位不进模型可写面--防偷工通道）。
+    fermate 组合时脊柱重映射（plan:4#4 -> plan:2#4，fermate-plan-only-design §2.4），
+    缓存按 fermate 布尔双份。
     """
     if not state.get("force_tacet"):
         return False
+    fermate = bool(state.get("force_fermate"))
     global _TACET_SILENT_CACHE
-    if _TACET_SILENT_CACHE is None:
-        _TACET_SILENT_CACHE = tacet_silent_steps()
-    return f"{node_id(node.phase, node.sub)}#{cur}" in _TACET_SILENT_CACHE
+    if fermate not in _TACET_SILENT_CACHE:
+        _TACET_SILENT_CACHE[fermate] = tacet_silent_steps(fermate=fermate)
+    return f"{node_id(node.phase, node.sub)}#{cur}" in _TACET_SILENT_CACHE[fermate]
 
 
 def write_tacet_trace(project_root: Path, name: str, node: "Node", cur: int) -> None:
@@ -1890,6 +1894,15 @@ def handoff_pack(project_root: Path, name: str) -> str | None:
             "u:1#4 / 修法 plan:1#2 / 计划包 plan:4#4），其余步 TACET 静默--"
             "上游材料薄是设计内状态，非缺漏；禁自行补做已沉默的步骤。\n"
         )
+    if state.get("force_fermate"):
+        # fermate（plan-only）：告知终点形态（fermate-plan-only-design §3 F1），
+        # 防模型按全量记忆预期/预习 plan:3。
+        lines.append(
+            "### 运行轨道：fermate（plan-only）\n"
+            "本实例 plan 止于 plan:2（拆解任务与阶段）——plan:3/plan:4 已裁剪不存在；"
+            "plan:2 末步过门控后门栏扣留，用户 /dl gate 确认收货即完结。plan.md "
+            "只有「执行步骤」一节=最终交付物；禁预期/预习 plan:3/plan:4 内容。\n"
+        )
     lines += [
         f"### 当前位置：{cur_node.label}（{node_id(cur_phase, cur_sub)}）子步骤 {cur_step}",
         "",
@@ -1982,6 +1995,18 @@ def handoff_pack(project_root: Path, name: str) -> str | None:
     return "\n".join(lines)
 
 
+def node_holds_for_gate(state: dict[str, Any], node: "Node") -> bool:
+    """末步门栏扣留判据单源（_advance_sub_step / release_subgate 两处引用）。
+
+    node.hold_for_gate = 全量轨道唯一门栏（plan:4，2026-07-28 用户决议「围栏
+    只设在 plan 完成」）；fermate（plan-only，fermate-plan-only-design §2.2）
+    下 plan:2 成为终点门栏——plan:3/plan:4 不存在，/dl gate 语义=「确认收货」。
+    """
+    if node.hold_for_gate:
+        return True
+    return bool(state.get("force_fermate")) and node.phase == "plan" and node.sub == 2
+
+
 def _advance_sub_step(
     project_root: Path, name: str, state: dict[str, Any], node: Node, cur: int, via: str
 ) -> dict[str, Any]:
@@ -2001,12 +2026,14 @@ def _advance_sub_step(
         state["updated_at"] = _now()
         save_state(project_root, name, state)
         return state
-    if node.hold_for_gate:
+    if node_holds_for_gate(state, node):
         # force-tacet 不豁免门栏（2026-08-23 用户裁决「到 p 默认停止，与 main
         # 一致」）：hold_for_gate 全系统唯一处 = plan:4（围栏设在 plan 完成），
         # 此前 force_tacet 自动放行+advance_state 一并穿越 plan->execute 大闸门
         # = 首跑直接跑进 execute/review/evolution。现 tacet 与 main 同路径：
         # plan 完成 -> held_for_gate 停等 -> 用户 /dl gate 放行才继续。
+        # fermate（plan-only）：plan:2 末步同此扣留（node_holds_for_gate 单源），
+        # /dl gate = 确认收货即完结，不推进 plan:3（release_subgate 终态分支）。
         state["held_for_gate"] = True
         state["updated_at"] = _now()
         save_state(project_root, name, state)
@@ -2068,7 +2095,7 @@ def release_subgate(project_root: Path, name: str, cwd: str) -> tuple[bool, str]
     cur = state.get("sub_step_index", 1)
     held = (
         state.get("held_for_gate")
-        and node.hold_for_gate
+        and node_holds_for_gate(state, node)
         and node.sub_steps
         and cur == len(node.sub_steps)
     )
@@ -2088,6 +2115,19 @@ def release_subgate(project_root: Path, name: str, cwd: str) -> tuple[bool, str]
     state.pop("held_for_gate", None)
     state["updated_at"] = _now()
     save_state(project_root, name, state)
+    if state.get("force_fermate") and node.phase == "plan" and node.sub == 2:
+        # fermate 终态（fermate-plan-only-design §2.2）：/dl gate = 确认收货，
+        # 不推进 plan:3——置 gate="done"（镜像 advance_state 的 next_node_id None
+        # 终态分支），实例完结，/dl done 归档走既有路径。
+        state["gate"] = "done"
+        state["updated_at"] = _now()
+        save_state(project_root, name, state)
+        return (
+            True,
+            "门栏放行（fermate 终态）：改动点清单已确认收货 —— 本实例 plan-only "
+            "完结（plan.md「执行步骤」节=交付物，/dl done 归档）。升级全量执行："
+            "python3 dl_flow_engine.py fermate <name> off + /dl state-reset plan:2",
+        )
     if node.advance == "phase":
         # advance="phase" 节点（understand:4）：门栏放行 ≠ 阶段推进。
         # 模型写产物 + PHASE_DONE -> phase 大闸门（仍需第二次 /dl gate）。
@@ -6956,6 +6996,8 @@ def tui_tasklist_lines(state: dict[str, Any]) -> list[str]:
         stt = "completed" if i < idx else ("in_progress" if i == idx else "pending")
         rows.append(f"  {i}. {lbl} -> {stt}")
         for j, slabel in enumerate(subphase_labels(p), 1):
+            if st.get("force_fermate") and p == "plan" and j > 2:
+                continue  # fermate：plan:3/plan:4 裁剪不存在（§2.5）
             if i < idx:
                 sst = "completed"
             elif i == idx:
@@ -7004,6 +7046,8 @@ def progress_rows(state: dict[str, Any]) -> list[dict[str, Any]]:
         for nid, node in members:
             if node.sub == 0:
                 continue  # 整阶段节点：阶段行即节点行
+            if st.get("force_fermate") and node.phase == "plan" and node.sub > 2:
+                continue  # fermate：plan:3/plan:4 裁剪不存在（§2.5）
             o = order[nid]
             n_status = (
                 "done" if o < cur_ord else ("current" if o == cur_ord else "todo")
@@ -7025,8 +7069,14 @@ def progress_rows(state: dict[str, Any]) -> list[dict[str, Any]]:
                     )
                     # force-tacet：静默步标「tacet」（LiveProgress/快照均透传 extra）
                     s_extra = ""
-                    if st.get("force_tacet") and f"{nid}#{si}" not in TACET_SPINE_STEPS:
-                        s_extra = "tacet"
+                    if st.get("force_tacet"):
+                        spine = (
+                            TACET_SPINE_STEPS_FERMATE
+                            if st.get("force_fermate")
+                            else TACET_SPINE_STEPS
+                        )
+                        if f"{nid}#{si}" not in spine:
+                            s_extra = "tacet"
                     rows.append(
                         {
                             "depth": 2,
@@ -7245,6 +7295,28 @@ def set_force_tacet(project_root: Path, name: str, on: bool) -> tuple[bool, str]
     )
 
 
+def set_force_fermate(project_root: Path, name: str, on: bool) -> tuple[bool, str]:
+    """fermate（plan-only）开关（fermate-plan-only-design §2.1，镜像 set_force_tacet）。
+
+    state.force_fermate=True（sticky，resume/续跑保持）：plan:3/plan:4 不存在
+    （能力包/检查点消费方全在 execute，无执行=产物纯税），plan:2 末步门栏
+    扣留，/dl gate 确认收货即完结（gate="done"）。模型无权自封——档位不进
+    模型可写面（同 force_tacet 防偷工论证）。关闭=回全量编排。
+    """
+    state = load_state(project_root, name)
+    if state is None:
+        return False, f"工作流 {name} 的 state.json 缺失"
+    state = normalize_state(state)
+    state["force_fermate"] = on
+    save_state(project_root, name, state)
+    return True, (
+        "fermate（plan-only）已开启（plan 止于 plan:2，plan:3/plan:4 裁剪；"
+        "plan:2 末步门栏扣留，/dl gate 确认收货即完结）"
+        if on
+        else "fermate（plan-only）已关闭（回全量编排）"
+    )
+
+
 def front_segment_command(name: str) -> str:
     """前台派发命令逐字单源（phase 注入 / advance 兜底 / fence 白名单三通道共用）。
 
@@ -7345,6 +7417,7 @@ def main(argv: list[str] | None = None) -> int:
             "drive-mode",
             "front-mode",
             "force-tacet",
+            "fermate",
             "dispute",
             "render-phase-rules",
             "append-trace",
@@ -7608,6 +7681,13 @@ def main(argv: list[str] | None = None) -> int:
             print("✗ 用法: force-tacet <name> on|off", file=sys.stderr)
             return 1
         ok, msg = set_force_tacet(project_root, name, args.value == "on")
+        print(("✓ " if ok else "✗ ") + msg, file=sys.stdout if ok else sys.stderr)
+        return 0 if ok else 1
+    if args.cmd == "fermate":
+        if args.value not in ("on", "off"):
+            print("✗ 用法: fermate <name> on|off", file=sys.stderr)
+            return 1
+        ok, msg = set_force_fermate(project_root, name, args.value == "on")
         print(("✓ " if ok else "✗ ") + msg, file=sys.stdout if ok else sys.stderr)
         return 0 if ok else 1
     return 1

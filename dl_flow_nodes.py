@@ -4934,21 +4934,32 @@ TACET_SPINE_STEPS: frozenset[str] = frozenset(
     }
 )
 
+# fermate（plan-only，designs/fermate-plan-only-design.md §2.4）：plan:4 节点
+# 在 fermate 下不存在，脊柱终步重映射 plan:4#4 -> plan:2#4（归一化执行步骤
+# = fermate 终端产物步）——不映射则终端产物步被静默 = 交付物消失（F5）。
+TACET_SPINE_STEPS_FERMATE: frozenset[str] = frozenset(
+    (TACET_SPINE_STEPS - {"plan:4#4"}) | {"plan:2#4"}
+)
 
-def tacet_silent_steps() -> frozenset[str]:
+
+def tacet_silent_steps(fermate: bool = False) -> frozenset[str]:
     """force_tacet 下整步静默的步集 = 全编排子步骤 − 六步脊柱（机械推导单源）。
 
     仅含有 sub_steps 的编排节点（execute/review/evolution 整阶段节点不进实验面）。
     跳步决策只在 engine 机械层 + 用户开关（launch --force-tacet），模型无权
     选择/修改/自封 TACET（防偷工通道）。
+    fermate=True 时脊柱换 TACET_SPINE_STEPS_FERMATE（plan:4#4 -> plan:2#4，
+    fermate-plan-only-design §2.4）；plan:3/plan:4 节点在 fermate 下本不进入，
+    其在静默集内无害（永不命中）。
     """
+    spine = TACET_SPINE_STEPS_FERMATE if fermate else TACET_SPINE_STEPS
     silent: set[str] = set()
     for nid, node in _NODES.items():
         if not node.sub_steps:
             continue
         for i in range(1, len(node.sub_steps) + 1):
             key = f"{nid}#{i}"
-            if key not in TACET_SPINE_STEPS:
+            if key not in spine:
                 silent.add(key)
     return frozenset(silent)
 
