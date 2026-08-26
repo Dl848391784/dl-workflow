@@ -6,6 +6,9 @@ dl_flow_common - state/trace 低层 helper（engine 与 checks 共用真源）�
 dl_flow_engine.py 抽出后，校验函数与 engine 本体都依赖这批 state 装载 /
 trace 分段 helper——下沉本模块打破双向依赖（common 只依赖 dl_flow_nodes）。
 engine 经 re-export 保持 eng.<name> 访问面不变。
+
+2026-08-27 第二轮（handoff/trace 抽离）再下沉：_now / trace_payload_path /
+sub_step_at / sub_step_has_trace。
 """
 
 from __future__ import annotations
@@ -15,7 +18,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from dl_flow_nodes import Node, current_node_id, get_node, sub_total
+from dl_flow_nodes import Node, Step, current_node_id, get_node, sub_total
 
 
 def state_path(project_root: Path, name: str) -> Path:
@@ -178,3 +181,71 @@ def read_evidence_for_step(
     if not latest:
         return None
     return "\n".join(latest[k] for k in sorted(latest))
+
+
+# ---------- 第二轮下沉（2026-08-27，handoff/trace 抽离的共用依赖）----------
+
+
+def _now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
+
+
+def trace_payload_path(
+    project_root: Path, name: str, state: dict | None = None
+) -> Path:
+    """trace 载荷路径单源（v2.125）。全链路（注入/scaffold/围栏/落库）只调这里。
+
+    v2.125 动机（tail_volume 2026-08-07 acceptEdits 重跑实测）：旧落点主仓
+    .claude/evidence/ 撞 harness 写入保护目录（.claude 仅豁免 commands/agents/
+    skills/worktrees）——acceptEdits 下 Edit 载荷必弹窗且 allow 规则无效
+    （叠加 #16170：Edit/Write 的 ** 通配不匹配）。载荷是临时文件
+    （append-trace 消费即弃），不需要主仓持久性 -> 挪 worktree 根：
+    .claude/worktrees/ 在保护豁免名单内 + cwd 内编辑 acceptEdits 本地放行，
+    两个坑同时绕开。evidence.jsonl 本体与阶段产物仍走 Bash 落库主仓
+    （Bash 不过文件权限检查），持久性决议（2026-07-28）不受影响。
+    兜底：state 无 worktree_path（测试/旧 state）-> 旧 evidence 路径。
+    """
+    if state is None:
+        state = load_state(project_root, name) or {}
+    wt = state.get("worktree_path")
+    if isinstance(wt, str) and wt:
+        return Path(wt) / f".trace-payload-{name}.md"
+    return _evidence_path(project_root, name).parent / f".trace-payload-{name}.md"
+
+
+def sub_step_at(node: Node, n: int) -> Step | None:
+    """取第 n 子步骤（1-based）；越界/无子步骤返回 None。"""
+    if not node.sub_steps or not (1 <= n <= len(node.sub_steps)):
+        return None
+    return node.sub_steps[n - 1]
+
+
+def sub_step_has_trace(
+    project_root: Path, name: str, sub_step_index: int, minor_stage: str | None = None
+) -> bool:
+    """evidence.jsonl 是否含 sub_step == sub_step_index 的 skill-trace 记录。
+
+    §step-advance-on-submit E1：UserPromptSubmit 据此判断当前子步骤是否已写 evidence
+    （避开 transcript flush 竞态；evidence 是上轮写、已落盘）。
+    缺文件/读失败 -> False（gate 降级判 block，不默认放行）。
+    匹配字段：kind=skill-trace + sub_step == sub_step_index（+ minor_stage，见
+    _iter_trace_segments 的跨节点串号说明）。
+    q/a 从字符串改为字符串数组（新格式兼容旧格式，单值 q/a 也匹配）。
+    容一行多 JSON 对象（raw_decode 循环，见 _iter_trace_segments）。
+    """
+    text = read_evidence(project_root, name)
+    if not text:
+        return False
+    return any(True for _ in _iter_trace_segments(text, sub_step_index, minor_stage))
+
+
+# 阶段产物规范位置（2026-07-28 用户决议）：主仓 .claude/<dir>/<name>.md，
+# 与 evidence 同级同语义——worktree 归档删除时分支上产物一起丢，主仓
+# .claude/ 才存活（可手动 git add 提交留存）。basename=<name>.md 不在
+# _PHASE_WRITE_NAMES，靠本目录规则放行；限本阶段写（它阶段误写/覆盖仍 deny）。
+_PHASE_ARTIFACT_DIRS: dict[str, str] = {
+    "understand": "understands",
+    "plan": "plans",
+    "review": "reviews",
+    "evolution": "evolutions",
+}
