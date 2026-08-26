@@ -3348,14 +3348,47 @@ def render_substeps_section(nid: str) -> str:
     return "\n".join(lines)
 
 
-def render_phase_rules(template_text: str) -> str:
+_FERMATE_ONLY_RE = re.compile(
+    r"<!-- BEGIN FERMATE_ONLY -->.*?<!-- END FERMATE_ONLY -->", re.DOTALL
+)
+_NO_FERMATE_RE = re.compile(
+    r"<!-- BEGIN NO_FERMATE -->.*?<!-- END NO_FERMATE -->", re.DOTALL
+)
+
+
+def _strip_fermate_blocks(text: str, fermate: bool) -> str:
+    """fermate 条件块（fermate-plan-only-design §2.5）：块级开关，禁文案双写漂移。
+
+    FERMATE_ONLY 块 = 仅 fermate 轨道保留；NO_FERMATE 块 = 仅全量轨道保留。
+    条件剔除先于 GENERATED 渲染——被剔块内的 sub_steps 标记随之消失（plan:3/
+    plan:4 段整块剔除时不应再渲染其子步骤全文）。
+    """
+    if fermate:
+        text = _NO_FERMATE_RE.sub("", text)
+        return _FERMATE_ONLY_RE.sub(
+            lambda m: m.group(0).replace("<!-- BEGIN FERMATE_ONLY -->", "").replace(
+                "<!-- END FERMATE_ONLY -->", ""
+            ),
+            text,
+        )
+    text = _FERMATE_ONLY_RE.sub("", text)
+    return _NO_FERMATE_RE.sub(
+        lambda m: m.group(0).replace("<!-- BEGIN NO_FERMATE -->", "").replace(
+            "<!-- END NO_FERMATE -->", ""
+        ),
+        text,
+    )
+
+
+def render_phase_rules(template_text: str, fermate: bool = False) -> str:
     """把模板里所有 GENERATED sub_steps 标记段替换为 engine 渲染产物。
 
     无标记段 -> 原样返回（向后兼容）；标记的节点 id 非法 -> 抛错（调用方 fail loud）。
-    两阶段：先 GENERATED 块，后 artifact_sections 内联 token（互不感知）。
+    三阶段：先 fermate 条件块，再 GENERATED 块，后 artifact_sections 内联 token。
     """
+    text = _strip_fermate_blocks(template_text, fermate)
     rendered = _GENERATED_RE.sub(
-        lambda m: render_substeps_section(m.group(1)), template_text
+        lambda m: render_substeps_section(m.group(1)), text
     )
     return _ARTIFACT_TOKEN_RE.sub(_render_artifact_token, rendered)
 
@@ -7459,6 +7492,11 @@ def main(argv: list[str] | None = None) -> int:
         help="render-artifact design.md：允许覆盖已存在的设计稿（state-reset 重跑场景）",
     )
     parser.add_argument(
+        "--fermate",
+        action="store_true",
+        help="render-phase-rules：渲染 fermate（plan-only）变体（plan:3/plan:4 段剔除）",
+    )
+    parser.add_argument(
         "--ingest-agent",
         metavar="TASK_ID",
         help="append-trace：把子代理 agent-<TASK_ID> 的报告原文收录进 .md 载荷 qa 节（脚本提取，禁手工粘贴）",
@@ -7503,7 +7541,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"✗ 读模板失败：{e}", file=sys.stderr)
             return 1
         try:
-            sys.stdout.write(render_phase_rules(template_text))
+            sys.stdout.write(render_phase_rules(template_text, fermate=args.fermate))
         except (KeyError, ValueError) as e:
             print(f"✗ 渲染失败：{e}", file=sys.stderr)
             return 1

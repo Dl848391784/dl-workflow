@@ -74,7 +74,12 @@
 - **此阶段无闸门**：understand 完成自动进入 plan（2026-07-28 起围栏只设在 plan 完成）。
 
 ### plan（生成执行计划）
+<!-- BEGIN NO_FERMATE -->
 - 拆 **4 子阶段**，依次完成（plan:1/plan:2/plan:3/plan:4 均有子步骤编排逐步门控；plan:1/2/3 末步通过门控即自动续轮进下一子阶段（无门栏），**仅 plan:4 末步门栏扣留等 `/dl gate`**——2026-07-28 起围栏只设在 plan 完成）：
+<!-- END NO_FERMATE -->
+<!-- BEGIN FERMATE_ONLY -->
+- **本实例 = fermate（plan-only）轨道**：拆 **2 子阶段**（plan:1/plan:2 均有子步骤编排逐步门控；plan:1 末步通过门控即自动续轮进 plan:2（无门栏），**plan:2 末步门栏扣留等 `/dl gate`——确认收货即实例完结**）。plan:3/plan:4 已裁剪不存在（能力包/检查点的消费方全在 execute，本实例无 execute）——**禁预期、禁预习、禁打听其内容**；plan.md 只有「执行步骤」一节 = 最终交付物：
+<!-- END FERMATE_ONLY -->
   1. **设计解决方案**（**子步骤编排，6 步逐步 STEP_DONE 门控**，严格时序不可乱序）：
      - 编排强制语义与 understand:1 **完全相同**（①横幅后按「▶ 当前子步骤」块逐步执行；②写 evidence 是 STEP_DONE 前置（append-trace 两动作）；③输完 STEP_DONE 即 end_turn；④S15/S10/S13/阶段写围栏；⑤连续 block 3 次升级用户裁决）——见上方 understand:1 各条，不再重复。
      - **skill 步 invoke 时序**：子5/子6 ref 含 define-problem，进入该步后立即、在其它任何动作之前 invoke。
@@ -94,7 +99,13 @@
 （本段由 dl-launch.sh 调 dl_flow_engine.py render-phase-rules 在每次启动时生成，手改会被覆盖）
 <!-- END GENERATED sub_steps plan:2 -->
      - **子5 产物装配**：子5 用户拍板后**装配 plan.md「{{artifact_sections:plan.md#0}}」节 = 运行 `python3 ~/.dl-workflow/dl_flow_engine.py render-artifact plan.md`**（脚本机械装配本节——**禁手写产物文件**，改内容改 trace 后重渲染；落主仓 `.claude/plans/<name>.md`）。
+<!-- BEGIN NO_FERMATE -->
      - **末步自动推进（无门栏）**：末子步骤(5) 通过门控后**自动推进并续轮开做 plan:3 子1**（2026-07-28 起 plan:1/2/3 边界无门栏）。不要输出 `### PHASE_DONE: plan`——plan 还有 plan:3 未完成。
+<!-- END NO_FERMATE -->
+<!-- BEGIN FERMATE_ONLY -->
+     - **末步门栏扣留（fermate 终点）**：末子步骤(5) 通过门控后**推进被扣留**（held_for_gate）。等用户 `/dl gate` 确认收货——放行即实例完结（gate=done）：**无 `### PHASE_DONE: plan`、无 plan:3、无 execute**（都不要输出/预期）。扣留期间不要做收尾外的事；`/dl step-pass` 末步放行 ≠ 门栏放行。
+<!-- END FERMATE_ONLY -->
+<!-- BEGIN NO_FERMATE -->
   3. **选择能力与工具**（**子步骤编排，6 步逐步 STEP_DONE 门控**，严格时序不可乱序）：
      - 编排强制语义与 understand:1 **完全相同**（①横幅后按「▶ 当前子步骤」块逐步执行；②写 evidence 是 STEP_DONE 前置（append-trace 两动作）；③输完 STEP_DONE 即 end_turn；④S15/S10/S13/阶段写围栏；⑤连续 block 3 次升级用户裁决）——见上方 understand:1 各条，不再重复。
      - **skill 步 invoke 时序**：子5 ref 含 define-problem，进入该步后立即、在其它任何动作之前 invoke。
@@ -116,10 +127,16 @@
      - **子5 产物装配**：子5 用户拍板后**装配 plan.md「{{artifact_sections:plan.md#2}}」节 = 运行 `python3 ~/.dl-workflow/dl_flow_engine.py render-artifact plan.md`**（同 plan:2 子5——脚本机械装配，禁手写产物文件）。
      - **子阶段门栏（hold_for_gate，全工作流唯一门栏——围栏只设在 plan 完成，2026-07-28 用户决议）**：末子步骤(5) 通过门控后**推进被扣留**。等用户 `/dl gate` 放行（用户也可 /dl back 回退、/dl state-reset <n> 重测）。**扣留期间不要做收尾外的事**；`/dl step-pass` 末步放行 ≠ 门栏放行。
      - **门栏放行后（本节点放行 ≠ 推进）**：`/dl gate` 放行门栏后你**仍在本子阶段**——此时输出 `### PHASE_DONE: plan` 撞 plan->execute 大闸门——大闸门仍需用户**第二次 `/dl gate`** 放行才进 execute（两次连拍是设计内行为）。plan.md「{{artifact_sections:plan.md#2}}」节已在子5 装配完成，不要重做已通过的子步骤。
+<!-- END NO_FERMATE -->
 - 允许：understand 的工具 + 起草 design.md（H8）。
 - 禁止：改源码。
+<!-- BEGIN NO_FERMATE -->
 - 完成：plan:1/plan:2/plan:3/plan:4 用 `### STEP_DONE: <n>` 逐步推进（plan:1/2/3 末步通过门控自动进下一子阶段；**plan:4 末步门栏扣留等 `/dl gate`**）；plan:2 子5 装配 `plan.md`「{{artifact_sections:plan.md#0}}」节，plan:3 子6 追加装配「{{artifact_sections:plan.md#1}}」节，plan:4 子5 追加装配「{{artifact_sections:plan.md#2}}」节，plan:4 门栏放行后输出 `### PHASE_DONE: plan`。
 - **此阶段完成后是闸门**：需用户 `/dl gate` 放行才进 execute。
+<!-- END NO_FERMATE -->
+<!-- BEGIN FERMATE_ONLY -->
+- 完成（fermate）：plan:1/plan:2 用 `### STEP_DONE: <n>` 逐步推进（plan:1 末步通过门控自动进 plan:2；**plan:2 末步门栏扣留等 `/dl gate`**）；plan:2 子5 装配 `plan.md`「{{artifact_sections:plan.md#0}}」节（=唯一节，最终交付物）；`/dl gate` 确认收货即实例完结——**无 `### PHASE_DONE: plan`、无后续阶段**。
+<!-- END FERMATE_ONLY -->
 
 ### execute（执行）
 - 目标：按计划改代码。**首步 = 读主仓 `.claude/plans/<name>.md`（三节：{{artifact_sections:plan.md}}）**——它是唯一执行合同（orchestrator 按调度方案派发、按检查点停验、按失败路由处置；偏离需留痕理由，禁执行期直接改 plan.md——冻结策略见 plan.md 裁决记录）。守项目铁律（H9 ≤3 文件/≤200 行、H11 日志格式、H15 改已有源码先 codegraph impact、no silent fallback）。
