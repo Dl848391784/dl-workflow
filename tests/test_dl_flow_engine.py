@@ -7744,6 +7744,65 @@ class TestV237FirstPassRate:
         )
         assert err and "查无" in err
 
+    def test_change_spec_note_entry_targeted_error(self, tmp_path):
+        # round2 形态 A（designs/change-spec-disclosure-round2-design.md）：
+        # 注记/被否/假想条目内容合法但放错字段——报错须指路 boundary/rejected，
+        # 不是只重印文法（Run 3 plan:1#5 实跑 3 连注记拒）。
+        self._spec_repo(tmp_path)
+        fn = eng._check_change_point_anchor
+        st = lambda v: [self._stmt("change_point", v)]  # noqa: E731
+        for bad in (
+            "（口径选型为设计决策、非代码改动，本决策不新增独立改动条目）——承接链：决策2",
+            "（被否方案无落地改动条目——仅列假想改动面供 ADR 追溯）",
+            "（txt 不纳入→无 txt 侧代码改动条目；现有 txt 生成链保持不动）",
+        ):
+            err = fn(st(bad), tmp_path, "t")
+            assert err and "boundary" in err and "rejected" in err, (
+                f"注记条目应指路字段：{bad} -> {err}"
+            )
+        # 不误伤：合法条目改法里含「被否」词形（语法合规走不到注记分诊）
+        ok = self._stmt(
+            "change_point", "src/foo.py:bar:L12-15（改）：删除被否决的旧分支逻辑"
+        )
+        assert fn([ok], tmp_path, "t") is None
+
+    def test_change_spec_noncode_file_symbol_hint(self, tmp_path):
+        # round2 形态 B：codegraph 不索引 html 模板——symbol 查无的报错
+        # 须指路「symbol 填 - + 行号锚定」（三轮实跑 render_factor_card/
+        # bt_mock/_ann_pct 反复误用）。
+        import subprocess as sp
+
+        self._spec_repo(tmp_path)
+        (tmp_path / "web_ui" / "templates").mkdir(parents=True)
+        (tmp_path / "web_ui" / "templates" / "_macros.html").write_text(
+            "\n".join(["<!-- x -->"] * 100), encoding="utf-8"
+        )
+        sp.run(["git", "add", "."], cwd=tmp_path, capture_output=True)
+        fn = eng._check_change_point_anchor
+        st = lambda v: [self._stmt("change_point", v)]  # noqa: E731
+        err = fn(
+            st(
+                "web_ui/templates/_macros.html:render_factor_card:L55-57（改）：删除模板内二次换算"
+            ),
+            tmp_path,
+            "t",
+        )
+        assert err and "填 -" in err and "行号" in err, (
+            f"非代码文件应指路 symbol 填 -：{err}"
+        )
+        # escape hatch 可用：symbol 填 - + 行号 -> 通过
+        ok = st("web_ui/templates/_macros.html:-:L55-57（改）：删除模板内二次换算")
+        assert fn(ok, tmp_path, "t") is None
+
+    def test_change_spec_scaffold_hint_content_boundary(self, tmp_path):
+        _write_state_full(tmp_path, "t", "plan", 2, sub_step=4)
+        ok, _msg = eng.scaffold_payload(tmp_path, "t")
+        assert ok
+        text = eng.trace_payload_path(
+            tmp_path, "t", eng.load_state(tmp_path, "t")
+        ).read_text(encoding="utf-8")
+        assert "只写可执行改动条目" in text
+
     def test_root_cause_anchor_verify(self, tmp_path):
         import json as _json
 

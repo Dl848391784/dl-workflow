@@ -4593,6 +4593,30 @@ _LIST_PREFIX_RE = re.compile(r"^(?:[-*•]|[0-9]+[.、)）]|[①-⑨])\s*")
 # 剥离后与（kind）交叉核对（_verify_change_spec_entry）。
 _KIND_PREFIX_RE = re.compile(r"^(?P<pk>改|删|增)=\s*")
 
+# 注记条目词形（change-spec-disclosure-round2，2026-08-26，
+# designs/change-spec-disclosure-round2-design.md）：模型把决策注记/被否方案
+# 当 change_list 条目写（Run 3 plan:1#5 实跑 3 连拒）——只在「语法不合」
+# 分支分诊（合法条目走不到，不误伤含「被否」的合法改法文本）。
+_NOTE_ENTRY_RE = re.compile(r"^（|注记|被否|假想|承接链|不执行|记录用途")
+
+# 非代码文件后缀（codegraph 不索引）——symbol 查无报错指路「symbol 填 - +
+# 行号锚定」（三轮实跑 render_factor_card/bt_mock/_ann_pct 反复误用）。
+_NONCODE_FILE_SUFFIXES = frozenset(
+    {
+        ".html",
+        ".htm",
+        ".j2",
+        ".jinja",
+        ".md",
+        ".txt",
+        ".json",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".cfg",
+    }
+)
+
 _CHANGE_SPEC_ENTRY_RE = re.compile(
     r"^(?P<file>[\w./-]+\.\w{1,10}):(?P<symbol>[A-Za-z_][\w.]*|-)"
     r"(?::L(?P<l1>\d+)(?:-(?P<l2>\d+))?)?"
@@ -4705,6 +4729,13 @@ def _verify_anchor_parts(
     if spans is None:
         return None  # db 缺失/过期/失败——跳过（宁纵勿枉）
     if not spans:
+        if Path(file).suffix.lower() in _NONCODE_FILE_SUFFIXES:
+            return (
+                f"{context}的 symbol「{symbol}」在 codegraph 索引的 {file} 内查无"
+                "——codegraph 不索引该文件类型（模板/文档/数据文件），此类文件"
+                "锚点 symbol 填 -、用 L<a>-<b> 行号锚定"
+                f"（如 {file}:-:L10-12（改）：改前→改后要点）"
+            )
         return (
             f"{context}的 symbol「{symbol}」在 codegraph 索引的 {file} 内查无"
             "——锚点须真实存在：跑 dl codebase query --symbol 核实正确符号名"
@@ -4743,6 +4774,12 @@ def _verify_change_spec_entry(
         text = text[pm.end() :]
     m = _CHANGE_SPEC_ENTRY_RE.match(text)
     if not m:
+        if _NOTE_ENTRY_RE.search(text):
+            return (
+                f"改动规格条目疑似注记/说明而非改动条目：「{text[:60]}」——"
+                "change_list 只写可执行改动条目；决策注记/承接链说明挪 "
+                "boundary 字段、被否方案挪 rejected 字段（注记不作为条目出现）"
+            )
         return f"改动规格条目语法不合：「{text[:60]}」——{_CHANGE_SPEC_RULE}"
     file = m.group("file")
     symbol = m.group("symbol")
@@ -6224,12 +6261,16 @@ _FIELD_SCAFFOLD_HINTS = {
     "change_list": (
         "每条改动一行，类型词写括号内：file:symbol（改|删）：改前→改后要点（设计级行号豁免）；"
         "file:symbol（增@现有 symbol|L 行号|文件尾）：新增要点；模块级 symbol=-；"
-        "正例：src/foo.py:bar（改）：改前 X → 改后 Y（行首 改= 类前缀可省）"
+        "正例：src/foo.py:bar（改）：改前 X → 改后 Y（行首 改= 类前缀可省）；"
+        "只写可执行改动条目——决策注记/承接链写 boundary 字段、被否方案写 rejected 字段；"
+        "html 模板/Jinja/fixture 等无 codegraph symbol 的文件：symbol 填 -、行号锚定"
     ),
     "change_point": (
         "每条改动一行，类型词写括号内：file:symbol:L<a>-<b>（改|删）：改前→改后要点（五要素必给）；"
         "file:symbol（增@现有 symbol|L 行号|文件尾）：新增要点；模块级 symbol=-；"
-        "正例：src/foo.py:bar:L10-12（改）：改前 X → 改后 Y（行首 改= 类前缀可省）"
+        "正例：src/foo.py:bar:L10-12（改）：改前 X → 改后 Y（行首 改= 类前缀可省）；"
+        "只写可执行改动条目——决策注记/承接链写 boundary 字段、被否方案写 rejected 字段；"
+        "html 模板/Jinja/fixture 等无 codegraph symbol 的文件：symbol 填 -、行号锚定"
     ),
 }
 
