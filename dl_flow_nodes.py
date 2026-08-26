@@ -796,6 +796,19 @@ _EPC_STEP2_FORM_REQUIREMENTS = (
     "只提案不拍板（密度与类型是用户风险裁决，子5 拍板）"
 )
 
+# u:4#4 gate 静态兜底条款（u4-sub3-fermate-cut-design §1.2②，2026-08-26）：
+# fermate 轨道占位声明项的豁免——声明×state 双向一致性由 append-trace 机械
+# 核验（谎称/漏声明当场拒、不到 judge），judge 只加本静态条款，零 gate 变体
+# （「机械校验已知事实」范式，与本文件 statements 三字段括号同款）。
+_FERMATE_U4S4_EXEMPTION = (
+    "（fermate 轨道项豁免：type_label=占位声明「fermate·plan-only」、验收包=三字段"
+    "（指标/基线/阈值提案）、evidence 无 sub_step==3 skill-trace 对照基准——轨道归属"
+    "与声明一致性已由 append-trace 双向机械核验（谎称/漏声明当场拒、不会到你这里），"
+    "你不得以「缺验收方法/时机/证据形式/验收包六字段不齐/type_label 与子3 不一致/"
+    "缺子3 对照基准/子3+子4 拼合缺子3 行」为由 block 声明项；未含占位声明的项不适用"
+    "本豁免，按方框原判。）\n"
+)
+
 _NODES: dict[str, Node] = {
     # ---------- understand（含 4 子阶段;design §3 / workflow_advance.py:47 SUBPHASES 同源）----------
     "understand:1": Node(
@@ -2469,6 +2482,11 @@ _NODES: dict[str, Node] = {
                     '时机,"boundary":verdict 边界}，验收包六字段可作额外字段随项携带——'
                     "text 只许 outcome-level（实现侧名词/file:line 只能进 boundary，"
                     "机械扫描命中即拒）。"
+                    "（fermate 轨道：无 子3 验收方式设计——验收包=三字段（指标/基线/"
+                    "阈值提案），type_label 逐条填占位声明「fermate·plan-only」"
+                    "（自描述：plan-only 无 review 消费方）——占位声明是 append-trace "
+                    "机械必检项（fermate_placeholder_consistency 双向核验），"
+                    "漏声明/谎称/编造方法·时机当场拒）。"
                     # u4-sub4-cost（designs/u4-sub4-cost-optimization-design.md
                     # L3）：格式真源钉死（#26 平移第二例，u:3#4 同文删「编号传导」
                     # ——本步无条目编号传导机械核对）。基线实证（u4_sub3_ab B2）：
@@ -2481,6 +2499,11 @@ _NODES: dict[str, Node] = {
                 input="step3.criteria_with_acceptance",
                 record=True,
                 record_format="statements",
+                # u4-sub3-fermate-cut（v2）：fermate 轨道占位声明×state 双向核验
+                # （engine _check_fermate_placeholder_consistency）——full-track
+                # 谎称/fermate 漏声明当场拒，judge 侧只加 _FERMATE_U4S4_EXEMPTION
+                # 静态兜底条款（零 gate 变体）。
+                mech_checks=("fermate_placeholder_consistency",),
                 # u4-sub4-cost L1/L2（同设计）：Step 级 strip（第六例，u:4 内
                 # 第四例）+ pack_self_contained（第五例）——消费装配步（禁二次
                 # 创作同构 u:3#4）：交付物 text 只许 outcome-level、规则内容经
@@ -2499,6 +2522,8 @@ _NODES: dict[str, Node] = {
                     f"无方案名词残留吧（逐条看主语：{_SOLUTION_FREE_SUBJECT_RULE}）？"
                     "statements 载荷 text 逐条无实现侧名词吧（文件名/类名只进 boundary，"
                     "append-trace 机械扫描会拒）？"
+                    "fermate 轨道时 type_label 逐条填占位声明「fermate·plan-only」了吗"
+                    "（机械必检，漏填/谎称当场拒）？"
                     "格式照 scaffold 骨架填了吗——没去翻引擎/测试源码反推校验"
                     "实现吧（被拒按报错文案修）？"
                 ),
@@ -2517,7 +2542,8 @@ _NODES: dict[str, Node] = {
                 # 判词逐条引对条款）。
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace、minor_stage=SuccessCriteria 且 sub_step==4 的记录。形式要件：子3 标准集每项各 ≤1 句且自包含（原子+去上下文=对象+动作+约束，中文省略主语合法）；陈述携带验收包六字段（指标/基线/阈值提案/验收方法/时机/证据形式）与 verdict 边界。（statements 三字段非空（text/type_label/boundary）已由 append-trace 逐项 JSON 机械校验通过--你不得以「缺 type_label/缺 boundary/字段不齐/未声明 evidence 路径」为由 block，这些字段在场是机械已知事实。）\n"
-                    "默认 pass--仅当以下成立才判 block（每条附合法形态，合法形态在场不得判）：\n"
+                    + _FERMATE_U4S4_EXEMPTION
+                    + "默认 pass--仅当以下成立才判 block（每条附合法形态，合法形态在场不得判）：\n"
                     "一、验收包字段不传导·方法/时机/证据形式篡改或丢失：type_label（验收方法/时机）与子3 已定不一致（子3 定 demonstration 而陈述标 analysis、子3 定 triggered 而陈述标 continuous，或反之）判 block；验收包六字段中的验收方法/时机/证据形式与子3 对应项矛盾判 block。合法形态=陈述的验收方法/时机/证据形式与子3 对应一致即合规；六字段中的指标/基线/阈值提案是提案性内容、表述措辞不必逐字复刻子3。**六字段=指标/基线/阈值提案/验收方法/时机/证据形式**--可行性三态/选择理由/待建手段清单是子3 论证叙述、非验收包字段，不得以「缺可行性/缺选择理由/缺待建手段/缺时机风险标注」为由 block，不得索取子3 未定的字段。\n"
                     "二、边界不传导·口径限定抹掉改更强断言：陈述抹掉子3/前序已证实的口径限定（default 管线、数据截至2026-07-24、IC均值严格大于0）改成更强断言（如「全部管线当前实时」）判 block。合法形态=陈述以子3 边界内口径表述即合规，text 概括而限定写在六字段/boundary 都合法--不得索取比子3 更强断言，不得要求 text 逐字复刻子3 措辞。boundary 字段=verdict 边界（SC ID + 目标覆盖范围，如「SC1.1；G1 全量覆盖」），**不是实现指针**--不得以「boundary 缺 file:line/缺实现指针/缺出处」block。\n"
                     "三、复合未拆：单句用「和/以及/同时/并」连接多个独立验收标准（各自可单独成为一条、引入不同度量对象或验收事件，如规模数字核对 + 口径一致性核对）判 block；同一验收标准的度量列举（条数+占比是同一验收事件读出的两个数字）、验收条件（与明细计数一致）、修饰成分/约束枚举不算并列--无上述连接词、或连接的成分服务同一标准时，不得判并列。\n"
@@ -2543,6 +2569,9 @@ _NODES: dict[str, Node] = {
                     "本实例任务项——等于给 plan 埋任务，须用户知情；第二裁决点）；"
                     "不可检验退回项显式暴露由用户裁决"
                     "（降低标准/回退目标定义/接受定性验收）；"
+                    "（fermate 轨道：裁决点=阈值拍板单项——无 子3 验收方式设计产物，"
+                    "「验收方式认可」不适用；understand.md 验收包节=三字段+占位 "
+                    "type_label 原样呈现）；"
                     "用户认/否/调整记入 trace。"
                     "裁决完成后装配 understand.md = 运行 `python3 "
                     "~/.dl-workflow/dl_flow_engine.py render-artifact understand.md`"
@@ -4940,6 +4969,13 @@ TACET_SPINE_STEPS: frozenset[str] = frozenset(
 TACET_SPINE_STEPS_FERMATE: frozenset[str] = frozenset(
     (TACET_SPINE_STEPS - {"plan:4#4"}) | {"plan:2#4"}
 )
+
+# fermate 裁剪静默步集（u4-sub3-fermate-cut-design §1.2①，2026-08-26）：
+# 与 tacet 静默集正交——tacet 管密度（步骤不出声）、fermate 管深度（消费方
+# 不存在整步裁）。u:4#3（验收方式设计）消费方全在 review/execute（四法选择/
+# 可行性三态/时机/证据形式锚定 review:0），plan-only 下整步静默；兜底=
+# plan:1#3 可测试性核验 + plan:2#4 verify 字段。声明式手选集（非机械推导）。
+FERMATE_SILENT_STEPS: frozenset[str] = frozenset({"understand:4#3"})
 
 
 def tacet_silent_steps(fermate: bool = False) -> frozenset[str]:

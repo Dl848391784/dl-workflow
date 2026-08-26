@@ -13628,3 +13628,93 @@ class TestForceFermate:
         pack = eng.handoff_pack(tmp_path, "t")
         assert "fermate（plan-only）" in pack
         assert "禁预期/预习 plan:3/plan:4" in pack
+
+
+class TestU4Sub3FermateCut:
+    """u:4#3（验收方式设计）fermate 裁剪（u4-sub3-fermate-cut-design，2026-08-26）。
+
+    声明-核验对范式：u:4#3 fermate 下整步静默（kind=fermate 机械落痕）；u:4#4
+    占位声明×state 双向核验（append-trace 机械必检）；judge 侧只加静态兜底
+    条款（_FERMATE_U4S4_EXEMPTION），零 gate 变体。
+    """
+
+    def test_step_fermate_forced_flag_gated(self, tmp_path):
+        # 开关门控：无 force_fermate 任何步 False；置位后仅 u:4#3 True；
+        # force_tacet 单独不触发 fermate 静默（两开关正交）。
+        node = eng._NODES["understand:4"]
+        _write_state_full(tmp_path, "t", "understand", 4, sub_step=3)
+        st = eng.load_state(tmp_path, "t")
+        assert eng.step_fermate_forced(st, node, 3) is False
+        st["force_tacet"] = True  # 仅 tacet 不触发
+        assert eng.step_fermate_forced(st, node, 3) is False
+        st["force_fermate"] = True
+        assert eng.step_fermate_forced(st, node, 3) is True
+        assert eng.step_fermate_forced(st, node, 2) is False  # u:4#2 保留
+        assert eng.step_fermate_forced(st, node, 4) is False  # u:4#4 保留
+
+    def test_write_fermate_trace_kind_isolated(self, tmp_path):
+        # 落痕形态：kind=fermate + skill=fermate；与 skill-trace 面隔离
+        # （_iter_trace_segments 不匹配 = 不进 judge 输入，tacet 同款）。
+        _write_state_full(tmp_path, "t", "understand", 4, sub_step=3)
+        node = eng._NODES["understand:4"]
+        eng.write_fermate_trace(tmp_path, "t", node, 3)
+        text = eng.read_evidence(tmp_path, "t")
+        rec = json.loads(text.strip().splitlines()[-1])
+        assert rec["kind"] == "fermate"
+        assert rec["skill"] == "fermate"
+        assert rec["minor_stage"] == node.minor_key
+        assert rec["sub_step"] == 3
+        segs = list(eng._iter_trace_segments(text, 3, node.minor_key))
+        assert segs == []
+
+    def test_apply_fermate_skip_advances(self, tmp_path):
+        # 静默跳过：u:4 子3 -> 写 fermate-record + sub_step_index++（非末步
+        # 无装配/门栏分支），无 held 副作用。
+        _write_state_full(tmp_path, "t", "understand", 4, sub_step=3)
+        st = eng.load_state(tmp_path, "t")
+        st["force_fermate"] = True
+        eng.save_state(tmp_path, "t", st)
+        ok, msg = eng.apply_fermate_skip(tmp_path, "t")
+        assert ok is True, msg
+        reread = eng.load_state(tmp_path, "t")
+        assert reread["sub_step_index"] == 4
+        assert reread["phase"] == "understand" and reread["sub_index"] == 4
+        assert "held_for_gate" not in reread
+        rec = json.loads(eng.read_evidence(tmp_path, "t").strip().splitlines()[-1])
+        assert rec["kind"] == "fermate"
+
+    def test_mech_placeholder_consistency_quadrants(self, tmp_path):
+        # 声明-核验对四象限（u:4#4 专属 mech）：
+        # 声明+非 fermate=拒（G1 偷工通道封死）/ 无声明+非 fermate=过 /
+        # 声明+fermate=过 / 无声明+fermate=拒（G2 漏声明逼回）。
+        _write_state_full(tmp_path, "t", "understand", 4, sub_step=4)
+        decl = [{"text": "x", "type_label": "fermate·plan-only", "boundary": ""}]
+        real = [{"text": "x", "type_label": "test/triggered", "boundary": ""}]
+        r = eng._check_fermate_placeholder_consistency(decl, tmp_path, "t")
+        assert r is not None and "非 fermate" in r
+        assert eng._check_fermate_placeholder_consistency(real, tmp_path, "t") is None
+        st = eng.load_state(tmp_path, "t")
+        st["force_fermate"] = True
+        eng.save_state(tmp_path, "t", st)
+        assert eng._check_fermate_placeholder_consistency(decl, tmp_path, "t") is None
+        r = eng._check_fermate_placeholder_consistency(real, tmp_path, "t")
+        assert r is not None and "缺 fermate" in r
+
+    def test_gate_exemption_clause_and_registry(self):
+        # 漂移守卫：u:4#4 gate 含静态兜底条款；mech_checks 声明名全部在
+        # _MECH_STATEMENTS_CHECKS 注册（nodes/engine 漂移 fail loud 的测试钉）。
+        step = eng._NODES["understand:4"].sub_steps[3]
+        assert "fermate 轨道项豁免" in step.gate
+        assert "fermate_placeholder_consistency" in step.mech_checks
+        for chk in step.mech_checks:
+            assert chk in eng._MECH_STATEMENTS_CHECKS
+
+    def test_render_substeps_fermate_annotation(self):
+        # 渲染注记（§3 polish）：fermate 变体 u:4#3 行带「裁剪·机械静默」注记，
+        # 全量变体无注记（回归）。
+        full = eng.render_substeps_section("understand:4")
+        ferm = eng.render_substeps_section("understand:4", fermate=True)
+        assert "fermate 裁剪·机械静默" not in full
+        assert "fermate 裁剪·机械静默" in ferm
+        # 注记只命中子3 一行（其余 4 步不带）
+        assert ferm.count("fermate 裁剪·机械静默") == 1
