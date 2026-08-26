@@ -64,6 +64,8 @@ from dl_flow_nodes import (
     subphase_labels,
     tacet_silent_steps,  # force-tacet 实验轨道（designs/force-tacet-experiment-design.md）
     TACET_SPINE_STEPS,  # noqa: F401  # re-export：tests 经 eng.TACET_SPINE_STEPS 访问
+    TACET_SPINE_STEPS_FERMATE,  # fermate 组合脊柱（fermate-plan-only-design §2.4）
+    FERMATE_SILENT_STEPS,  # fermate 裁剪静默步集（u4-sub3-fermate-cut-design §1.2①）
 )
 
 # 组件 B：项目工具注册发现（list-tools / S15 白名单用；scripts 为命名空间包）。
@@ -1465,7 +1467,7 @@ def write_confirm_trace(project_root: Path, name: str, node: "Node", cur: int) -
 # trace 判决）、跳过交互回屏。driver 派段前查 step_tacet_forced 命中即调
 # apply_tacet_skip。跳步决策只在机械层 + 用户开关（launch --force-tacet）。
 
-_TACET_SILENT_CACHE: frozenset[str] | None = None
+_TACET_SILENT_CACHE: dict[bool, frozenset[str]] = {}
 
 
 def step_tacet_forced(state: dict[str, Any], node: "Node", cur: int) -> bool:
@@ -1473,13 +1475,16 @@ def step_tacet_forced(state: dict[str, Any], node: "Node", cur: int) -> bool:
 
     脊柱步（问题陈述/根因/取证/修法/计划包）正常执行且质量门不放水（design §8）；
     模型无权自选 tacet（档位不进模型可写面--防偷工通道）。
+    fermate 组合时脊柱重映射（plan:4#4 -> plan:2#4，fermate-plan-only-design §2.4），
+    缓存按 fermate 布尔双份。
     """
     if not state.get("force_tacet"):
         return False
+    fermate = bool(state.get("force_fermate"))
     global _TACET_SILENT_CACHE
-    if _TACET_SILENT_CACHE is None:
-        _TACET_SILENT_CACHE = tacet_silent_steps()
-    return f"{node_id(node.phase, node.sub)}#{cur}" in _TACET_SILENT_CACHE
+    if fermate not in _TACET_SILENT_CACHE:
+        _TACET_SILENT_CACHE[fermate] = tacet_silent_steps(fermate=fermate)
+    return f"{node_id(node.phase, node.sub)}#{cur}" in _TACET_SILENT_CACHE[fermate]
 
 
 def write_tacet_trace(project_root: Path, name: str, node: "Node", cur: int) -> None:
@@ -1508,6 +1513,68 @@ def write_tacet_trace(project_root: Path, name: str, node: "Node", cur: int) -> 
     p.parent.mkdir(parents=True, exist_ok=True)
     with open(p, "a", encoding="utf-8") as f:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+
+# ---------- fermate 裁剪静默步（u4-sub3-fermate-cut-design §1.2①，2026-08-26）----------
+#
+# 与 tacet 静默正交：tacet 管密度（步骤不出声，流程照走），fermate 管深度
+# （消费方全在 review/execute 的步整步裁）。机制镜像 tacet 三件套减配版——
+# FERMATE_SILENT_STEPS 当前唯一步 u:4#3 非末步非装配步，跳过=落痕+推进，
+# 无 render_artifact 分支。
+
+
+def step_fermate_forced(state: dict[str, Any], node: "Node", cur: int) -> bool:
+    """该步是否处于 fermate 裁剪静默（state.force_fermate + FERMATE_SILENT_STEPS）。
+
+    模型无权自选（档位不进模型可写面，同 force_tacet 防偷工论证）。
+    """
+    if not state.get("force_fermate"):
+        return False
+    return f"{node_id(node.phase, node.sub)}#{cur}" in FERMATE_SILENT_STEPS
+
+
+def write_fermate_trace(project_root: Path, name: str, node: "Node", cur: int) -> None:
+    """fermate 静默步的机械 trace（kind=fermate，隔离语义同 write_tacet_trace：
+    不入 skill-trace 面 = 零 judge 输入干扰；落痕诚实可见供审计）。"""
+    rec = {
+        "kind": "fermate",
+        "major_stage": node.phase.capitalize(),
+        "minor_stage": node.minor_key,
+        "sub_step": cur,
+        "skill": "fermate",
+        "purpose": "fermate 裁剪（机械落库，无模型会话）",
+        "q": [f"fermate（plan-only·裁剪静默）：{node.label} · 子步骤{cur}"],
+        "a": [
+            "fermate（plan-only）轨道：本步整步静默（消费方全在 review/execute，"
+            "plan-only 无消费方——u4-sub3-fermate-cut-design §0），由 engine 机械"
+            "落痕并通过。触发 = launch --fermate（state.force_fermate），"
+            "跳步决策只在机械层，模型无权自选。"
+        ],
+    }
+    p = _evidence_path(project_root, name)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with open(p, "a", encoding="utf-8") as f:
+        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+
+def apply_fermate_skip(project_root: Path, name: str) -> tuple[bool, str]:
+    """fermate 静默步机械跳过（driver 派段前调用，apply_tacet_skip 减配版）。
+
+    FERMATE_SILENT_STEPS 当前唯一步（u:4#3）非末步非装配步：写 fermate-record
+    + 推进（sub_step_index++），无 render_artifact / 门栏分支。
+    """
+    state = load_state(project_root, name)
+    if state is None:
+        return False, f"工作流 {name} 的 state.json 缺失"
+    state = normalize_state(state)
+    try:
+        node = get_node(state["phase"], state["sub_index"])
+    except KeyError:
+        return False, f"节点 {state['phase']}:{state['sub_index']} 不存在"
+    cur = state.get("sub_step_index", 1)
+    write_fermate_trace(project_root, name, node, cur)
+    _advance_sub_step(project_root, name, state, node, cur, via="fermate-skip")
+    return True, ""
 
 
 def apply_tacet_skip(project_root: Path, name: str) -> tuple[bool, str]:
@@ -1890,6 +1957,15 @@ def handoff_pack(project_root: Path, name: str) -> str | None:
             "u:1#4 / 修法 plan:1#2 / 计划包 plan:4#4），其余步 TACET 静默--"
             "上游材料薄是设计内状态，非缺漏；禁自行补做已沉默的步骤。\n"
         )
+    if state.get("force_fermate"):
+        # fermate（plan-only）：告知终点形态（fermate-plan-only-design §3 F1），
+        # 防模型按全量记忆预期/预习 plan:3。
+        lines.append(
+            "### 运行轨道：fermate（plan-only）\n"
+            "本实例 plan 止于 plan:2（拆解任务与阶段）——plan:3/plan:4 已裁剪不存在；"
+            "plan:2 末步过门控后门栏扣留，用户 /dl gate 确认收货即完结。plan.md "
+            "只有「执行步骤」一节=最终交付物；禁预期/预习 plan:3/plan:4 内容。\n"
+        )
     lines += [
         f"### 当前位置：{cur_node.label}（{node_id(cur_phase, cur_sub)}）子步骤 {cur_step}",
         "",
@@ -1982,6 +2058,18 @@ def handoff_pack(project_root: Path, name: str) -> str | None:
     return "\n".join(lines)
 
 
+def node_holds_for_gate(state: dict[str, Any], node: "Node") -> bool:
+    """末步门栏扣留判据单源（_advance_sub_step / release_subgate 两处引用）。
+
+    node.hold_for_gate = 全量轨道唯一门栏（plan:4，2026-07-28 用户决议「围栏
+    只设在 plan 完成」）；fermate（plan-only，fermate-plan-only-design §2.2）
+    下 plan:2 成为终点门栏——plan:3/plan:4 不存在，/dl gate 语义=「确认收货」。
+    """
+    if node.hold_for_gate:
+        return True
+    return bool(state.get("force_fermate")) and node.phase == "plan" and node.sub == 2
+
+
 def _advance_sub_step(
     project_root: Path, name: str, state: dict[str, Any], node: Node, cur: int, via: str
 ) -> dict[str, Any]:
@@ -2001,12 +2089,14 @@ def _advance_sub_step(
         state["updated_at"] = _now()
         save_state(project_root, name, state)
         return state
-    if node.hold_for_gate:
+    if node_holds_for_gate(state, node):
         # force-tacet 不豁免门栏（2026-08-23 用户裁决「到 p 默认停止，与 main
         # 一致」）：hold_for_gate 全系统唯一处 = plan:4（围栏设在 plan 完成），
         # 此前 force_tacet 自动放行+advance_state 一并穿越 plan->execute 大闸门
         # = 首跑直接跑进 execute/review/evolution。现 tacet 与 main 同路径：
         # plan 完成 -> held_for_gate 停等 -> 用户 /dl gate 放行才继续。
+        # fermate（plan-only）：plan:2 末步同此扣留（node_holds_for_gate 单源），
+        # /dl gate = 确认收货即完结，不推进 plan:3（release_subgate 终态分支）。
         state["held_for_gate"] = True
         state["updated_at"] = _now()
         save_state(project_root, name, state)
@@ -2068,7 +2158,7 @@ def release_subgate(project_root: Path, name: str, cwd: str) -> tuple[bool, str]
     cur = state.get("sub_step_index", 1)
     held = (
         state.get("held_for_gate")
-        and node.hold_for_gate
+        and node_holds_for_gate(state, node)
         and node.sub_steps
         and cur == len(node.sub_steps)
     )
@@ -2088,6 +2178,19 @@ def release_subgate(project_root: Path, name: str, cwd: str) -> tuple[bool, str]
     state.pop("held_for_gate", None)
     state["updated_at"] = _now()
     save_state(project_root, name, state)
+    if state.get("force_fermate") and node.phase == "plan" and node.sub == 2:
+        # fermate 终态（fermate-plan-only-design §2.2）：/dl gate = 确认收货，
+        # 不推进 plan:3——置 gate="done"（镜像 advance_state 的 next_node_id None
+        # 终态分支），实例完结，/dl done 归档走既有路径。
+        state["gate"] = "done"
+        state["updated_at"] = _now()
+        save_state(project_root, name, state)
+        return (
+            True,
+            "门栏放行（fermate 终态）：改动点清单已确认收货 —— 本实例 plan-only "
+            "完结（plan.md「执行步骤」节=交付物，/dl done 归档）。升级全量执行："
+            "python3 dl_flow_engine.py fermate <name> off + /dl state-reset plan:2",
+        )
     if node.advance == "phase":
         # advance="phase" 节点（understand:4）：门栏放行 ≠ 阶段推进。
         # 模型写产物 + PHASE_DONE -> phase 大闸门（仍需第二次 /dl gate）。
@@ -3286,11 +3389,13 @@ def render_substeps_brief(nid: str, cur: int) -> str:
     return "\n".join(lines)
 
 
-def render_substeps_section(nid: str) -> str:
+def render_substeps_section(nid: str, fermate: bool = False) -> str:
     """渲染节点 sub_steps 的 phase-rules 段落（含 BEGIN/END 标记行，幂等可重渲染）。
 
     每步一行：`- **子步骤N = <ref>**：<purpose 全文>`（gate=None 标「自动过」）。
     节点无 sub_steps / 节点不存在 -> 报错暴露（no silent fallback）。
+    fermate=True 时 FERMATE_SILENT_STEPS 命中的步注记「fermate 裁剪·机械静默」
+    （u4-sub3-fermate-cut-design §3 polish——清单诚实可见，跳步由 driver 机械执行）。
     """
     phase, sep, sub_s = nid.partition(":")
     if not sep or not sub_s.isdigit():
@@ -3303,19 +3408,55 @@ def render_substeps_section(nid: str) -> str:
     lines = [f"<!-- BEGIN GENERATED sub_steps {nid} -->"]
     for i, stp in enumerate(node.sub_steps, 1):
         gate_tag = "" if stp.gate else "（自动过）"
-        lines.append(f"     - **子步骤{i} = {stp.ref}**{gate_tag}：{stp.purpose}")
+        fermate_tag = ""
+        if fermate and f"{nid}#{i}" in FERMATE_SILENT_STEPS:
+            fermate_tag = "（**fermate 裁剪·机械静默**：本步不派段不门控，engine 落痕即过）"
+        lines.append(f"     - **子步骤{i} = {stp.ref}**{gate_tag}{fermate_tag}：{stp.purpose}")
     lines.append(f"<!-- END GENERATED sub_steps {nid} -->")
     return "\n".join(lines)
 
 
-def render_phase_rules(template_text: str) -> str:
+_FERMATE_ONLY_RE = re.compile(
+    r"<!-- BEGIN FERMATE_ONLY -->.*?<!-- END FERMATE_ONLY -->", re.DOTALL
+)
+_NO_FERMATE_RE = re.compile(
+    r"<!-- BEGIN NO_FERMATE -->.*?<!-- END NO_FERMATE -->", re.DOTALL
+)
+
+
+def _strip_fermate_blocks(text: str, fermate: bool) -> str:
+    """fermate 条件块（fermate-plan-only-design §2.5）：块级开关，禁文案双写漂移。
+
+    FERMATE_ONLY 块 = 仅 fermate 轨道保留；NO_FERMATE 块 = 仅全量轨道保留。
+    条件剔除先于 GENERATED 渲染——被剔块内的 sub_steps 标记随之消失（plan:3/
+    plan:4 段整块剔除时不应再渲染其子步骤全文）。
+    """
+    if fermate:
+        text = _NO_FERMATE_RE.sub("", text)
+        return _FERMATE_ONLY_RE.sub(
+            lambda m: m.group(0).replace("<!-- BEGIN FERMATE_ONLY -->", "").replace(
+                "<!-- END FERMATE_ONLY -->", ""
+            ),
+            text,
+        )
+    text = _FERMATE_ONLY_RE.sub("", text)
+    return _NO_FERMATE_RE.sub(
+        lambda m: m.group(0).replace("<!-- BEGIN NO_FERMATE -->", "").replace(
+            "<!-- END NO_FERMATE -->", ""
+        ),
+        text,
+    )
+
+
+def render_phase_rules(template_text: str, fermate: bool = False) -> str:
     """把模板里所有 GENERATED sub_steps 标记段替换为 engine 渲染产物。
 
     无标记段 -> 原样返回（向后兼容）；标记的节点 id 非法 -> 抛错（调用方 fail loud）。
-    两阶段：先 GENERATED 块，后 artifact_sections 内联 token（互不感知）。
+    三阶段：先 fermate 条件块，再 GENERATED 块，后 artifact_sections 内联 token。
     """
+    text = _strip_fermate_blocks(template_text, fermate)
     rendered = _GENERATED_RE.sub(
-        lambda m: render_substeps_section(m.group(1)), template_text
+        lambda m: render_substeps_section(m.group(1), fermate=fermate), text
     )
     return _ARTIFACT_TOKEN_RE.sub(_render_artifact_token, rendered)
 
@@ -4908,6 +5049,44 @@ def _check_change_point_anchor(
     )
 
 
+# fermate 轨道占位声明词形（type_label 匹配，小写化后子串判）。
+_FERMATE_PLACEHOLDER_TOKEN = "fermate"
+
+
+def _check_fermate_placeholder_consistency(
+    statements: list, project_root: Path, name: str
+) -> str | None:
+    """fermate_placeholder_consistency（u:4#4 专属，u4-sub3-fermate-cut §1.2②）。
+
+    声明-核验对的机械侧：占位声明 × state.force_fermate 双向核验——
+    ①任一 statement type_label 含占位声明（fermate 词形）但本实例非 fermate
+      -> 拒（full-track 谎称轨道偷工通道机械封死，judge 永不可见）；
+    ②本实例是 fermate 但存在 type_label 不含占位声明的 statement
+      -> 拒（漏声明/编造验收方法·时机逼回——gate 静态兜底只豁免声明项）。
+    state 缺失 -> 不判（宁纵勿枉，交 judge）。
+    """
+    state = load_state(project_root, name)
+    if state is None:
+        return None
+    fermate = bool(state.get("force_fermate"))
+    for i, it in enumerate(statements):
+        declared = _FERMATE_PLACEHOLDER_TOKEN in str(it.get("type_label", "")).lower()
+        if declared and not fermate:
+            return (
+                f"statements[{i}] type_label 含 fermate 轨道占位声明，但本实例非 "
+                "fermate 轨道（state.force_fermate 未置位）——占位声明只在 fermate"
+                "（plan-only）实例合法；全量轨道按子3 验收方式设计填验收方法/时机"
+            )
+        if fermate and not declared:
+            return (
+                f"statements[{i}] type_label 缺 fermate 轨道占位声明——本实例是 "
+                "fermate（plan-only）轨道（无 子3 验收方式设计），type_label 须逐条填 "
+                "「fermate·plan-only」（验收包=三字段：指标/基线/阈值提案）；"
+                "编造验收方法/时机或留空均当场拒"
+            )
+    return None
+
+
 # statements 格式步的写侧机械校验注册表（Step.mech_checks 声明名 -> 检查函数，
 # 签名 (statements, project_root, name)）。statements 首个 mech 注册表
 # （u:2#4 预留独立项，#30 ⑰ 的解）。未注册名 = nodes 与 engine 配置漂移，fail loud。
@@ -4918,6 +5097,7 @@ _MECH_STATEMENTS_CHECKS = {
     "assumption_propagation_trace": _check_assumption_propagation_trace,
     "change_list_anchor_verify": _check_change_list_anchor,
     "change_point_anchor_verify": _check_change_point_anchor,
+    "fermate_placeholder_consistency": _check_fermate_placeholder_consistency,
 }
 
 
@@ -6956,6 +7136,8 @@ def tui_tasklist_lines(state: dict[str, Any]) -> list[str]:
         stt = "completed" if i < idx else ("in_progress" if i == idx else "pending")
         rows.append(f"  {i}. {lbl} -> {stt}")
         for j, slabel in enumerate(subphase_labels(p), 1):
+            if st.get("force_fermate") and p == "plan" and j > 2:
+                continue  # fermate：plan:3/plan:4 裁剪不存在（§2.5）
             if i < idx:
                 sst = "completed"
             elif i == idx:
@@ -7004,6 +7186,8 @@ def progress_rows(state: dict[str, Any]) -> list[dict[str, Any]]:
         for nid, node in members:
             if node.sub == 0:
                 continue  # 整阶段节点：阶段行即节点行
+            if st.get("force_fermate") and node.phase == "plan" and node.sub > 2:
+                continue  # fermate：plan:3/plan:4 裁剪不存在（§2.5）
             o = order[nid]
             n_status = (
                 "done" if o < cur_ord else ("current" if o == cur_ord else "todo")
@@ -7025,8 +7209,14 @@ def progress_rows(state: dict[str, Any]) -> list[dict[str, Any]]:
                     )
                     # force-tacet：静默步标「tacet」（LiveProgress/快照均透传 extra）
                     s_extra = ""
-                    if st.get("force_tacet") and f"{nid}#{si}" not in TACET_SPINE_STEPS:
-                        s_extra = "tacet"
+                    if st.get("force_tacet"):
+                        spine = (
+                            TACET_SPINE_STEPS_FERMATE
+                            if st.get("force_fermate")
+                            else TACET_SPINE_STEPS
+                        )
+                        if f"{nid}#{si}" not in spine:
+                            s_extra = "tacet"
                     rows.append(
                         {
                             "depth": 2,
@@ -7245,6 +7435,28 @@ def set_force_tacet(project_root: Path, name: str, on: bool) -> tuple[bool, str]
     )
 
 
+def set_force_fermate(project_root: Path, name: str, on: bool) -> tuple[bool, str]:
+    """fermate（plan-only）开关（fermate-plan-only-design §2.1，镜像 set_force_tacet）。
+
+    state.force_fermate=True（sticky，resume/续跑保持）：plan:3/plan:4 不存在
+    （能力包/检查点消费方全在 execute，无执行=产物纯税），plan:2 末步门栏
+    扣留，/dl gate 确认收货即完结（gate="done"）。模型无权自封——档位不进
+    模型可写面（同 force_tacet 防偷工论证）。关闭=回全量编排。
+    """
+    state = load_state(project_root, name)
+    if state is None:
+        return False, f"工作流 {name} 的 state.json 缺失"
+    state = normalize_state(state)
+    state["force_fermate"] = on
+    save_state(project_root, name, state)
+    return True, (
+        "fermate（plan-only）已开启（plan 止于 plan:2，plan:3/plan:4 裁剪；"
+        "plan:2 末步门栏扣留，/dl gate 确认收货即完结）"
+        if on
+        else "fermate（plan-only）已关闭（回全量编排）"
+    )
+
+
 def front_segment_command(name: str) -> str:
     """前台派发命令逐字单源（phase 注入 / advance 兜底 / fence 白名单三通道共用）。
 
@@ -7345,6 +7557,7 @@ def main(argv: list[str] | None = None) -> int:
             "drive-mode",
             "front-mode",
             "force-tacet",
+            "fermate",
             "dispute",
             "render-phase-rules",
             "append-trace",
@@ -7384,6 +7597,11 @@ def main(argv: list[str] | None = None) -> int:
         "--force",
         action="store_true",
         help="render-artifact design.md：允许覆盖已存在的设计稿（state-reset 重跑场景）",
+    )
+    parser.add_argument(
+        "--fermate",
+        action="store_true",
+        help="render-phase-rules：渲染 fermate（plan-only）变体（plan:3/plan:4 段剔除）",
     )
     parser.add_argument(
         "--ingest-agent",
@@ -7430,7 +7648,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"✗ 读模板失败：{e}", file=sys.stderr)
             return 1
         try:
-            sys.stdout.write(render_phase_rules(template_text))
+            sys.stdout.write(render_phase_rules(template_text, fermate=args.fermate))
         except (KeyError, ValueError) as e:
             print(f"✗ 渲染失败：{e}", file=sys.stderr)
             return 1
@@ -7608,6 +7826,13 @@ def main(argv: list[str] | None = None) -> int:
             print("✗ 用法: force-tacet <name> on|off", file=sys.stderr)
             return 1
         ok, msg = set_force_tacet(project_root, name, args.value == "on")
+        print(("✓ " if ok else "✗ ") + msg, file=sys.stdout if ok else sys.stderr)
+        return 0 if ok else 1
+    if args.cmd == "fermate":
+        if args.value not in ("on", "off"):
+            print("✗ 用法: fermate <name> on|off", file=sys.stderr)
+            return 1
+        ok, msg = set_force_fermate(project_root, name, args.value == "on")
         print(("✓ " if ok else "✗ ") + msg, file=sys.stdout if ok else sys.stderr)
         return 0 if ok else 1
     return 1

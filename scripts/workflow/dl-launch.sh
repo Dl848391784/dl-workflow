@@ -12,6 +12,7 @@
 #   dl <name> --verbose    子会话输出尾随上屏（默认静默只落 drive-stream.jsonl）
 #   dl <name> --headless   v3 全程 headless driver（driver 占终端，stdin 断点）
 #   dl <name> --force-tacet  force-tacet 实验轨道（六步脊柱执行，其余 38 步 TACET 静默；到 plan:4 门栏停等；front 默认 / --headless 均可）
+#   dl <name> --fermate      fermate（plan-only）：plan 止于 plan:2，plan:3/plan:4 裁剪；plan:2 门栏 /dl gate 确认收货即完结（可与 --force-tacet 组合）
 #   dl list                列举所有工作流
 #   dl <name> --done       归档工作流（删 worktree，保留元数据）
 
@@ -69,6 +70,7 @@ WF_DEBUG=0
 WF_VERBOSE=0
 WF_HEADLESS=0
 WF_FORCE_TACET=0
+WF_FORCE_FERMATE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --resume) WF_RESUME=1;;
@@ -79,6 +81,7 @@ while [ $# -gt 0 ]; do
     --verbose) WF_VERBOSE=1;;
     --headless) WF_HEADLESS=1;;
     --force-tacet) WF_FORCE_TACET=1;;
+    --fermate) WF_FORCE_FERMATE=1;;
     -h|--help) usage 0;;
     *) echo "wf-launch: 未知参数 '$1'" >&2; usage 1;;
   esac
@@ -165,6 +168,22 @@ if [ "$WF_FORCE_TACET" = "1" ]; then
   echo "    门栏/闸门自动放行；front（默认）与 --headless 均支持（静默步由段工人/驱动循环自动跳过）"
 fi
 
+# ---------- fermate（fermate-plan-only-design §2.1）：plan-only 开关 ----------
+# 与 --force-tacet 正交可组合（tacet 管步骤密度，fermate 管流程深度）。
+# sticky：续跑/再次 launch 同名 flag 会重置为 on；off 用 engine fermate <name> off。
+# 置位时机同 --force-tacet：render-phase-rules 之前（渲染按 flag 出 fermate 变体）。
+if [ "$WF_FORCE_FERMATE" = "1" ]; then
+  if [ "${WF_TUI:-0}" = "1" ]; then
+    echo "wf-launch: --fermate 不支持 WF_TUI=1 旧 TUI 路径（用默认 front 或 --headless）" >&2
+    exit 1
+  fi
+  if ! python3 "$LIB_DIR/../../dl_flow_engine.py" fermate "$WF_NAME" on >/dev/null; then
+    echo "wf-launch: fermate 置位失败（state 写入异常）" >&2
+    exit 1
+  fi
+  echo "  𝄐 fermate（plan-only）：plan 止于 plan:2（plan:3/plan:4 裁剪），plan:2 门栏 /dl gate 确认收货即完结"
+fi
+
 # 阶段跳转（--phase 或新建后默认 understand 已由 init 设置）
 if [ -n "$WF_PHASE_OVERRIDE" ]; then
   idx=$(wf_phase_index "$WF_PHASE_OVERRIDE") || { echo "wf-launch: 非法阶段 '$WF_PHASE_OVERRIDE'" >&2; exit 1; }
@@ -198,7 +217,11 @@ PHASE_RULES_TEMPLATE="$LIB_DIR/phase-rules.md"
 SYS_PROMPT_ARGS=()
 if [ -f "$PHASE_RULES_TEMPLATE" ]; then
   PHASE_RULES_RENDERED="$WF_META_ROOT/$WF_NAME/phase-rules.rendered.md"
-  if ! python3 "$LIB_DIR/../../dl_flow_engine.py" render-phase-rules "$PHASE_RULES_TEMPLATE" > "$PHASE_RULES_RENDERED"; then
+  RENDER_FERMATE_ARGS=()
+  if [ "$WF_FORCE_FERMATE" = "1" ]; then
+    RENDER_FERMATE_ARGS=(--fermate)
+  fi
+  if ! python3 "$LIB_DIR/../../dl_flow_engine.py" render-phase-rules "$PHASE_RULES_TEMPLATE" "${RENDER_FERMATE_ARGS[@]}" > "$PHASE_RULES_RENDERED"; then
     echo "✗ phase-rules 渲染失败（见上方错误），中止启动" >&2
     exit 1
   fi

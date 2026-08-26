@@ -2179,6 +2179,19 @@ def _run_boundary_loop(
                     disp.log(f"  ♪ tacet · {step.short}（静默通过）")
                     continue
 
+                # ---- fermate（u4-sub3-fermate-cut-design §1.2①）：裁剪静默步
+                # 整步跳过——不派段/零 token/不跑 judge，engine 落痕+推进。
+                # 与 tacet 正交（密度×深度），同点检查。----
+                if engine.step_fermate_forced(state, node, cur):
+                    ok_f, msg_f = engine.apply_fermate_skip(project_root, name)
+                    if not ok_f:
+                        disp.log(f"✗ fermate 跳步失败：{msg_f}")
+                        if on_breakpoint("fermate 跳步失败", SEG_BREAKPOINT) == "quit":
+                            return 0
+                        continue
+                    disp.log(f"  𝄐 fermate · {step.short}（裁剪静默通过）")
+                    continue
+
                 total = len(node.sub_steps)
                 disp.begin(f"子步骤 {cur}/{total} · {step.short}")
                 bare_open = _is_bare_open(
