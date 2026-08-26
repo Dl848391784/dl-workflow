@@ -1,6 +1,6 @@
 # fermate（plan-only）维度设计——工作流第二正交开关
 
-> 状态：**v1 实现中（2026-08-26）**
+> 状态：**v1 已实现（2026-08-26，feat/fermate 分支，1272 tests 全绿）**——§4 checklist 全项落地：engine sticky/终点门栏/脊柱重映射/渲染双变体 + dl-launch --fermate + phase-rules 条件块 + TestForceFermate 8 例 + SKILL/nodes-index 同步。待：收口 merge main（用户裁决）+ 真实实例首跑验证。
 > 确认史（2026-08-26 会话，用户三连决议）：①维度立项——tacet 是流程**密度**维度（44 步内 38 步静默），fermate 是流程**深度**维度（终点钉在 plan:2，plan:3/plan:4 不存在），两者正交可组合；②命名 **fermate**——谱面记号家族对齐 tacet：tacet=声部静默（密度），fermate=全曲停驻（深度），停多久由指挥（用户）裁决；③v1 范围**只裁 plan:3/plan:4（44→33 步）**——u:4#3 裁剪经实现前评估发现牵连 state-conditional gate 新机制类（u:4#4 gate 硬要求验收包六字段，其中验收方法/时机/证据形式三字段来源=子3 trace，judge 判材以子3 为对照基准；静态 gate 放行「不适用」=全量轨道偷工通道），用户裁决 v1 保留 u:4 整节点，u:4#3 留 v2 专项。
 > 父文档：`force-tacet-experiment-design.md`（sticky flag/机械跳步蓝本）、`capability-tool-selection-substeps-design.md`（plan:3 消费契约=execute，裁剪论证的起点）、`execution-plan-checkpoints-substeps-design.md`（plan:4 同）、`artifact-handoff-hardening-design.md`（ARTIFACT_SECTIONS 单源）
 > 场景驱动：现阶段 dl-workflow 的使用形态 = **输出清晰准确的改动点清单即交付**（消费方=人），不跑 execute/review/evolution。plan:3 能力包五字段与 plan:4 检查点十字段的消费契约锚点**全部倒推自 execute:0/review:0**——无执行则无读者，产物=纯税（11 子步 + ~9 次 judge 调用）。
