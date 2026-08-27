@@ -45,9 +45,12 @@ function renderSidebar(workflows) {
     if (w.error) item.classList.add("err");
     if (sel.project === w.project && sel.name === w.name) item.classList.add("sel");
     const dot = w.error ? "err" : isWaiting(w) ? "wait" : w.driver_pid ? "ok" : "off";
+    const modeTag = w.force_tacet
+      ? `<span class="tag mode-tacet">tacet</span>`
+      : w.force_fermate ? `<span class="tag mode-fermate">fermate</span>` : "";
     item.innerHTML =
       `<div class="wf-line1"><span class="dot ${dot}"></span>` +
-      `<span class="wf-name">${esc(w.name)}</span>` +
+      `<span class="wf-name">${esc(w.name)}</span>${modeTag}` +
       `<button class="wf-del" title="删除工作流">×</button></div>` +
       `<div class="wf-line2"><span class="num">${w.error ? "状态不可读" : esc(w.node)}</span>` +
       `<span class="num">$${esc(w.totals.cost_usd)}</span></div>`;
@@ -477,8 +480,13 @@ function renderInteract(d) {
       alert(r.msg); refreshDetail();
     }, "btn primary"));
   }
-  if (!d.driver_pid) {
-    box.appendChild(mkBtn("重新驱动", async () => {
+  if (d.driver_pid) {
+    box.appendChild(mkBtn("暂停", async () => {
+      const r = await post("/api/pause", { project: proj, name });
+      alert(r.msg); refreshDetail();
+    }));
+  } else {
+    box.appendChild(mkBtn("恢复驱动", async () => {
       const r = await post("/api/drive", { project: proj, name });
       alert(r.msg); refreshDetail();
     }));

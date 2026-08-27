@@ -151,3 +151,12 @@ def test_artifact_endpoint_rejects_bad_kind(client):
     r = c.get("/api/artifact",
               params={"project": str(project), "name": "demo", "kind": "../etc"})
     assert r.status_code == 400
+
+
+def test_post_pause_calls_action(client):
+    c, project = client
+    with patch("dl_dashboard.app.actions.pause_workflow",
+               return_value=(True, "已暂停")) as pw:
+        r = c.post("/api/pause", json={"project": str(project), "name": "demo"})
+    assert r.json()["ok"] is True
+    pw.assert_called_once()

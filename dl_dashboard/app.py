@@ -177,6 +177,14 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
             raise HTTPException(404, f"产物 {kind}/{name}.md 不存在")
         return {"content": content}
 
+    @app.post("/api/pause")
+    async def pause(body: dict):
+        proj = _project(body["project"])
+        name = _name(body["name"])
+        async with _lock(proj, name):
+            ok, msg = await asyncio.to_thread(actions.pause_workflow, proj, name, mgr)
+        return {"ok": ok, "msg": msg}
+
     @app.post("/api/delete")
     async def delete(body: dict):
         proj = _project(body["project"])

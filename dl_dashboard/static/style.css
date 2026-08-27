@@ -287,14 +287,19 @@ main { padding: 20px; flex: 1; min-width: 0; max-width: 1400px; }
 }
 .art-link:hover { border-bottom-style: solid; }
 
-/* major_state 汇总行 */
+/* major/minor_state 汇总行（同字号 11px，层级靠颜色不靠大小） */
+.tl-nstat, .gt-lstat {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 2px;
+}
 .tl-pstat {
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--text-3);
   margin: 3px 0 8px 2px;
 }
 .gt-pstat {
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--text-3);
   margin-left: 12px;
   letter-spacing: 0;
@@ -664,6 +669,20 @@ td.num { text-align: right; color: var(--text-2); }
   vertical-align: 1px;
 }
 .tag.warn { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(229, 161, 60, 0.3); }
+.tag.mode-tacet {
+  background: var(--amber-dim);
+  color: var(--amber);
+  border: 1px solid rgba(229, 161, 60, 0.3);
+  margin-left: 6px;
+  flex-shrink: 0;
+}
+.tag.mode-fermate {
+  background: var(--sky-dim);
+  color: var(--sky);
+  border: 1px solid var(--sky-line);
+  margin-left: 6px;
+  flex-shrink: 0;
+}
 
 /* ---------- 节点全景条 ---------- */
 #node-strip {

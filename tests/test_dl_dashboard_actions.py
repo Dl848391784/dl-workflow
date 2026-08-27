@@ -207,3 +207,19 @@ def test_delete_failure_when_meta_remains(tmp_path):
         ok, msg = actions.delete_workflow(tmp_path, "demo", mgr)
     assert not ok and "boom" in msg
     mgr.stop.assert_not_called()
+
+
+def test_pause_stops_running_driver(tmp_path):
+    mgr = MagicMock()
+    mgr.alive.return_value = 4242
+    ok, msg = actions.pause_workflow(tmp_path, "demo", mgr)
+    assert ok
+    mgr.stop.assert_called_once_with(tmp_path, "demo")
+
+
+def test_pause_noop_when_driver_dead(tmp_path):
+    mgr = MagicMock()
+    mgr.alive.return_value = None
+    ok, msg = actions.pause_workflow(tmp_path, "demo", mgr)
+    assert not ok and "无需暂停" in msg
+    mgr.stop.assert_not_called()

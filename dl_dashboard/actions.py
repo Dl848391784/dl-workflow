@@ -171,3 +171,16 @@ def delete_workflow(project: Path, name: str, mgr) -> tuple[bool, str]:
     if not meta_root(project, name).exists():
         return True, f"工作流 {name} 已删除"
     return False, f"删除失败：{(p.stdout + p.stderr)[-300:]}"
+
+
+def pause_workflow(project: Path, name: str, mgr) -> tuple[bool, str]:
+    """暂停 = 停 driver（killpg 进程组）。
+
+    语义如实：当前正在跑的步会被打断，恢复时该步从头重跑（dl 无步内断点
+    续跑——state/台账在盘上，步级重跑是唯一保证一致的语义）。恢复走
+    restart_drive（续跑非重来）。
+    """
+    if not mgr.alive(project, name):
+        return False, "driver 未在运行，无需暂停"
+    mgr.stop(project, name)
+    return True, "已暂停（当前步恢复时从头重跑；点「恢复驱动」续跑）"

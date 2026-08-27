@@ -97,3 +97,13 @@ def test_node_status_includes_sub_total(tmp_path):
     by_id = {n.node_id: n for n in info.nodes}
     assert by_id["plan:2"].sub_total >= 1
     assert all(n.sub_total >= 1 for n in info.nodes)
+
+
+def test_scan_workflow_mode_flags(tmp_path):
+    _mk_workflow(tmp_path, "demo", BASE_STATE)
+    _mk_workflow(tmp_path, "tacet", dict(BASE_STATE, force_tacet=True))
+    _mk_workflow(tmp_path, "fermate", dict(BASE_STATE, force_fermate=True))
+    assert scan_workflow(tmp_path, "tacet").force_tacet is True
+    assert scan_workflow(tmp_path, "tacet").force_fermate is False
+    assert scan_workflow(tmp_path, "fermate").force_fermate is True
+    assert scan_workflow(tmp_path, "demo").force_tacet is False  # 老工作流无字段→False
