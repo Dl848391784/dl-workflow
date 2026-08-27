@@ -102,6 +102,23 @@ cd <你的项目>
 codegraph sync             # 建索引，落到 .codegraph/codegraph.db
 ```
 
+## 管理后台（dashboard）
+
+浏览器控制台：跨项目启动/驱动工作流、节点状态全景、每段耗时/轮数/token/成本、断点注入与 gate 放行。
+
+```bash
+# 配置（登记项目根清单）
+cat > ~/.dl-workflow/dashboard.toml <<'EOF'
+projects = ["/home/admin/projects/factor_ic_analyzer"]
+EOF
+
+# 起服务（0.0.0.0:9000，无认证——公网裸奔，介意就自己 ssh -L 转发后改 host=127.0.0.1）
+python3 -m dl_dashboard.app
+```
+
+- 会话不断开：driver 是后端 setsid 子进程，浏览器关掉照跑；后端重启自动认领活 driver，认不到的一键「重新驱动」（state 全落盘，续跑非重来）。
+- 归档仍走终端 `dl <name> --done`（后台不做删除）。
+
 ## 卸
 
 ```bash
