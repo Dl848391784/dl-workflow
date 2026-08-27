@@ -128,8 +128,12 @@ function renderTimeline(stats, nodes, info) {
   track.className = "tl-track";
   for (const ph of phases) {
     const doneCount = ph.nodes.filter((n) => n.status === "done").length;
+    // 阶段状态着色（地铁线路段）：全完成=done / 含当前节点=current / 未开始=pending
+    const phStatus = ph.nodes.every((n) => n.status === "done")
+      ? "done"
+      : ph.nodes.some((n) => n.status === "current") ? "current" : "pending";
     const phEl = document.createElement("div");
-    phEl.className = "tl-phase";
+    phEl.className = `tl-phase ${phStatus}`;
     phEl.innerHTML =
       `<div class="tl-phase-head">${esc(ph.name)}` +
       `<span class="num">${doneCount}/${ph.nodes.length}</span></div>`;

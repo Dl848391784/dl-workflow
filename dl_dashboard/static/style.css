@@ -202,7 +202,7 @@ main { padding: 20px; flex: 1; min-width: 0; max-width: 1400px; }
   font-size: 13px;
 }
 
-/* ---------- 步骤时间轴（精装卡片树：阶段容器 / 节点卡片 / 叶嵌耗时条） ---------- */
+/* ---------- 步骤时间轴（地铁线路图：阶段=线路段 / 节点=站点 / step=停靠点） ---------- */
 #timeline {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -210,7 +210,7 @@ main { padding: 20px; flex: 1; min-width: 0; max-width: 1400px; }
   overflow-x: auto;
   cursor: grab;
   user-select: none;
-  padding: 14px 0 4px;
+  padding: 8px 0 6px;
 }
 #timeline.grabbing { cursor: grabbing; }
 #timeline::-webkit-scrollbar { height: 8px; }
@@ -220,50 +220,69 @@ main { padding: 20px; flex: 1; min-width: 0; max-width: 1400px; }
 .tl-track {
   display: flex;
   align-items: stretch;
-  gap: 16px;
   min-width: min-content;
-  padding: 6px 18px 12px;
+  padding: 8px 18px 12px;
 }
 
-/* major_state：fieldset 式描边容器，标签浮在边框上 */
+/* major_state：线路段（上方标签 + 一条贯穿的轨道线，按完成状态着色） */
 .tl-phase {
   position: relative;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 14px 14px 12px;
   flex-shrink: 0;
+  padding: 0 16px 0 2px;
 }
-.tl-phase-head {
+.tl-phase::before {
+  content: "";
   position: absolute;
-  top: -9px;
-  left: 12px;
-  padding: 0 8px;
-  background: var(--bg-raise);
+  top: 30px;
+  left: 0;
+  right: 0;
+  border-top: 3px solid var(--line);
+  border-radius: 2px;
+}
+.tl-phase.done::before { border-color: var(--accent); }
+.tl-phase.current::before { border-color: var(--sky); }
+.tl-phase-head {
   font-family: var(--mono);
   font-size: 10.5px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--text-2);
+  color: var(--text-3);
+  padding-left: 2px;
 }
-.tl-phase-head .num { margin-left: 8px; color: var(--accent); }
+.tl-phase.done .tl-phase-head { color: var(--accent); }
+.tl-phase.current .tl-phase-head { color: var(--sky); }
+.tl-phase-head .num { margin-left: 8px; }
 
-/* minor_state：节点卡片 */
-.tl-branches { display: flex; gap: 14px; align-items: flex-start; }
+/* minor_state：站点（轨道线上的圆点 + 下方站名） */
+.tl-branches { display: flex; gap: 26px; align-items: flex-start; }
 .tl-node {
+  position: relative;
   flex-shrink: 0;
-  min-width: 168px;
-  background: var(--bg-inset);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 8px 12px 10px;
-  transition: opacity 0.15s ease, border-color 0.15s ease;
+  min-width: 150px;
+  padding-top: 44px;
+  transition: opacity 0.15s ease;
 }
 .tl-node.dim { opacity: 0.28; }
-.tl-node.current {
-  border-color: var(--sky-line);
-  box-shadow: 0 0 0 1px var(--sky-line), 0 4px 18px rgba(87, 168, 255, 0.08);
+.tl-node::before {
+  content: "";
+  position: absolute;
+  top: 22px;
+  left: 3px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--bg-raise);
+  border: 3px solid var(--line);
 }
-.tl-node.pending { border-style: dashed; opacity: 0.62; }
+.tl-node.done::before { background: var(--accent); border-color: var(--accent); }
+.tl-node.current::before {
+  background: var(--sky);
+  border-color: var(--sky);
+  box-shadow: 0 0 0 4px var(--sky-dim);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+.tl-node.pending { opacity: 0.62; }
+.tl-node.pending::before { border-color: var(--text-3); }
 .tl-node-head {
   font-size: 12px;
   font-weight: 500;
@@ -276,7 +295,7 @@ main { padding: 20px; flex: 1; min-width: 0; max-width: 1400px; }
 .tl-node.current .tl-node-head { color: var(--sky); }
 .tl-node.current .tl-node-head .num { color: var(--sky); }
 
-/* 茎线 + 叶（横枝 + 迷你耗时条，无背景轨） */
+/* step：停靠点（支线垂下 + 迷你耗时条，无背景轨） */
 .tl-leaves {
   border-left: 1px solid var(--line);
   margin-left: 3px;
