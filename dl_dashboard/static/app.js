@@ -340,11 +340,11 @@ function renderTimelineGantt(stats, nodes, info) {
     `${segs.length} 段 · ${totTurns} 轮 · ${totDur}s · $${totCost.toFixed(2)}`;
 }
 
-/* 换肤分发：localStorage 记忆（dl_tl_skin），默认 gantt */
+/* 换肤分发：localStorage 记忆（dl_tl_skin），默认卡片树 */
 const TL_SKINS = new Set(["metro", "gantt", "cards"]);
 function tlSkin() {
   const s = localStorage.getItem("dl_tl_skin");
-  return TL_SKINS.has(s) ? s : "gantt";
+  return TL_SKINS.has(s) ? s : "cards";
 }
 
 function renderTimeline(stats, nodes, info) {
@@ -466,6 +466,12 @@ async function refreshDetail() {
   renderSegs(d.stats);
   $("log-tail").textContent = d.log_tail;
 }
+
+$("sidebar-toggle").onclick = () => {
+  const sb = $("sidebar");
+  const collapsed = sb.classList.toggle("collapsed");
+  $("sidebar-toggle").textContent = collapsed ? "展开" : "收起";
+};
 
 function setCreatePanel(open) {
   $("create-form").classList.toggle("hidden", !open);

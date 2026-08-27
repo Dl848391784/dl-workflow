@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>dl-workflow 控制台</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="/static/style.css?v=c1dfaeb">
+<link rel="stylesheet" href="/static/style.css?v=352af86">
 </head>
 <body>
 <header class="topbar">
@@ -34,7 +34,10 @@
 </form>
 <div class="layout">
   <aside id="sidebar">
-    <div class="side-head"><h2>工作流</h2><span id="wf-count" class="count"></span></div>
+    <div class="side-head">
+      <h2>工作流</h2><span id="wf-count" class="count"></span>
+      <button id="sidebar-toggle" class="btn ghost" type="button">收起</button>
+    </div>
     <div id="wf-list"><div class="side-empty">连接中…</div></div>
   </aside>
   <main>
@@ -47,7 +50,7 @@
       <div class="section-head">
         <h3>步骤时间轴</h3><span id="tl-summary" class="hint"></span>
         <span class="tl-switch" id="tl-switch">
-          <button type="button" data-skin="metro">地铁</button><button type="button" data-skin="gantt">甘特</button><button type="button" data-skin="cards">卡片树</button>
+          <button type="button" data-skin="cards">卡片树</button><button type="button" data-skin="metro">地铁</button><button type="button" data-skin="gantt">甘特图</button>
         </span>
       </div>
       <div id="timeline"></div>
@@ -70,6 +73,6 @@
     </section>
   </main>
 </div>
-<script src="/static/app.js?v=c1dfaeb"></script>
+<script src="/static/app.js?v=352af86"></script>
 </body>
 </html>
