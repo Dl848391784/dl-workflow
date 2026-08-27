@@ -1,0 +1,24 @@
+body { font-family: system-ui, sans-serif; margin: 0; background: #f6f7f9; color: #222; }
+header { background: #1f2937; color: #fff; padding: 10px 16px; }
+header h1 { font-size: 18px; margin: 0 0 8px; }
+header input { margin-right: 6px; padding: 4px; }
+main { padding: 16px; }
+table { border-collapse: collapse; width: 100%; background: #fff; }
+th, td { border: 1px solid #e5e7eb; padding: 5px 8px; font-size: 13px; text-align: left; }
+tr.err td { color: #b91c1c; }
+#banner { background: #fef3c7; border: 1px solid #f59e0b; padding: 8px 16px; }
+.hidden { display: none; }
+#node-strip { margin: 10px 0; }
+.chip { display: inline-block; border-radius: 12px; padding: 3px 10px; margin: 2px;
+  font-size: 12px; cursor: pointer; border: 1px solid #ccc; }
+.chip.done { background: #dcfce7; border-color: #22c55e; }
+.chip.current { background: #dbeafe; border-color: #3b82f6; animation: blink 1.2s infinite; }
+.chip.pending { background: #f3f4f6; color: #9ca3af; }
+.chip.active { outline: 2px solid #111; }
+@keyframes blink { 50% { opacity: 0.55; } }
+#interact { margin: 12px 0; padding: 10px; background: #fff; border: 1px solid #e5e7eb; }
+#interact .q { margin: 8px 0; }
+#interact .q label { display: block; margin: 2px 0 2px 12px; }
+#interact button { margin: 6px 8px 0 0; padding: 5px 14px; }
+#log-tail { background: #111827; color: #d1d5db; padding: 10px; font-size: 12px;
+  max-height: 260px; overflow: auto; white-space: pre-wrap; }

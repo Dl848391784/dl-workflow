@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>dl-workflow 控制台</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>dl-workflow 控制台</h1>
+  <form id="create-form">
+    <input id="cf-project" placeholder="项目根路径" required size="34">
+    <input id="cf-name" placeholder="工作流名" required>
+    <input id="cf-statement" placeholder="问题（problem_statement）" required size="40">
+    <button type="submit">新建并启动</button>
+  </form>
+</header>
+<div id="banner" class="hidden"></div>
+<main>
+  <section id="list-view">
+    <h2>工作流</h2>
+    <table id="wf-table">
+      <thead><tr>
+        <th>项目</th><th>名称</th><th>当前节点</th><th>gate</th><th>driver</th>
+        <th>轮数</th><th>耗时</th><th>成本</th><th>更新</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+  <section id="detail-view" class="hidden">
+    <h2><a href="#" id="back-link">← 返回</a> <span id="d-title"></span></h2>
+    <p id="d-statement"></p>
+    <div id="node-strip"></div>
+    <div id="interact"></div>
+    <h3>段明细</h3>
+    <table id="seg-table">
+      <thead><tr>
+        <th>节点</th><th>子步</th><th>kind</th><th>轮数</th><th>耗时(s)</th>
+        <th>成本($)</th><th>时间</th><th>note</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+    <h3>driver 日志（尾）</h3>
+    <pre id="log-tail"></pre>
+  </section>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>
