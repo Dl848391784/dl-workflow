@@ -1,0 +1,84 @@
+"""driver 进程托管：spawn(setsid) / PID 文件 / 后端重启认领 / killpg 停止。
+
+保活语义（dashboard-design §5）：工作流真实状态全落盘，driver 死 = 标红可
+一键重驱，不是数据丢失。认领校验 /proc/<pid>/cmdline 防 pid 复用误认。
+"""
+from __future__ import annotations
+
+import logging
+import os
+import signal
+import subprocess
+from pathlib import Path
+
+log = logging.getLogger("dl_dashboard.driver_mgr")
+
+
+class DriverManager:
+    def __init__(self, dlwf: Path, runtime_dir: Path):
+        self.dlwf = Path(dlwf)
+        self.runtime_dir = Path(runtime_dir)
+        self.runtime_dir.mkdir(parents=True, exist_ok=True)
+        self._drivers: dict[str, subprocess.Popen] = {}
+
+    @staticmethod
+    def slug(project, name: str) -> str:
+        return f"{str(project).replace('/', '_')}--{name}"
+
+    def _pid_path(self, slug: str) -> Path:
+        return self.runtime_dir / f"{slug}.pid"
+
+    def log_path(self, slug: str) -> Path:
+        return self.runtime_dir / f"{slug}.log"
+
+    def start(self, project, name: str, worktree) -> int:
+        slug = self.slug(project, name)
+        log_f = open(self.log_path(slug), "ab")
+        proc = subprocess.Popen(
+            ["python3", str(self.dlwf / "scripts" / "workflow" / "dl_drive.py"), name],
+            cwd=str(worktree),
+            stdin=subprocess.DEVNULL,
+            stdout=log_f,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,  # setsid：后端死/终端信号不波及 driver
+        )
+        self._drivers[slug] = proc
+        self._pid_path(slug).write_text(str(proc.pid), encoding="utf-8")
+        log.info("driver started slug=%s pid=%s", slug, proc.pid)
+        return proc.pid
+
+    def alive(self, project, name: str) -> int | None:
+        slug = self.slug(project, name)
+        proc = self._drivers.get(slug)
+        if proc is not None:
+            return proc.pid if proc.poll() is None else None
+        # 后端重启后认领：pid 文件 + /proc cmdline 双重校验（防 pid 复用）
+        p = self._pid_path(slug)
+        if not p.exists():
+            return None
+        try:
+            pid = int(p.read_text(encoding="utf-8").strip())
+            os.kill(pid, 0)
+            cmdline = Path(f"/proc/{pid}/cmdline").read_bytes()
+        except (ValueError, OSError):
+            return None
+        if b"dl_drive.py" in cmdline and name.encode() in cmdline:
+            return pid
+        return None
+
+    def stop(self, project, name: str) -> bool:
+        slug = self.slug(project, name)
+        pid = self.alive(project, name)
+        if pid is None:
+            return False
+        try:
+            os.killpg(pid, signal.SIGTERM)  # 进程组整体停（driver + 段子进程）
+        except OSError:
+            log.warning("killpg 失败 slug=%s pid=%s", slug, pid, exc_info=True)
+            return False
+        self._drivers.pop(slug, None)
+        log.info("driver stopped slug=%s pid=%s", slug, pid)
+        return True
+
+    def running(self) -> list[str]:
+        return [s for s, p in self._drivers.items() if p.poll() is None]
