@@ -202,7 +202,7 @@ main { padding: 20px; flex: 1; min-width: 0; max-width: 1400px; }
   font-size: 13px;
 }
 
-/* ---------- 步骤时间轴（甘特泳道：节点为道、段为真实时间横条） ---------- */
+/* ---------- 步骤时间轴（三肤共存：metro 地铁 / gantt 甘特 / cards 卡片树） ---------- */
 #timeline {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -215,6 +215,184 @@ main { padding: 20px; flex: 1; min-width: 0; max-width: 1400px; }
 #timeline::-webkit-scrollbar { height: 8px; }
 #timeline::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
 .tl-empty { padding: 14px 0; text-align: center; color: var(--text-3); font-size: 12.5px; }
+
+/* 换肤分段控件（钉在 section-head 右缘） */
+.tl-switch {
+  margin-left: auto;
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.tl-switch button {
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 11.5px;
+  font-family: var(--sans);
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.tl-switch button + button { border-left: 1px solid var(--line); }
+.tl-switch button:hover { color: var(--text); }
+.tl-switch button.on {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+/* ----- 树形共享（metro 与 cards 共同的枝叶样式） ----- */
+.tl-leaves { border-left: 1px solid var(--line); margin-left: 3px; }
+.tl-leaf { position: relative; padding: 4px 0 4px 14px; }
+.tl-leaf::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 13px;
+  width: 10px;
+  border-top: 1px solid var(--line);
+}
+.tl-l1 { display: flex; align-items: center; gap: 8px; }
+.tl-lid { font-size: 11px; color: var(--text-3); flex-shrink: 0; }
+.tl-bar { height: 4px; border-radius: 2px; background: var(--accent); opacity: 0.85; flex-shrink: 0; }
+.tl-ldur { font-size: 13px; font-weight: 600; color: var(--text); }
+.tl-l2 { font-size: 10.5px; color: var(--text-3); margin: 2px 0 0 24px; white-space: nowrap; }
+.tl-leaf.done .tl-lid { color: var(--accent); }
+.tl-leaf.cur .tl-bar { background: var(--sky); }
+.tl-leaf.cur .tl-ldur { color: var(--sky); }
+.tl-leaf.cur { animation: pulse 1.6s ease-in-out infinite; }
+.tl-leaf.todo { opacity: 0.35; }
+
+/* ----- 肤 A：地铁线路图（阶段=线路段 / 节点=站点） ----- */
+#timeline.metro { padding: 8px 0 6px; }
+#timeline.metro .tl-track {
+  display: flex;
+  align-items: stretch;
+  min-width: min-content;
+  padding: 8px 18px 12px;
+}
+#timeline.metro .tl-phase { position: relative; flex-shrink: 0; padding: 0 16px 0 2px; }
+#timeline.metro .tl-phase::before {
+  content: "";
+  position: absolute;
+  top: 30px;
+  left: 0;
+  right: 0;
+  border-top: 3px solid var(--line);
+  border-radius: 2px;
+}
+#timeline.metro .tl-phase.done::before { border-color: var(--accent); }
+#timeline.metro .tl-phase.current::before { border-color: var(--sky); }
+#timeline.metro .tl-phase-head {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  padding-left: 2px;
+}
+#timeline.metro .tl-phase.done .tl-phase-head { color: var(--accent); }
+#timeline.metro .tl-phase.current .tl-phase-head { color: var(--sky); }
+#timeline.metro .tl-phase-head .num { margin-left: 8px; }
+#timeline.metro .tl-branches { display: flex; gap: 26px; align-items: flex-start; }
+#timeline.metro .tl-node {
+  position: relative;
+  flex-shrink: 0;
+  min-width: 150px;
+  padding-top: 44px;
+  transition: opacity 0.15s ease;
+}
+#timeline.metro .tl-node.dim { opacity: 0.28; }
+#timeline.metro .tl-node::before {
+  content: "";
+  position: absolute;
+  top: 22px;
+  left: 3px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--bg-raise);
+  border: 3px solid var(--line);
+}
+#timeline.metro .tl-node.done::before { background: var(--accent); border-color: var(--accent); }
+#timeline.metro .tl-node.current::before {
+  background: var(--sky);
+  border-color: var(--sky);
+  box-shadow: 0 0 0 4px var(--sky-dim);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+#timeline.metro .tl-node.pending { opacity: 0.62; }
+#timeline.metro .tl-node.pending::before { border-color: var(--text-3); }
+#timeline.metro .tl-node-head {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+  padding-bottom: 7px;
+  white-space: nowrap;
+}
+#timeline.metro .tl-node-head .num { font-size: 11px; margin-right: 5px; }
+#timeline.metro .tl-node.done .tl-node-head .num { color: var(--accent); }
+#timeline.metro .tl-node.current .tl-node-head { color: var(--sky); }
+#timeline.metro .tl-node.current .tl-node-head .num { color: var(--sky); }
+
+/* ----- 肤 C：精装卡片树（阶段=fieldset 容器 / 节点=卡片） ----- */
+#timeline.cards { padding: 14px 0 4px; }
+#timeline.cards .tl-track {
+  display: flex;
+  align-items: stretch;
+  gap: 16px;
+  min-width: min-content;
+  padding: 6px 18px 12px;
+}
+#timeline.cards .tl-phase {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px 14px 12px;
+  flex-shrink: 0;
+}
+#timeline.cards .tl-phase-head {
+  position: absolute;
+  top: -9px;
+  left: 12px;
+  padding: 0 8px;
+  background: var(--bg-raise);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+#timeline.cards .tl-phase-head .num { margin-left: 8px; color: var(--accent); }
+#timeline.cards .tl-branches { display: flex; gap: 14px; align-items: flex-start; }
+#timeline.cards .tl-node {
+  flex-shrink: 0;
+  min-width: 168px;
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 12px 10px;
+  transition: opacity 0.15s ease, border-color 0.15s ease;
+}
+#timeline.cards .tl-node.dim { opacity: 0.28; }
+#timeline.cards .tl-node.current {
+  border-color: var(--sky-line);
+  box-shadow: 0 0 0 1px var(--sky-line), 0 4px 18px rgba(87, 168, 255, 0.08);
+}
+#timeline.cards .tl-node.pending { border-style: dashed; opacity: 0.62; }
+#timeline.cards .tl-node-head {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+  padding-bottom: 7px;
+  white-space: nowrap;
+}
+#timeline.cards .tl-node-head .num { font-size: 11px; margin-right: 5px; }
+#timeline.cards .tl-node.done .tl-node-head .num { color: var(--accent); }
+#timeline.cards .tl-node.current .tl-node-head { color: var(--sky); }
+#timeline.cards .tl-node.current .tl-node-head .num { color: var(--sky); }
+
+/* ----- 肤 B：甘特泳道（节点为道、段为真实时间横条） ----- */
 
 .gt { position: relative; padding: 8px 0 10px; min-width: min-content; }
 

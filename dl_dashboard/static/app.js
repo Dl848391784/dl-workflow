@@ -94,18 +94,133 @@ function renderNodes(nodes) {
   }
 }
 
-/* 步骤时间轴（甘特泳道）：节点为道、段为真实时间定位的横条。
-   x 轴 = 真实墙钟时间（段 ts 起、duration_s 长），顶部刻度 + 竖网格线 + now 虚线；
-   泳道标签 sticky 钉左；当前节点泳道 sky。横向可滑动（拖拽 + 滚轮）。 */
-function renderTimeline(stats, nodes, info) {
+/* ---------- 步骤时间轴：三肤共存（地铁 metro / 甘特 gantt / 卡片树 cards） ---------- */
+
+/* 共享：拖拽 + 滚轮横向滑动 */
+function attachTimelineScroll(box) {
+  let dragging = false, startX = 0, startLeft = 0;
+  box.onpointerdown = (e) => {
+    dragging = true; startX = e.clientX; startLeft = box.scrollLeft;
+    box.classList.add("grabbing");
+  };
+  box.onpointermove = (e) => {
+    if (!dragging) return;
+    box.scrollLeft = startLeft - (e.clientX - startX);
+  };
+  const stop = () => { dragging = false; box.classList.remove("grabbing"); };
+  box.onpointerup = box.onpointerleave = stop;
+  box.onwheel = (e) => {
+    if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+      box.scrollLeft += e.deltaY;
+      e.preventDefault();
+    }
+  };
+}
+
+function tlEmpty(box) {
+  box.innerHTML = `<div class="tl-empty">无步骤数据</div>`;
+  $("tl-summary").textContent = "";
+}
+
+/* 树形 DOM（metro 与 cards 共用；视觉差异全部由容器类 CSS 决定）：
+   major_state 分带 -> minor_state 为枝 -> step 为叶（嵌迷你耗时条）。 */
+function renderTimelineTree(stats, nodes, info) {
+  const box = $("timeline");
+  box.innerHTML = "";
+  const stepMap = new Map();
+  for (const s of stats) {
+    const key = `${s.node}#${s.sub_step}`;
+    if (!stepMap.has(key)) {
+      stepMap.set(key, { dur: 0, turns: 0, tin: 0, tout: 0, cost: 0 });
+    }
+    const a = stepMap.get(key);
+    a.dur += s.duration_s || 0;
+    a.turns += s.num_turns || 0;
+    a.tin += s.input_tokens || 0;
+    a.tout += s.output_tokens || 0;
+    a.cost += s.cost_usd || 0;
+  }
+  const phases = [];
+  for (const n of nodes) {
+    let ph = phases.find((p) => p.name === n.phase);
+    if (!ph) { ph = { name: n.phase, nodes: [] }; phases.push(ph); }
+    ph.nodes.push(n);
+  }
+  if (!phases.length) { tlEmpty(box); return; }
+  const track = document.createElement("div");
+  track.className = "tl-track";
+  for (const ph of phases) {
+    const doneCount = ph.nodes.filter((n) => n.status === "done").length;
+    // 阶段状态（metro 线路段着色用；cards 肤忽略此类）
+    const phStatus = ph.nodes.every((n) => n.status === "done")
+      ? "done"
+      : ph.nodes.some((n) => n.status === "current") ? "current" : "pending";
+    const phEl = document.createElement("div");
+    phEl.className = `tl-phase ${phStatus}`;
+    phEl.innerHTML =
+      `<div class="tl-phase-head">${esc(ph.name)}` +
+      `<span class="num">${doneCount}/${ph.nodes.length}</span></div>`;
+    const branches = document.createElement("div");
+    branches.className = "tl-branches";
+    for (const n of ph.nodes) {
+      let nodeMax = 1;
+      for (let i = 1; i <= n.sub_total; i++) {
+        const a = stepMap.get(`${n.node_id}#${i}`);
+        if (a && a.dur > nodeMax) nodeMax = a.dur;
+      }
+      const nodeEl = document.createElement("div");
+      nodeEl.className = `tl-node ${n.status}`;
+      if (sel.nodeFilter && n.node_id !== sel.nodeFilter) nodeEl.classList.add("dim");
+      const head = document.createElement("div");
+      head.className = "tl-node-head";
+      head.innerHTML = `<span class="num">${esc(n.node_id)}</span> ${esc(n.label)}`;
+      nodeEl.appendChild(head);
+      const leaves = document.createElement("div");
+      leaves.className = "tl-leaves";
+      for (let i = 1; i <= n.sub_total; i++) {
+        const key = `${n.node_id}#${i}`;
+        const a = stepMap.get(key);
+        const isCur = n.status === "current" && i === info.sub_step_index;
+        const leaf = document.createElement("div");
+        leaf.className = "tl-leaf" + (a ? " done" : isCur ? " cur" : " todo");
+        if (a) {
+          const barW = Math.max(2, Math.round((a.dur / nodeMax) * 90));
+          leaf.title =
+            `${key}\n耗时 ${a.dur}s · ${a.turns} 轮\n` +
+            `tok in ${a.tin} / out ${a.tout}\n$${a.cost.toFixed(3)}`;
+          leaf.innerHTML =
+            `<div class="tl-l1"><span class="tl-lid num">#${i}</span>` +
+            `<span class="tl-bar" style="width:${barW}px"></span>` +
+            `<span class="tl-ldur num">${a.dur}s</span></div>` +
+            `<div class="tl-l2 num">${a.turns}轮 ` +
+            `in${fmtTok(a.tin)}/out${fmtTok(a.tout)} ` +
+            `$${a.cost.toFixed(2)}</div>`;
+        } else {
+          leaf.innerHTML = `<div class="tl-l1"><span class="tl-lid num">#${i}</span></div>`;
+        }
+        leaves.appendChild(leaf);
+      }
+      nodeEl.appendChild(leaves);
+      branches.appendChild(nodeEl);
+    }
+    phEl.appendChild(branches);
+    track.appendChild(phEl);
+  }
+  box.appendChild(track);
+  attachTimelineScroll(box);
+  const totTurns = [...stepMap.values()].reduce((a, r) => a + r.turns, 0);
+  const totDur = [...stepMap.values()].reduce((a, r) => a + r.dur, 0);
+  const totCost = [...stepMap.values()].reduce((a, r) => a + r.cost, 0);
+  $("tl-summary").textContent =
+    `${stepMap.size} 步已执行 · ${totTurns} 轮 · ${totDur}s · $${totCost.toFixed(2)}`;
+}
+
+/* 甘特泳道：节点为道、段为真实时间定位的横条。 */
+function renderTimelineGantt(stats, nodes, info) {
   const box = $("timeline");
   box.innerHTML = "";
   const segs = stats.filter((s) => s.ts);
-  if (!segs.length) {
-    box.innerHTML = `<div class="tl-empty">无步骤数据</div>`;
-    $("tl-summary").textContent = "";
-    return;
-  }
+  if (!segs.length) { tlEmpty(box); return; }
   const t0 = Math.min(...segs.map((s) => new Date(s.ts).getTime()));
   const now = Date.now();
   let t1 = Math.max(...segs.map((s) => new Date(s.ts).getTime() + (s.duration_s || 0) * 1000));
@@ -127,7 +242,6 @@ function renderTimeline(stats, nodes, info) {
   root.className = "gt";
   root.style.width = LABEL_W + railW + "px";
 
-  // 顶部时间刻度 + 竖网格线
   const axis = document.createElement("div");
   axis.className = "gt-axis";
   const NTICK = 5;
@@ -148,7 +262,6 @@ function renderTimeline(stats, nodes, info) {
   }
   root.appendChild(axis);
 
-  // 泳道：按 phase 分组、节点表顺序，只画有段的节点
   const byNode = new Map();
   for (const s of segs) {
     if (!byNode.has(s.node)) byNode.set(s.node, []);
@@ -200,7 +313,6 @@ function renderTimeline(stats, nodes, info) {
     root.appendChild(lane);
   }
 
-  // now 虚线
   const nowLine = document.createElement("div");
   nowLine.className = "gt-now";
   nowLine.style.left = LABEL_W + Math.round(((now - t0) / 1000) * scale) + "px";
@@ -208,29 +320,30 @@ function renderTimeline(stats, nodes, info) {
   root.appendChild(nowLine);
 
   box.appendChild(root);
-  // 拖拽滑动（grab to scroll）
-  let dragging = false, startX = 0, startLeft = 0;
-  box.onpointerdown = (e) => {
-    dragging = true; startX = e.clientX; startLeft = box.scrollLeft;
-    box.classList.add("grabbing");
-  };
-  box.onpointermove = (e) => {
-    if (!dragging) return;
-    box.scrollLeft = startLeft - (e.clientX - startX);
-  };
-  const stop = () => { dragging = false; box.classList.remove("grabbing"); };
-  box.onpointerup = box.onpointerleave = stop;
-  box.onwheel = (e) => {
-    if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
-      box.scrollLeft += e.deltaY;
-      e.preventDefault();
-    }
-  };
+  attachTimelineScroll(box);
   const totTurns = segs.reduce((a, s) => a + (s.num_turns || 0), 0);
   const totDur = segs.reduce((a, s) => a + (s.duration_s || 0), 0);
   const totCost = segs.reduce((a, s) => a + (s.cost_usd || 0), 0);
   $("tl-summary").textContent =
     `${segs.length} 段 · ${totTurns} 轮 · ${totDur}s · $${totCost.toFixed(2)}`;
+}
+
+/* 换肤分发：localStorage 记忆（dl_tl_skin），默认 gantt */
+const TL_SKINS = new Set(["metro", "gantt", "cards"]);
+function tlSkin() {
+  const s = localStorage.getItem("dl_tl_skin");
+  return TL_SKINS.has(s) ? s : "gantt";
+}
+
+function renderTimeline(stats, nodes, info) {
+  const box = $("timeline");
+  const skin = tlSkin();
+  box.classList.remove("metro", "gantt", "cards");
+  box.classList.add(skin);
+  if (skin === "gantt") renderTimelineGantt(stats, nodes, info);
+  else renderTimelineTree(stats, nodes, info);
+  document.querySelectorAll("#tl-switch button").forEach((b) =>
+    b.classList.toggle("on", b.dataset.skin === skin));
 }
 
 function renderInteract(d) {
@@ -343,6 +456,13 @@ async function refreshDetail() {
 }
 
 $("create-toggle").onclick = () => $("create-form").classList.toggle("hidden");
+
+document.querySelectorAll("#tl-switch button").forEach((b) => {
+  b.onclick = () => {
+    localStorage.setItem("dl_tl_skin", b.dataset.skin);
+    refreshDetail();
+  };
+});
 
 $("create-form").onsubmit = async (e) => {
   e.preventDefault();

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>dl-workflow 控制台</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="/static/style.css?v=5997151">
+<link rel="stylesheet" href="/static/style.css?v=00ed0b0">
 </head>
 <body>
 <header class="topbar">
@@ -45,7 +45,12 @@
     <section id="detail-view" class="hidden">
       <div class="section-head"><h2 id="d-title"></h2></div>
       <p id="d-statement"></p>
-      <div class="section-head"><h3>步骤时间轴</h3><span id="tl-summary" class="hint"></span></div>
+      <div class="section-head">
+        <h3>步骤时间轴</h3><span id="tl-summary" class="hint"></span>
+        <span class="tl-switch" id="tl-switch">
+          <button type="button" data-skin="metro">地铁</button><button type="button" data-skin="gantt">甘特</button><button type="button" data-skin="cards">卡片树</button>
+        </span>
+      </div>
       <div id="timeline"></div>
       <div class="section-head"><h3>节点</h3></div>
       <div id="node-strip"></div>
@@ -66,6 +71,6 @@
     </section>
   </main>
 </div>
-<script src="/static/app.js?v=5997151"></script>
+<script src="/static/app.js?v=00ed0b0"></script>
 </body>
 </html>
