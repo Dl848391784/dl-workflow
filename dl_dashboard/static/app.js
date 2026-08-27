@@ -94,8 +94,9 @@ function renderNodes(nodes) {
   }
 }
 
-/* 步骤时间轴：段按 node#sub_step 聚合（重试多段求和），按首段 ts 排序。
-   每步一行：step 标签 | 耗时条（相对最大值）| 轮数 | tok in/out | 成本 */
+/* 步骤时间轴：横向可滑动轴。段按 node#sub_step 聚合（重试多段求和），
+   按首段 ts 排序；块宽 flex-grow 与该步耗时成正比（130px 保底）。
+   每块：step 标签 + 耗时（大）+ 轮数 / tok in/out / 成本；底部带刻度轴线。 */
 function renderTimeline(stats, nodes) {
   const box = $("timeline");
   box.innerHTML = "";
@@ -119,23 +120,45 @@ function renderTimeline(stats, nodes) {
     $("tl-summary").textContent = "";
     return;
   }
-  const maxDur = Math.max(...rows.map((r) => r.dur), 1);
+  const track = document.createElement("div");
+  track.className = "tl-track";
   for (const r of rows) {
-    const div = document.createElement("div");
-    div.className = "tl-row";
-    if (sel.nodeFilter && r.node !== sel.nodeFilter) div.classList.add("dim");
-    const pct = Math.max((r.dur / maxDur) * 100, r.dur > 0 ? 1.5 : 0);
-    const cur = r.node === curNode ? " cur" : "";
-    div.innerHTML =
-      `<span class="tl-label num">${esc(r.key)}</span>` +
-      `<span class="tl-track"><span class="tl-fill${cur}" style="width:${pct}%"></span>` +
-      `<span class="tl-dur num">${r.dur}s</span></span>` +
-      `<span class="tl-stat num">${r.turns} 轮</span>` +
-      `<span class="tl-stat num" title="input ${r.tin} / output ${r.tout}">` +
-      `in ${fmtTok(r.tin)} / out ${fmtTok(r.tout)}</span>` +
-      `<span class="tl-stat num">$${r.cost.toFixed(3)}</span>`;
-    box.appendChild(div);
+    const b = document.createElement("div");
+    b.className = "tl-block" + (r.node === curNode ? " cur" : "");
+    if (sel.nodeFilter && r.node !== sel.nodeFilter) b.classList.add("dim");
+    b.style.flexGrow = r.dur > 0 ? r.dur : 0.5;
+    b.title =
+      `${r.key}\n耗时 ${r.dur}s · ${r.turns} 轮\n` +
+      `tok in ${r.tin} / out ${r.tout}\n$${r.cost.toFixed(3)}`;
+    b.innerHTML =
+      `<div class="tl-step num">${esc(r.key)}</div>` +
+      `<div class="tl-dur num">${r.dur}<span class="tl-unit">s</span></div>` +
+      `<div class="tl-meta num">${r.turns} 轮</div>` +
+      `<div class="tl-meta num">in ${fmtTok(r.tin)} · out ${fmtTok(r.tout)}</div>` +
+      `<div class="tl-meta num">$${r.cost.toFixed(3)}</div>` +
+      `<div class="tl-tick"></div>`;
+    track.appendChild(b);
   }
+  box.appendChild(track);
+  // 拖拽滑动（grab to scroll）
+  let dragging = false, startX = 0, startLeft = 0;
+  box.onpointerdown = (e) => {
+    dragging = true; startX = e.clientX; startLeft = box.scrollLeft;
+    box.classList.add("grabbing");
+  };
+  box.onpointermove = (e) => {
+    if (!dragging) return;
+    box.scrollLeft = startLeft - (e.clientX - startX);
+  };
+  const stop = () => { dragging = false; box.classList.remove("grabbing"); };
+  box.onpointerup = box.onpointerleave = stop;
+  // 横向滚轮（纵向滚轮转横向滑动）
+  box.onwheel = (e) => {
+    if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+      box.scrollLeft += e.deltaY;
+      e.preventDefault();
+    }
+  };
   $("tl-summary").textContent =
     `${rows.length} 步 · ${rows.reduce((a, r) => a + r.turns, 0)} 轮 · ` +
     `${rows.reduce((a, r) => a + r.dur, 0)}s · ` +

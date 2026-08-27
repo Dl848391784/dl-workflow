@@ -202,52 +202,52 @@ main { padding: 20px; flex: 1; min-width: 0; max-width: 1400px; }
   font-size: 13px;
 }
 
-/* ---------- 步骤时间轴 ---------- */
+/* ---------- 步骤时间轴（横向可滑动轴） ---------- */
 #timeline {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--bg-raise);
-  padding: 10px 14px;
+  overflow-x: auto;
+  cursor: grab;
+  user-select: none;
 }
+#timeline.grabbing { cursor: grabbing; }
+#timeline::-webkit-scrollbar { height: 8px; }
+#timeline::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
 .tl-empty { padding: 14px 0; text-align: center; color: var(--text-3); font-size: 12.5px; }
-.tl-row {
+
+.tl-track {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 4px 0;
+  align-items: stretch;
+  min-width: min-content;
+  padding: 12px 14px 0;
+}
+.tl-block {
+  flex-shrink: 1;
+  flex-basis: 130px;
+  min-width: 130px;
+  padding: 8px 10px 0;
+  border-top: 2px solid var(--accent);
+  border-right: 1px solid var(--line-soft);
   transition: opacity 0.15s ease;
 }
-.tl-row + .tl-row { border-top: 1px solid var(--line-soft); }
-.tl-row.dim { opacity: 0.28; }
-.tl-label {
-  width: 92px;
-  flex-shrink: 0;
-  color: var(--text-2);
-  font-size: 12px;
-}
-.tl-track {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-.tl-fill {
-  display: inline-block;
-  height: 14px;
-  border-radius: 3px;
-  background: var(--accent);
-  opacity: 0.75;
-  flex-shrink: 0;
-}
-.tl-fill.cur { background: var(--sky); }
-.tl-dur { color: var(--text-2); font-size: 12px; flex-shrink: 0; }
-.tl-stat {
-  flex-shrink: 0;
-  color: var(--text-3);
-  font-size: 11.5px;
-  min-width: 92px;
-  text-align: right;
+.tl-block:last-child { border-right: none; }
+.tl-block.cur { border-top-color: var(--sky); background: var(--sky-dim); }
+.tl-block.dim { opacity: 0.28; }
+.tl-step { font-size: 11px; color: var(--text-3); }
+.tl-block.cur .tl-step { color: var(--sky); }
+.tl-dur { font-size: 20px; font-weight: 600; color: var(--text); margin-top: 2px; }
+.tl-unit { font-size: 11px; color: var(--text-3); font-weight: 400; margin-left: 1px; }
+.tl-meta { font-size: 10.5px; color: var(--text-3); margin-top: 1px; white-space: nowrap; }
+/* 底部轴线 + 刻度 */
+.tl-tick {
+  margin-top: 8px;
+  height: 8px;
+  border-left: 1px solid var(--line);
+  border-bottom: 2px solid var(--line);
+  margin-left: -10px;
+  margin-right: -10px;
+  padding-left: 10px;
 }
 
 .section-head {
@@ -486,6 +486,4 @@ td.num { text-align: right; color: var(--text-2); }
   .topbar { padding: 0 12px; }
   .brand-text p { display: none; }
   td, th { padding: 7px 8px; }
-  .tl-stat { min-width: 0; }
-  .tl-label { width: 70px; }
 }
