@@ -94,50 +94,83 @@ function renderNodes(nodes) {
   }
 }
 
-/* 步骤时间轴：横向可滑动轴。段按 node#sub_step 聚合（重试多段求和），
-   按首段 ts 排序；块宽 flex-grow 与该步耗时成正比（130px 保底）。
-   每块：step 标签 + 耗时（大）+ 轮数 / tok in/out / 成本；底部带刻度轴线。 */
-function renderTimeline(stats, nodes) {
+/* 步骤时间轴（树形）：major_state 分带 -> minor_state 为枝 -> step 为叶。
+   枝从节点头垂下茎线，叶以横枝挂在茎上；已执行叶显示 耗时/轮数/tok/成本，
+   当前步 sky 脉冲，未执行叶灰色占位。横向可滑动（拖拽 + 滚轮）。 */
+function renderTimeline(stats, nodes, info) {
   const box = $("timeline");
   box.innerHTML = "";
-  const curNode = (nodes.find((n) => n.status === "current") || {}).node_id;
-  const steps = new Map();
+  const stepMap = new Map();
   for (const s of stats) {
     const key = `${s.node}#${s.sub_step}`;
-    if (!steps.has(key)) {
-      steps.set(key, { key, node: s.node, dur: 0, turns: 0, tin: 0, tout: 0, cost: 0 });
+    if (!stepMap.has(key)) {
+      stepMap.set(key, { dur: 0, turns: 0, tin: 0, tout: 0, cost: 0 });
     }
-    const a = steps.get(key);
+    const a = stepMap.get(key);
     a.dur += s.duration_s || 0;
     a.turns += s.num_turns || 0;
     a.tin += s.input_tokens || 0;
     a.tout += s.output_tokens || 0;
     a.cost += s.cost_usd || 0;
   }
-  const rows = [...steps.values()];
-  if (!rows.length) {
+  const phases = [];
+  for (const n of nodes) {
+    let ph = phases.find((p) => p.name === n.phase);
+    if (!ph) { ph = { name: n.phase, nodes: [] }; phases.push(ph); }
+    ph.nodes.push(n);
+  }
+  if (!phases.length) {
     box.innerHTML = `<div class="tl-empty">无步骤数据</div>`;
     $("tl-summary").textContent = "";
     return;
   }
   const track = document.createElement("div");
   track.className = "tl-track";
-  for (const r of rows) {
-    const b = document.createElement("div");
-    b.className = "tl-block" + (r.node === curNode ? " cur" : "");
-    if (sel.nodeFilter && r.node !== sel.nodeFilter) b.classList.add("dim");
-    b.style.flexGrow = r.dur > 0 ? r.dur : 0.5;
-    b.title =
-      `${r.key}\n耗时 ${r.dur}s · ${r.turns} 轮\n` +
-      `tok in ${r.tin} / out ${r.tout}\n$${r.cost.toFixed(3)}`;
-    b.innerHTML =
-      `<div class="tl-step num">${esc(r.key)}</div>` +
-      `<div class="tl-dur num">${r.dur}<span class="tl-unit">s</span></div>` +
-      `<div class="tl-meta num">${r.turns} 轮</div>` +
-      `<div class="tl-meta num">in ${fmtTok(r.tin)} · out ${fmtTok(r.tout)}</div>` +
-      `<div class="tl-meta num">$${r.cost.toFixed(3)}</div>` +
-      `<div class="tl-tick"></div>`;
-    track.appendChild(b);
+  for (const ph of phases) {
+    const doneCount = ph.nodes.filter((n) => n.status === "done").length;
+    const phEl = document.createElement("div");
+    phEl.className = "tl-phase";
+    phEl.innerHTML =
+      `<div class="tl-phase-head">${esc(ph.name)}` +
+      `<span class="num">${doneCount}/${ph.nodes.length}</span></div>`;
+    const branches = document.createElement("div");
+    branches.className = "tl-branches";
+    for (const n of ph.nodes) {
+      const nodeEl = document.createElement("div");
+      nodeEl.className = `tl-node ${n.status}`;
+      if (sel.nodeFilter && n.node_id !== sel.nodeFilter) nodeEl.classList.add("dim");
+      const head = document.createElement("div");
+      head.className = "tl-node-head";
+      head.innerHTML = `<span class="num">${esc(n.node_id)}</span> ${esc(n.label)}`;
+      nodeEl.appendChild(head);
+      const leaves = document.createElement("div");
+      leaves.className = "tl-leaves";
+      for (let i = 1; i <= n.sub_total; i++) {
+        const key = `${n.node_id}#${i}`;
+        const a = stepMap.get(key);
+        const isCur = n.status === "current" && i === info.sub_step_index;
+        const leaf = document.createElement("div");
+        leaf.className = "tl-leaf" + (a ? " done" : isCur ? " cur" : " todo");
+        if (a) {
+          leaf.title =
+            `${key}\n耗时 ${a.dur}s · ${a.turns} 轮\n` +
+            `tok in ${a.tin} / out ${a.tout}\n$${a.cost.toFixed(3)}`;
+          leaf.innerHTML =
+            `<span class="tl-lid num">#${i}</span>` +
+            `<span class="tl-ldur num">${a.dur}s</span>` +
+            `<span class="tl-lmeta num">${a.turns}轮 ` +
+            `in${fmtTok(a.tin)}/out${fmtTok(a.tout)} ` +
+            `$${a.cost.toFixed(2)}</span>`;
+        } else {
+          leaf.innerHTML = `<span class="tl-lid num">#${i}</span>`;
+        }
+        leaves.appendChild(leaf);
+      }
+      nodeEl.appendChild(leaves);
+      branches.appendChild(nodeEl);
+    }
+    phEl.appendChild(branches);
+    track.appendChild(phEl);
   }
   box.appendChild(track);
   // 拖拽滑动（grab to scroll）
@@ -152,17 +185,17 @@ function renderTimeline(stats, nodes) {
   };
   const stop = () => { dragging = false; box.classList.remove("grabbing"); };
   box.onpointerup = box.onpointerleave = stop;
-  // 横向滚轮（纵向滚轮转横向滑动）
   box.onwheel = (e) => {
     if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
       box.scrollLeft += e.deltaY;
       e.preventDefault();
     }
   };
+  const totTurns = [...stepMap.values()].reduce((a, r) => a + r.turns, 0);
+  const totDur = [...stepMap.values()].reduce((a, r) => a + r.dur, 0);
+  const totCost = [...stepMap.values()].reduce((a, r) => a + r.cost, 0);
   $("tl-summary").textContent =
-    `${rows.length} 步 · ${rows.reduce((a, r) => a + r.turns, 0)} 轮 · ` +
-    `${rows.reduce((a, r) => a + r.dur, 0)}s · ` +
-    `$${rows.reduce((a, r) => a + r.cost, 0).toFixed(2)}`;
+    `${stepMap.size} 步已执行 · ${totTurns} 轮 · ${totDur}s · $${totCost.toFixed(2)}`;
 }
 
 function renderInteract(d) {
@@ -267,7 +300,7 @@ async function refreshDetail() {
   $("d-title").textContent = `${d.info.name} · ${d.info.node}` +
     (d.driver_pid ? `（driver #${d.driver_pid}）` : "（driver 已停）");
   $("d-statement").textContent = d.info.problem_statement;
-  renderTimeline(d.stats, d.info.nodes);
+  renderTimeline(d.stats, d.info.nodes, d.info);
   renderNodes(d.info.nodes);
   renderInteract(d);
   renderSegs(d.stats);

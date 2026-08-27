@@ -20,6 +20,7 @@ class NodeStatus:
     status: str  # "done" | "current" | "pending"
     entered_at: str | None
     exited_at: str | None
+    sub_total: int  # 子步总数（时间轴枝叶渲染用；无编排节点=1）
 
 
 @dataclass(frozen=True)
@@ -66,6 +67,7 @@ def node_statuses(state: dict) -> tuple[NodeStatus, ...]:
             node_id=nid, label=node.label, phase=node.phase, status=status,
             entered_at=h.get("entered_at") if h else None,
             exited_at=h.get("exited_at") if h else None,
+            sub_total=len(node.sub_steps) if node.sub_steps else 1,
         ))
     return tuple(out)
 

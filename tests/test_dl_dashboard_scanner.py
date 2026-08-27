@@ -89,3 +89,11 @@ def test_scan_workflow_corrupt_state_raises_value_error(tmp_path):
     (bad / "state.json").write_text("{损坏", encoding="utf-8")
     with pytest.raises(ValueError, match="state.json 损坏"):
         scan_workflow(tmp_path, "bad")
+
+
+def test_node_status_includes_sub_total(tmp_path):
+    _mk_workflow(tmp_path, "demo", BASE_STATE)
+    info = scan_workflow(tmp_path, "demo")
+    by_id = {n.node_id: n for n in info.nodes}
+    assert by_id["plan:2"].sub_total >= 1
+    assert all(n.sub_total >= 1 for n in info.nodes)
