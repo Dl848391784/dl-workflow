@@ -71,7 +71,11 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
     def detail(project: str, name: str):
         proj = _project(project)
         info = scanner.scan_workflow(proj, name)
-        stats = metrics.collect_stats(proj, name, CACHE_DIR)
+        stats = []
+        try:
+            stats = metrics.collect_stats(proj, name, CACHE_DIR)
+        except Exception as exc:  # noqa: BLE001 - 统计降级不拖垮详情页，error 暴露
+            log.warning("collect_stats 失败 %s/%s: %s", proj, name, exc)
         nu_p = scanner.meta_root(proj, name) / "need_user.json"
         need_user = None
         if nu_p.exists():
@@ -83,7 +87,11 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
         log_p = mgr.log_path(slug)
         log_tail = ""
         if log_p.exists():
-            log_tail = log_p.read_text(encoding="utf-8", errors="replace")[-4000:]
+            with open(log_p, "rb") as fh:
+                fh.seek(0, 2)
+                size = fh.tell()
+                fh.seek(max(0, size - 8192))
+                log_tail = fh.read().decode("utf-8", errors="replace")[-4000:]
         return {
             "info": asdict(info),
             "stats": [asdict(s) for s in stats],
