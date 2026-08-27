@@ -34,6 +34,7 @@ def _load_stats_jsonl(meta: Path) -> dict[str, dict]:
         try:
             ev = json.loads(line)
         except json.JSONDecodeError:
+            log.warning("segment_stats.jsonl 损坏行跳过: %s", p, exc_info=True)
             continue
         sid = ev.get("session_id")
         if sid:
@@ -67,11 +68,12 @@ def _legacy_result_stats(meta: Path, cache_dir: Path, slug: str) -> dict[str, di
     with open(stream, "r", encoding="utf-8", errors="replace") as fh:
         fh.seek(offset)
         for line in fh:
-            if '"type":"result"' not in line and '"type": "result"' not in line:
+            if '"result"' not in line:
                 continue
             try:
                 ev = json.loads(line)
             except json.JSONDecodeError:
+                log.warning("drive-stream.jsonl 损坏行跳过: %s", stream, exc_info=True)
                 continue
             if ev.get("type") == "result" and ev.get("session_id"):
                 stats[ev["session_id"]] = ev
