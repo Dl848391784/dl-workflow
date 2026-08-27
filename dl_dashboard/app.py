@@ -113,6 +113,7 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
             "need_user": need_user,
             "driver_pid": mgr.alive(proj, name),
             "log_tail": log_tail,
+            "artifacts": outputs.artifact_status(proj, name),
         }
 
     @app.post("/api/create")

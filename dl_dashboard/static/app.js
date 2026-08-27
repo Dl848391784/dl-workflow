@@ -139,7 +139,16 @@ function tlEmpty(box) {
 
 /* 树形 DOM（metro 与 cards 共用；视觉差异全部由容器类 CSS 决定）：
    major_state 分带 -> minor_state 为枝 -> step 为叶（嵌迷你耗时条）。 */
-function renderTimelineTree(stats, nodes, info) {
+const ART_NODE = { "understand:4": "understands", "plan:4": "plans" };
+const ART_LABEL = { understands: "understand.md", plans: "plan.md" };
+
+function artLink(kind) {
+  const q = `project=${encodeURIComponent(sel.project)}` +
+    `&name=${encodeURIComponent(sel.name)}&kind=${kind}`;
+  return `<a class="art-link" target="_blank" href="/static/artifact.html?${q}">${ART_LABEL[kind]}</a>`;
+}
+
+function renderTimelineTree(stats, nodes, info, artifacts) {
   const box = $("timeline");
   box.innerHTML = "";
   const stepMap = new Map();
@@ -166,15 +175,29 @@ function renderTimelineTree(stats, nodes, info) {
   track.className = "tl-track";
   for (const ph of phases) {
     const doneCount = ph.nodes.filter((n) => n.status === "done").length;
-    // 阶段状态（metro 线路段着色用；cards 肤忽略此类）
     const phStatus = ph.nodes.every((n) => n.status === "done")
       ? "done"
       : ph.nodes.some((n) => n.status === "current") ? "current" : "pending";
+    // major_state 汇总：跨节点聚合该阶段全部 step
+    const pstat = { dur: 0, turns: 0, tin: 0, tout: 0, cost: 0 };
+    for (const n of ph.nodes) {
+      for (let i = 1; i <= n.sub_total; i++) {
+        const a = stepMap.get(`${n.node_id}#${i}`);
+        if (a) {
+          pstat.dur += a.dur; pstat.turns += a.turns;
+          pstat.tin += a.tin; pstat.tout += a.tout; pstat.cost += a.cost;
+        }
+      }
+    }
     const phEl = document.createElement("div");
     phEl.className = `tl-phase ${phStatus}`;
     phEl.innerHTML =
       `<div class="tl-phase-head">${esc(phaseLabel(ph.name))}` +
-      `<span class="num">${doneCount}/${ph.nodes.length}</span></div>`;
+      `<span class="num">${doneCount}/${ph.nodes.length}</span></div>` +
+      (pstat.turns > 0
+        ? `<div class="tl-pstat num">Σ ${pstat.dur}s · ${pstat.turns}轮 · ` +
+          `in${fmtTok(pstat.tin)}/out${fmtTok(pstat.tout)} · $${pstat.cost.toFixed(2)}</div>`
+        : "");
     const branches = document.createElement("div");
     branches.className = "tl-branches";
     for (const n of ph.nodes) {
@@ -202,6 +225,14 @@ function renderTimelineTree(stats, nodes, info) {
           `Σ ${nstat.dur}s · ${nstat.turns}轮 · ` +
           `in${fmtTok(nstat.tin)}/out${fmtTok(nstat.tout)} · $${nstat.cost.toFixed(2)}`;
         nodeEl.appendChild(st);
+      }
+      // 归属节点的产物链接（新页面阅读）
+      const artKind = ART_NODE[n.node_id];
+      if (artKind && artifacts && artifacts[artKind] && artifacts[artKind].exists) {
+        const al = document.createElement("div");
+        al.className = "tl-art";
+        al.innerHTML = artLink(artKind);
+        nodeEl.appendChild(al);
       }
       const leaves = document.createElement("div");
       leaves.className = "tl-leaves";
@@ -244,7 +275,7 @@ function renderTimelineTree(stats, nodes, info) {
 }
 
 /* 甘特泳道：节点为道、段为真实时间定位的横条。 */
-function renderTimelineGantt(stats, nodes, info) {
+function renderTimelineGantt(stats, nodes, info, artifacts) {
   const box = $("timeline");
   box.innerHTML = "";
   const segs = stats.filter((s) => s.ts);
@@ -306,6 +337,26 @@ function renderTimelineGantt(stats, nodes, info) {
       const ph = document.createElement("div");
       ph.className = "gt-phase";
       ph.textContent = phaseLabel(n.phase);
+      // major_state 汇总（本阶段已跑段的合计）
+      const pstat = { dur: 0, turns: 0, tin: 0, tout: 0, cost: 0 };
+      for (const nn of nodes) {
+        if (nn.phase !== n.phase) continue;
+        for (const s of byNode.get(nn.node_id) || []) {
+          pstat.dur += s.duration_s || 0;
+          pstat.turns += s.num_turns || 0;
+          pstat.tin += s.input_tokens || 0;
+          pstat.tout += s.output_tokens || 0;
+          pstat.cost += s.cost_usd || 0;
+        }
+      }
+      if (pstat.turns > 0) {
+        const st = document.createElement("span");
+        st.className = "gt-pstat num";
+        st.textContent =
+          `Σ ${pstat.dur}s · ${pstat.turns}轮 · ` +
+          `in${fmtTok(pstat.tin)}/out${fmtTok(pstat.tout)} · $${pstat.cost.toFixed(2)}`;
+        ph.appendChild(st);
+      }
       group.appendChild(ph);
       root.appendChild(group);
     }
@@ -328,6 +379,13 @@ function renderTimelineGantt(stats, nodes, info) {
       st.textContent =
         `Σ ${nstat.dur}s · ${nstat.turns}轮 · in${fmtTok(nstat.tin)}/out${fmtTok(nstat.tout)}`;
       label.appendChild(st);
+    }
+    const artKind = ART_NODE[n.node_id];
+    if (artKind && artifacts && artifacts[artKind] && artifacts[artKind].exists) {
+      const al = document.createElement("div");
+      al.className = "tl-art";
+      al.innerHTML = artLink(artKind);
+      label.appendChild(al);
     }
     lane.appendChild(label);
     const rail = document.createElement("div");
@@ -380,13 +438,13 @@ function tlSkin() {
   return TL_SKINS.has(s) ? s : "cards";
 }
 
-function renderTimeline(stats, nodes, info) {
+function renderTimeline(stats, nodes, info, artifacts) {
   const box = $("timeline");
   const skin = tlSkin();
   box.classList.remove("metro", "gantt", "cards");
   box.classList.add(skin);
-  if (skin === "gantt") renderTimelineGantt(stats, nodes, info);
-  else renderTimelineTree(stats, nodes, info);
+  if (skin === "gantt") renderTimelineGantt(stats, nodes, info, artifacts);
+  else renderTimelineTree(stats, nodes, info, artifacts);
   document.querySelectorAll("#tl-switch button").forEach((b) =>
     b.classList.toggle("on", b.dataset.skin === skin));
 }
@@ -484,72 +542,41 @@ function renderSegs(stats) {
   $("seg-count").textContent = shown ? `${shown} 段` : "";
 }
 
-/* 产物与证据链：改动面（change_point 锚点表）+ 产物文档（内联查看）+ 证据链（q/a/结论）。
-   选中工作流时加载一次，手动「刷新」重载（不随 SSE 每 2s 拉——证据链可能上百 KB）。 */
+/* 改动面 + 证据链加载（选中工作流时加载一次，「刷新产物」手动重载，不拖 SSE）。
+   改动面 = plan 的 change_point 锚点（时间轴外第二重要信息，紧贴时间轴展示）。 */
 async function loadOutputs() {
   if (!sel.project) return;
-  const box = $("outputs");
-  box.innerHTML = `<div class="tl-empty">加载中…</div>`;
+  const cpBox = $("change-points");
+  const evBox = $("outputs");
+  cpBox.innerHTML = `<div class="tl-empty">加载中…</div>`;
+  evBox.innerHTML = "";
   const qs = `project=${encodeURIComponent(sel.project)}&name=${encodeURIComponent(sel.name)}`;
   const r = await fetch(`/api/outputs?${qs}`);
   const d = await r.json();
-  box.innerHTML = "";
 
   // 代码改动面
+  cpBox.innerHTML = "";
+  $("cp-count").textContent = d.change_points.length
+    ? `${d.change_points.length} 处锚点（来自 plan.md）` : "";
   if (d.change_points.length) {
-    const sub = document.createElement("div");
-    sub.className = "out-sub";
-    sub.innerHTML =
-      `<div class="out-title">代码改动面 <span class="hint">${d.change_points.length} 处锚点</span></div>` +
-      `<div class="table-wrap"><table><thead><tr>` +
+    const tw = document.createElement("div");
+    tw.className = "table-wrap cp-wrap";
+    tw.innerHTML =
+      `<table class="cp-table"><thead><tr>` +
       `<th>文件</th><th>方法</th><th class="num">行</th><th class="num">动作</th>` +
       `</tr></thead><tbody>` +
       d.change_points.map((c) =>
         `<tr><td class="num">${esc(c.file)}</td><td class="num">${esc(c.method)}</td>` +
         `<td class="num">${esc(c.line)}</td><td class="num">${esc(c.action)}</td></tr>`).join("") +
-      `</tbody></table></div>`;
-    box.appendChild(sub);
-  }
-
-  // 产物文档
-  const arts = [["understands", "understand.md"], ["plans", "plan.md"]]
-    .filter(([k]) => d.artifacts[k] && d.artifacts[k].exists);
-  if (arts.length) {
-    const sub = document.createElement("div");
-    sub.className = "out-sub";
-    sub.innerHTML = `<div class="out-title">产物文档</div>`;
-    const chips = document.createElement("div");
-    chips.className = "art-chips";
-    const view = document.createElement("pre");
-    view.className = "art-view hidden";
-    for (const [kind, label] of arts) {
-      const b = document.createElement("button");
-      b.className = "btn ghost";
-      b.textContent = label;
-      b.onclick = async () => {
-        if (view.dataset.kind === kind && !view.classList.contains("hidden")) {
-          view.classList.add("hidden");
-          return;
-        }
-        const rr = await fetch(`/api/artifact?${qs}&kind=${kind}`);
-        const dd = await rr.json();
-        view.textContent = dd.content || "（空）";
-        view.dataset.kind = kind;
-        view.classList.remove("hidden");
-      };
-      chips.appendChild(b);
-    }
-    sub.appendChild(chips);
-    sub.appendChild(view);
-    box.appendChild(sub);
+      `</tbody></table>`;
+    cpBox.appendChild(tw);
+  } else {
+    cpBox.innerHTML =
+      `<div class="tl-empty">plan 尚未产出 change_point（到达 plan 阶段后自动出现）</div>`;
   }
 
   // 证据链
   if (d.evidence.length) {
-    const sub = document.createElement("div");
-    sub.className = "out-sub";
-    sub.innerHTML =
-      `<div class="out-title">证据链 <span class="hint">${d.evidence.length} 条</span></div>`;
     let lastStage = null;
     for (const e of d.evidence) {
       const stage = [e.major_stage, e.minor_stage].filter(Boolean).join(" / ") || e.kind;
@@ -558,7 +585,7 @@ async function loadOutputs() {
         const sh = document.createElement("div");
         sh.className = "ev-stage";
         sh.textContent = stage;
-        sub.appendChild(sh);
+        evBox.appendChild(sh);
       }
       const item = document.createElement("div");
       item.className = "ev-item";
@@ -573,13 +600,10 @@ async function loadOutputs() {
         `<div class="ev-head"><span class="num">#${e.sub_step ?? "-"}</span> ` +
         `<span class="ev-skill">${esc(e.skill || e.kind)}</span> ${esc(e.purpose)}</div>` +
         (e.conclusion ? `<div class="ev-concl">${esc(e.conclusion)}</div>` : "") + qa;
-      sub.appendChild(item);
+      evBox.appendChild(item);
     }
-    box.appendChild(sub);
-  }
-
-  if (!box.children.length) {
-    box.innerHTML = `<div class="tl-empty">暂无产物与证据</div>`;
+  } else {
+    evBox.innerHTML = `<div class="tl-empty">暂无证据链记录</div>`;
   }
 }
 
@@ -592,7 +616,7 @@ async function refreshDetail() {
   $("d-title").textContent = `${d.info.name} · ${d.info.node}` +
     (d.driver_pid ? `（driver #${d.driver_pid}）` : "（driver 已停）");
   $("d-statement").textContent = d.info.problem_statement;
-  renderTimeline(d.stats, d.info.nodes, d.info);
+  renderTimeline(d.stats, d.info.nodes, d.info, d.artifacts);
   renderNodes(d.info.nodes);
   renderInteract(d);
   renderSegs(d.stats);
@@ -604,6 +628,11 @@ $("sidebar-toggle").onclick = () => {
   const collapsed = sb.classList.toggle("collapsed");
   $("sidebar-toggle").textContent = collapsed ? "展开" : "收起";
 };
+// 手机端默认收起侧栏（窄屏交互让位详情区）
+if (window.matchMedia("(max-width: 768px)").matches) {
+  $("sidebar").classList.add("collapsed");
+  $("sidebar-toggle").textContent = "展开";
+}
 
 $("outputs-refresh").onclick = () => loadOutputs();
 
