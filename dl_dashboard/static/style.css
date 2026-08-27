@@ -268,14 +268,23 @@ main { padding: 20px; flex: 1; min-width: 0; max-width: 1400px; }
 #timeline.metro .tl-track {
   display: flex;
   align-items: stretch;
+  gap: 14px;
   min-width: min-content;
   padding: 8px 18px 12px;
 }
-#timeline.metro .tl-phase { position: relative; flex-shrink: 0; padding: 0 16px 0 2px; }
+#timeline.metro .tl-phase {
+  position: relative;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.022);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  padding: 10px 16px 12px 12px;
+}
+#timeline.metro .tl-phase.current { border-color: var(--sky-line); }
 #timeline.metro .tl-phase::before {
   content: "";
   position: absolute;
-  top: 30px;
+  top: 40px;
   left: 0;
   right: 0;
   border-top: 3px solid var(--line);
@@ -299,14 +308,14 @@ main { padding: 20px; flex: 1; min-width: 0; max-width: 1400px; }
   position: relative;
   flex-shrink: 0;
   min-width: 150px;
-  padding-top: 44px;
+  padding-top: 54px;
   transition: opacity 0.15s ease;
 }
 #timeline.metro .tl-node.dim { opacity: 0.28; }
 #timeline.metro .tl-node::before {
   content: "";
   position: absolute;
-  top: 22px;
+  top: 32px;
   left: 3px;
   width: 11px;
   height: 11px;
@@ -345,9 +354,11 @@ main { padding: 20px; flex: 1; min-width: 0; max-width: 1400px; }
   position: relative;
   border: 1px solid var(--line);
   border-radius: 8px;
+  background: rgba(255, 255, 255, 0.022);
   padding: 14px 14px 12px;
   flex-shrink: 0;
 }
+#timeline.cards .tl-phase.current { border-color: var(--sky-line); }
 #timeline.cards .tl-phase-head {
   position: absolute;
   top: -9px;
@@ -405,9 +416,18 @@ main { padding: 20px; flex: 1; min-width: 0; max-width: 1400px; }
   top: 20px;
   bottom: 6px;
   border-left: 1px solid var(--line-soft);
+  z-index: 1;
 }
 
-/* phase 分隔行 */
+/* phase 分组块（同一 major_state 统一背景色块） */
+.gt-group {
+  position: relative;
+  background: rgba(255, 255, 255, 0.022);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  margin: 6px 0;
+  padding-bottom: 5px;
+}
 .gt-phase {
   font-family: var(--mono);
   font-size: 10px;
@@ -415,8 +435,6 @@ main { padding: 20px; flex: 1; min-width: 0; max-width: 1400px; }
   text-transform: uppercase;
   color: var(--text-3);
   padding: 7px 0 3px 8px;
-  border-top: 1px solid var(--line-soft);
-  margin-top: 4px;
 }
 
 /* 泳道 */

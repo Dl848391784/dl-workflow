@@ -278,16 +278,19 @@ function renderTimelineGantt(stats, nodes, info) {
     if (!byNode.has(s.node)) byNode.set(s.node, []);
     byNode.get(s.node).push(s);
   }
-  let lastPhase = null;
+  let lastPhase = null, group = null;
   for (const n of nodes) {
     const nodeSegs = byNode.get(n.node_id);
     if (!nodeSegs) continue;
     if (n.phase !== lastPhase) {
       lastPhase = n.phase;
+      group = document.createElement("div");
+      group.className = "gt-group";
       const ph = document.createElement("div");
       ph.className = "gt-phase";
       ph.textContent = phaseLabel(n.phase);
-      root.appendChild(ph);
+      group.appendChild(ph);
+      root.appendChild(group);
     }
     const lane = document.createElement("div");
     lane.className = "gt-lane" + (n.status === "current" ? " cur" : "");
@@ -321,7 +324,7 @@ function renderTimelineGantt(stats, nodes, info) {
       rail.appendChild(bar);
     }
     lane.appendChild(rail);
-    root.appendChild(lane);
+    group.appendChild(lane);
   }
 
   const nowLine = document.createElement("div");
