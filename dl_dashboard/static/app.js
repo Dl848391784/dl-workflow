@@ -1,7 +1,7 @@
 /* dl-workflow 控制台：SSE 驱动，左侧工作流栏 + 右侧详情（步骤时间轴）。 */
 "use strict";
 
-const sel = { project: null, name: null, nodeFilter: null };
+const sel = { project: null, name: null };
 const $ = (id) => document.getElementById(id);
 
 async function post(url, body) {
@@ -29,7 +29,7 @@ function isWaiting(w) {
 }
 
 function selectWorkflow(project, name) {
-  sel.project = project; sel.name = name; sel.nodeFilter = null;
+  sel.project = project; sel.name = name;
   $("detail-empty").classList.add("hidden");
   $("detail-view").classList.remove("hidden");
   refreshDetail();
@@ -74,27 +74,6 @@ function renderSidebar(workflows) {
   if (!sel.project && workflows.length) {
     const w = workflows.find(isWaiting) || workflows[0];
     selectWorkflow(w.project, w.name);
-  }
-}
-
-function renderNodes(nodes) {
-  const strip = $("node-strip");
-  strip.innerHTML = "";
-  const all = document.createElement("span");
-  all.className = "chip" + (sel.nodeFilter ? "" : " active");
-  all.textContent = "全部";
-  all.onclick = () => { sel.nodeFilter = null; refreshDetail(); };
-  strip.appendChild(all);
-  for (const n of nodes) {
-    const chip = document.createElement("span");
-    chip.className = `chip ${n.status}`;
-    chip.textContent = n.label;
-    if (sel.nodeFilter === n.node_id) chip.classList.add("active");
-    chip.onclick = () => {
-      sel.nodeFilter = sel.nodeFilter === n.node_id ? null : n.node_id;
-      refreshDetail();
-    };
-    strip.appendChild(chip);
   }
 }
 
@@ -213,7 +192,6 @@ function renderTimelineTree(stats, nodes, info, artifacts) {
       }
       const nodeEl = document.createElement("div");
       nodeEl.className = `tl-node ${n.status}`;
-      if (sel.nodeFilter && n.node_id !== sel.nodeFilter) nodeEl.classList.add("dim");
       const head = document.createElement("div");
       head.className = "tl-node-head";
       head.textContent = n.label;
@@ -362,7 +340,6 @@ function renderTimelineGantt(stats, nodes, info, artifacts) {
     }
     const lane = document.createElement("div");
     lane.className = "gt-lane" + (n.status === "current" ? " cur" : "");
-    if (sel.nodeFilter && n.node_id !== sel.nodeFilter) lane.classList.add("dim");
     const label = document.createElement("div");
     label.className = "gt-label";
     label.textContent = n.label;
@@ -521,29 +498,8 @@ function renderInteract(d) {
   box.appendChild(form); box.appendChild(go);
 }
 
-function renderSegs(stats) {
-  const tb = document.querySelector("#seg-table tbody");
-  tb.innerHTML = "";
-  let shown = 0;
-  for (const s of stats) {
-    if (sel.nodeFilter && s.node !== sel.nodeFilter) continue;
-    shown++;
-    const tr = document.createElement("tr");
-    tr.innerHTML =
-      `<td class="num">${esc(s.node)}</td><td class="num">${esc(s.sub_step)}</td><td>${esc(s.kind)}</td>` +
-      `<td class="num">${esc(s.num_turns ?? "-")}</td><td class="num">${esc(s.duration_s ?? "-")}</td>` +
-      `<td class="num">${esc(fmtTok(s.input_tokens))}</td><td class="num">${esc(fmtTok(s.output_tokens))}</td>` +
-      `<td class="num">${esc(s.cost_usd ?? "-")}</td><td class="num">${esc(s.ts)}</td><td>${esc(s.note)}</td>`;
-    tb.appendChild(tr);
-  }
-  if (!shown) {
-    tb.innerHTML = `<tr class="empty"><td colspan="10">无段记录</td></tr>`;
-  }
-  $("seg-count").textContent = shown ? `${shown} 段` : "";
-}
-
 /* 改动面 + 证据链加载（选中工作流时加载一次，「刷新产物」手动重载，不拖 SSE）。
-   改动面 = plan 的 change_point 锚点（时间轴外第二重要信息，紧贴时间轴展示）。 */
+   改动面 = plan 的 change_point 审核卡片：改前/改后 + worktree 实读现状上下文。 */
 async function loadOutputs() {
   if (!sel.project) return;
   const cpBox = $("change-points");
@@ -557,19 +513,40 @@ async function loadOutputs() {
   // 代码改动面
   cpBox.innerHTML = "";
   $("cp-count").textContent = d.change_points.length
-    ? `${d.change_points.length} 处锚点（来自 plan.md）` : "";
+    ? `${d.change_points.length} 处改动（来自 plan.md，现状为 worktree 实读）` : "";
   if (d.change_points.length) {
-    const tw = document.createElement("div");
-    tw.className = "table-wrap cp-wrap";
-    tw.innerHTML =
-      `<table class="cp-table"><thead><tr>` +
-      `<th>文件</th><th>方法</th><th class="num">行</th><th class="num">动作</th>` +
-      `</tr></thead><tbody>` +
-      d.change_points.map((c) =>
-        `<tr><td class="num">${esc(c.file)}</td><td class="num">${esc(c.method)}</td>` +
-        `<td class="num">${esc(c.line)}</td><td class="num">${esc(c.action)}</td></tr>`).join("") +
-      `</tbody></table>`;
-    cpBox.appendChild(tw);
+    for (const c of d.change_points) {
+      const card = document.createElement("div");
+      card.className = "cp-card";
+      let html =
+        `<div class="cp-head"><span class="cp-file num">${esc(c.file)}</span>` +
+        (c.method !== "-" ? ` <span class="num">${esc(c.method)}</span>` : "") +
+        ` <span class="num">L${esc(c.line)}</span>` +
+        `<span class="tag warn">${esc(c.action)}</span></div>`;
+      if (c.before || c.after) {
+        html += `<div class="cp-diff">` +
+          (c.before
+            ? `<div class="cp-before"><span class="cp-sign">-</span><span>${esc(c.before)}</span></div>`
+            : "") +
+          (c.after
+            ? `<div class="cp-after"><span class="cp-sign">+</span><span>${esc(c.after)}</span></div>`
+            : "") +
+          `</div>`;
+      }
+      if (c.context) {
+        html += `<div class="cp-ctx">` +
+          c.context.lines.map((t, i) => {
+            const n = c.context.start + i;
+            const isA = n === c.context.anchor;
+            return `<div class="cp-line${isA ? " anchor" : ""}">` +
+              `<span class="cp-ln num">${isA ? "▶" : ""}${n}</span>` +
+              `<span>${esc(t)}</span></div>`;
+          }).join("") +
+          `</div>`;
+      }
+      card.innerHTML = html;
+      cpBox.appendChild(card);
+    }
   } else {
     cpBox.innerHTML =
       `<div class="tl-empty">plan 尚未产出 change_point（到达 plan 阶段后自动出现）</div>`;
@@ -617,9 +594,7 @@ async function refreshDetail() {
     (d.driver_pid ? `（driver #${d.driver_pid}）` : "（driver 已停）");
   $("d-statement").textContent = d.info.problem_statement;
   renderTimeline(d.stats, d.info.nodes, d.info, d.artifacts);
-  renderNodes(d.info.nodes);
   renderInteract(d);
-  renderSegs(d.stats);
   $("log-tail").textContent = d.log_tail;
 }
 

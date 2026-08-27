@@ -48,19 +48,46 @@ def test_load_change_points_extracts_anchors(tmp_path):
     plans.mkdir(parents=True)
     (plans / "demo.md").write_text(
         "## 执行步骤\n"
-        "- 某改动项（execute；change_point=web_ui/templates/_macros.html:-:L57（改）：改前=x → 改后=y；interface=Consumes=a）\n"
+        "- 某改动项（execute；change_point=web_ui/templates/_macros.html:-:L57（改）："
+        "改前={% set _ann_pct = _ann * 100 %}（对已百分比年化值再乘 100）→ "
+        "改后=移除 ×100 直接消费已百分比值；interface=Consumes=a）\n"
         "- 另一项（change_point=web_ui/app.py:_render_report:L267（改）：改前=a → 改后=b\n"
         "test_cases/test_x.py:-（增@文件尾）：新增测试；Produces=out）\n",
         encoding="utf-8",
     )
     cps = load_change_points(proj, "demo")
     assert len(cps) == 3
-    assert cps[0] == {"file": "web_ui/templates/_macros.html", "method": "-",
-                      "line": "57", "action": "改"}
-    assert cps[1] == {"file": "web_ui/app.py", "method": "_render_report",
-                      "line": "267", "action": "改"}
+    assert cps[0]["file"] == "web_ui/templates/_macros.html"
+    assert cps[0]["line"] == "57" and cps[0]["action"] == "改"
+    assert "_ann * 100" in cps[0]["before"]
+    assert "移除 ×100" in cps[0]["after"]
+    assert cps[1]["method"] == "_render_report" and cps[1]["line"] == "267"
     assert cps[2]["file"] == "test_cases/test_x.py" and cps[2]["action"] == "增"
     assert load_change_points(proj, "nonexistent") == []
+
+
+def test_change_point_code_context_from_worktree(tmp_path):
+    proj = _mk_project(tmp_path)
+    plans = tmp_path / ".claude" / "plans"
+    plans.mkdir(parents=True)
+    (plans / "demo.md").write_text(
+        "- 项（change_point=web_ui/app.py:_render_report:L3（改）：改前=a → 改后=b）\n",
+        encoding="utf-8",
+    )
+    # worktree 实读：state.json 指到 tmp_path/wt，锚点文件 5 行
+    wt = tmp_path / "wt"
+    (wt / "web_ui").mkdir(parents=True)
+    (wt / "web_ui" / "app.py").write_text(
+        "l1\nl2\nOLD = x\nl4\nl5\n", encoding="utf-8")
+    meta = tmp_path / ".claude" / "workflows" / "demo"
+    meta.mkdir(parents=True)
+    (meta / "state.json").write_text(
+        json.dumps({"worktree_path": str(wt)}), encoding="utf-8")
+    cps = load_change_points(proj, "demo")
+    ctx = cps[0]["context"]
+    assert ctx is not None
+    assert ctx["anchor"] == 3 and ctx["start"] == 1
+    assert ctx["lines"] == ["l1", "l2", "OLD = x", "l4", "l5"]
 
 
 def test_artifact_status_and_content(tmp_path):

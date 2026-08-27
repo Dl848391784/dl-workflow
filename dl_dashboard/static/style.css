@@ -301,9 +301,48 @@ main { padding: 20px; flex: 1; min-width: 0; max-width: 1400px; }
   text-transform: none;
 }
 
-/* 代码改动面（紧贴时间轴，第二重要信息） */
-.cp-wrap { max-height: 320px; overflow-y: auto; }
-.cp-table td:first-child { color: var(--text); }
+/* 代码改动面：审核卡片（改前/改后 + 现状代码上下文） */
+.cp-card {
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+}
+.cp-head { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.cp-head .cp-file { color: var(--text); font-weight: 600; }
+.cp-head .tag { margin-left: auto; }
+.cp-diff { margin-top: 8px; font-family: var(--mono); font-size: 12px; }
+.cp-before, .cp-after {
+  display: flex;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  line-height: 1.6;
+}
+.cp-before { background: rgba(229, 72, 77, 0.08); color: #e88a8d; }
+.cp-after { background: var(--accent-dim); color: #7fdcae; margin-top: 3px; }
+.cp-sign { flex-shrink: 0; font-weight: 700; user-select: none; }
+.cp-ctx {
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.65;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  overflow-x: auto;
+}
+.cp-line { display: flex; white-space: pre; color: var(--text-3); padding: 0 8px; }
+.cp-line.anchor { background: var(--sky-dim); color: var(--text); }
+.cp-ln {
+  flex-shrink: 0;
+  width: 48px;
+  color: var(--text-3);
+  user-select: none;
+  border-right: 1px solid var(--line-soft);
+  margin-right: 8px;
+}
+.cp-line.anchor .cp-ln { color: var(--sky); }
 
 /* ----- 肤 A：地铁线路图（阶段=线路段 / 节点=站点） ----- */
 #timeline.metro { padding: 8px 0 6px; }
