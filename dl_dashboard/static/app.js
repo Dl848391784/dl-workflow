@@ -97,6 +97,17 @@ function renderNodes(nodes) {
 /* ---------- 步骤时间轴：三肤共存（地铁 metro / 甘特 gantt / 卡片树 cards） ---------- */
 
 /* 共享：拖拽 + 滚轮横向滑动 */
+const PHASE_LABELS = {
+  understand: "理解和求证问题",
+  plan: "生成执行计划",
+  execute: "执行",
+  review: "审核结果",
+  evolution: "进化",
+};
+function phaseLabel(name) {
+  return PHASE_LABELS[name] || name;
+}
+
 function attachTimelineScroll(box) {
   let dragging = false, startX = 0, startLeft = 0;
   box.onpointerdown = (e) => {
@@ -158,7 +169,7 @@ function renderTimelineTree(stats, nodes, info) {
     const phEl = document.createElement("div");
     phEl.className = `tl-phase ${phStatus}`;
     phEl.innerHTML =
-      `<div class="tl-phase-head">${esc(ph.name)}` +
+      `<div class="tl-phase-head">${esc(phaseLabel(ph.name))}` +
       `<span class="num">${doneCount}/${ph.nodes.length}</span></div>`;
     const branches = document.createElement("div");
     branches.className = "tl-branches";
@@ -275,7 +286,7 @@ function renderTimelineGantt(stats, nodes, info) {
       lastPhase = n.phase;
       const ph = document.createElement("div");
       ph.className = "gt-phase";
-      ph.textContent = n.phase;
+      ph.textContent = phaseLabel(n.phase);
       root.appendChild(ph);
     }
     const lane = document.createElement("div");
