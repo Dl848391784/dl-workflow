@@ -136,6 +136,12 @@ function renderTimeline(stats, nodes, info) {
     const branches = document.createElement("div");
     branches.className = "tl-branches";
     for (const n of ph.nodes) {
+      // 节点内耗时最大值：叶内迷你条的比例尺
+      let nodeMax = 1;
+      for (let i = 1; i <= n.sub_total; i++) {
+        const a = stepMap.get(`${n.node_id}#${i}`);
+        if (a && a.dur > nodeMax) nodeMax = a.dur;
+      }
       const nodeEl = document.createElement("div");
       nodeEl.className = `tl-node ${n.status}`;
       if (sel.nodeFilter && n.node_id !== sel.nodeFilter) nodeEl.classList.add("dim");
@@ -152,17 +158,19 @@ function renderTimeline(stats, nodes, info) {
         const leaf = document.createElement("div");
         leaf.className = "tl-leaf" + (a ? " done" : isCur ? " cur" : " todo");
         if (a) {
+          const barW = Math.max(2, Math.round((a.dur / nodeMax) * 90));
           leaf.title =
             `${key}\n耗时 ${a.dur}s · ${a.turns} 轮\n` +
             `tok in ${a.tin} / out ${a.tout}\n$${a.cost.toFixed(3)}`;
           leaf.innerHTML =
-            `<span class="tl-lid num">#${i}</span>` +
-            `<span class="tl-ldur num">${a.dur}s</span>` +
-            `<span class="tl-lmeta num">${a.turns}轮 ` +
+            `<div class="tl-l1"><span class="tl-lid num">#${i}</span>` +
+            `<span class="tl-bar" style="width:${barW}px"></span>` +
+            `<span class="tl-ldur num">${a.dur}s</span></div>` +
+            `<div class="tl-l2 num">${a.turns}轮 ` +
             `in${fmtTok(a.tin)}/out${fmtTok(a.tout)} ` +
-            `$${a.cost.toFixed(2)}</span>`;
+            `$${a.cost.toFixed(2)}</div>`;
         } else {
-          leaf.innerHTML = `<span class="tl-lid num">#${i}</span>`;
+          leaf.innerHTML = `<div class="tl-l1"><span class="tl-lid num">#${i}</span></div>`;
         }
         leaves.appendChild(leaf);
       }

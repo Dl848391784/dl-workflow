@@ -202,7 +202,7 @@ main { padding: 20px; flex: 1; min-width: 0; max-width: 1400px; }
   font-size: 13px;
 }
 
-/* ---------- 步骤时间轴（树形：阶段分带 / 节点为枝 / step 为叶） ---------- */
+/* ---------- 步骤时间轴（精装卡片树：阶段容器 / 节点卡片 / 叶嵌耗时条） ---------- */
 #timeline {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -210,6 +210,7 @@ main { padding: 20px; flex: 1; min-width: 0; max-width: 1400px; }
   overflow-x: auto;
   cursor: grab;
   user-select: none;
+  padding: 14px 0 4px;
 }
 #timeline.grabbing { cursor: grabbing; }
 #timeline::-webkit-scrollbar { height: 8px; }
@@ -219,66 +220,94 @@ main { padding: 20px; flex: 1; min-width: 0; max-width: 1400px; }
 .tl-track {
   display: flex;
   align-items: stretch;
+  gap: 16px;
   min-width: min-content;
+  padding: 6px 18px 12px;
 }
 
-/* major_state 分带 */
+/* major_state：fieldset 式描边容器，标签浮在边框上 */
 .tl-phase {
-  padding: 12px 18px 14px;
-  border-right: 1px solid var(--line);
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px 14px 12px;
   flex-shrink: 0;
 }
-.tl-phase:last-child { border-right: none; }
 .tl-phase-head {
+  position: absolute;
+  top: -9px;
+  left: 12px;
+  padding: 0 8px;
+  background: var(--bg-raise);
   font-family: var(--mono);
   font-size: 10.5px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--text-3);
-  margin-bottom: 10px;
+  color: var(--text-2);
 }
-.tl-phase-head .num { margin-left: 8px; color: var(--text-2); }
+.tl-phase-head .num { margin-left: 8px; color: var(--accent); }
 
-/* minor_state 枝 */
-.tl-branches { display: flex; gap: 22px; align-items: flex-start; }
-.tl-node { flex-shrink: 0; transition: opacity 0.15s ease; }
+/* minor_state：节点卡片 */
+.tl-branches { display: flex; gap: 14px; align-items: flex-start; }
+.tl-node {
+  flex-shrink: 0;
+  min-width: 168px;
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 12px 10px;
+  transition: opacity 0.15s ease, border-color 0.15s ease;
+}
 .tl-node.dim { opacity: 0.28; }
+.tl-node.current {
+  border-color: var(--sky-line);
+  box-shadow: 0 0 0 1px var(--sky-line), 0 4px 18px rgba(87, 168, 255, 0.08);
+}
+.tl-node.pending { border-style: dashed; opacity: 0.62; }
 .tl-node-head {
   font-size: 12px;
+  font-weight: 500;
   color: var(--text-2);
-  padding-bottom: 6px;
+  padding-bottom: 7px;
   white-space: nowrap;
 }
 .tl-node-head .num { font-size: 11px; margin-right: 5px; }
 .tl-node.done .tl-node-head .num { color: var(--accent); }
 .tl-node.current .tl-node-head { color: var(--sky); }
 .tl-node.current .tl-node-head .num { color: var(--sky); }
-.tl-node.pending .tl-node-head { color: var(--text-3); }
 
-/* 茎线 + 叶（横枝） */
+/* 茎线 + 叶（横枝 + 迷你耗时条，无背景轨） */
 .tl-leaves {
   border-left: 1px solid var(--line);
   margin-left: 3px;
 }
 .tl-leaf {
   position: relative;
-  padding: 3px 0 3px 14px;
-  white-space: nowrap;
+  padding: 4px 0 4px 14px;
 }
 .tl-leaf::before {
   content: "";
   position: absolute;
   left: 0;
-  top: 12px;
+  top: 13px;
   width: 10px;
   border-top: 1px solid var(--line);
 }
-.tl-lid { font-size: 11px; color: var(--text-3); }
-.tl-ldur { font-size: 13px; font-weight: 600; color: var(--text); margin-left: 8px; }
-.tl-lmeta { font-size: 10.5px; color: var(--text-3); margin-left: 8px; }
+.tl-l1 { display: flex; align-items: center; gap: 8px; }
+.tl-lid { font-size: 11px; color: var(--text-3); flex-shrink: 0; }
+.tl-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+.tl-ldur { font-size: 13px; font-weight: 600; color: var(--text); }
+.tl-l2 { font-size: 10.5px; color: var(--text-3); margin: 2px 0 0 24px; white-space: nowrap; }
 .tl-leaf.done .tl-lid { color: var(--accent); }
+.tl-leaf.cur .tl-bar { background: var(--sky); }
+.tl-leaf.cur .tl-ldur { color: var(--sky); }
 .tl-leaf.cur { animation: pulse 1.6s ease-in-out infinite; }
-.tl-leaf.cur .tl-lid { color: var(--sky); }
 .tl-leaf.todo { opacity: 0.35; }
 
 .section-head {
