@@ -73,6 +73,8 @@ def node_statuses(state: dict) -> tuple[NodeStatus, ...]:
 def scan_workflow(project: Path, name: str) -> WorkflowInfo:
     state = load_state(project, name)
     if state is None:
+        if (meta_root(project, name) / "state.json").exists():
+            raise ValueError(f"工作流 {name} 的 state.json 损坏（JSON 解析失败）")
         raise FileNotFoundError(f"工作流 {name} 的 state.json 缺失")
     need_user = (meta_root(project, name) / "need_user.json").exists()
     return WorkflowInfo(

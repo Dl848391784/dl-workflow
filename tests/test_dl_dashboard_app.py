@@ -3,8 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -55,6 +54,31 @@ def test_project_whitelist_enforced(client):
     c, _ = client
     r = c.get("/api/workflow", params={"project": "/etc", "name": "x"})
     assert r.status_code == 403
+
+
+def test_detail_rejects_path_traversal_name(client):
+    c, project = client
+    r = c.get("/api/workflow", params={"project": str(project), "name": "../../../etc"})
+    assert r.status_code == 400
+    assert "非法工作流名" in r.json()["detail"]
+
+
+def test_detail_missing_workflow_returns_404(client):
+    c, project = client
+    r = c.get("/api/workflow", params={"project": str(project), "name": "missing"})
+    assert r.status_code == 404
+
+
+def test_post_endpoints_reject_path_traversal_name(client):
+    c, project = client
+    payload = {"project": str(project), "name": "../../../etc"}
+    for path in ("/api/inject", "/api/gate", "/api/drive", "/api/dl"):
+        body = {**payload, "answer": "x"} if path == "/api/inject" else payload
+        if path == "/api/dl":
+            body["cmd"] = "advance"
+        r = c.post(path, json=body)
+        assert r.status_code == 400, f"{path} should reject traversal name"
+        assert "非法工作流名" in r.json()["detail"]
 
 
 def test_post_dl_rejects_bad_cmd(client):

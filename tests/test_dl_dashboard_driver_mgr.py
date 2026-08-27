@@ -43,7 +43,7 @@ def test_alive_claims_pid_file_after_backend_restart(tmp_path):
     """后端重启（内存空）-> 读 pid 文件 + /proc cmdline 校验认领。"""
     mgr = _mgr(tmp_path)
     mgr._pid_path(mgr.slug("/p", "demo")).write_text(str(os.getpid()), encoding="utf-8")
-    real = f"python3 /x/dl_drive.py demo".encode()
+    real = "python3 /x/dl_drive.py demo".encode()
     with patch("dl_dashboard.driver_mgr.Path.read_bytes", return_value=real):
         assert mgr.alive(Path("/p"), "demo") == os.getpid()
 
@@ -68,3 +68,29 @@ def test_stop_kills_process_group(tmp_path):
         killpg.assert_called_once()
     fake.poll.return_value = -15
     assert mgr.alive(Path("/p"), "demo") is None
+
+
+def test_stop_removes_pid_file_and_closes_log(tmp_path):
+    mgr = _mgr(tmp_path)
+    fake = MagicMock()
+    fake.pid = 4242
+    fake.poll.return_value = None
+    with patch("dl_dashboard.driver_mgr.subprocess.Popen", return_value=fake):
+        mgr.start(Path("/p"), "demo", Path("/wt"))
+    slug = mgr.slug("/p", "demo")
+    assert mgr._pid_path(slug).exists()
+    log_handle = mgr._logs[slug]
+    with patch("dl_dashboard.driver_mgr.os.killpg"):
+        mgr.stop(Path("/p"), "demo")
+    assert not mgr._pid_path(slug).exists()
+    assert slug not in mgr._logs
+    assert log_handle.closed
+
+
+def test_alive_unlinks_stale_pid_file_when_reclaim_fails(tmp_path):
+    """后端重启后认领失败（pid 复用/cmdline 不匹配）-> 删陈旧 pid 文件。"""
+    mgr = _mgr(tmp_path)
+    mgr._pid_path(mgr.slug("/p", "demo")).write_text(str(os.getpid()), encoding="utf-8")
+    with patch("dl_dashboard.driver_mgr.Path.read_bytes", return_value=b"/usr/bin/other"):
+        assert mgr.alive(Path("/p"), "demo") is None
+    assert not mgr._pid_path(mgr.slug("/p", "demo")).exists()

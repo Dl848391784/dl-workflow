@@ -137,6 +137,7 @@ function renderInteract(d) {
   const form = document.createElement("span");
   form.innerHTML =
     `<select id="dl-cmd"><option>advance</option><option>step-pass</option>` +
+    `<option>next</option><option>back</option><option>jump</option>` +
     `<option>dispute</option><option>state-reset</option></select>` +
     `<input id="dl-value" placeholder="参数（可空）" size="18">`;
   const go = mkBtn("执行 /dl", async () => {

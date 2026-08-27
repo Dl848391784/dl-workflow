@@ -118,6 +118,7 @@ python3 -m dl_dashboard.app
 
 - 会话不断开：driver 是后端 setsid 子进程，浏览器关掉照跑；后端重启自动认领活 driver，认不到的一键「重新驱动」（state 全落盘，续跑非重来）。
 - 归档仍走终端 `dl <name> --done`（后台不做删除）。
+- 手动验收（create/inject 链路无自动 e2e）：新建测试工作流 → driver 🟢 → 断点横幅出现 → 注入答案 → state 推进 → gate 放行 → 节点进入下一阶段。全程浏览器操作即全链路验证。
 
 ## 卸
 

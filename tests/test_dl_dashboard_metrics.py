@@ -73,3 +73,24 @@ def test_legacy_scan_incremental_via_offset_cache(tmp_path):
     stats = {s.session_id: s for s in collect_stats(tmp_path, "demo", cache)}
     assert stats["sid-legacy"].num_turns == 3   # 旧结果仍在
     assert stats["sid-none"].num_turns == 9     # 增量被捕获
+
+
+def test_legacy_cache_non_dict_is_reset(tmp_path):
+    """legacy 缓存 stats 字段非 dict（损坏）时重置，不抛异常。"""
+    meta = _mk(tmp_path, "demo")
+    stream = meta / "drive-stream.jsonl"
+    stream.write_text(
+        json.dumps({"type": "result", "session_id": "sid-legacy",
+                    "num_turns": 3, "duration_ms": 30000, "total_cost_usd": 0.2}) + "\n",
+        encoding="utf-8",
+    )
+    cache = tmp_path / "cache"
+    cache.mkdir(parents=True)
+    slug = f"{str(tmp_path).replace('/', '_')}--demo"
+    (cache / f"{slug}.json").write_text(json.dumps({"offset": 0, "stats": "bad"}), encoding="utf-8")
+    # 不应抛异常
+    stats = collect_stats(tmp_path, "demo", cache)
+    assert len(stats) == 3
+    # 写回的文件应是合法 dict
+    cached = json.loads((cache / f"{slug}.json").read_text(encoding="utf-8"))
+    assert isinstance(cached["stats"], dict)

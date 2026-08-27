@@ -59,6 +59,9 @@ def _legacy_result_stats(meta: Path, cache_dir: Path, slug: str) -> dict[str, di
         except (json.JSONDecodeError, ValueError, OSError):
             log.warning("legacy stats 缓存损坏，重置重扫: %s", cache_p)
             offset, stats = 0, {}
+        if not isinstance(stats, dict):
+            log.warning("legacy stats 缓存 stats 非 dict，重置重扫: %s", cache_p)
+            offset, stats = 0, {}
     stream = meta / "drive-stream.jsonl"
     if not stream.exists():
         return stats

@@ -8,6 +8,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
+import weakref
 from dataclasses import asdict
 from pathlib import Path
 
@@ -26,12 +28,20 @@ CACHE_DIR = DLWF / "dashboard-cache"
 RUNTIME_DIR = DLWF / "dashboard-run"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
+_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+
+
+def _name(raw: str) -> str:
+    if not _NAME_RE.match(raw):
+        raise HTTPException(400, f"非法工作流名: {raw!r}")
+    return raw
+
 
 def create_app(config: DashboardConfig | None = None) -> FastAPI:
     cfg = config or load_config()
     mgr = DriverManager(DLWF, RUNTIME_DIR)
     app = FastAPI(title="dl-workflow dashboard")
-    locks: dict[str, asyncio.Lock] = {}
+    locks = weakref.WeakValueDictionary()
 
     def _project(raw: str) -> Path:
         p = Path(raw)
@@ -70,7 +80,11 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
     @app.get("/api/workflow")
     def detail(project: str, name: str):
         proj = _project(project)
-        info = scanner.scan_workflow(proj, name)
+        name = _name(name)
+        try:
+            info = scanner.scan_workflow(proj, name)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from exc
         stats = []
         try:
             stats = metrics.collect_stats(proj, name, CACHE_DIR)
@@ -104,15 +118,16 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
     @app.post("/api/create")
     async def create(body: dict):
         proj = _project(body["project"])
-        async with _lock(proj, body["name"]):
+        name = _name(body["name"])
+        async with _lock(proj, name):
             ok, msg = await asyncio.to_thread(
-                actions.create_workflow, proj, body["name"], body["statement"], mgr)
+                actions.create_workflow, proj, name, body["statement"], mgr)
         return {"ok": ok, "msg": msg}
 
     @app.post("/api/inject")
     async def inject(body: dict):
         proj = _project(body["project"])
-        name = body["name"]
+        name = _name(body["name"])
         async with _lock(proj, name):
             ok, msg = await asyncio.to_thread(
                 actions.inject_answer, proj, name, body["answer"])
@@ -123,7 +138,7 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
     @app.post("/api/gate")
     async def gate(body: dict):
         proj = _project(body["project"])
-        name = body["name"]
+        name = _name(body["name"])
         async with _lock(proj, name):
             ok, msg = await asyncio.to_thread(actions.gate_release, proj, name)
             if ok:
@@ -133,17 +148,19 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
     @app.post("/api/drive")
     async def drive(body: dict):
         proj = _project(body["project"])
-        async with _lock(proj, body["name"]):
+        name = _name(body["name"])
+        async with _lock(proj, name):
             ok, msg = await asyncio.to_thread(
-                actions.restart_drive, proj, body["name"], mgr)
+                actions.restart_drive, proj, name, mgr)
         return {"ok": ok, "msg": msg}
 
     @app.post("/api/dl")
     async def dl(body: dict):
         proj = _project(body["project"])
-        async with _lock(proj, body["name"]):
+        name = _name(body["name"])
+        async with _lock(proj, name):
             ok, msg = await asyncio.to_thread(
-                actions.dl_command, proj, body["name"], body["cmd"], body.get("value"))
+                actions.dl_command, proj, name, body["cmd"], body.get("value"))
         return {"ok": ok, "msg": msg}
 
     @app.get("/api/events")

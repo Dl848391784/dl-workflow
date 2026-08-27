@@ -21,7 +21,16 @@ import dl_flow_engine as engine  # noqa: E402
 
 log = logging.getLogger("dl_dashboard.actions")
 
-ALLOWED_DL_CMDS = ("advance", "step-pass", "dispute", "state-reset")
+ALLOWED_DL_CMDS = ("advance", "step-pass", "dispute", "state-reset", "next", "back", "jump")
+
+
+def _get_state(project: Path, name: str) -> tuple[dict | None, str | None]:
+    state = engine.load_state(project, name)
+    if state is None:
+        return None, f"工作流 {name} 的 state.json 缺失"
+    if not state.get("worktree_path"):
+        return None, "state.json 缺 worktree_path"
+    return state, None
 
 
 def create_workflow(project: Path, name: str, statement: str, mgr,
@@ -59,7 +68,12 @@ def _find_needuser_sid(project: Path, name: str, state: dict, nid: str, cur: int
 
 
 def inject_answer(project: Path, name: str, answer: str) -> tuple[bool, str]:
-    state = engine.normalize_state(engine.load_state(project, name))
+    state_raw = engine.load_state(project, name)
+    if state_raw is None:
+        return False, f"工作流 {name} 的 state.json 缺失"
+    if not state_raw.get("worktree_path"):
+        return False, "state.json 缺 worktree_path"
+    state = engine.normalize_state(state_raw)
     node = engine.get_node(state["phase"], state["sub_index"])
     nid = engine.node_id(node.phase, node.sub)
     cur = state.get("sub_step_index", 1)
@@ -93,7 +107,9 @@ def inject_answer(project: Path, name: str, answer: str) -> tuple[bool, str]:
 
 def gate_release(project: Path, name: str) -> tuple[bool, str]:
     """gate 放行 = engine CLI subgate-pass（/dl gate 同路由 release_subgate）。"""
-    state = engine.load_state(project, name)
+    state, err = _get_state(project, name)
+    if err:
+        return False, err
     p = subprocess.run(
         ["python3", str(DLWF / "dl_flow_engine.py"), "subgate-pass", name],
         cwd=state["worktree_path"], stdin=subprocess.DEVNULL,
@@ -106,11 +122,23 @@ def gate_release(project: Path, name: str) -> tuple[bool, str]:
 def dl_command(project: Path, name: str, cmd: str, value: str | None = None) -> tuple[bool, str]:
     if cmd not in ALLOWED_DL_CMDS:
         return False, f"不支持的指令 {cmd}（白名单：{'/'.join(ALLOWED_DL_CMDS)}）"
-    state = engine.load_state(project, name)
+    state, err = _get_state(project, name)
+    if err:
+        return False, err
+    wt = state["worktree_path"]
+    if cmd in ("next", "back", "jump"):
+        if cmd == "jump" and not value:
+            return False, "jump 需要参数（目标 phase）"
+        argv = ["bash", str(DLWF / "scripts" / "workflow" / "dl-cmd.sh"), cmd]
+        if value:
+            argv.append(value)
+        p = subprocess.run(argv, cwd=wt, stdin=subprocess.DEVNULL,
+                           capture_output=True, text=True)
+        return p.returncode == 0, (p.stdout + p.stderr).strip()
     argv = ["python3", str(DLWF / "dl_flow_engine.py"), cmd, name]
     if value:
         argv.append(value)
-    p = subprocess.run(argv, cwd=state["worktree_path"], stdin=subprocess.DEVNULL,
+    p = subprocess.run(argv, cwd=wt, stdin=subprocess.DEVNULL,
                        capture_output=True, text=True)
     return p.returncode == 0, (p.stdout + p.stderr).strip()
 
@@ -119,6 +147,8 @@ def restart_drive(project: Path, name: str, mgr) -> tuple[bool, str]:
     """driver 死/断点后重新驱动（续跑非重来：state 全在盘上）。"""
     if mgr.alive(project, name):
         return False, "driver 仍在运行，无需重驱"
-    state = engine.load_state(project, name)
+    state, err = _get_state(project, name)
+    if err:
+        return False, err
     pid = mgr.start(project, name, Path(state["worktree_path"]))
     return True, f"driver 已重启 pid={pid}"

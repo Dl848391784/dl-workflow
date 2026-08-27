@@ -81,3 +81,11 @@ def test_scan_all_isolates_broken_workflow(tmp_path):
     infos = {i.name: i for i in scan_all([tmp_path])}
     assert infos["good"].error is None
     assert infos["bad"].error is not None  # 坏实例如实暴露，不拖垮全局
+
+
+def test_scan_workflow_corrupt_state_raises_value_error(tmp_path):
+    bad = meta_root(tmp_path, "bad")
+    bad.mkdir(parents=True)
+    (bad / "state.json").write_text("{损坏", encoding="utf-8")
+    with pytest.raises(ValueError, match="state.json 损坏"):
+        scan_workflow(tmp_path, "bad")
