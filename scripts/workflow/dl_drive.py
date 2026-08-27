@@ -24,6 +24,7 @@ dl_flow_engine（state.json + evidence.jsonl 磁盘真源，天然会话无关�
 import argparse
 import hashlib
 import json
+import logging
 import os
 import re
 import signal
@@ -62,6 +63,8 @@ NONE_RETRY_LIMIT = 3
 # 单击=中断当前活动（TUI 原生中断生成 / headless 杀子会话进断点），
 # 双击=退出这个会话包括子任务（driver 退 130）。
 RC_INTERRUPTED = -2  # run_session 返回哨兵：单击已中断子会话（drive 进断点裁决）
+
+log = logging.getLogger("dl_drive")
 
 
 def _pwait_interruptible(
@@ -119,6 +122,27 @@ def _record_segment(
     del segs[:-200]
     state["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     engine.save_state(project_root, name, state)
+
+
+def _append_segment_stat(meta: Path, ev: dict) -> None:
+    """result 事件统计落盘（dashboard 观测埋点，2026-08-27 dashboard-design §3）。
+
+    段台账 segment_sessions 只记 ts/kind/node/note（留痕语义）；耗时/轮数/成本
+    属统计语义，单列 JSONL 按 session_id join——不侵入 _record_segment 调用链。
+    只追加不修改；写失败不阻断主流（统计通道降级≠段失败），但必须 log。
+    """
+    rec = {
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "session_id": ev.get("session_id"),
+        "num_turns": ev.get("num_turns"),
+        "duration_ms": ev.get("duration_ms"),
+        "total_cost_usd": ev.get("total_cost_usd"),
+    }
+    try:
+        with open(meta / "segment_stats.jsonl", "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except OSError:
+        log.warning("segment_stats.jsonl 写失败 meta=%s", meta, exc_info=True)
 
 
 # ---------- P2-4 段链合并（designs/segment-chain-resume-design.md） ----------
@@ -731,6 +755,7 @@ def run_session(
                         disp.log(msg)
                     else:
                         print(f"\n{msg}")
+                    _append_segment_stat(meta, ev)
                     warn = _fresh_warn_line(first_fresh, note)
                     if warn:
                         if disp is not None:
@@ -791,6 +816,7 @@ class MergedSession:
     ):
         self.sid = str(uuid.uuid4())
         self.note = note
+        self.meta = meta
         self.verbose = verbose
         self.disp = disp
         self.first_fresh: "int | None" = None
@@ -897,6 +923,7 @@ class MergedSession:
                         self.disp.log(msg)
                     else:
                         print(f"\n{msg}")
+                    _append_segment_stat(self.meta, ev)
                     info = {"subtype": ev.get("subtype"), "last_ctx": self.last_ctx}
                     return "\n".join(texts), info
         except KeyboardInterrupt:
