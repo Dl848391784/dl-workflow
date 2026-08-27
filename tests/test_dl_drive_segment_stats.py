@@ -25,6 +25,12 @@ def test_append_segment_stat_writes_jsonl(tmp_path):
         "num_turns": 7,
         "duration_ms": 45200,
         "total_cost_usd": 0.1234,
+        "usage": {
+            "input_tokens": 13730,
+            "output_tokens": 8665,
+            "cache_read_input_tokens": 46976,
+            "cache_creation_input_tokens": 0,
+        },
     }
     drv._append_segment_stat(tmp_path, ev)
     lines = (tmp_path / "segment_stats.jsonl").read_text(encoding="utf-8").splitlines()
@@ -34,6 +40,10 @@ def test_append_segment_stat_writes_jsonl(tmp_path):
     assert rec["num_turns"] == 7
     assert rec["duration_ms"] == 45200
     assert rec["total_cost_usd"] == 0.1234
+    assert rec["input_tokens"] == 13730
+    assert rec["output_tokens"] == 8665
+    assert rec["cache_read_input_tokens"] == 46976
+    assert rec["cache_creation_input_tokens"] == 0
     assert rec["ts"]  # 非空时间戳
 
 

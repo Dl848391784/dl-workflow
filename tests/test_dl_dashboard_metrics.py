@@ -28,30 +28,42 @@ def _mk(project: Path, name: str) -> Path:
 
 def test_collect_joins_new_and_legacy_stats(tmp_path):
     meta = _mk(tmp_path, "demo")
-    # 新埋点（Task 1 产物）
+    # 新埋点（Task 1 产物）：token 平铺键
     (meta / "segment_stats.jsonl").write_text(
         json.dumps({"ts": "t", "session_id": "sid-new", "num_turns": 5,
-                    "duration_ms": 61000, "total_cost_usd": 0.5}) + "\n",
+                    "duration_ms": 61000, "total_cost_usd": 0.5,
+                    "input_tokens": 1000, "output_tokens": 200,
+                    "cache_read_input_tokens": 3000, "cache_creation_input_tokens": 50}) + "\n",
         encoding="utf-8",
     )
-    # 旧工作流：drive-stream.jsonl 里混噪声行的 result 事件
+    # 旧工作流：drive-stream.jsonl 里混噪声行的 result 事件（token 嵌 usage）
     with open(meta / "drive-stream.jsonl", "w", encoding="utf-8") as fh:
         fh.write("[log_xx] sending request {not json}\n")
         fh.write(json.dumps({"type": "assistant", "session_id": "sid-legacy"}) + "\n")
         fh.write(json.dumps({"type": "result", "session_id": "sid-legacy",
                              "num_turns": 3, "duration_ms": 30500,
-                             "total_cost_usd": 0.25}) + "\n")
+                             "total_cost_usd": 0.25,
+                             "usage": {"input_tokens": 500, "output_tokens": 100,
+                                       "cache_read_input_tokens": 900,
+                                       "cache_creation_input_tokens": 10}}) + "\n")
     stats = collect_stats(tmp_path, "demo", tmp_path / "cache")
     by_sid = {s.session_id: s for s in stats}
     assert by_sid["sid-new"].num_turns == 5
     assert by_sid["sid-new"].duration_s == 61
     assert by_sid["sid-new"].cost_usd == 0.5
+    assert by_sid["sid-new"].input_tokens == 1000
+    assert by_sid["sid-new"].cache_creation_input_tokens == 50
     assert by_sid["sid-legacy"].num_turns == 3
     assert by_sid["sid-legacy"].duration_s == 30
+    assert by_sid["sid-legacy"].input_tokens == 500        # usage 嵌套归一
+    assert by_sid["sid-legacy"].cache_read_input_tokens == 900
     assert by_sid["sid-none"].num_turns is None  # 无统计如实 None，不编 0
+    assert by_sid["sid-none"].input_tokens is None
     t = totals(stats)
     assert t["num_turns"] == 8 and t["duration_s"] == 91
     assert abs(t["cost_usd"] - 0.75) < 1e-9
+    assert t["input_tokens"] == 1500 and t["output_tokens"] == 300
+    assert t["cache_read_input_tokens"] == 3900
 
 
 def test_legacy_scan_incremental_via_offset_cache(tmp_path):

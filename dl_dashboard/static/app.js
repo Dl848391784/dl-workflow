@@ -1,4 +1,4 @@
-/* dl-workflow 控制台：SSE 驱动，列表 + 详情两视图。 */
+/* dl-workflow 控制台：SSE 驱动，左侧工作流栏 + 右侧详情（步骤时间轴）。 */
 "use strict";
 
 const sel = { project: null, name: null, nodeFilter: null };
@@ -13,11 +13,15 @@ async function post(url, body) {
   return r.json();
 }
 
-function fmtDur(s) { return s == null ? "-" : s; }
-
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function fmtTok(n) {
+  if (n == null) return "-";
+  if (n >= 1000) return (n / 1000).toFixed(1) + "k";
+  return String(n);
 }
 
 function banner(text) {
@@ -26,40 +30,45 @@ function banner(text) {
   else b.classList.add("hidden");
 }
 
-function renderList(workflows) {
-  const tb = document.querySelector("#wf-table tbody");
-  tb.innerHTML = "";
+function isWaiting(w) {
+  return w.need_user || (w.held_for_gate && w.gate === "pending");
+}
+
+function selectWorkflow(project, name) {
+  sel.project = project; sel.name = name; sel.nodeFilter = null;
+  $("detail-empty").classList.add("hidden");
+  $("detail-view").classList.remove("hidden");
+  refreshDetail();
+}
+
+function renderSidebar(workflows) {
+  const box = $("wf-list");
+  box.innerHTML = "";
   const waiting = [];
   for (const w of workflows) {
-    const tr = document.createElement("tr");
-    if (w.error) tr.classList.add("err");
-    const driver = w.driver_pid
-      ? `<span class="dot ok"></span><span class="num">${w.driver_pid}</span>`
-      : `<span class="dot off"></span>`;
-    tr.innerHTML =
-      `<td>${esc(w.project.split("/").pop())}</td>` +
-      `<td><a href="#">${esc(w.name)}</a></td>` +
-      `<td class="num">${w.error ? "状态不可读" : esc(w.node)}</td>` +
-      `<td>${esc(w.gate)}${w.held_for_gate ? '<span class="tag warn">hold</span>' : ""}</td>` +
-      `<td>${driver}</td>` +
-      `<td class="num">${esc(w.totals.num_turns)}</td><td class="num">${esc(fmtDur(w.totals.duration_s))}</td>` +
-      `<td class="num">${esc(w.totals.cost_usd)}</td><td class="num">${esc(w.updated_at)}</td>`;
-    tr.querySelector("a").onclick = (e) => {
-      e.preventDefault();
-      sel.project = w.project; sel.name = w.name; sel.nodeFilter = null;
-      $("list-view").classList.add("hidden");
-      $("detail-view").classList.remove("hidden");
-      refreshDetail();
-    };
-    tb.appendChild(tr);
-    if (w.need_user || (w.held_for_gate && w.gate === "pending")) {
-      waiting.push(`${w.name} @ ${w.node}`);
-    }
+    const item = document.createElement("div");
+    item.className = "wf-item";
+    if (w.error) item.classList.add("err");
+    if (sel.project === w.project && sel.name === w.name) item.classList.add("sel");
+    const dot = w.error ? "err" : isWaiting(w) ? "wait" : w.driver_pid ? "ok" : "off";
+    item.innerHTML =
+      `<div class="wf-line1"><span class="dot ${dot}"></span>` +
+      `<span class="wf-name">${esc(w.name)}</span></div>` +
+      `<div class="wf-line2"><span class="num">${w.error ? "状态不可读" : esc(w.node)}</span>` +
+      `<span class="num">$${esc(w.totals.cost_usd)}</span></div>`;
+    item.onclick = () => selectWorkflow(w.project, w.name);
+    box.appendChild(item);
+    if (isWaiting(w)) waiting.push(`${w.name} @ ${w.node}`);
   }
   if (!workflows.length) {
-    tb.innerHTML = `<tr class="empty"><td colspan="9">暂无工作流，点右上「新建工作流」开始</td></tr>`;
+    box.innerHTML = `<div class="side-empty">暂无工作流，点右上「新建工作流」开始</div>`;
   }
   $("wf-count").textContent = workflows.length ? `${workflows.length} 个` : "";
+  // 首次进入自动选中：有待处理的选第一个待处理，否则选第一个
+  if (!sel.project && workflows.length) {
+    const w = workflows.find(isWaiting) || workflows[0];
+    selectWorkflow(w.project, w.name);
+  }
   if (waiting.length) {
     banner(`等待处理：${waiting.join("、")}`);
     document.title = `(●) dl-workflow 控制台`;
@@ -83,6 +92,54 @@ function renderNodes(nodes) {
     };
     strip.appendChild(chip);
   }
+}
+
+/* 步骤时间轴：段按 node#sub_step 聚合（重试多段求和），按首段 ts 排序。
+   每步一行：step 标签 | 耗时条（相对最大值）| 轮数 | tok in/out | 成本 */
+function renderTimeline(stats, nodes) {
+  const box = $("timeline");
+  box.innerHTML = "";
+  const curNode = (nodes.find((n) => n.status === "current") || {}).node_id;
+  const steps = new Map();
+  for (const s of stats) {
+    const key = `${s.node}#${s.sub_step}`;
+    if (!steps.has(key)) {
+      steps.set(key, { key, node: s.node, dur: 0, turns: 0, tin: 0, tout: 0, cost: 0 });
+    }
+    const a = steps.get(key);
+    a.dur += s.duration_s || 0;
+    a.turns += s.num_turns || 0;
+    a.tin += s.input_tokens || 0;
+    a.tout += s.output_tokens || 0;
+    a.cost += s.cost_usd || 0;
+  }
+  const rows = [...steps.values()];
+  if (!rows.length) {
+    box.innerHTML = `<div class="tl-empty">无步骤数据</div>`;
+    $("tl-summary").textContent = "";
+    return;
+  }
+  const maxDur = Math.max(...rows.map((r) => r.dur), 1);
+  for (const r of rows) {
+    const div = document.createElement("div");
+    div.className = "tl-row";
+    if (sel.nodeFilter && r.node !== sel.nodeFilter) div.classList.add("dim");
+    const pct = Math.max((r.dur / maxDur) * 100, r.dur > 0 ? 1.5 : 0);
+    const cur = r.node === curNode ? " cur" : "";
+    div.innerHTML =
+      `<span class="tl-label num">${esc(r.key)}</span>` +
+      `<span class="tl-track"><span class="tl-fill${cur}" style="width:${pct}%"></span>` +
+      `<span class="tl-dur num">${r.dur}s</span></span>` +
+      `<span class="tl-stat num">${r.turns} 轮</span>` +
+      `<span class="tl-stat num" title="input ${r.tin} / output ${r.tout}">` +
+      `in ${fmtTok(r.tin)} / out ${fmtTok(r.tout)}</span>` +
+      `<span class="tl-stat num">$${r.cost.toFixed(3)}</span>`;
+    box.appendChild(div);
+  }
+  $("tl-summary").textContent =
+    `${rows.length} 步 · ${rows.reduce((a, r) => a + r.turns, 0)} 轮 · ` +
+    `${rows.reduce((a, r) => a + r.dur, 0)}s · ` +
+    `$${rows.reduce((a, r) => a + r.cost, 0).toFixed(2)}`;
 }
 
 function renderInteract(d) {
@@ -168,11 +225,12 @@ function renderSegs(stats) {
     tr.innerHTML =
       `<td class="num">${esc(s.node)}</td><td class="num">${esc(s.sub_step)}</td><td>${esc(s.kind)}</td>` +
       `<td class="num">${esc(s.num_turns ?? "-")}</td><td class="num">${esc(s.duration_s ?? "-")}</td>` +
+      `<td class="num">${esc(fmtTok(s.input_tokens))}</td><td class="num">${esc(fmtTok(s.output_tokens))}</td>` +
       `<td class="num">${esc(s.cost_usd ?? "-")}</td><td class="num">${esc(s.ts)}</td><td>${esc(s.note)}</td>`;
     tb.appendChild(tr);
   }
   if (!shown) {
-    tb.innerHTML = `<tr class="empty"><td colspan="8">无段记录</td></tr>`;
+    tb.innerHTML = `<tr class="empty"><td colspan="10">无段记录</td></tr>`;
   }
   $("seg-count").textContent = shown ? `${shown} 段` : "";
 }
@@ -186,18 +244,12 @@ async function refreshDetail() {
   $("d-title").textContent = `${d.info.name} · ${d.info.node}` +
     (d.driver_pid ? `（driver #${d.driver_pid}）` : "（driver 已停）");
   $("d-statement").textContent = d.info.problem_statement;
+  renderTimeline(d.stats, d.info.nodes);
   renderNodes(d.info.nodes);
   renderInteract(d);
   renderSegs(d.stats);
   $("log-tail").textContent = d.log_tail;
 }
-
-$("back-link").onclick = (e) => {
-  e.preventDefault();
-  sel.project = null;
-  $("detail-view").classList.add("hidden");
-  $("list-view").classList.remove("hidden");
-};
 
 $("create-toggle").onclick = () => $("create-form").classList.toggle("hidden");
 
@@ -214,6 +266,6 @@ $("create-form").onsubmit = async (e) => {
 const es = new EventSource("/api/events");
 es.onmessage = (e) => {
   const data = JSON.parse(e.data);
-  if (!sel.project) renderList(data.workflows);
-  else refreshDetail();
+  renderSidebar(data.workflows);
+  if (sel.project) refreshDetail();
 };

@@ -23,6 +23,18 @@ class SegmentStat:
     num_turns: int | None
     duration_s: int | None
     cost_usd: float | None
+    input_tokens: int | None
+    output_tokens: int | None
+    cache_read_input_tokens: int | None
+    cache_creation_input_tokens: int | None
+
+
+def _tok(st: dict, key: str) -> int | None:
+    """token 字段归一：新埋点是平铺键，旧流 result 事件嵌在 usage 里。"""
+    v = st.get(key)
+    if v is None:
+        v = (st.get("usage") or {}).get(key)
+    return v
 
 
 def _load_stats_jsonl(meta: Path) -> dict[str, dict]:
@@ -111,6 +123,10 @@ def collect_stats(project: Path, name: str, cache_dir: Path) -> list[SegmentStat
             num_turns=st.get("num_turns"),
             duration_s=int(dur) // 1000 if dur is not None else None,
             cost_usd=st.get("total_cost_usd"),
+            input_tokens=_tok(st, "input_tokens"),
+            output_tokens=_tok(st, "output_tokens"),
+            cache_read_input_tokens=_tok(st, "cache_read_input_tokens"),
+            cache_creation_input_tokens=_tok(st, "cache_creation_input_tokens"),
         ))
     return out
 
@@ -120,4 +136,10 @@ def totals(stats: list[SegmentStat]) -> dict:
         "num_turns": sum(s.num_turns for s in stats if s.num_turns is not None),
         "duration_s": sum(s.duration_s for s in stats if s.duration_s is not None),
         "cost_usd": round(sum(s.cost_usd for s in stats if s.cost_usd is not None), 4),
+        "input_tokens": sum(s.input_tokens for s in stats if s.input_tokens is not None),
+        "output_tokens": sum(s.output_tokens for s in stats if s.output_tokens is not None),
+        "cache_read_input_tokens": sum(
+            s.cache_read_input_tokens for s in stats if s.cache_read_input_tokens is not None),
+        "cache_creation_input_tokens": sum(
+            s.cache_creation_input_tokens for s in stats if s.cache_creation_input_tokens is not None),
     }

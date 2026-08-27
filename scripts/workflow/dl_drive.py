@@ -131,12 +131,18 @@ def _append_segment_stat(meta: Path, ev: dict) -> None:
     属统计语义，单列 JSONL 按 session_id join——不侵入 _record_segment 调用链。
     只追加不修改；写失败不阻断主流（统计通道降级≠段失败），但必须 log。
     """
+    usage = ev.get("usage") or {}
     rec = {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "session_id": ev.get("session_id"),
         "num_turns": ev.get("num_turns"),
         "duration_ms": ev.get("duration_ms"),
         "total_cost_usd": ev.get("total_cost_usd"),
+        # token 消耗（dashboard 步骤时间轴，2026-08-27）：result.usage 四项
+        "input_tokens": usage.get("input_tokens"),
+        "output_tokens": usage.get("output_tokens"),
+        "cache_read_input_tokens": usage.get("cache_read_input_tokens"),
+        "cache_creation_input_tokens": usage.get("cache_creation_input_tokens"),
     }
     try:
         with open(meta / "segment_stats.jsonl", "a", encoding="utf-8") as fh:
