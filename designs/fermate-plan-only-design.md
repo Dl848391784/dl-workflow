@@ -3,6 +3,7 @@
 > 状态：**v1 已实现（2026-08-26，feat/fermate 分支，1272 tests 全绿）**——§4 checklist 全项落地：engine sticky/终点门栏/脊柱重映射/渲染双变体 + dl-launch --fermate + phase-rules 条件块 + TestForceFermate 8 例 + SKILL/nodes-index 同步。**v2（u:4#3 裁剪）同日落地**（u4-sub3-fermate-cut-design，声明-核验对范式零 gate 变体，1278 tests 全绿）。待：收口 merge main（用户裁决）+ 真实实例首跑验证。
 > 确认史（2026-08-26 会话，用户三连决议）：①维度立项——tacet 是流程**密度**维度（44 步内 38 步静默），fermate 是流程**深度**维度（终点钉在 plan:2，plan:3/plan:4 不存在），两者正交可组合；②命名 **fermate**——谱面记号家族对齐 tacet：tacet=声部静默（密度），fermate=全曲停驻（深度），停多久由指挥（用户）裁决；③v1 范围**只裁 plan:3/plan:4（44→33 步）**——u:4#3 裁剪经实现前评估发现牵连 state-conditional gate 新机制类（u:4#4 gate 硬要求验收包六字段，其中验收方法/时机/证据形式三字段来源=子3 trace，judge 判材以子3 为对照基准；静态 gate 放行「不适用」=全量轨道偷工通道），用户裁决 v1 保留 u:4 整节点，u:4#3 留 v2 专项。
 > 父文档：`force-tacet-experiment-design.md`（sticky flag/机械跳步蓝本）、`capability-tool-selection-substeps-design.md`（plan:3 消费契约=execute，裁剪论证的起点）、`execution-plan-checkpoints-substeps-design.md`（plan:4 同）、`artifact-handoff-hardening-design.md`（ARTIFACT_SECTIONS 单源）
+> 确认史补记（2026-08-26 第二决议）：④**默认翻转——新实例默认 fermate，`--forte` 进完整模式**（forte=全奏，谱面记号家族第三件，呼应 set_force_tacet 文档串「回全量编排（FORTE）」）。默认值落 **launcher 层**（dl-launch 新建分支置 on），engine 缺席=False 语义不动——在飞/续跑实例无 force_fermate 键=保持完整模式零迁移；resume 无 flag=sticky 不动；`--fermate`/`--forte` 互斥 fail loud；**WF_TUI=1 旧路径例外不适用默认**（该路径不支持 fermate 机制，默认指向不可运行形态=摩擦，显式 --fermate 仍拒）。render-phase-rules 决策同批由 flag 改按 state（修 v1 resume 无 flag 渲染全量变体的漂移）。
 > 场景驱动：现阶段 dl-workflow 的使用形态 = **输出清晰准确的改动点清单即交付**（消费方=人），不跑 execute/review/evolution。plan:3 能力包五字段与 plan:4 检查点十字段的消费契约锚点**全部倒推自 execute:0/review:0**——无执行则无读者，产物=纯税（11 子步 + ~9 次 judge 调用）。
 
 ## 0. 维度定位：2×2 正交矩阵
@@ -35,7 +36,7 @@
 
 - `state.force_fermate`：per-instance sticky（resume/续跑保持），engine 全程 `state.get` 判定、默认 off，**模型无权自封**（不进模型可写面，防偷工通道——同 tacet 论证）。
 - 实例开关 CLI：`dl_flow_engine.py fermate <name> on|off`（镜像 `force-tacet <name> on|off` / `set_force_tacet`）。
-- launch flag：`dl <name> --fermate`（dl-launch.sh 解析，置位时机与 --force-tacet 同点：state 初始化后、render-phase-rules 前）。WF_TUI=1 旧路径不支持（同 --force-tacet）。
+- launch flag（2026-08-26 默认翻转后）：**新实例默认 on**；`--forte`=off（完整模式）；`--fermate`=显式 on（resume 翻回用）；两者互斥。默认只作用新建分支（launcher 层），engine 缺席语义不动。WF_TUI=1 旧路径不支持且豁免默认（同 --force-tacet）。
 - **dlt 组合零改动**：`ac-deepseek1 --dlt <name> --debug --fermate` → dlt 脚本 `exec dl-launch.sh --workflow "$@" --force-tacet`，`--fermate` 在 `"$@"` 里天然透传，两 sticky flag 组合生效。`ac-deepseek1 --dl ... --fermate` 同理（`--dl` 分支 `"$@"` 全透传）。入口脚本一行不改。
 
 ### 2.2 终点语义：plan:2 末步 = fermate 门栏，/dl gate = 确认收货即完结

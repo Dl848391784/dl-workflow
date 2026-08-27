@@ -12,7 +12,9 @@
 #   dl <name> --verbose    子会话输出尾随上屏（默认静默只落 drive-stream.jsonl）
 #   dl <name> --headless   v3 全程 headless driver（driver 占终端，stdin 断点）
 #   dl <name> --force-tacet  force-tacet 实验轨道（六步脊柱执行，其余 38 步 TACET 静默；到 plan:4 门栏停等；front 默认 / --headless 均可）
-#   dl <name> --fermate      fermate（plan-only）：plan 止于 plan:2，plan:3/plan:4 裁剪；plan:2 门栏 /dl gate 确认收货即完结（可与 --force-tacet 组合）
+#   dl <name>                默认 fermate（plan-only，2026-08-26 用户决议）：plan 止于 plan:2，门栏确认收货即完结
+#   dl <name> --forte        完整模式（u→p→e→r→evolution 全 5 阶段；与 --fermate 互斥）
+#   dl <name> --fermate      显式 fermate（同默认；用于 resume 时翻回 plan-only）
 #   dl list                列举所有工作流
 #   dl <name> --done       归档工作流（删 worktree，保留元数据）
 
@@ -71,6 +73,7 @@ WF_VERBOSE=0
 WF_HEADLESS=0
 WF_FORCE_TACET=0
 WF_FORCE_FERMATE=0
+WF_FORCE_FORTE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --resume) WF_RESUME=1;;
@@ -82,6 +85,7 @@ while [ $# -gt 0 ]; do
     --headless) WF_HEADLESS=1;;
     --force-tacet) WF_FORCE_TACET=1;;
     --fermate) WF_FORCE_FERMATE=1;;
+    --forte) WF_FORCE_FORTE=1;;
     -h|--help) usage 0;;
     *) echo "wf-launch: 未知参数 '$1'" >&2; usage 1;;
   esac
@@ -149,6 +153,7 @@ else
   wf_state_init "$WF_NAME" "$SESSION_ID" "$WF_BASE" "$BRANCH" "$WORKTREE_PATH"
   wf_write_settings "$WF_NAME"
   echo "  session: $SESSION_ID"
+  WF_NEW_INSTANCE=1
 fi
 
 # ---------- force-tacet（force-tacet-experiment-design §5-6）：实验轨道开关 ----------
@@ -168,20 +173,39 @@ if [ "$WF_FORCE_TACET" = "1" ]; then
   echo "    门栏/闸门自动放行；front（默认）与 --headless 均支持（静默步由段工人/驱动循环自动跳过）"
 fi
 
-# ---------- fermate（fermate-plan-only-design §2.1）：plan-only 开关 ----------
-# 与 --force-tacet 正交可组合（tacet 管步骤密度，fermate 管流程深度）。
-# sticky：续跑/再次 launch 同名 flag 会重置为 on；off 用 engine fermate <name> off。
-# 置位时机同 --force-tacet：render-phase-rules 之前（渲染按 flag 出 fermate 变体）。
-if [ "$WF_FORCE_FERMATE" = "1" ]; then
-  if [ "${WF_TUI:-0}" = "1" ]; then
-    echo "wf-launch: --fermate 不支持 WF_TUI=1 旧 TUI 路径（用默认 front 或 --headless）" >&2
+# ---------- fermate/forte（fermate-plan-only-design §2.1，2026-08-26 用户决议：
+# 默认 fermate）---------- 与 --force-tacet 正交可组合（tacet 管密度，fermate 管深度）。
+# 默认值只作用【新实例】（launcher 层决议，engine 缺席=False 语义不动——在飞/续跑
+# 实例无 force_fermate 键 = 保持完整模式，零迁移）；resume 无 flag = sticky 不动。
+# off 也可用 engine fermate <name> off。
+if [ "$WF_FORCE_FORTE" = "1" ] && [ "$WF_FORCE_FERMATE" = "1" ]; then
+  echo "wf-launch: --forte 与 --fermate 互斥（完整模式 vs plan-only 二选一）" >&2
+  exit 1
+fi
+WF_FERMATE_ACTION=""
+[ "$WF_FORCE_FERMATE" = "1" ] && WF_FERMATE_ACTION=on
+[ "$WF_FORCE_FORTE" = "1" ] && WF_FERMATE_ACTION=off
+# 默认 fermate：新建实例且无任何轨道 flag -> on。
+# WF_TUI=1 旧 TUI 路径例外=不适用默认（该路径不支持 fermate 机制——默认指向
+# 不可运行形态=制造摩擦；显式 --fermate 仍在下方被拒。旧路径唯一可跑=完整模式）。
+[ -z "$WF_FERMATE_ACTION" ] && [ "${WF_NEW_INSTANCE:-0}" = "1" ] && [ "${WF_TUI:-0}" != "1" ] && WF_FERMATE_ACTION=on
+if [ -z "$WF_FERMATE_ACTION" ] && [ "${WF_NEW_INSTANCE:-0}" = "1" ] && [ "${WF_TUI:-0}" = "1" ]; then
+  echo "  ♩ WF_TUI=1 旧 TUI 路径：仅支持完整模式（默认 fermate 不适用，--fermate 会被拒）"
+fi
+if [ -n "$WF_FERMATE_ACTION" ]; then
+  if [ "${WF_TUI:-0}" = "1" ] && [ "$WF_FERMATE_ACTION" = "on" ]; then
+    echo "wf-launch: fermate（含默认）不支持 WF_TUI=1 旧 TUI 路径（--forte 或 front/--headless）" >&2
     exit 1
   fi
-  if ! python3 "$LIB_DIR/../../dl_flow_engine.py" fermate "$WF_NAME" on >/dev/null; then
+  if ! python3 "$LIB_DIR/../../dl_flow_engine.py" fermate "$WF_NAME" "$WF_FERMATE_ACTION" >/dev/null; then
     echo "wf-launch: fermate 置位失败（state 写入异常）" >&2
     exit 1
   fi
-  echo "  𝄐 fermate（plan-only）：plan 止于 plan:2（plan:3/plan:4 裁剪），plan:2 门栏 /dl gate 确认收货即完结"
+  [ "$WF_FERMATE_ACTION" = "off" ] && echo "  ♩ forte（完整模式）：u→p→e→r→evolution 全 5 阶段（state.force_fermate=off）"
+fi
+# 有效轨道回显（单源按 state——新建/resume/flag 三路径统一；resume 无 flag 也可见当前轨道）
+if [ "$(wf_state_get "$WF_NAME" force_fermate 2>/dev/null)" = "True" ]; then
+  echo "  𝄐 fermate（plan-only）生效：plan 止于 plan:2（plan:3/plan:4 裁剪），plan:2 门栏 /dl gate 确认收货即完结（--forte 回完整模式）"
 fi
 
 # 阶段跳转（--phase 或新建后默认 understand 已由 init 设置）
@@ -218,7 +242,8 @@ SYS_PROMPT_ARGS=()
 if [ -f "$PHASE_RULES_TEMPLATE" ]; then
   PHASE_RULES_RENDERED="$WF_META_ROOT/$WF_NAME/phase-rules.rendered.md"
   RENDER_FERMATE_ARGS=()
-  if [ "$WF_FORCE_FERMATE" = "1" ]; then
+  # 渲染按 state 有效轨道（非 flag——resume 无 flag 时 sticky 轨道仍出 fermate 变体）
+  if [ "$(wf_state_get "$WF_NAME" force_fermate 2>/dev/null)" = "True" ]; then
     RENDER_FERMATE_ARGS=(--fermate)
   fi
   if ! python3 "$LIB_DIR/../../dl_flow_engine.py" render-phase-rules "$PHASE_RULES_TEMPLATE" "${RENDER_FERMATE_ARGS[@]}" > "$PHASE_RULES_RENDERED"; then
