@@ -7,42 +7,67 @@
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<header>
-  <h1>dl-workflow 控制台</h1>
-  <form id="create-form">
-    <input id="cf-project" placeholder="项目根路径" required size="34">
-    <input id="cf-name" placeholder="工作流名" required>
-    <input id="cf-statement" placeholder="问题（problem_statement）" required size="40">
-    <button type="submit">新建并启动</button>
-  </form>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">dl</span>
+    <div class="brand-text">
+      <h1>dl-workflow 控制台</h1>
+      <p>5 阶段工作流 · 跨项目运维面</p>
+    </div>
+  </div>
+  <button id="create-toggle" type="button" class="btn primary">新建工作流</button>
 </header>
+<form id="create-form" class="create-panel hidden">
+  <div class="field">
+    <label for="cf-project">项目根路径</label>
+    <input id="cf-project" placeholder="/home/admin/projects/xxx" required size="30">
+  </div>
+  <div class="field">
+    <label for="cf-name">工作流名</label>
+    <input id="cf-name" placeholder="my_factor_study" required>
+  </div>
+  <div class="field grow">
+    <label for="cf-statement">问题（problem_statement）</label>
+    <input id="cf-statement" placeholder="要研究的问题" required size="36">
+  </div>
+  <button type="submit" class="btn primary">创建并启动</button>
+</form>
 <div id="banner" class="hidden"></div>
 <main>
   <section id="list-view">
-    <h2>工作流</h2>
-    <table id="wf-table">
-      <thead><tr>
-        <th>项目</th><th>名称</th><th>当前节点</th><th>gate</th><th>driver</th>
-        <th>轮数</th><th>耗时</th><th>成本</th><th>更新</th>
-      </tr></thead>
-      <tbody></tbody>
-    </table>
+    <div class="section-head">
+      <h2>工作流</h2><span id="wf-count" class="count"></span>
+    </div>
+    <div class="table-wrap">
+      <table id="wf-table">
+        <thead><tr>
+          <th>项目</th><th>名称</th><th>当前节点</th><th>gate</th><th>driver</th>
+          <th class="num">轮数</th><th class="num">耗时</th><th class="num">成本</th><th>更新</th>
+        </tr></thead>
+        <tbody><tr class="empty"><td colspan="9">连接中…</td></tr></tbody>
+      </table>
+    </div>
   </section>
   <section id="detail-view" class="hidden">
-    <h2><a href="#" id="back-link">← 返回</a> <span id="d-title"></span></h2>
+    <div class="section-head">
+      <a href="#" id="back-link" class="btn ghost">← 返回列表</a>
+      <h2 id="d-title"></h2>
+    </div>
     <p id="d-statement"></p>
     <div id="node-strip"></div>
     <div id="interact"></div>
-    <h3>段明细</h3>
-    <table id="seg-table">
-      <thead><tr>
-        <th>节点</th><th>子步</th><th>kind</th><th>轮数</th><th>耗时(s)</th>
-        <th>成本($)</th><th>时间</th><th>note</th>
-      </tr></thead>
-      <tbody></tbody>
-    </table>
-    <h3>driver 日志（尾）</h3>
-    <pre id="log-tail"></pre>
+    <div class="section-head"><h3>段明细</h3><span id="seg-count" class="hint"></span></div>
+    <div class="table-wrap">
+      <table id="seg-table">
+        <thead><tr>
+          <th>节点</th><th class="num">子步</th><th>kind</th><th class="num">轮数</th>
+          <th class="num">耗时(s)</th><th class="num">成本($)</th><th>时间</th><th>note</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="section-head"><h3>driver 日志</h3><span class="hint">尾部 4KB</span></div>
+    <div class="terminal"><pre id="log-tail"></pre></div>
   </section>
 </main>
 <script src="/static/app.js"></script>

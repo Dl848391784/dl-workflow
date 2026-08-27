@@ -13,7 +13,7 @@ async function post(url, body) {
   return r.json();
 }
 
-function fmtDur(s) { return s == null ? "–" : s; }
+function fmtDur(s) { return s == null ? "-" : s; }
 
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) =>
@@ -33,15 +33,17 @@ function renderList(workflows) {
   for (const w of workflows) {
     const tr = document.createElement("tr");
     if (w.error) tr.classList.add("err");
-    const driver = w.driver_pid ? `🟢 ${w.driver_pid}` : "⚫";
+    const driver = w.driver_pid
+      ? `<span class="dot ok"></span><span class="num">${w.driver_pid}</span>`
+      : `<span class="dot off"></span>`;
     tr.innerHTML =
       `<td>${esc(w.project.split("/").pop())}</td>` +
       `<td><a href="#">${esc(w.name)}</a></td>` +
-      `<td>${w.error ? "状态不可读" : esc(w.node)}</td>` +
-      `<td>${esc(w.gate)}${w.held_for_gate ? " 🔒" : ""}</td>` +
-      `<td>${esc(driver)}</td>` +
-      `<td>${esc(w.totals.num_turns)}</td><td>${esc(fmtDur(w.totals.duration_s))}</td>` +
-      `<td>${esc(w.totals.cost_usd)}</td><td>${esc(w.updated_at)}</td>`;
+      `<td class="num">${w.error ? "状态不可读" : esc(w.node)}</td>` +
+      `<td>${esc(w.gate)}${w.held_for_gate ? '<span class="tag warn">hold</span>' : ""}</td>` +
+      `<td>${driver}</td>` +
+      `<td class="num">${esc(w.totals.num_turns)}</td><td class="num">${esc(fmtDur(w.totals.duration_s))}</td>` +
+      `<td class="num">${esc(w.totals.cost_usd)}</td><td class="num">${esc(w.updated_at)}</td>`;
     tr.querySelector("a").onclick = (e) => {
       e.preventDefault();
       sel.project = w.project; sel.name = w.name; sel.nodeFilter = null;
@@ -54,6 +56,10 @@ function renderList(workflows) {
       waiting.push(`${w.name} @ ${w.node}`);
     }
   }
+  if (!workflows.length) {
+    tb.innerHTML = `<tr class="empty"><td colspan="9">暂无工作流，点右上「新建工作流」开始</td></tr>`;
+  }
+  $("wf-count").textContent = workflows.length ? `${workflows.length} 个` : "";
   if (waiting.length) {
     banner(`等待处理：${waiting.join("、")}`);
     document.title = `(●) dl-workflow 控制台`;
@@ -83,13 +89,15 @@ function renderInteract(d) {
   const box = $("interact");
   box.innerHTML = "";
   const proj = sel.project, name = sel.name;
-  const mkBtn = (label, fn) => {
+  const mkBtn = (label, fn, cls) => {
     const b = document.createElement("button");
-    b.textContent = label; b.onclick = fn; return b;
+    b.textContent = label; b.onclick = fn;
+    b.className = cls || "btn";
+    return b;
   };
   if (d.need_user && d.need_user.questions) {
     const h = document.createElement("h3");
-    h.textContent = "⏸ 等待输入";
+    h.textContent = "等待输入";
     box.appendChild(h);
     const answers = [];
     d.need_user.questions.forEach((q, i) => {
@@ -100,7 +108,7 @@ function renderInteract(d) {
         const l = document.createElement("label");
         l.innerHTML =
           `<input type="radio" name="q${i}" value="${esc(op.label)}"> ` +
-          `<b>${esc(op.label)}</b> — ${esc(op.description || "")}`;
+          `<b>${esc(op.label)}</b> · ${esc(op.description || "")}`;
         div.appendChild(l);
       });
       const other = document.createElement("input");
@@ -120,21 +128,22 @@ function renderInteract(d) {
         { project: proj, name, answer: parts.join("\n") });
       alert(r.msg);
       refreshDetail();
-    }));
+    }, "btn primary"));
   }
   if (d.info.held_for_gate || d.info.gate === "pending") {
-    box.appendChild(mkBtn("✓ gate 放行", async () => {
+    box.appendChild(mkBtn("gate 放行", async () => {
       const r = await post("/api/gate", { project: proj, name });
       alert(r.msg); refreshDetail();
-    }));
+    }, "btn primary"));
   }
   if (!d.driver_pid) {
-    box.appendChild(mkBtn("↻ 重新驱动", async () => {
+    box.appendChild(mkBtn("重新驱动", async () => {
       const r = await post("/api/drive", { project: proj, name });
       alert(r.msg); refreshDetail();
     }));
   }
   const form = document.createElement("span");
+  form.className = "dl-form";
   form.innerHTML =
     `<select id="dl-cmd"><option>advance</option><option>step-pass</option>` +
     `<option>next</option><option>back</option><option>jump</option>` +
@@ -151,15 +160,21 @@ function renderInteract(d) {
 function renderSegs(stats) {
   const tb = document.querySelector("#seg-table tbody");
   tb.innerHTML = "";
+  let shown = 0;
   for (const s of stats) {
     if (sel.nodeFilter && s.node !== sel.nodeFilter) continue;
+    shown++;
     const tr = document.createElement("tr");
     tr.innerHTML =
-      `<td>${esc(s.node)}</td><td>${esc(s.sub_step)}</td><td>${esc(s.kind)}</td>` +
-      `<td>${esc(s.num_turns ?? "–")}</td><td>${esc(s.duration_s ?? "–")}</td>` +
-      `<td>${esc(s.cost_usd ?? "–")}</td><td>${esc(s.ts)}</td><td>${esc(s.note)}</td>`;
+      `<td class="num">${esc(s.node)}</td><td class="num">${esc(s.sub_step)}</td><td>${esc(s.kind)}</td>` +
+      `<td class="num">${esc(s.num_turns ?? "-")}</td><td class="num">${esc(s.duration_s ?? "-")}</td>` +
+      `<td class="num">${esc(s.cost_usd ?? "-")}</td><td class="num">${esc(s.ts)}</td><td>${esc(s.note)}</td>`;
     tb.appendChild(tr);
   }
+  if (!shown) {
+    tb.innerHTML = `<tr class="empty"><td colspan="8">无段记录</td></tr>`;
+  }
+  $("seg-count").textContent = shown ? `${shown} 段` : "";
 }
 
 async function refreshDetail() {
@@ -168,8 +183,8 @@ async function refreshDetail() {
     `/api/workflow?project=${encodeURIComponent(sel.project)}` +
     `&name=${encodeURIComponent(sel.name)}`);
   const d = await r.json();
-  $("d-title").textContent = `${d.info.name} — ${d.info.node}` +
-    (d.driver_pid ? `（driver 🟢 ${d.driver_pid}）` : "（driver ⚫）");
+  $("d-title").textContent = `${d.info.name} · ${d.info.node}` +
+    (d.driver_pid ? `（driver #${d.driver_pid}）` : "（driver 已停）");
   $("d-statement").textContent = d.info.problem_statement;
   renderNodes(d.info.nodes);
   renderInteract(d);
@@ -183,6 +198,8 @@ $("back-link").onclick = (e) => {
   $("detail-view").classList.add("hidden");
   $("list-view").classList.remove("hidden");
 };
+
+$("create-toggle").onclick = () => $("create-form").classList.toggle("hidden");
 
 $("create-form").onsubmit = async (e) => {
   e.preventDefault();
