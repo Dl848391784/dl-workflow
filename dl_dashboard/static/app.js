@@ -84,7 +84,7 @@ function renderNodes(nodes) {
   for (const n of nodes) {
     const chip = document.createElement("span");
     chip.className = `chip ${n.status}`;
-    chip.textContent = `${n.node_id} ${n.label}`;
+    chip.textContent = n.label;
     if (sel.nodeFilter === n.node_id) chip.classList.add("active");
     chip.onclick = () => {
       sel.nodeFilter = sel.nodeFilter === n.node_id ? null : n.node_id;
@@ -173,7 +173,7 @@ function renderTimelineTree(stats, nodes, info) {
       if (sel.nodeFilter && n.node_id !== sel.nodeFilter) nodeEl.classList.add("dim");
       const head = document.createElement("div");
       head.className = "tl-node-head";
-      head.innerHTML = `<span class="num">${esc(n.node_id)}</span> ${esc(n.label)}`;
+      head.textContent = n.label;
       nodeEl.appendChild(head);
       const leaves = document.createElement("div");
       leaves.className = "tl-leaves";
@@ -186,7 +186,7 @@ function renderTimelineTree(stats, nodes, info) {
         if (a) {
           const barW = Math.max(2, Math.round((a.dur / nodeMax) * 90));
           leaf.title =
-            `${key}\n耗时 ${a.dur}s · ${a.turns} 轮\n` +
+            `${n.label} #${i}\n耗时 ${a.dur}s · ${a.turns} 轮\n` +
             `tok in ${a.tin} / out ${a.tout}\n$${a.cost.toFixed(3)}`;
           leaf.innerHTML =
             `<div class="tl-l1"><span class="tl-lid num">#${i}</span>` +
@@ -283,7 +283,7 @@ function renderTimelineGantt(stats, nodes, info) {
     if (sel.nodeFilter && n.node_id !== sel.nodeFilter) lane.classList.add("dim");
     const label = document.createElement("div");
     label.className = "gt-label";
-    label.innerHTML = `<span class="num">${esc(n.node_id)}</span> ${esc(n.label)}`;
+    label.textContent = n.label;
     lane.appendChild(label);
     const rail = document.createElement("div");
     rail.className = "gt-rail";
@@ -294,13 +294,13 @@ function renderTimelineGantt(stats, nodes, info) {
       if (s.duration_s == null) {
         bar.className = "gt-mark";
         bar.style.left = x + "px";
-        bar.title = `${s.node}#${s.sub_step}\n${s.ts} · 无统计数据`;
+        bar.title = `${n.label} #${s.sub_step}\n${s.ts} · 无统计数据`;
       } else {
         bar.className = "gt-bar" + (isCur ? " cur" : "");
         bar.style.left = x + "px";
         bar.style.width = Math.max(3, Math.round(s.duration_s * scale)) + "px";
         bar.title =
-          `${s.node}#${s.sub_step}\n${s.ts} 起 · 耗时 ${s.duration_s}s · ` +
+          `${n.label} #${s.sub_step}\n${s.ts} 起 · 耗时 ${s.duration_s}s · ` +
           `${fmtDur(s.num_turns)} 轮\ntok in ${s.input_tokens ?? "-"} / out ` +
           `${s.output_tokens ?? "-"}\n$${(s.cost_usd ?? 0).toFixed(3)}`;
         if (s.duration_s * scale > 68) {

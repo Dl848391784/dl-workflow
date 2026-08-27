@@ -330,10 +330,7 @@ main { padding: 20px; flex: 1; min-width: 0; max-width: 1400px; }
   padding-bottom: 7px;
   white-space: nowrap;
 }
-#timeline.metro .tl-node-head .num { font-size: 11px; margin-right: 5px; }
-#timeline.metro .tl-node.done .tl-node-head .num { color: var(--accent); }
 #timeline.metro .tl-node.current .tl-node-head { color: var(--sky); }
-#timeline.metro .tl-node.current .tl-node-head .num { color: var(--sky); }
 
 /* ----- 肤 C：精装卡片树（阶段=fieldset 容器 / 节点=卡片） ----- */
 #timeline.cards { padding: 14px 0 4px; }
@@ -387,10 +384,7 @@ main { padding: 20px; flex: 1; min-width: 0; max-width: 1400px; }
   padding-bottom: 7px;
   white-space: nowrap;
 }
-#timeline.cards .tl-node-head .num { font-size: 11px; margin-right: 5px; }
-#timeline.cards .tl-node.done .tl-node-head .num { color: var(--accent); }
 #timeline.cards .tl-node.current .tl-node-head { color: var(--sky); }
-#timeline.cards .tl-node.current .tl-node-head .num { color: var(--sky); }
 
 /* ----- 肤 B：甘特泳道（节点为道、段为真实时间横条） ----- */
 
@@ -443,9 +437,7 @@ main { padding: 20px; flex: 1; min-width: 0; max-width: 1400px; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.gt-label .num { color: var(--text-3); margin-right: 4px; font-size: 10.5px; }
 .gt-lane.cur .gt-label { color: var(--sky); }
-.gt-lane.cur .gt-label .num { color: var(--sky); }
 .gt-rail { position: relative; height: 24px; flex: 1; }
 
 /* 段横条（真实时间定位） */
