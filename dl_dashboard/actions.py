@@ -152,3 +152,22 @@ def restart_drive(project: Path, name: str, mgr) -> tuple[bool, str]:
         return False, err
     pid = mgr.start(project, name, Path(state["worktree_path"]))
     return True, f"driver 已重启 pid={pid}"
+
+
+def delete_workflow(project: Path, name: str, mgr) -> tuple[bool, str]:
+    """删除工作流 = dl <name> --done：彻底清理 worktree + 分支 + 元数据（不可恢复）。
+
+    dl 的「归档」语义实为彻底删除（dl-launch.sh --done 分支 rm -rf 元数据），
+    故 UI 与消息直称删除，不美化。driver 活着先停（killpg 整个进程组）。
+    """
+    if mgr.alive(project, name):
+        mgr.stop(project, name)
+    p = subprocess.run(
+        ["bash", str(DLWF / "scripts" / "workflow" / "dl-launch.sh"),
+         "--workflow", name, "--done"],
+        cwd=str(project), stdin=subprocess.DEVNULL,
+        capture_output=True, text=True, timeout=120,
+    )
+    if not meta_root(project, name).exists():
+        return True, f"工作流 {name} 已删除"
+    return False, f"删除失败：{(p.stdout + p.stderr)[-300:]}"

@@ -24,12 +24,6 @@ function fmtTok(n) {
   return String(n);
 }
 
-function banner(text) {
-  const b = $("banner");
-  if (text) { b.textContent = text; b.classList.remove("hidden"); }
-  else b.classList.add("hidden");
-}
-
 function isWaiting(w) {
   return w.need_user || (w.held_for_gate && w.gate === "pending");
 }
@@ -44,7 +38,6 @@ function selectWorkflow(project, name) {
 function renderSidebar(workflows) {
   const box = $("wf-list");
   box.innerHTML = "";
-  const waiting = [];
   for (const w of workflows) {
     const item = document.createElement("div");
     item.className = "wf-item";
@@ -53,12 +46,24 @@ function renderSidebar(workflows) {
     const dot = w.error ? "err" : isWaiting(w) ? "wait" : w.driver_pid ? "ok" : "off";
     item.innerHTML =
       `<div class="wf-line1"><span class="dot ${dot}"></span>` +
-      `<span class="wf-name">${esc(w.name)}</span></div>` +
+      `<span class="wf-name">${esc(w.name)}</span>` +
+      `<button class="wf-del" title="删除工作流">×</button></div>` +
       `<div class="wf-line2"><span class="num">${w.error ? "状态不可读" : esc(w.node)}</span>` +
       `<span class="num">$${esc(w.totals.cost_usd)}</span></div>`;
     item.onclick = () => selectWorkflow(w.project, w.name);
+    item.querySelector(".wf-del").onclick = async (e) => {
+      e.stopPropagation();
+      if (!confirm(
+        `删除工作流 ${w.name}？\n将彻底删除 worktree + 分支 + 元数据，不可恢复。`)) return;
+      const r = await post("/api/delete", { project: w.project, name: w.name });
+      alert(r.msg);
+      if (r.ok && sel.project === w.project && sel.name === w.name) {
+        sel.project = null; sel.name = null;
+        $("detail-view").classList.add("hidden");
+        $("detail-empty").classList.remove("hidden");
+      }
+    };
     box.appendChild(item);
-    if (isWaiting(w)) waiting.push(`${w.name} @ ${w.node}`);
   }
   if (!workflows.length) {
     box.innerHTML = `<div class="side-empty">暂无工作流，点右上「新建工作流」开始</div>`;
@@ -68,13 +73,6 @@ function renderSidebar(workflows) {
   if (!sel.project && workflows.length) {
     const w = workflows.find(isWaiting) || workflows[0];
     selectWorkflow(w.project, w.name);
-  }
-  if (waiting.length) {
-    banner(`等待处理：${waiting.join("、")}`);
-    document.title = `(●) dl-workflow 控制台`;
-  } else {
-    banner(null);
-    document.title = "dl-workflow 控制台";
   }
 }
 
@@ -469,7 +467,12 @@ async function refreshDetail() {
   $("log-tail").textContent = d.log_tail;
 }
 
-$("create-toggle").onclick = () => $("create-form").classList.toggle("hidden");
+function setCreatePanel(open) {
+  $("create-form").classList.toggle("hidden", !open);
+  $("create-toggle").textContent = open ? "收起" : "新建工作流";
+}
+$("create-toggle").onclick = () =>
+  setCreatePanel($("create-form").classList.contains("hidden"));
 
 document.querySelectorAll("#tl-switch button").forEach((b) => {
   b.onclick = () => {
@@ -486,6 +489,7 @@ $("create-form").onsubmit = async (e) => {
     statement: $("cf-statement").value.trim(),
   });
   alert(r.msg);
+  if (r.ok) setCreatePanel(false);
 };
 
 const es = new EventSource("/api/events");

@@ -154,6 +154,14 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
                 actions.restart_drive, proj, name, mgr)
         return {"ok": ok, "msg": msg}
 
+    @app.post("/api/delete")
+    async def delete(body: dict):
+        proj = _project(body["project"])
+        name = _name(body["name"])
+        async with _lock(proj, name):
+            ok, msg = await asyncio.to_thread(actions.delete_workflow, proj, name, mgr)
+        return {"ok": ok, "msg": msg}
+
     @app.post("/api/dl")
     async def dl(body: dict):
         proj = _project(body["project"])

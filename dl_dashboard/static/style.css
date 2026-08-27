@@ -126,15 +126,6 @@ input:focus, select:focus { border-color: var(--accent-line); }
 .btn.ghost { color: var(--text-2); }
 .btn.ghost:hover { color: var(--text); }
 
-/* ---------- 断点横幅 ---------- */
-#banner {
-  padding: 9px 20px;
-  background: var(--amber-dim);
-  border-bottom: 1px solid rgba(229, 161, 60, 0.35);
-  color: var(--amber);
-  font-size: 13px;
-}
-
 /* ---------- 主区布局：左侧栏 + 右侧详情 ---------- */
 .layout {
   display: flex;
@@ -182,7 +173,23 @@ input:focus, select:focus { border-color: var(--accent-line); }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
 }
+.wf-del {
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 6px;
+  margin-left: 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+.wf-item:hover .wf-del { opacity: 1; }
+.wf-del:hover { color: var(--red); background: rgba(229, 72, 77, 0.12); }
 .wf-line2 {
   display: flex;
   justify-content: space-between;

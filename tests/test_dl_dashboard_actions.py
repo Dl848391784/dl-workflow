@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -180,3 +181,29 @@ def test_restart_drive_returns_false_when_state_lacks_worktree_path(tmp_path):
     ok, msg = actions.restart_drive(tmp_path, "demo", mgr)
     assert not ok and "state.json 缺 worktree_path" in msg
     mgr.start.assert_not_called()
+
+
+def test_delete_stops_driver_and_runs_done(tmp_path):
+    meta = _mk_state(tmp_path, "demo", [])
+    mgr = MagicMock()
+    mgr.alive.return_value = 4242
+
+    def fake_run(cmd, **kw):
+        assert "--done" in cmd and "demo" in cmd
+        shutil.rmtree(meta)  # launcher 成功 = 元数据删除
+        return MagicMock(returncode=0, stdout="已删除", stderr="")
+    with patch.object(actions.subprocess, "run", side_effect=fake_run):
+        ok, msg = actions.delete_workflow(tmp_path, "demo", mgr)
+    assert ok, msg
+    mgr.stop.assert_called_once_with(tmp_path, "demo")
+
+
+def test_delete_failure_when_meta_remains(tmp_path):
+    _mk_state(tmp_path, "demo", [])
+    mgr = MagicMock()
+    mgr.alive.return_value = None
+    with patch.object(actions.subprocess, "run",
+                      return_value=MagicMock(returncode=1, stdout="", stderr="boom")):
+        ok, msg = actions.delete_workflow(tmp_path, "demo", mgr)
+    assert not ok and "boom" in msg
+    mgr.stop.assert_not_called()

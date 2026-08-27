@@ -111,3 +111,12 @@ def test_events_first_frame_via_generator(client):
     assert chunk.startswith("data: ")
     payload = json.loads(chunk.removeprefix("data: "))
     assert "workflows" in payload
+
+
+def test_post_delete_calls_action(client):
+    c, project = client
+    with patch("dl_dashboard.app.actions.delete_workflow",
+               return_value=(True, "已删除")) as dw:
+        r = c.post("/api/delete", json={"project": str(project), "name": "demo"})
+    assert r.json()["ok"] is True
+    dw.assert_called_once()
