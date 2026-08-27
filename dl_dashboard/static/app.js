@@ -15,6 +15,11 @@ async function post(url, body) {
 
 function fmtDur(s) { return s == null ? "–" : s; }
 
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
 function banner(text) {
   const b = $("banner");
   if (text) { b.textContent = text; b.classList.remove("hidden"); }
@@ -30,13 +35,13 @@ function renderList(workflows) {
     if (w.error) tr.classList.add("err");
     const driver = w.driver_pid ? `🟢 ${w.driver_pid}` : "⚫";
     tr.innerHTML =
-      `<td>${w.project.split("/").pop()}</td>` +
-      `<td><a href="#">${w.name}</a></td>` +
-      `<td>${w.error ? "状态不可读" : w.node}</td>` +
-      `<td>${w.gate}${w.held_for_gate ? " 🔒" : ""}</td>` +
-      `<td>${driver}</td>` +
-      `<td>${w.totals.num_turns}</td><td>${fmtDur(w.totals.duration_s)}</td>` +
-      `<td>${w.totals.cost_usd}</td><td>${w.updated_at}</td>`;
+      `<td>${esc(w.project.split("/").pop())}</td>` +
+      `<td><a href="#">${esc(w.name)}</a></td>` +
+      `<td>${w.error ? "状态不可读" : esc(w.node)}</td>` +
+      `<td>${esc(w.gate)}${w.held_for_gate ? " 🔒" : ""}</td>` +
+      `<td>${esc(driver)}</td>` +
+      `<td>${esc(w.totals.num_turns)}</td><td>${esc(fmtDur(w.totals.duration_s))}</td>` +
+      `<td>${esc(w.totals.cost_usd)}</td><td>${esc(w.updated_at)}</td>`;
     tr.querySelector("a").onclick = (e) => {
       e.preventDefault();
       sel.project = w.project; sel.name = w.name; sel.nodeFilter = null;
@@ -90,12 +95,12 @@ function renderInteract(d) {
     d.need_user.questions.forEach((q, i) => {
       const div = document.createElement("div");
       div.className = "q";
-      div.innerHTML = `<b>[${q.header || "Q" + (i + 1)}]</b> ${q.question}`;
+      div.innerHTML = `<b>[${esc(q.header || "Q" + (i + 1))}]</b> ${esc(q.question)}`;
       (q.options || []).forEach((op) => {
         const l = document.createElement("label");
         l.innerHTML =
-          `<input type="radio" name="q${i}" value="${op.label}"> ` +
-          `<b>${op.label}</b> — ${op.description || ""}`;
+          `<input type="radio" name="q${i}" value="${esc(op.label)}"> ` +
+          `<b>${esc(op.label)}</b> — ${esc(op.description || "")}`;
         div.appendChild(l);
       });
       const other = document.createElement("input");
@@ -149,9 +154,9 @@ function renderSegs(stats) {
     if (sel.nodeFilter && s.node !== sel.nodeFilter) continue;
     const tr = document.createElement("tr");
     tr.innerHTML =
-      `<td>${s.node}</td><td>${s.sub_step}</td><td>${s.kind}</td>` +
-      `<td>${s.num_turns ?? "–"}</td><td>${s.duration_s ?? "–"}</td>` +
-      `<td>${s.cost_usd ?? "–"}</td><td>${s.ts}</td><td>${s.note}</td>`;
+      `<td>${esc(s.node)}</td><td>${esc(s.sub_step)}</td><td>${esc(s.kind)}</td>` +
+      `<td>${esc(s.num_turns ?? "–")}</td><td>${esc(s.duration_s ?? "–")}</td>` +
+      `<td>${esc(s.cost_usd ?? "–")}</td><td>${esc(s.ts)}</td><td>${esc(s.note)}</td>`;
     tb.appendChild(tr);
   }
 }
