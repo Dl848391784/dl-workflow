@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>dl-workflow 控制台</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="/static/style.css?v=352af86">
+<link rel="stylesheet" href="/static/style.css?v=3b3fecc">
 </head>
 <body>
 <header class="topbar">
@@ -54,7 +54,10 @@
         </span>
       </div>
       <div id="timeline"></div>
-      <div class="section-head"><h3>节点</h3></div>
+      <div class="section-head">
+        <h3>节点筛选</h3>
+        <span class="hint">点击节点过滤时间轴与段明细，点「全部」取消</span>
+      </div>
       <div id="node-strip"></div>
       <div id="interact"></div>
       <div class="section-head"><h3>段明细</h3><span id="seg-count" class="hint"></span></div>
@@ -68,11 +71,16 @@
           <tbody></tbody>
         </table>
       </div>
+      <div class="section-head">
+        <h3>产物与证据链</h3>
+        <button id="outputs-refresh" class="btn ghost" type="button">刷新</button>
+      </div>
+      <div id="outputs"></div>
       <div class="section-head"><h3>driver 日志</h3><span class="hint">尾部 4KB</span></div>
       <div class="terminal"><pre id="log-tail"></pre></div>
     </section>
   </main>
 </div>
-<script src="/static/app.js?v=352af86"></script>
+<script src="/static/app.js?v=3b3fecc"></script>
 </body>
 </html>

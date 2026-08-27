@@ -17,7 +17,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from dl_dashboard import actions, metrics, scanner
+from dl_dashboard import actions, metrics, outputs, scanner
 from dl_dashboard.config import DashboardConfig, load_config
 from dl_dashboard.driver_mgr import DriverManager
 
@@ -153,6 +153,28 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
             ok, msg = await asyncio.to_thread(
                 actions.restart_drive, proj, name, mgr)
         return {"ok": ok, "msg": msg}
+
+    @app.get("/api/outputs")
+    def outputs_ep(project: str, name: str):
+        proj = _project(project)
+        name = _name(name)
+        return {
+            "evidence": outputs.load_evidence(proj, name),
+            "change_points": outputs.load_change_points(proj, name),
+            "artifacts": outputs.artifact_status(proj, name),
+        }
+
+    @app.get("/api/artifact")
+    def artifact_ep(project: str, name: str, kind: str):
+        proj = _project(project)
+        name = _name(name)
+        try:
+            content = outputs.load_artifact(proj, name, kind)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if content is None:
+            raise HTTPException(404, f"产物 {kind}/{name}.md 不存在")
+        return {"content": content}
 
     @app.post("/api/delete")
     async def delete(body: dict):

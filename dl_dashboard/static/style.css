@@ -681,6 +681,71 @@ td.num { text-align: right; color: var(--text-2); }
 #interact button { margin: 10px 8px 0 0; }
 .dl-form { display: inline-flex; gap: 8px; margin-top: 10px; }
 
+/* ---------- 产物与证据链 ---------- */
+.out-sub { margin-bottom: 18px; }
+.out-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin-bottom: 8px;
+}
+.out-title .hint { font-weight: 400; color: var(--text-3); margin-left: 6px; }
+.art-chips { display: flex; gap: 8px; margin-bottom: 8px; }
+.art-view {
+  margin: 0;
+  padding: 14px 16px;
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-2);
+  max-height: 480px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.ev-stage {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 12px 0 6px;
+}
+.ev-item {
+  background: var(--bg-inset);
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+}
+.ev-head { color: var(--text-2); }
+.ev-head .num { color: var(--text-3); margin-right: 4px; }
+.ev-skill {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--sky);
+  margin-right: 6px;
+}
+.ev-concl {
+  margin-top: 5px;
+  padding-left: 10px;
+  border-left: 2px solid var(--accent-line);
+  color: var(--text);
+}
+.ev-qa { margin-top: 5px; }
+.ev-qa summary {
+  cursor: pointer;
+  color: var(--text-3);
+  font-size: 11px;
+}
+.ev-qa summary:hover { color: var(--text-2); }
+.ev-q { margin: 6px 0 2px; color: var(--text-3); font-size: 12px; }
+.ev-a { margin: 2px 0 6px 14px; color: var(--text-2); font-size: 12px; }
+
 /* ---------- driver 日志终端 ---------- */
 .terminal {
   border: 1px solid var(--line);

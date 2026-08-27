@@ -33,6 +33,7 @@ function selectWorkflow(project, name) {
   $("detail-empty").classList.add("hidden");
   $("detail-view").classList.remove("hidden");
   refreshDetail();
+  loadOutputs();
 }
 
 function renderSidebar(workflows) {
@@ -79,6 +80,11 @@ function renderSidebar(workflows) {
 function renderNodes(nodes) {
   const strip = $("node-strip");
   strip.innerHTML = "";
+  const all = document.createElement("span");
+  all.className = "chip" + (sel.nodeFilter ? "" : " active");
+  all.textContent = "全部";
+  all.onclick = () => { sel.nodeFilter = null; refreshDetail(); };
+  strip.appendChild(all);
   for (const n of nodes) {
     const chip = document.createElement("span");
     chip.className = `chip ${n.status}`;
@@ -173,9 +179,14 @@ function renderTimelineTree(stats, nodes, info) {
     branches.className = "tl-branches";
     for (const n of ph.nodes) {
       let nodeMax = 1;
+      const nstat = { dur: 0, turns: 0, tin: 0, tout: 0, cost: 0 };
       for (let i = 1; i <= n.sub_total; i++) {
         const a = stepMap.get(`${n.node_id}#${i}`);
-        if (a && a.dur > nodeMax) nodeMax = a.dur;
+        if (a) {
+          if (a.dur > nodeMax) nodeMax = a.dur;
+          nstat.dur += a.dur; nstat.turns += a.turns;
+          nstat.tin += a.tin; nstat.tout += a.tout; nstat.cost += a.cost;
+        }
       }
       const nodeEl = document.createElement("div");
       nodeEl.className = `tl-node ${n.status}`;
@@ -184,6 +195,14 @@ function renderTimelineTree(stats, nodes, info) {
       head.className = "tl-node-head";
       head.textContent = n.label;
       nodeEl.appendChild(head);
+      if (nstat.turns > 0) {
+        const st = document.createElement("div");
+        st.className = "tl-nstat num";
+        st.textContent =
+          `Σ ${nstat.dur}s · ${nstat.turns}轮 · ` +
+          `in${fmtTok(nstat.tin)}/out${fmtTok(nstat.tout)} · $${nstat.cost.toFixed(2)}`;
+        nodeEl.appendChild(st);
+      }
       const leaves = document.createElement("div");
       leaves.className = "tl-leaves";
       for (let i = 1; i <= n.sub_total; i++) {
@@ -296,6 +315,20 @@ function renderTimelineGantt(stats, nodes, info) {
     const label = document.createElement("div");
     label.className = "gt-label";
     label.textContent = n.label;
+    const nstat = { dur: 0, turns: 0, tin: 0, tout: 0 };
+    for (const s of nodeSegs) {
+      nstat.dur += s.duration_s || 0;
+      nstat.turns += s.num_turns || 0;
+      nstat.tin += s.input_tokens || 0;
+      nstat.tout += s.output_tokens || 0;
+    }
+    if (nstat.turns > 0) {
+      const st = document.createElement("div");
+      st.className = "gt-lstat num";
+      st.textContent =
+        `Σ ${nstat.dur}s · ${nstat.turns}轮 · in${fmtTok(nstat.tin)}/out${fmtTok(nstat.tout)}`;
+      label.appendChild(st);
+    }
     lane.appendChild(label);
     const rail = document.createElement("div");
     rail.className = "gt-rail";
@@ -451,6 +484,105 @@ function renderSegs(stats) {
   $("seg-count").textContent = shown ? `${shown} 段` : "";
 }
 
+/* 产物与证据链：改动面（change_point 锚点表）+ 产物文档（内联查看）+ 证据链（q/a/结论）。
+   选中工作流时加载一次，手动「刷新」重载（不随 SSE 每 2s 拉——证据链可能上百 KB）。 */
+async function loadOutputs() {
+  if (!sel.project) return;
+  const box = $("outputs");
+  box.innerHTML = `<div class="tl-empty">加载中…</div>`;
+  const qs = `project=${encodeURIComponent(sel.project)}&name=${encodeURIComponent(sel.name)}`;
+  const r = await fetch(`/api/outputs?${qs}`);
+  const d = await r.json();
+  box.innerHTML = "";
+
+  // 代码改动面
+  if (d.change_points.length) {
+    const sub = document.createElement("div");
+    sub.className = "out-sub";
+    sub.innerHTML =
+      `<div class="out-title">代码改动面 <span class="hint">${d.change_points.length} 处锚点</span></div>` +
+      `<div class="table-wrap"><table><thead><tr>` +
+      `<th>文件</th><th>方法</th><th class="num">行</th><th class="num">动作</th>` +
+      `</tr></thead><tbody>` +
+      d.change_points.map((c) =>
+        `<tr><td class="num">${esc(c.file)}</td><td class="num">${esc(c.method)}</td>` +
+        `<td class="num">${esc(c.line)}</td><td class="num">${esc(c.action)}</td></tr>`).join("") +
+      `</tbody></table></div>`;
+    box.appendChild(sub);
+  }
+
+  // 产物文档
+  const arts = [["understands", "understand.md"], ["plans", "plan.md"]]
+    .filter(([k]) => d.artifacts[k] && d.artifacts[k].exists);
+  if (arts.length) {
+    const sub = document.createElement("div");
+    sub.className = "out-sub";
+    sub.innerHTML = `<div class="out-title">产物文档</div>`;
+    const chips = document.createElement("div");
+    chips.className = "art-chips";
+    const view = document.createElement("pre");
+    view.className = "art-view hidden";
+    for (const [kind, label] of arts) {
+      const b = document.createElement("button");
+      b.className = "btn ghost";
+      b.textContent = label;
+      b.onclick = async () => {
+        if (view.dataset.kind === kind && !view.classList.contains("hidden")) {
+          view.classList.add("hidden");
+          return;
+        }
+        const rr = await fetch(`/api/artifact?${qs}&kind=${kind}`);
+        const dd = await rr.json();
+        view.textContent = dd.content || "（空）";
+        view.dataset.kind = kind;
+        view.classList.remove("hidden");
+      };
+      chips.appendChild(b);
+    }
+    sub.appendChild(chips);
+    sub.appendChild(view);
+    box.appendChild(sub);
+  }
+
+  // 证据链
+  if (d.evidence.length) {
+    const sub = document.createElement("div");
+    sub.className = "out-sub";
+    sub.innerHTML =
+      `<div class="out-title">证据链 <span class="hint">${d.evidence.length} 条</span></div>`;
+    let lastStage = null;
+    for (const e of d.evidence) {
+      const stage = [e.major_stage, e.minor_stage].filter(Boolean).join(" / ") || e.kind;
+      if (stage !== lastStage) {
+        lastStage = stage;
+        const sh = document.createElement("div");
+        sh.className = "ev-stage";
+        sh.textContent = stage;
+        sub.appendChild(sh);
+      }
+      const item = document.createElement("div");
+      item.className = "ev-item";
+      const qa = (e.q.length || e.a.length)
+        ? `<details class="ev-qa"><summary class="num">问答 ${e.q.length}q/${e.a.length}a</summary>` +
+          e.q.map((q, i) =>
+            `<p class="ev-q">Q${i + 1} ${esc(q)}</p>` +
+            (e.a[i] ? `<p class="ev-a">A ${esc(e.a[i])}</p>` : "")).join("") +
+          `</details>`
+        : "";
+      item.innerHTML =
+        `<div class="ev-head"><span class="num">#${e.sub_step ?? "-"}</span> ` +
+        `<span class="ev-skill">${esc(e.skill || e.kind)}</span> ${esc(e.purpose)}</div>` +
+        (e.conclusion ? `<div class="ev-concl">${esc(e.conclusion)}</div>` : "") + qa;
+      sub.appendChild(item);
+    }
+    box.appendChild(sub);
+  }
+
+  if (!box.children.length) {
+    box.innerHTML = `<div class="tl-empty">暂无产物与证据</div>`;
+  }
+}
+
 async function refreshDetail() {
   if (!sel.project) return;
   const r = await fetch(
@@ -472,6 +604,8 @@ $("sidebar-toggle").onclick = () => {
   const collapsed = sb.classList.toggle("collapsed");
   $("sidebar-toggle").textContent = collapsed ? "展开" : "收起";
 };
+
+$("outputs-refresh").onclick = () => loadOutputs();
 
 function setCreatePanel(open) {
   $("create-form").classList.toggle("hidden", !open);

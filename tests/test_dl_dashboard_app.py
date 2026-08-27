@@ -120,3 +120,34 @@ def test_post_delete_calls_action(client):
         r = c.post("/api/delete", json={"project": str(project), "name": "demo"})
     assert r.json()["ok"] is True
     dw.assert_called_once()
+
+
+def test_outputs_endpoint(client):
+    c, project = client
+    ev_dir = project / ".claude" / "evidence"
+    ev_dir.mkdir(parents=True, exist_ok=True)
+    (ev_dir / "demo.jsonl").write_text(
+        '{"kind": "skill-trace", "major_stage": "Understand", "minor_stage": "X",'
+        ' "sub_step": 1, "skill": "s", "purpose": "p", "q": [], "a": [], "结论": "c"}\n',
+        encoding="utf-8",
+    )
+    r = c.get("/api/outputs", params={"project": str(project), "name": "demo"})
+    assert r.status_code == 200
+    d = r.json()
+    assert len(d["evidence"]) == 1 and d["evidence"][0]["conclusion"] == "c"
+    assert d["change_points"] == []
+    assert d["artifacts"]["plans"]["exists"] is False
+
+
+def test_artifact_endpoint_404_when_missing(client):
+    c, project = client
+    r = c.get("/api/artifact",
+              params={"project": str(project), "name": "demo", "kind": "plans"})
+    assert r.status_code == 404
+
+
+def test_artifact_endpoint_rejects_bad_kind(client):
+    c, project = client
+    r = c.get("/api/artifact",
+              params={"project": str(project), "name": "demo", "kind": "../etc"})
+    assert r.status_code == 400
