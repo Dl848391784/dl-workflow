@@ -94,97 +94,120 @@ function renderNodes(nodes) {
   }
 }
 
-/* 步骤时间轴（树形）：major_state 分带 -> minor_state 为枝 -> step 为叶。
-   枝从节点头垂下茎线，叶以横枝挂在茎上；已执行叶显示 耗时/轮数/tok/成本，
-   当前步 sky 脉冲，未执行叶灰色占位。横向可滑动（拖拽 + 滚轮）。 */
+/* 步骤时间轴（甘特泳道）：节点为道、段为真实时间定位的横条。
+   x 轴 = 真实墙钟时间（段 ts 起、duration_s 长），顶部刻度 + 竖网格线 + now 虚线；
+   泳道标签 sticky 钉左；当前节点泳道 sky。横向可滑动（拖拽 + 滚轮）。 */
 function renderTimeline(stats, nodes, info) {
   const box = $("timeline");
   box.innerHTML = "";
-  const stepMap = new Map();
-  for (const s of stats) {
-    const key = `${s.node}#${s.sub_step}`;
-    if (!stepMap.has(key)) {
-      stepMap.set(key, { dur: 0, turns: 0, tin: 0, tout: 0, cost: 0 });
-    }
-    const a = stepMap.get(key);
-    a.dur += s.duration_s || 0;
-    a.turns += s.num_turns || 0;
-    a.tin += s.input_tokens || 0;
-    a.tout += s.output_tokens || 0;
-    a.cost += s.cost_usd || 0;
-  }
-  const phases = [];
-  for (const n of nodes) {
-    let ph = phases.find((p) => p.name === n.phase);
-    if (!ph) { ph = { name: n.phase, nodes: [] }; phases.push(ph); }
-    ph.nodes.push(n);
-  }
-  if (!phases.length) {
+  const segs = stats.filter((s) => s.ts);
+  if (!segs.length) {
     box.innerHTML = `<div class="tl-empty">无步骤数据</div>`;
     $("tl-summary").textContent = "";
     return;
   }
-  const track = document.createElement("div");
-  track.className = "tl-track";
-  for (const ph of phases) {
-    const doneCount = ph.nodes.filter((n) => n.status === "done").length;
-    // 阶段状态着色（地铁线路段）：全完成=done / 含当前节点=current / 未开始=pending
-    const phStatus = ph.nodes.every((n) => n.status === "done")
-      ? "done"
-      : ph.nodes.some((n) => n.status === "current") ? "current" : "pending";
-    const phEl = document.createElement("div");
-    phEl.className = `tl-phase ${phStatus}`;
-    phEl.innerHTML =
-      `<div class="tl-phase-head">${esc(ph.name)}` +
-      `<span class="num">${doneCount}/${ph.nodes.length}</span></div>`;
-    const branches = document.createElement("div");
-    branches.className = "tl-branches";
-    for (const n of ph.nodes) {
-      // 节点内耗时最大值：叶内迷你条的比例尺
-      let nodeMax = 1;
-      for (let i = 1; i <= n.sub_total; i++) {
-        const a = stepMap.get(`${n.node_id}#${i}`);
-        if (a && a.dur > nodeMax) nodeMax = a.dur;
-      }
-      const nodeEl = document.createElement("div");
-      nodeEl.className = `tl-node ${n.status}`;
-      if (sel.nodeFilter && n.node_id !== sel.nodeFilter) nodeEl.classList.add("dim");
-      const head = document.createElement("div");
-      head.className = "tl-node-head";
-      head.innerHTML = `<span class="num">${esc(n.node_id)}</span> ${esc(n.label)}`;
-      nodeEl.appendChild(head);
-      const leaves = document.createElement("div");
-      leaves.className = "tl-leaves";
-      for (let i = 1; i <= n.sub_total; i++) {
-        const key = `${n.node_id}#${i}`;
-        const a = stepMap.get(key);
-        const isCur = n.status === "current" && i === info.sub_step_index;
-        const leaf = document.createElement("div");
-        leaf.className = "tl-leaf" + (a ? " done" : isCur ? " cur" : " todo");
-        if (a) {
-          const barW = Math.max(2, Math.round((a.dur / nodeMax) * 90));
-          leaf.title =
-            `${key}\n耗时 ${a.dur}s · ${a.turns} 轮\n` +
-            `tok in ${a.tin} / out ${a.tout}\n$${a.cost.toFixed(3)}`;
-          leaf.innerHTML =
-            `<div class="tl-l1"><span class="tl-lid num">#${i}</span>` +
-            `<span class="tl-bar" style="width:${barW}px"></span>` +
-            `<span class="tl-ldur num">${a.dur}s</span></div>` +
-            `<div class="tl-l2 num">${a.turns}轮 ` +
-            `in${fmtTok(a.tin)}/out${fmtTok(a.tout)} ` +
-            `$${a.cost.toFixed(2)}</div>`;
-        } else {
-          leaf.innerHTML = `<div class="tl-l1"><span class="tl-lid num">#${i}</span></div>`;
-        }
-        leaves.appendChild(leaf);
-      }
-      nodeEl.appendChild(leaves);
-      branches.appendChild(nodeEl);
+  const t0 = Math.min(...segs.map((s) => new Date(s.ts).getTime()));
+  const now = Date.now();
+  let t1 = Math.max(...segs.map((s) => new Date(s.ts).getTime() + (s.duration_s || 0) * 1000));
+  if (now > t1) t1 = now;
+  const span = Math.max((t1 - t0) / 1000, 60);
+  const scale = Math.max(0.5, 900 / span);  // px/秒，轨道总宽 ≥900px
+  const LABEL_W = 150;
+  const railW = Math.ceil(span * scale);
+
+  const fmtT = (ms) => {
+    const d = new Date(ms);
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    return span > 86400 ? `${d.getMonth() + 1}-${d.getDate()} ${hh}:${mm}` : `${hh}:${mm}`;
+  };
+  const fmtDur = (s) => s == null ? "-" : s;
+
+  const root = document.createElement("div");
+  root.className = "gt";
+  root.style.width = LABEL_W + railW + "px";
+
+  // 顶部时间刻度 + 竖网格线
+  const axis = document.createElement("div");
+  axis.className = "gt-axis";
+  const NTICK = 5;
+  for (let i = 0; i <= NTICK; i++) {
+    const ms = t0 + (span * 1000 * i) / NTICK;
+    const x = LABEL_W + Math.round(((ms - t0) / 1000) * scale);
+    const tick = document.createElement("span");
+    tick.className = "gt-tick num";
+    tick.style.left = x + "px";
+    tick.textContent = fmtT(ms);
+    axis.appendChild(tick);
+    if (i > 0 && i < NTICK) {
+      const gl = document.createElement("div");
+      gl.className = "gt-gridline";
+      gl.style.left = x + "px";
+      root.appendChild(gl);
     }
-    phEl.appendChild(branches);
-    track.appendChild(phEl);
   }
-  box.appendChild(track);
+  root.appendChild(axis);
+
+  // 泳道：按 phase 分组、节点表顺序，只画有段的节点
+  const byNode = new Map();
+  for (const s of segs) {
+    if (!byNode.has(s.node)) byNode.set(s.node, []);
+    byNode.get(s.node).push(s);
+  }
+  let lastPhase = null;
+  for (const n of nodes) {
+    const nodeSegs = byNode.get(n.node_id);
+    if (!nodeSegs) continue;
+    if (n.phase !== lastPhase) {
+      lastPhase = n.phase;
+      const ph = document.createElement("div");
+      ph.className = "gt-phase";
+      ph.textContent = n.phase;
+      root.appendChild(ph);
+    }
+    const lane = document.createElement("div");
+    lane.className = "gt-lane" + (n.status === "current" ? " cur" : "");
+    if (sel.nodeFilter && n.node_id !== sel.nodeFilter) lane.classList.add("dim");
+    const label = document.createElement("div");
+    label.className = "gt-label";
+    label.innerHTML = `<span class="num">${esc(n.node_id)}</span> ${esc(n.label)}`;
+    lane.appendChild(label);
+    const rail = document.createElement("div");
+    rail.className = "gt-rail";
+    for (const s of nodeSegs) {
+      const x = Math.round(((new Date(s.ts).getTime() - t0) / 1000) * scale);
+      const isCur = n.status === "current";
+      const bar = document.createElement("div");
+      if (s.duration_s == null) {
+        bar.className = "gt-mark";
+        bar.style.left = x + "px";
+        bar.title = `${s.node}#${s.sub_step}\n${s.ts} · 无统计数据`;
+      } else {
+        bar.className = "gt-bar" + (isCur ? " cur" : "");
+        bar.style.left = x + "px";
+        bar.style.width = Math.max(3, Math.round(s.duration_s * scale)) + "px";
+        bar.title =
+          `${s.node}#${s.sub_step}\n${s.ts} 起 · 耗时 ${s.duration_s}s · ` +
+          `${fmtDur(s.num_turns)} 轮\ntok in ${s.input_tokens ?? "-"} / out ` +
+          `${s.output_tokens ?? "-"}\n$${(s.cost_usd ?? 0).toFixed(3)}`;
+        if (s.duration_s * scale > 68) {
+          bar.textContent = `#${s.sub_step} ${s.duration_s}s·${fmtDur(s.num_turns)}轮`;
+        }
+      }
+      rail.appendChild(bar);
+    }
+    lane.appendChild(rail);
+    root.appendChild(lane);
+  }
+
+  // now 虚线
+  const nowLine = document.createElement("div");
+  nowLine.className = "gt-now";
+  nowLine.style.left = LABEL_W + Math.round(((now - t0) / 1000) * scale) + "px";
+  nowLine.title = "现在";
+  root.appendChild(nowLine);
+
+  box.appendChild(root);
   // 拖拽滑动（grab to scroll）
   let dragging = false, startX = 0, startLeft = 0;
   box.onpointerdown = (e) => {
@@ -203,11 +226,11 @@ function renderTimeline(stats, nodes, info) {
       e.preventDefault();
     }
   };
-  const totTurns = [...stepMap.values()].reduce((a, r) => a + r.turns, 0);
-  const totDur = [...stepMap.values()].reduce((a, r) => a + r.dur, 0);
-  const totCost = [...stepMap.values()].reduce((a, r) => a + r.cost, 0);
+  const totTurns = segs.reduce((a, s) => a + (s.num_turns || 0), 0);
+  const totDur = segs.reduce((a, s) => a + (s.duration_s || 0), 0);
+  const totCost = segs.reduce((a, s) => a + (s.cost_usd || 0), 0);
   $("tl-summary").textContent =
-    `${stepMap.size} 步已执行 · ${totTurns} 轮 · ${totDur}s · $${totCost.toFixed(2)}`;
+    `${segs.length} 段 · ${totTurns} 轮 · ${totDur}s · $${totCost.toFixed(2)}`;
 }
 
 function renderInteract(d) {
