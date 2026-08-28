@@ -28,6 +28,36 @@ function isWaiting(w) {
   return w.need_user || (w.held_for_gate && w.gate === "pending");
 }
 
+/* 自定义确认弹窗（替代原生 confirm）：返回 Promise<boolean>。
+   取消路径：× / 取消按钮 / 点遮罩 / Esc；danger=true 时确认键红色。 */
+function showConfirm({ title, body, okText = "确认", danger = false }) {
+  return new Promise((resolve) => {
+    const veil = document.createElement("div");
+    veil.className = "modal-veil";
+    veil.innerHTML =
+      `<div class="modal confirm-modal" role="dialog" aria-modal="true">` +
+      `<div class="modal-head"><h3>${esc(title)}</h3>` +
+      `<button type="button" class="modal-close" data-x>×</button></div>` +
+      `<div class="confirm-body">${esc(body)}</div>` +
+      `<div class="modal-actions">` +
+      `<button type="button" class="btn" data-no>取消</button>` +
+      `<button type="button" class="btn ${danger ? "danger" : "primary"}" data-ok>${esc(okText)}</button>` +
+      `</div></div>`;
+    const close = (v) => { veil.remove(); resolve(v); };
+    veil.querySelector("[data-x]").onclick = () => close(false);
+    veil.querySelector("[data-no]").onclick = () => close(false);
+    veil.querySelector("[data-ok]").onclick = () => close(true);
+    veil.onclick = (e) => { if (e.target === veil) close(false); };
+    document.addEventListener("keydown", function onEsc(e) {
+      if (e.key === "Escape") {
+        document.removeEventListener("keydown", onEsc);
+        close(false);
+      }
+    });
+    document.body.appendChild(veil);
+  });
+}
+
 function selectWorkflow(project, name) {
   sel.project = project; sel.name = name;
   $("detail-empty").classList.add("hidden");
@@ -57,8 +87,13 @@ function renderSidebar(workflows) {
     item.onclick = () => selectWorkflow(w.project, w.name);
     item.querySelector(".wf-del").onclick = async (e) => {
       e.stopPropagation();
-      if (!confirm(
-        `删除工作流 ${w.name}？\n将彻底删除 worktree + 分支 + 元数据，不可恢复。`)) return;
+      const yes = await showConfirm({
+        title: `删除工作流 ${w.name}`,
+        body: "将彻底删除 worktree + 分支 + 元数据，不可恢复。",
+        okText: "删除",
+        danger: true,
+      });
+      if (!yes) return;
       const r = await post("/api/delete", { project: w.project, name: w.name });
       alert(r.msg);
       if (r.ok && sel.project === w.project && sel.name === w.name) {
