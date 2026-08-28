@@ -115,7 +115,7 @@ body {
   font-family: var(--mono);
   letter-spacing: 0.04em;
 }
-.modal .field input, .modal .field select { width: 100%; }
+.modal .field input, .modal .field select, .modal .field textarea { width: 100%; }
 .mode-cards {
   display: flex;
   gap: 10px;
@@ -147,7 +147,7 @@ body {
 .modal-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
 
 /* ---------- 控件 ---------- */
-input, select {
+input, select, textarea {
   background: var(--bg-inset);
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -158,8 +158,9 @@ input, select {
   outline: none;
   transition: border-color 0.15s ease;
 }
-input::placeholder { color: var(--text-3); }
-input:focus, select:focus { border-color: var(--accent-line); }
+input::placeholder, textarea::placeholder { color: var(--text-3); }
+input:focus, select:focus, textarea:focus { border-color: var(--accent-line); }
+textarea { resize: vertical; min-height: 64px; line-height: 1.55; }
 
 .btn {
   border-radius: 6px;
