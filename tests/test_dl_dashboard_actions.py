@@ -257,3 +257,9 @@ def test_create_standard_track_has_no_tacet_flag(tmp_path):
 def test_create_rejects_unknown_scope(tmp_path):
     ok, msg = actions.create_workflow(tmp_path, "demo", "Q", MagicMock(), scope="xyz")
     assert not ok and "未知范围" in msg
+
+
+def test_restart_drive_refuses_when_held_for_gate(tmp_path):
+    _mk_state(tmp_path, "demo", [], worktree_path="/wt")  # held_for_gate=True
+    ok, msg = actions.restart_drive(tmp_path, "demo", MagicMock(**{"alive.return_value": None}))
+    assert not ok and "gate 放行" in msg

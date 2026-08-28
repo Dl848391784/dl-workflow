@@ -156,12 +156,19 @@ def dl_command(project: Path, name: str, cmd: str, value: str | None = None) -> 
 
 
 def restart_drive(project: Path, name: str, mgr) -> tuple[bool, str]:
-    """driver 死/断点后重新驱动（续跑非重来：state 全在盘上）。"""
+    """driver 死/断点后重新驱动（续跑非重来：state 全在盘上）。
+
+    门栏扣留（held_for_gate）时如实拒绝：此时恢复 driver 会秒退（driver
+    进断点即退是设计语义），唯一出口是 gate 放行——拒绝并指路，而非
+    起一个注定秒退的 driver 制造「恢复了一下立马又暂停」的假象。
+    """
     if mgr.alive(project, name):
         return False, "driver 仍在运行，无需重驱"
     state, err = _get_state(project, name)
     if err:
         return False, err
+    if state.get("held_for_gate"):
+        return False, "工作流扣留在门栏（held_for_gate）——请点「gate 放行」，而非恢复驱动"
     pid = mgr.start(project, name, Path(state["worktree_path"]))
     return True, f"driver 已重启 pid={pid}"
 

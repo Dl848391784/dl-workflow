@@ -577,12 +577,6 @@ function renderInteract(d) {
       refreshDetail();
     }, "btn primary"));
   }
-  if (d.info.held_for_gate || d.info.gate === "pending") {
-    box.appendChild(mkBtn("gate 放行", async () => {
-      const r = await post("/api/gate", { project: proj, name });
-      toast(r.msg, r.ok); refreshDetail();
-    }, "btn primary"));
-  }
   const form = document.createElement("span");
   form.className = "dl-form";
   form.innerHTML =
@@ -719,6 +713,14 @@ async function refreshDetail() {
     live.textContent = "";
   }
   $("d-statement").textContent = d.info.problem_statement;
+  // 标题行 gate 放行按钮（门栏扣留时的主操作，置顶突出）
+  const gb = $("gate-btn");
+  gb.classList.toggle("hidden", !(d.info.held_for_gate || d.info.gate === "pending"));
+  gb.onclick = async () => {
+    const r = await post("/api/gate", { project: sel.project, name: sel.name });
+    toast(r.msg, r.ok);
+    refreshDetail();
+  };
   // 标题行暂停/恢复按钮（随 driver 状态切换）
   const pt = $("pause-toggle");
   pt.classList.remove("hidden");
