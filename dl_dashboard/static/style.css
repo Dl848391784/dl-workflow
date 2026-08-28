@@ -321,19 +321,19 @@ main { padding: 20px; flex: 1; min-width: 0; max-width: 1400px; }
 }
 .art-link:hover { border-bottom-style: solid; }
 
-/* major/minor_state 汇总行（同字号 11px，层级靠颜色不靠大小） */
+/* major/minor_state 汇总行（与 step 耗时小字同号 10.5px） */
 .tl-nstat, .gt-lstat {
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--text-3);
   margin-top: 2px;
 }
 .tl-pstat {
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--text-3);
   margin: 3px 0 8px 2px;
 }
 .gt-pstat {
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--text-3);
   margin-left: 12px;
   letter-spacing: 0;
