@@ -69,24 +69,71 @@ body {
 .brand-text h1 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: 0.01em; }
 .brand-text p { margin: 0; font-size: 11.5px; color: var(--text-3); font-family: var(--mono); }
 
-/* ---------- 新建面板 ---------- */
-.create-panel {
+/* ---------- 新建工作流弹窗 ---------- */
+.modal-veil {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 6, 8, 0.62);
+  backdrop-filter: blur(2px);
+  z-index: 50;
   display: flex;
-  align-items: flex-end;
-  gap: 14px;
-  flex-wrap: wrap;
-  padding: 14px 20px;
-  background: var(--bg-raise);
-  border-bottom: 1px solid var(--line);
+  align-items: flex-start;
+  justify-content: center;
+  padding: 12dvh 16px 16px;
 }
-.field { display: flex; flex-direction: column; gap: 5px; }
-.field.grow { flex: 1; min-width: 240px; }
-.field label {
+.modal {
+  width: 100%;
+  max-width: 480px;
+  background: var(--bg-raise);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px 20px 18px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5);
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.modal-head h3 { margin: 0; font-size: 14px; }
+.modal-close {
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.modal-close:hover { color: var(--text); background: rgba(255, 255, 255, 0.06); }
+.modal .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
+.modal .field label {
   font-size: 11px;
   color: var(--text-2);
   font-family: var(--mono);
   letter-spacing: 0.04em;
 }
+.modal .field input, .modal .field select { width: 100%; }
+.mode-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 10px;
+  margin-top: 6px;
+  background: var(--bg-inset);
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.mode-opt:hover { border-color: var(--text-3); }
+.mode-opt input[type="radio"] { margin-top: 2px; accent-color: var(--accent); }
+.mode-opt b { color: var(--text); }
+.mode-opt:has(input:checked) { border-color: var(--accent-line); background: var(--accent-dim); }
+.modal-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
 
 /* ---------- 控件 ---------- */
 input, select {

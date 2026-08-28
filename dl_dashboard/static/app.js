@@ -654,12 +654,40 @@ if (window.matchMedia("(max-width: 768px)").matches) {
 
 $("outputs-refresh").onclick = () => loadOutputs();
 
-function setCreatePanel(open) {
-  $("create-form").classList.toggle("hidden", !open);
-  $("create-toggle").textContent = open ? "收起" : "新建工作流";
+/* 新建工作流弹窗：项目下拉（config 登记源）+ 模式选择（fermate/forte/tacet） */
+let lastProjects = [];
+
+function openCreateModal() {
+  const selP = $("cf-project");
+  selP.innerHTML = lastProjects.map((p) =>
+    `<option value="${esc(p)}">${esc(p)}</option>`).join("");
+  $("create-modal").classList.remove("hidden");
+  $("cf-name").focus();
 }
-$("create-toggle").onclick = () =>
-  setCreatePanel($("create-form").classList.contains("hidden"));
+function closeCreateModal() {
+  $("create-modal").classList.add("hidden");
+}
+$("create-toggle").onclick = openCreateModal;
+$("create-close").onclick = closeCreateModal;
+$("create-modal").onclick = (e) => {
+  if (e.target === $("create-modal")) closeCreateModal();
+};
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeCreateModal();
+});
+
+$("create-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const mode = document.querySelector("input[name=cf-mode]:checked").value;
+  const r = await post("/api/create", {
+    project: $("cf-project").value,
+    name: $("cf-name").value.trim(),
+    statement: $("cf-statement").value.trim(),
+    mode,
+  });
+  alert(r.msg);
+  if (r.ok) closeCreateModal();
+};
 
 document.querySelectorAll("#tl-switch button").forEach((b) => {
   b.onclick = () => {
@@ -668,20 +696,10 @@ document.querySelectorAll("#tl-switch button").forEach((b) => {
   };
 });
 
-$("create-form").onsubmit = async (e) => {
-  e.preventDefault();
-  const r = await post("/api/create", {
-    project: $("cf-project").value.trim(),
-    name: $("cf-name").value.trim(),
-    statement: $("cf-statement").value.trim(),
-  });
-  alert(r.msg);
-  if (r.ok) setCreatePanel(false);
-};
-
 const es = new EventSource("/api/events");
 es.onmessage = (e) => {
   const data = JSON.parse(e.data);
+  lastProjects = data.projects || [];
   renderSidebar(data.workflows);
   if (sel.project) refreshDetail();
 };

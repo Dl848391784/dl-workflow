@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>dl-workflow 控制台</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="/static/style.css?v=ff62dd4">
+<link rel="stylesheet" href="/static/style.css?v=a2125fe">
 </head>
 <body>
 <header class="topbar">
@@ -17,21 +17,46 @@
   </div>
   <button id="create-toggle" type="button" class="btn primary">新建工作流</button>
 </header>
-<form id="create-form" class="create-panel hidden">
-  <div class="field">
-    <label for="cf-project">项目根路径</label>
-    <input id="cf-project" placeholder="/home/admin/projects/xxx" required size="30">
+<div id="create-modal" class="modal-veil hidden">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>新建工作流</h3>
+      <button id="create-close" type="button" class="modal-close">×</button>
+    </div>
+    <form id="create-form">
+      <div class="field">
+        <label for="cf-project">项目</label>
+        <select id="cf-project" required></select>
+      </div>
+      <div class="field">
+        <label for="cf-name">工作流名</label>
+        <input id="cf-name" placeholder="my_factor_study（小写字母数字-_）" required>
+      </div>
+      <div class="field">
+        <label for="cf-statement">问题（problem_statement）</label>
+        <input id="cf-statement" placeholder="要研究的问题" required>
+      </div>
+      <div class="field">
+        <label>模式</label>
+        <label class="mode-opt">
+          <input type="radio" name="cf-mode" value="fermate" checked>
+          <span><b>fermate</b>（默认）plan 止于 plan:2，确认收货即完结——快速出计划</span>
+        </label>
+        <label class="mode-opt">
+          <input type="radio" name="cf-mode" value="forte">
+          <span><b>forte 完整</b>理解和求证 → 计划 → 执行 → 审核 → 进化，全 5 阶段</span>
+        </label>
+        <label class="mode-opt">
+          <input type="radio" name="cf-mode" value="tacet">
+          <span><b>tacet 实验轨道</b>六步脊柱执行，其余步 TACET 静默——成本最低</span>
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button type="submit" class="btn primary">创建并启动</button>
+      </div>
+    </form>
   </div>
-  <div class="field">
-    <label for="cf-name">工作流名</label>
-    <input id="cf-name" placeholder="my_factor_study" required>
-  </div>
-  <div class="field grow">
-    <label for="cf-statement">问题（problem_statement）</label>
-    <input id="cf-statement" placeholder="要研究的问题" required size="36">
-  </div>
-  <button type="submit" class="btn primary">创建并启动</button>
-</form>
+</div>
 <div class="layout">
   <aside id="sidebar">
     <div class="side-head">
@@ -71,6 +96,6 @@
     </section>
   </main>
 </div>
-<script src="/static/app.js?v=ff62dd4"></script>
+<script src="/static/app.js?v=a2125fe"></script>
 </body>
 </html>

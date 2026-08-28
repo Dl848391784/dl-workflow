@@ -223,3 +223,21 @@ def test_pause_noop_when_driver_dead(tmp_path):
     ok, msg = actions.pause_workflow(tmp_path, "demo", mgr)
     assert not ok and "无需暂停" in msg
     mgr.stop.assert_not_called()
+
+
+def test_create_passes_mode_flag_to_launcher(tmp_path):
+    def fake_run(cmd, **kw):
+        (tmp_path / ".claude" / "workflows" / "demo").mkdir(parents=True)
+        (tmp_path / ".claude" / "workflows" / "demo" / "state.json").write_text(
+            '{"worktree_path": "/wt"}', encoding="utf-8")
+        return MagicMock(returncode=0, stdout="ok", stderr="")
+    with patch.object(actions.subprocess, "run", side_effect=fake_run) as run, \
+         patch.object(actions.engine, "set_problem_statement"):
+        ok, _ = actions.create_workflow(tmp_path, "demo", "Q", MagicMock(), mode="tacet")
+    assert ok
+    assert "--force-tacet" in run.call_args[0][0]
+
+
+def test_create_rejects_unknown_mode(tmp_path):
+    ok, msg = actions.create_workflow(tmp_path, "demo", "Q", MagicMock(), mode="xyz")
+    assert not ok and "未知模式" in msg

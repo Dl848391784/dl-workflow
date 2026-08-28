@@ -67,7 +67,10 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
         }
 
     def _snapshot() -> dict:
-        return {"workflows": [_row(i) for i in scanner.scan_all(cfg.projects)]}
+        return {
+            "workflows": [_row(i) for i in scanner.scan_all(cfg.projects)],
+            "projects": [str(p) for p in cfg.projects],
+        }
 
     @app.get("/")
     def index():
@@ -127,7 +130,8 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
         name = _name(body["name"])
         async with _lock(proj, name):
             ok, msg = await asyncio.to_thread(
-                actions.create_workflow, proj, name, body["statement"], mgr)
+                actions.create_workflow, proj, name, body["statement"], mgr,
+                body.get("mode", "fermate"))
         return {"ok": ok, "msg": msg}
 
     @app.post("/api/inject")
