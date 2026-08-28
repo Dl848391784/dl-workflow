@@ -75,6 +75,11 @@ function selectWorkflow(project, name) {
   sel.project = project; sel.name = name;
   $("detail-empty").classList.add("hidden");
   $("detail-view").classList.remove("hidden");
+  // 手机端选中后自动收起侧栏，让位详情区
+  if (window.matchMedia("(max-width: 768px)").matches) {
+    $("sidebar").classList.add("collapsed");
+    $("sidebar-toggle").textContent = "展开";
+  }
   refreshDetail();
   loadOutputs();
 }
