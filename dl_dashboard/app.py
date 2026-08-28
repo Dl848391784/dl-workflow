@@ -71,7 +71,12 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
 
     @app.get("/")
     def index():
-        return FileResponse(STATIC_DIR / "index.html")
+        # no-cache：HTML 是静态资源版本号的唯一引用源，它自己被缓存
+        # 会让版本号机制失效（用户看到旧 CSS/JS 的实爆教训）
+        return FileResponse(
+            STATIC_DIR / "index.html",
+            headers={"Cache-Control": "no-cache, must-revalidate"},
+        )
 
     @app.get("/api/workflows")
     def list_workflows():

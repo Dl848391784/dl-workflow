@@ -276,6 +276,40 @@ main { padding: 20px; flex: 1; min-width: 0; max-width: 1400px; }
 .tl-leaf.cur { animation: pulse 1.6s ease-in-out infinite; }
 .tl-leaf.todo { opacity: 0.35; }
 
+/* 总进度条（时间轴上方） */
+#tl-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 8px;
+}
+.tl-prog-track {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line-soft);
+  overflow: hidden;
+}
+#tl-prog-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+#tl-prog-label { font-size: 11px; color: var(--text-3); flex-shrink: 0; }
+
+/* 在跑徽标（当前步实时计时） */
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11.5px;
+  font-family: var(--mono);
+  color: var(--accent);
+  margin-left: 10px;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+.live-badge .dot { margin-right: 6px; }
+
 /* 节点归属产物链接（跳新页面阅读） */
 .tl-art { margin: 2px 0 4px; }
 .art-link {

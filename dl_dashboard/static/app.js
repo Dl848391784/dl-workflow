@@ -94,6 +94,12 @@ function phaseLabel(name) {
   return PHASE_LABELS[name] || name;
 }
 
+/* fermate（plan-only）：plan 之后阶段不存在，时间轴只展示前两阶段 */
+function visibleNodes(nodes, info) {
+  if (!info.force_fermate) return nodes;
+  return nodes.filter((n) => n.phase === "understand" || n.phase === "plan");
+}
+
 function attachTimelineScroll(box) {
   let dragging = false, startX = 0, startLeft = 0;
   box.onpointerdown = (e) => {
@@ -147,7 +153,7 @@ function renderTimelineTree(stats, nodes, info, artifacts) {
     a.cost += s.cost_usd || 0;
   }
   const phases = [];
-  for (const n of nodes) {
+  for (const n of visibleNodes(nodes, info)) {
     let ph = phases.find((p) => p.name === n.phase);
     if (!ph) { ph = { name: n.phase, nodes: [] }; phases.push(ph); }
     ph.nodes.push(n);
@@ -308,7 +314,7 @@ function renderTimelineGantt(stats, nodes, info, artifacts) {
     byNode.get(s.node).push(s);
   }
   let lastPhase = null, group = null;
-  for (const n of nodes) {
+  for (const n of visibleNodes(nodes, info)) {
     const nodeSegs = byNode.get(n.node_id);
     if (!nodeSegs) continue;
     if (n.phase !== lastPhase) {
@@ -320,7 +326,7 @@ function renderTimelineGantt(stats, nodes, info, artifacts) {
       ph.textContent = phaseLabel(n.phase);
       // major_state 汇总（本阶段已跑段的合计）
       const pstat = { dur: 0, turns: 0, tin: 0, tout: 0, cost: 0 };
-      for (const nn of nodes) {
+      for (const nn of visibleNodes(nodes, info)) {
         if (nn.phase !== n.phase) continue;
         for (const s of byNode.get(nn.node_id) || []) {
           pstat.dur += s.duration_s || 0;
@@ -423,6 +429,21 @@ function renderTimeline(stats, nodes, info, artifacts) {
   const skin = tlSkin();
   box.classList.remove("metro", "gantt", "cards");
   box.classList.add(skin);
+  // 总进度条：已完成 step / 可见 step（fermate 只计前两阶段）
+  const vis = visibleNodes(nodes, info);
+  const total = vis.reduce((a, n) => a + n.sub_total, 0);
+  const visIds = new Set(vis.map((n) => n.node_id));
+  const doneKeys = new Set(
+    stats.filter((s) => visIds.has(s.node)).map((s) => `${s.node}#${s.sub_step}`));
+  const prog = $("tl-progress");
+  if (total > 0 && doneKeys.size > 0) {
+    const pct = Math.round((doneKeys.size / total) * 100);
+    $("tl-prog-fill").style.width = pct + "%";
+    $("tl-prog-label").textContent = `${doneKeys.size}/${total} 步 · ${pct}%`;
+    prog.classList.remove("hidden");
+  } else {
+    prog.classList.add("hidden");
+  }
   if (skin === "gantt") renderTimelineGantt(stats, nodes, info, artifacts);
   else renderTimelineTree(stats, nodes, info, artifacts);
   document.querySelectorAll("#tl-switch button").forEach((b) =>
@@ -598,8 +619,22 @@ async function refreshDetail() {
     `/api/workflow?project=${encodeURIComponent(sel.project)}` +
     `&name=${encodeURIComponent(sel.name)}`);
   const d = await r.json();
-  $("d-title").textContent = `${d.info.name} · ${d.info.node}` +
-    (d.driver_pid ? `（driver #${d.driver_pid}）` : "（driver 已停）");
+  const modeTags = (d.info.force_tacet ? `<span class="tag mode-tacet">tacet</span>` : "") +
+    (d.info.force_fermate ? `<span class="tag mode-fermate">fermate</span>` : "");
+  $("d-title").innerHTML = `${esc(d.info.name)} · ${esc(d.info.node)}` +
+    (d.driver_pid ? `（driver #${d.driver_pid}）` : "（driver 已停）") + modeTags;
+  // 在跑徽标：当前步已跑时长（从末段记录起算，SSE 2s 刷新）
+  const live = $("tl-live");
+  if (d.driver_pid && d.stats.length) {
+    const lastTs = Math.max(...d.stats.map((x) => new Date(x.ts).getTime()));
+    const elapsed = Math.max(0, Math.round((Date.now() - lastTs) / 1000));
+    live.innerHTML =
+      `<span class="live-badge"><span class="dot ok"></span>在跑 · 当前步 ${elapsed}s</span>`;
+  } else if (d.driver_pid) {
+    live.innerHTML = `<span class="live-badge"><span class="dot ok"></span>在跑</span>`;
+  } else {
+    live.textContent = "";
+  }
   $("d-statement").textContent = d.info.problem_statement;
   renderTimeline(d.stats, d.info.nodes, d.info, d.artifacts);
   renderInteract(d);
