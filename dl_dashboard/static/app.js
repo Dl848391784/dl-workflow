@@ -58,6 +58,19 @@ function showConfirm({ title, body, okText = "确认", danger = false }) {
   });
 }
 
+/* toast 通知条（替代原生 alert）：右上角浮层，成功绿/失败红，
+   3.5s 自动消隐，点击立即关闭；长消息内部滚动。 */
+function toast(msg, ok = true) {
+  const box = $("toast-box");
+  const t = document.createElement("div");
+  t.className = "toast" + (ok ? "" : " err");
+  t.textContent = msg;
+  const kill = () => t.remove();
+  t.onclick = kill;
+  box.appendChild(t);
+  setTimeout(kill, 3500);
+}
+
 function selectWorkflow(project, name) {
   sel.project = project; sel.name = name;
   $("detail-empty").classList.add("hidden");
@@ -95,7 +108,7 @@ function renderSidebar(workflows) {
       });
       if (!yes) return;
       const r = await post("/api/delete", { project: w.project, name: w.name });
-      alert(r.msg);
+      toast(r.msg, r.ok);
       if (r.ok && sel.project === w.project && sel.name === w.name) {
         sel.project = null; sel.name = null;
         $("detail-view").classList.add("hidden");
@@ -526,25 +539,25 @@ function renderInteract(d) {
       });
       const r = await post("/api/inject",
         { project: proj, name, answer: parts.join("\n") });
-      alert(r.msg);
+      toast(r.msg, r.ok);
       refreshDetail();
     }, "btn primary"));
   }
   if (d.info.held_for_gate || d.info.gate === "pending") {
     box.appendChild(mkBtn("gate 放行", async () => {
       const r = await post("/api/gate", { project: proj, name });
-      alert(r.msg); refreshDetail();
+      toast(r.msg, r.ok); refreshDetail();
     }, "btn primary"));
   }
   if (d.driver_pid) {
     box.appendChild(mkBtn("暂停", async () => {
       const r = await post("/api/pause", { project: proj, name });
-      alert(r.msg); refreshDetail();
+      toast(r.msg, r.ok); refreshDetail();
     }));
   } else {
     box.appendChild(mkBtn("恢复驱动", async () => {
       const r = await post("/api/drive", { project: proj, name });
-      alert(r.msg); refreshDetail();
+      toast(r.msg, r.ok); refreshDetail();
     }));
   }
   const form = document.createElement("span");
@@ -557,7 +570,7 @@ function renderInteract(d) {
   const go = mkBtn("执行 /dl", async () => {
     const r = await post("/api/dl", { project: proj, name,
       cmd: $("dl-cmd").value, value: $("dl-value").value || null });
-    alert(r.msg); refreshDetail();
+    toast(r.msg, r.ok); refreshDetail();
   });
   box.appendChild(form); box.appendChild(go);
 }
@@ -755,7 +768,7 @@ $("create-form").onsubmit = async (e) => {
   const statement = $("cf-statement").value.trim();
   const base = genName(statement);
   if (!base) {
-    alert("问题里没有可识别的英文词，无法生成工作流名——请在问题中包含英文关键词（如因子名/页面名）");
+    toast("问题里没有可识别的英文词，无法生成工作流名——请在问题中包含英文关键词（如因子名/页面名）", false);
     return;
   }
   const name = dedupeName(base);
@@ -768,7 +781,7 @@ $("create-form").onsubmit = async (e) => {
     scope,
     tacet,
   });
-  alert(r.ok ? `已创建 ${name}` : r.msg);
+  toast(r.ok ? `已创建 ${name}` : r.msg, r.ok);
   if (r.ok) closeCreateModal();
 };
 
