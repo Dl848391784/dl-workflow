@@ -69,6 +69,26 @@ class DriverManager:
         # 后端重启后认领：pid 文件 + /proc cmdline 双重校验（防 pid 复用）
         p = self._pid_path(slug)
         if not p.exists():
+            # pid 文件缺失：扫 /proc 认领「野生」driver（server 重启丢 pid
+            # 文件、外部 `dl` 启动等场景）——不认领则 restart_drive 会起重复
+            # driver（双执行体并行事故面）。argv 级匹配：dl_drive.py 与 name
+            # 各自独立成参（防子串误配）。
+            for proc_dir in Path("/proc").iterdir():
+                if not proc_dir.name.isdigit():
+                    continue
+                try:
+                    raw = proc_dir.joinpath("cmdline").read_bytes()
+                except OSError:
+                    continue
+                if b"dl_drive.py" not in raw:
+                    continue
+                argv = raw.split(b"\x00")
+                if (any(a.endswith(b"dl_drive.py") for a in argv)
+                        and name.encode() in argv):
+                    pid = int(proc_dir.name)
+                    p.write_text(str(pid), encoding="utf-8")  # 认领并补登 pid 文件
+                    log.info("认领野生 driver slug=%s pid=%s", slug, pid)
+                    return pid
             return None
         try:
             pid = int(p.read_text(encoding="utf-8").strip())

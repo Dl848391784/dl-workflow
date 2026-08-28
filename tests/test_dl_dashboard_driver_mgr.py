@@ -94,3 +94,29 @@ def test_alive_unlinks_stale_pid_file_when_reclaim_fails(tmp_path):
     with patch("dl_dashboard.driver_mgr.Path.read_bytes", return_value=b"/usr/bin/other"):
         assert mgr.alive(Path("/p"), "demo") is None
     assert not mgr._pid_path(mgr.slug("/p", "demo")).exists()
+
+
+def test_alive_claims_wild_driver_without_pid_file(tmp_path):
+    """pid 文件缺失时扫 /proc 认领野生 driver（防 restart_drive 起重复 driver）。
+
+    起一个 argv 含 <路径>/dl_drive.py 和 工作流名 的真进程模拟野生 driver。
+    """
+    import subprocess
+    import time
+
+    fake = tmp_path / "dl_drive.py"
+    fake.write_text("import time; time.sleep(30)", encoding="utf-8")
+    mgr = _mgr(tmp_path)
+    proc = subprocess.Popen(["python3", str(fake), "wildwf"],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        time.sleep(0.3)
+        pid = mgr.alive(Path("/p"), "wildwf")
+        assert pid == proc.pid
+        # 认领后补登 pid 文件
+        assert mgr._pid_path(mgr.slug("/p", "wildwf")).read_text().strip() == str(proc.pid)
+        # 名字不匹配的野生 driver 不认领
+        assert mgr.alive(Path("/p"), "otherwf") is None
+    finally:
+        proc.kill()
+        proc.wait()
