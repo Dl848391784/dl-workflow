@@ -559,17 +559,6 @@ function renderInteract(d) {
       toast(r.msg, r.ok); refreshDetail();
     }, "btn primary"));
   }
-  if (d.driver_pid) {
-    box.appendChild(mkBtn("暂停", async () => {
-      const r = await post("/api/pause", { project: proj, name });
-      toast(r.msg, r.ok); refreshDetail();
-    }));
-  } else {
-    box.appendChild(mkBtn("恢复驱动", async () => {
-      const r = await post("/api/drive", { project: proj, name });
-      toast(r.msg, r.ok); refreshDetail();
-    }));
-  }
   const form = document.createElement("span");
   form.className = "dl-form";
   form.innerHTML =
@@ -703,6 +692,16 @@ async function refreshDetail() {
     live.textContent = "";
   }
   $("d-statement").textContent = d.info.problem_statement;
+  // 标题行暂停/恢复按钮（随 driver 状态切换）
+  const pt = $("pause-toggle");
+  pt.classList.remove("hidden");
+  pt.textContent = d.driver_pid ? "暂停" : "恢复驱动";
+  pt.onclick = async () => {
+    const r = await post(d.driver_pid ? "/api/pause" : "/api/drive",
+      { project: sel.project, name: sel.name });
+    toast(r.msg, r.ok);
+    refreshDetail();
+  };
   renderTimeline(d.stats, d.info.nodes, d.info, d.artifacts);
   renderInteract(d);
   $("log-tail").textContent = d.log_tail;
