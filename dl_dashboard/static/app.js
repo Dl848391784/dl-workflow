@@ -656,13 +656,35 @@ $("outputs-refresh").onclick = () => loadOutputs();
 
 /* 新建工作流弹窗：项目下拉（config 登记源）+ 模式选择（fermate/forte/tacet） */
 let lastProjects = [];
+let nameDirty = false;  // 用户手改过名称后停止自动填充
+
+/* 从 problem_statement 提取英文词自动生成名称（≤3 词，_ 连接）：
+   提取拉丁 token -> 小写 -> 去停用词 -> 取前 3；纯中文陈述提取不出词则留空手填。
+   名称正则约束 ^[a-z0-9][a-z0-9_-]{0,63}$（与后端 _NAME_RE 一致）。 */
+const NAME_STOP = new Set([
+  "the", "a", "an", "of", "for", "and", "or", "is", "are", "to", "in", "on",
+  "we", "our", "you", "your", "this", "that", "it", "its", "be", "by", "at",
+  "as", "if", "so", "no", "not", "do", "does", "did", "has", "have", "had",
+]);
+function genName(statement) {
+  const words = (statement.match(/[a-zA-Z][a-zA-Z0-9]*/g) || [])
+    .map((w) => w.toLowerCase())
+    .filter((w) => !NAME_STOP.has(w) && w.length > 1);
+  const uniq = [...new Set(words)].slice(0, 3);
+  return uniq.join("_").slice(0, 63);
+}
+$("cf-statement").addEventListener("input", () => {
+  if (!nameDirty) $("cf-name").value = genName($("cf-statement").value);
+});
+$("cf-name").addEventListener("input", () => { nameDirty = true; });
 
 function openCreateModal() {
+  nameDirty = false;
   const selP = $("cf-project");
   selP.innerHTML = lastProjects.map((p) =>
     `<option value="${esc(p)}">${esc(p)}</option>`).join("");
   $("create-modal").classList.remove("hidden");
-  $("cf-name").focus();
+  $("cf-statement").focus();
 }
 function closeCreateModal() {
   $("create-modal").classList.add("hidden");
