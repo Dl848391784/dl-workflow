@@ -500,6 +500,16 @@ function renderTimeline(stats, nodes, info, artifacts) {
 
 function renderInteract(d) {
   const box = $("interact");
+  // SSE 每 2s 触发本区重建——先保住用户已选/已填，渲完恢复
+  // （实爆：radio 选完 2 秒被轮询清掉）
+  const savedRadio = {};
+  box.querySelectorAll("input[type=radio]:checked").forEach((r) => {
+    savedRadio[r.name] = r.value;
+  });
+  const savedOther = {};
+  box.querySelectorAll("input[id$=-other]").forEach((i) => {
+    savedOther[i.id] = i.value;
+  });
   box.innerHTML = "";
   const proj = sel.project, name = sel.name;
   const mkBtn = (label, fn, cls) => {
@@ -573,6 +583,15 @@ function renderInteract(d) {
     toast(r.msg, r.ok); refreshDetail();
   });
   box.appendChild(form); box.appendChild(go);
+  // 恢复重建前的选择与输入
+  for (const [name, value] of Object.entries(savedRadio)) {
+    const r = box.querySelector(`input[name=${name}][value="${CSS.escape(value)}"]`);
+    if (r) r.checked = true;
+  }
+  for (const [id, value] of Object.entries(savedOther)) {
+    const i = box.querySelector(`#${id}`);
+    if (i) i.value = value;
+  }
 }
 
 /* 改动面 + 证据链加载（选中工作流时加载一次，「刷新产物」手动重载，不拖 SSE）。
