@@ -933,3 +933,10 @@ td.num { text-align: right; color: var(--text-2); }
   .brand-text p { display: none; }
   td, th { padding: 7px 8px; }
 }
+
+/* 汇总字号兜底：.num(12.5px) 文件位置靠后，同优先级会盖掉前面的
+   .tl-pstat/.tl-nstat/.gt-pstat/.gt-lstat/.tl-l2 规则（手机端实爆"major 比 step 大"
+   的根因）。双类选择器提权——三级汇总统一 10.5px。 */
+.tl-pstat.num, .tl-nstat.num, .gt-pstat.num, .gt-lstat.num, .tl-l2.num {
+  font-size: 10.5px;
+}
