@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>dl-workflow 控制台</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="/static/style.css?v=79f4692">
+<link rel="stylesheet" href="/static/style.css?v=9ddc7c1">
 </head>
 <body>
 <header class="topbar">
@@ -29,8 +29,8 @@
         <select id="cf-project" required></select>
       </div>
       <div class="field">
-        <label for="cf-name">工作流名</label>
-        <input id="cf-name" placeholder="my_factor_study（小写字母数字-_）" required>
+        <label for="cf-name">工作流名（自动生成，不可编辑）</label>
+        <input id="cf-name" readonly tabindex="-1" placeholder="由问题自动生成">
       </div>
       <div class="field">
         <label for="cf-statement">问题（problem_statement）</label>
@@ -107,6 +107,6 @@
     </section>
   </main>
 </div>
-<script src="/static/app.js?v=79f4692"></script>
+<script src="/static/app.js?v=9ddc7c1"></script>
 </body>
 </html>

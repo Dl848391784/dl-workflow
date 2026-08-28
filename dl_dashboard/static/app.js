@@ -656,7 +656,7 @@ $("outputs-refresh").onclick = () => loadOutputs();
 
 /* 新建工作流弹窗：项目下拉（config 登记源）+ 模式选择（fermate/forte/tacet） */
 let lastProjects = [];
-let nameDirty = false;  // 用户手改过名称后停止自动填充
+let lastWorkflowNames = new Set();  // 已存在工作流名（生成名防碰撞用）
 
 /* 从 problem_statement 提取英文词自动生成名称（≤3 词，_ 连接）：
    提取拉丁 token -> 小写 -> 去停用词 -> 取前 3；纯中文陈述提取不出词则留空手填。
@@ -674,12 +674,19 @@ function genName(statement) {
   return uniq.join("_").slice(0, 63);
 }
 $("cf-statement").addEventListener("input", () => {
-  if (!nameDirty) $("cf-name").value = genName($("cf-statement").value);
+  $("cf-name").value = genName($("cf-statement").value);
 });
-$("cf-name").addEventListener("input", () => { nameDirty = true; });
+
+/* 提交时定名：生成 -> 空则拦（纯中文陈述）-> 防碰撞加 _2/_3 后缀 */
+function dedupeName(base) {
+  if (!lastWorkflowNames.has(base)) return base;
+  for (let i = 2; ; i++) {
+    const cand = `${base}_${i}`;
+    if (!lastWorkflowNames.has(cand)) return cand;
+  }
+}
 
 function openCreateModal() {
-  nameDirty = false;
   const selP = $("cf-project");
   selP.innerHTML = lastProjects.map((p) =>
     `<option value="${esc(p)}">${esc(p)}</option>`).join("");
@@ -710,16 +717,23 @@ document.querySelectorAll(".mode-cards").forEach((row) => {
 
 $("create-form").onsubmit = async (e) => {
   e.preventDefault();
+  const statement = $("cf-statement").value.trim();
+  const base = genName(statement);
+  if (!base) {
+    alert("问题里没有可识别的英文词，无法生成工作流名——请在问题中包含英文关键词（如因子名/页面名）");
+    return;
+  }
+  const name = dedupeName(base);
   const scope = document.querySelector("#scope-cards .mode-card.sel").dataset.v;
   const tacet = document.querySelector("#track-cards .mode-card.sel").dataset.v === "tacet";
   const r = await post("/api/create", {
     project: $("cf-project").value,
-    name: $("cf-name").value.trim(),
-    statement: $("cf-statement").value.trim(),
+    name,
+    statement,
     scope,
     tacet,
   });
-  alert(r.msg);
+  alert(r.ok ? `已创建 ${name}` : r.msg);
   if (r.ok) closeCreateModal();
 };
 
@@ -734,6 +748,7 @@ const es = new EventSource("/api/events");
 es.onmessage = (e) => {
   const data = JSON.parse(e.data);
   lastProjects = data.projects || [];
+  lastWorkflowNames = new Set(data.workflows.map((w) => w.name));
   renderSidebar(data.workflows);
   if (sel.project) refreshDetail();
 };
