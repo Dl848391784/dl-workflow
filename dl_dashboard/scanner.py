@@ -34,6 +34,7 @@ class WorkflowInfo:
     sub_step_index: int
     need_user: bool
     updated_at: str
+    created_at: str
     problem_statement: str
     nodes: tuple[NodeStatus, ...]
     force_tacet: bool = False
@@ -90,6 +91,7 @@ def scan_workflow(project: Path, name: str) -> WorkflowInfo:
         sub_step_index=int(state.get("sub_step_index") or 1),
         need_user=need_user,
         updated_at=str(state.get("updated_at", "")),
+        created_at=str(state.get("created_at", "")),
         problem_statement=str(state.get("problem_statement", "")),
         nodes=node_statuses(state),
         force_tacet=bool(state.get("force_tacet")),
@@ -108,7 +110,9 @@ def scan_all(projects) -> list[WorkflowInfo]:
                 out.append(WorkflowInfo(
                     project=str(project), name=name, phase="?", node="?", gate="?",
                     held_for_gate=False, sub_step_index=0, need_user=False,
-                    updated_at="", problem_statement="", nodes=(),
+                    updated_at="", created_at="", problem_statement="", nodes=(),
                     error=str(exc),
                 ))
+    # 创建时间倒序（最晚创建的在前；无 created_at 回退 updated_at，空值沉底）
+    out.sort(key=lambda i: i.created_at or i.updated_at, reverse=True)
     return out

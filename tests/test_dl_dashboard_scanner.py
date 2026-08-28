@@ -107,3 +107,12 @@ def test_scan_workflow_mode_flags(tmp_path):
     assert scan_workflow(tmp_path, "tacet").force_fermate is False
     assert scan_workflow(tmp_path, "fermate").force_fermate is True
     assert scan_workflow(tmp_path, "demo").force_tacet is False  # 老工作流无字段→False
+
+
+def test_scan_all_sorted_by_created_at_desc(tmp_path):
+    _mk_workflow(tmp_path, "old", dict(BASE_STATE, created_at="2026-08-25T10:00:00"))
+    _mk_workflow(tmp_path, "new", dict(BASE_STATE, created_at="2026-08-27T10:00:00"))
+    _mk_workflow(tmp_path, "mid", dict(BASE_STATE, created_at="2026-08-26T10:00:00"))
+    _mk_workflow(tmp_path, "nots", BASE_STATE)  # 无 created_at -> 回退 updated_at
+    names = [i.name for i in scan_all([tmp_path])]
+    assert names.index("new") < names.index("mid") < names.index("old")
