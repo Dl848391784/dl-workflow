@@ -225,7 +225,7 @@ def test_pause_noop_when_driver_dead(tmp_path):
     mgr.stop.assert_not_called()
 
 
-def test_create_passes_mode_flag_to_launcher(tmp_path):
+def test_create_passes_scope_and_tacet_flags(tmp_path):
     def fake_run(cmd, **kw):
         (tmp_path / ".claude" / "workflows" / "demo").mkdir(parents=True)
         (tmp_path / ".claude" / "workflows" / "demo" / "state.json").write_text(
@@ -233,11 +233,27 @@ def test_create_passes_mode_flag_to_launcher(tmp_path):
         return MagicMock(returncode=0, stdout="ok", stderr="")
     with patch.object(actions.subprocess, "run", side_effect=fake_run) as run, \
          patch.object(actions.engine, "set_problem_statement"):
-        ok, _ = actions.create_workflow(tmp_path, "demo", "Q", MagicMock(), mode="tacet")
+        ok, _ = actions.create_workflow(
+            tmp_path, "demo", "Q", MagicMock(), scope="forte", tacet=True)
     assert ok
-    assert "--force-tacet" in run.call_args[0][0]
+    argv = run.call_args[0][0]
+    assert "--forte" in argv and "--force-tacet" in argv  # 两维正交共存
 
 
-def test_create_rejects_unknown_mode(tmp_path):
-    ok, msg = actions.create_workflow(tmp_path, "demo", "Q", MagicMock(), mode="xyz")
-    assert not ok and "未知模式" in msg
+def test_create_standard_track_has_no_tacet_flag(tmp_path):
+    def fake_run(cmd, **kw):
+        (tmp_path / ".claude" / "workflows" / "demo").mkdir(parents=True)
+        (tmp_path / ".claude" / "workflows" / "demo" / "state.json").write_text(
+            '{"worktree_path": "/wt"}', encoding="utf-8")
+        return MagicMock(returncode=0, stdout="ok", stderr="")
+    with patch.object(actions.subprocess, "run", side_effect=fake_run) as run, \
+         patch.object(actions.engine, "set_problem_statement"):
+        ok, _ = actions.create_workflow(tmp_path, "demo", "Q", MagicMock())
+    assert ok
+    argv = run.call_args[0][0]
+    assert "--fermate" in argv and "--force-tacet" not in argv
+
+
+def test_create_rejects_unknown_scope(tmp_path):
+    ok, msg = actions.create_workflow(tmp_path, "demo", "Q", MagicMock(), scope="xyz")
+    assert not ok and "未知范围" in msg

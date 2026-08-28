@@ -131,7 +131,7 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
         async with _lock(proj, name):
             ok, msg = await asyncio.to_thread(
                 actions.create_workflow, proj, name, body["statement"], mgr,
-                body.get("mode", "fermate"))
+                body.get("scope", "fermate"), bool(body.get("tacet")))
         return {"ok": ok, "msg": msg}
 
     @app.post("/api/inject")

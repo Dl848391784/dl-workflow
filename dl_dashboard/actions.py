@@ -33,24 +33,29 @@ def _get_state(project: Path, name: str) -> tuple[dict | None, str | None]:
     return state, None
 
 
-# 创建模式 -> launcher 开关（dl-launch.sh 原生语义，互斥关系由 launcher 保证）
-_MODE_FLAGS = {"fermate": "--fermate", "forte": "--forte", "tacet": "--force-tacet"}
+# 创建的两维开关（dl-launch.sh 原生语义）：
+# 范围 scope（互斥）：fermate=plan-only / forte=全 5 阶段
+# 轨道 tacet（独立布尔）：True=--force-tacet 实验轨道（六步脊柱，其余静默）
+_SCOPE_FLAGS = {"fermate": "--fermate", "forte": "--forte"}
 
 
 def create_workflow(project: Path, name: str, statement: str, mgr,
-                    mode: str = "fermate", timeout: int = 600) -> tuple[bool, str]:
+                    scope: str = "fermate", tacet: bool = False,
+                    timeout: int = 600) -> tuple[bool, str]:
     """launcher 建实例（headless）-> 置 problem_statement -> 起 driver。
 
-    mode：fermate（plan-only，默认）/ forte（全 5 阶段）/ tacet（实验轨道）。
+    两维正交：scope=fermate|forte（互斥），tacet=True|False（独立）。
     成败判定沿用 wf_ctl：实例落盘（state.json 存在）即建成，launcher
     超时/非零 rc 只作消息展示（driver 在 TTY 缺失下徘徊是已知形态）。
     """
-    if mode not in _MODE_FLAGS:
-        return False, f"未知模式 {mode}（可选：{'/'.join(_MODE_FLAGS)}）"
+    if scope not in _SCOPE_FLAGS:
+        return False, f"未知范围 {scope}（可选：{'/'.join(_SCOPE_FLAGS)}）"
+    argv = ["bash", str(DLWF / "scripts" / "workflow" / "dl-launch.sh"),
+            "--workflow", name, "--headless", _SCOPE_FLAGS[scope]]
+    if tacet:
+        argv.append("--force-tacet")
     try:
-        p = subprocess.run(
-            ["bash", str(DLWF / "scripts" / "workflow" / "dl-launch.sh"),
-             "--workflow", name, "--headless", _MODE_FLAGS[mode]],
+        p = subprocess.run(argv,
             cwd=str(project), stdin=subprocess.DEVNULL,
             capture_output=True, text=True, timeout=timeout,
         )

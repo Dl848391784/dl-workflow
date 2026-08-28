@@ -676,31 +676,29 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeCreateModal();
 });
 
-/* 模式卡多选：点击切换，保底一个选中 */
-document.querySelectorAll("#mode-cards .mode-card").forEach((c) => {
-  c.onclick = () => {
-    const selCount = document.querySelectorAll("#mode-cards .mode-card.sel").length;
-    if (c.classList.contains("sel") && selCount === 1) return;  // 禁清空
-    c.classList.toggle("sel");
-  };
+/* 模式卡：每行内单选（范围 / 轨道两个维度，行内互斥、跨行自由组合） */
+document.querySelectorAll(".mode-cards").forEach((row) => {
+  row.querySelectorAll(".mode-card").forEach((c) => {
+    c.onclick = () => {
+      row.querySelectorAll(".mode-card").forEach((x) => x.classList.remove("sel"));
+      c.classList.add("sel");
+    };
+  });
 });
 
 $("create-form").onsubmit = async (e) => {
   e.preventDefault();
-  const modes = [...document.querySelectorAll("#mode-cards .mode-card.sel")]
-    .map((c) => c.dataset.mode);
-  const baseName = $("cf-name").value.trim();
-  const project = $("cf-project").value;
-  const statement = $("cf-statement").value.trim();
-  // 单选用原名；多选每个模式一个实例，名称加 __模式 后缀（批量 A/B）
-  const results = [];
-  for (const mode of modes) {
-    const name = modes.length === 1 ? baseName : `${baseName}__${mode}`;
-    const r = await post("/api/create", { project, name, statement, mode });
-    results.push(`${name}（${mode}）：${r.ok ? "✓" : "✗"} ${r.msg.split("\n")[0].slice(0, 60)}`);
-  }
-  alert(results.join("\n"));
-  if (results.every((x) => x.includes("✓"))) closeCreateModal();
+  const scope = document.querySelector("#scope-cards .mode-card.sel").dataset.v;
+  const tacet = document.querySelector("#track-cards .mode-card.sel").dataset.v === "tacet";
+  const r = await post("/api/create", {
+    project: $("cf-project").value,
+    name: $("cf-name").value.trim(),
+    statement: $("cf-statement").value.trim(),
+    scope,
+    tacet,
+  });
+  alert(r.msg);
+  if (r.ok) closeCreateModal();
 };
 
 document.querySelectorAll("#tl-switch button").forEach((b) => {
