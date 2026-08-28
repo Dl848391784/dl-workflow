@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>dl-workflow 控制台</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="/static/style.css?v=a2125fe">
+<link rel="stylesheet" href="/static/style.css?v=08cf5b8">
 </head>
 <body>
 <header class="topbar">
@@ -37,19 +37,21 @@
         <input id="cf-statement" placeholder="要研究的问题" required>
       </div>
       <div class="field">
-        <label>模式</label>
-        <label class="mode-opt">
-          <input type="radio" name="cf-mode" value="fermate" checked>
-          <span><b>fermate</b>（默认）plan 止于 plan:2，确认收货即完结——快速出计划</span>
-        </label>
-        <label class="mode-opt">
-          <input type="radio" name="cf-mode" value="forte">
-          <span><b>forte 完整</b>理解和求证 → 计划 → 执行 → 审核 → 进化，全 5 阶段</span>
-        </label>
-        <label class="mode-opt">
-          <input type="radio" name="cf-mode" value="tacet">
-          <span><b>tacet 实验轨道</b>六步脊柱执行，其余步 TACET 静默——成本最低</span>
-        </label>
+        <label>模式（可多选——多选时每个模式各建一个实例，名称自动加 __模式 后缀）</label>
+        <div class="mode-cards" id="mode-cards">
+          <div class="mode-card sel" data-mode="fermate">
+            <b>fermate</b>
+            <span>plan 止于 plan:2，确认收货即完结——快速出计划（默认）</span>
+          </div>
+          <div class="mode-card" data-mode="forte">
+            <b>forte 完整</b>
+            <span>理解 → 计划 → 执行 → 审核 → 进化，全 5 阶段</span>
+          </div>
+          <div class="mode-card" data-mode="tacet">
+            <b>tacet 实验轨道</b>
+            <span>六步脊柱执行，其余步 TACET 静默——成本最低</span>
+          </div>
+        </div>
       </div>
       <div class="modal-actions">
         <button type="submit" class="btn primary">创建并启动</button>
@@ -96,6 +98,6 @@
     </section>
   </main>
 </div>
-<script src="/static/app.js?v=a2125fe"></script>
+<script src="/static/app.js?v=08cf5b8"></script>
 </body>
 </html>

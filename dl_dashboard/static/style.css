@@ -116,23 +116,34 @@ body {
   letter-spacing: 0.04em;
 }
 .modal .field input, .modal .field select { width: 100%; }
-.mode-opt {
+.mode-cards {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 7px 10px;
-  margin-top: 6px;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 6px 2px 6px;
+}
+.mode-cards::-webkit-scrollbar { height: 6px; }
+.mode-cards::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
+.mode-card {
+  flex-shrink: 0;
+  width: 150px;
+  padding: 9px 12px;
   background: var(--bg-inset);
   border: 1px solid var(--line-soft);
   border-radius: 6px;
-  font-size: 12px;
-  color: var(--text-2);
   cursor: pointer;
+  user-select: none;
+  transition: border-color 0.12s ease, background 0.12s ease;
 }
-.mode-opt:hover { border-color: var(--text-3); }
-.mode-opt input[type="radio"] { margin-top: 2px; accent-color: var(--accent); }
-.mode-opt b { color: var(--text); }
-.mode-opt:has(input:checked) { border-color: var(--accent-line); background: var(--accent-dim); }
+.mode-card:hover { border-color: var(--text-3); }
+.mode-card b { display: block; font-size: 12.5px; color: var(--text); margin-bottom: 4px; }
+.mode-card span { font-size: 11px; color: var(--text-3); line-height: 1.5; }
+.mode-card.sel {
+  border-color: var(--accent-line);
+  background: var(--accent-dim);
+  box-shadow: 0 0 0 1px var(--accent-line);
+}
+.mode-card.sel b { color: var(--accent); }
 .modal-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
 
 /* ---------- 控件 ---------- */
