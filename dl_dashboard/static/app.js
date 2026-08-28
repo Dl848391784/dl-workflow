@@ -68,7 +68,7 @@ function toast(msg, ok = true) {
   const kill = () => t.remove();
   t.onclick = kill;
   box.appendChild(t);
-  setTimeout(kill, 3500);
+  setTimeout(kill, ok ? 3500 : 8000);  // 失败 toast 留 8s——错误必须被看见
 }
 
 function selectWorkflow(project, name) {

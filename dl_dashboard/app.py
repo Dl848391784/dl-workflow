@@ -139,6 +139,10 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
         proj = _project(body["project"])
         name = _name(body["name"])
         async with _lock(proj, name):
+            # inject 与活 driver 竞争同一 claude 会话（实爆：注入段被 SIGTERM
+            # rc=143）——先停 driver 让出会话所有权，注入后再恢复续跑
+            if mgr.alive(proj, name):
+                mgr.stop(proj, name)
             ok, msg = await asyncio.to_thread(
                 actions.inject_answer, proj, name, body["answer"])
             if ok:
