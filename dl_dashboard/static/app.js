@@ -277,7 +277,16 @@ function renderTimelineTree(stats, nodes, info, artifacts) {
         const isCur = n.status === "current" && i === info.sub_step_index;
         const leaf = document.createElement("div");
         leaf.className = "tl-leaf" + (a ? " done" : isCur ? " cur" : " todo");
-        if (a) {
+        if (isCur && !a) {
+          // 在跑步：实时计时（该步最新段 ts 起算，SSE 每拍重算）
+          const runSeg = stats.filter((x) => x.node === n.node_id && x.sub_step === i).pop();
+          const elapsed = runSeg
+            ? Math.max(0, Math.round((Date.now() - new Date(runSeg.ts).getTime()) / 1000))
+            : null;
+          leaf.innerHTML =
+            `<div class="tl-l1"><span class="tl-lid num">#${i}</span>` +
+            `<span class="tl-ldur">在跑${elapsed != null ? ` ${elapsed}s` : ""}</span></div>`;
+        } else if (a) {
           const barW = Math.max(2, Math.round((a.dur / nodeMax) * 90));
           leaf.title =
             `${n.label} #${i}\n耗时 ${a.dur}s · ${a.turns} 轮\n` +
@@ -428,7 +437,17 @@ function renderTimelineGantt(stats, nodes, info, artifacts) {
       const x = Math.round(((new Date(s.ts).getTime() - t0) / 1000) * scale);
       const isCur = n.status === "current";
       const bar = document.createElement("div");
-      if (s.duration_s == null) {
+      if (s.duration_s == null && isCur) {
+        // 在跑段：sky 实时条，右缘=now（每 SSE 拍增长）
+        const elapsed = Math.max(1, Math.round((now - new Date(s.ts).getTime()) / 1000));
+        bar.className = "gt-bar cur running";
+        bar.style.left = x + "px";
+        bar.style.width = Math.max(3, Math.round(elapsed * scale)) + "px";
+        bar.title = `${n.label} #${s.sub_step}\n${s.ts} 起 · 在跑 ${elapsed}s`;
+        if (elapsed * scale > 68) {
+          bar.textContent = `#${s.sub_step} 在跑 ${elapsed}s`;
+        }
+      } else if (s.duration_s == null) {
         bar.className = "gt-mark";
         bar.style.left = x + "px";
         bar.title = `${n.label} #${s.sub_step}\n${s.ts} · 无统计数据`;
@@ -681,11 +700,14 @@ async function refreshDetail() {
     (d.driver_pid ? `（driver #${d.driver_pid}）` : "（driver 已停）") + modeTags;
   // 在跑徽标：当前步已跑时长（从末段记录起算，SSE 2s 刷新）
   const live = $("tl-live");
+  const curNodeInfo = d.info.nodes.find((n) => n.status === "current");
+  const curStepName = curNodeInfo
+    ? `${curNodeInfo.label} #${d.info.sub_step_index}` : "当前步";
   if (d.driver_pid && d.stats.length) {
     const lastTs = Math.max(...d.stats.map((x) => new Date(x.ts).getTime()));
     const elapsed = Math.max(0, Math.round((Date.now() - lastTs) / 1000));
     live.innerHTML =
-      `<span class="live-badge"><span class="dot ok"></span>在跑 · 当前步 ${elapsed}s</span>`;
+      `<span class="live-badge"><span class="dot ok"></span>在跑 · ${esc(curStepName)} · ${elapsed}s</span>`;
   } else if (d.driver_pid) {
     live.innerHTML = `<span class="live-badge"><span class="dot ok"></span>在跑</span>`;
   } else {
