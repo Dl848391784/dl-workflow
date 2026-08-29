@@ -23,7 +23,7 @@ _CP_RE = re.compile(r"change_point=(.+?)(?:；interface=|；Produces=|\n\n|$)", 
 #         test_x.py:-（增@文件尾）：新增测试描述
 _ANCHOR_RE = re.compile(
     r"([\w./-]+\.\w+):([\w.-]*):?L?(\d+|-)?（(改|增|删)[^）]*）"
-    r"(?:：改前=(.*?)\s*→\s*改后=(.*?))?(?:：[^；\n]*)?(?=；|\n|$)"
+    r"(?:：改前=(.*?)\s*→\s*改后=(.*?))?(?:：([^；\n]*))?(?=；|\n|$)"
 )
 _CTX_RADIUS = 4  # 现状代码上下文半径（锚点行 ±4）
 
@@ -54,9 +54,14 @@ def load_evidence(project: Path, name: str) -> list[dict]:
     return out
 
 
-def _code_context(worktree: Path | None, file: str, line: str) -> dict | None:
-    """worktree 实读锚点文件 ±4 行现状代码（审核用）。文件缺失/行号非数字 → None。"""
-    if worktree is None or not line.isdigit():
+def _code_context(worktree: Path | None, file: str, line: str, method: str) -> dict | None:
+    """worktree 实读锚点上下文（审核用）。
+
+    行号定位优先；无行号但有方法名时按方法名首现定位（def 行或调用行）
+    ——tacet 脊柱产物的锚点常只有 `file:method:（增）` 形态。文件缺失/
+    两者皆无 → None。
+    """
+    if worktree is None:
         return None
     p = worktree / file
     if not p.is_file():
@@ -66,8 +71,22 @@ def _code_context(worktree: Path | None, file: str, line: str) -> dict | None:
     except OSError:
         log.warning("锚点文件读失败: %s", p, exc_info=True)
         return None
-    n = int(line)
-    if n < 1 or n > len(lines):
+    n: int | None = None
+    if line.isdigit():
+        n = int(line)
+        if n < 1 or n > len(lines):
+            return None
+    elif method and method != "-":
+        for idx, text in enumerate(lines, 1):
+            if f"def {method}" in text:
+                n = idx
+                break
+        if n is None:
+            for idx, text in enumerate(lines, 1):
+                if method in text:
+                    n = idx
+                    break
+    if n is None:
         return None
     lo, hi = max(1, n - _CTX_RADIUS), min(len(lines), n + _CTX_RADIUS)
     return {
@@ -102,7 +121,9 @@ def load_change_points(project: Path, name: str) -> list[dict]:
                 "action": a.group(4),
                 "before": (a.group(5) or "").strip(),
                 "after": (a.group(6) or "").strip(),
-                "context": _code_context(worktree, a.group(1), a.group(3) or ""),
+                "summary": (a.group(7) or "").strip(),
+                "context": _code_context(
+                    worktree, a.group(1), a.group(3) or "", a.group(2) or ""),
             })
     return out
 

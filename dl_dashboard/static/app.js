@@ -180,8 +180,15 @@ function tlEmpty(box) {
 
 /* 树形 DOM（metro 与 cards 共用；视觉差异全部由容器类 CSS 决定）：
    major_state 分带 -> minor_state 为枝 -> step 为叶（嵌迷你耗时条）。 */
-const ART_NODE = { "understand:4": "understands", "plan:4": "plans" };
+const ART_PHASE = { understands: "understand", plans: "plan" };
 const ART_LABEL = { understands: "understand.md", plans: "plan.md" };
+
+/* 产物链接挂载点 = 对应阶段最后一个可见节点（fermate 下 plan:4 不存在、
+   tacet 下 understand:4 静默——静态映射会丢链接，动态选存活节点） */
+function artAnchorNode(nodes, kind) {
+  const cands = nodes.filter((n) => n.phase === ART_PHASE[kind] && n.steps.length > 0);
+  return cands.length ? cands[cands.length - 1].node_id : null;
+}
 
 function artLink(kind) {
   const q = `project=${encodeURIComponent(sel.project)}` +
@@ -270,12 +277,14 @@ function renderTimelineTree(stats, nodes, info, artifacts) {
         nodeEl.appendChild(st);
       }
       // 归属节点的产物链接（新页面阅读）
-      const artKind = ART_NODE[n.node_id];
-      if (artKind && artifacts && artifacts[artKind] && artifacts[artKind].exists) {
-        const al = document.createElement("div");
-        al.className = "tl-art";
-        al.innerHTML = artLink(artKind);
-        nodeEl.appendChild(al);
+      for (const kind of ["understands", "plans"]) {
+        if (artAnchorNode(nodes, kind) === n.node_id &&
+            artifacts && artifacts[kind] && artifacts[kind].exists) {
+          const al = document.createElement("div");
+          al.className = "tl-art";
+          al.innerHTML = artLink(kind);
+          nodeEl.appendChild(al);
+        }
       }
       const leaves = document.createElement("div");
       leaves.className = "tl-leaves";
@@ -431,12 +440,14 @@ function renderTimelineGantt(stats, nodes, info, artifacts) {
         `Σ ${nstat.dur}s · ${nstat.turns}轮 · in${fmtTok(nstat.tin)}/out${fmtTok(nstat.tout)}`;
       label.appendChild(st);
     }
-    const artKind = ART_NODE[n.node_id];
-    if (artKind && artifacts && artifacts[artKind] && artifacts[artKind].exists) {
-      const al = document.createElement("div");
-      al.className = "tl-art";
-      al.innerHTML = artLink(artKind);
-      label.appendChild(al);
+    for (const kind of ["understands", "plans"]) {
+      if (artAnchorNode(nodes, kind) === n.node_id &&
+          artifacts && artifacts[kind] && artifacts[kind].exists) {
+        const al = document.createElement("div");
+        al.className = "tl-art";
+        al.innerHTML = artLink(kind);
+        label.appendChild(al);
+      }
     }
     lane.appendChild(label);
     const rail = document.createElement("div");
@@ -580,6 +591,9 @@ function renderInteract(d) {
       refreshDetail();
     }, "btn primary"));
   }
+  const adv = document.createElement("details");
+  adv.className = "dl-advanced";
+  adv.innerHTML = `<summary>高级：/dl 阶段控制（纠偏用，日常不用点）</summary>`;
   const form = document.createElement("span");
   form.className = "dl-form";
   form.innerHTML =
@@ -592,7 +606,8 @@ function renderInteract(d) {
       cmd: $("dl-cmd").value, value: $("dl-value").value || null });
     toast(r.msg, r.ok); refreshDetail();
   });
-  box.appendChild(form); box.appendChild(go);
+  adv.appendChild(form); adv.appendChild(go);
+  box.appendChild(adv);
   // 恢复重建前的选择与输入
   for (const [name, value] of Object.entries(savedRadio)) {
     const r = box.querySelector(`input[name=${name}][value="${CSS.escape(value)}"]`);
@@ -629,6 +644,9 @@ async function loadOutputs() {
         (c.method !== "-" ? ` <span class="num">${esc(c.method)}</span>` : "") +
         ` <span class="num">L${esc(c.line)}</span>` +
         `<span class="tag warn">${esc(c.action)}</span></div>`;
+      if (c.summary) {
+        html += `<div class="cp-summary">${esc(c.summary)}</div>`;
+      }
       if (c.before || c.after) {
         html += `<div class="cp-diff">` +
           (c.before
