@@ -1058,3 +1058,10 @@ td.num { text-align: right; color: var(--text-2); }
 @media (prefers-reduced-motion: reduce) {
   .toast { animation: none; }
 }
+
+/* 已完结标 */
+.tag.mode-done {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border: 1px solid var(--accent-line);
+}

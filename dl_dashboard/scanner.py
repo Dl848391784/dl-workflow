@@ -9,7 +9,12 @@ DLWF = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(DLWF))
 
 from dl_flow_common import load_state  # noqa: E402
-from dl_flow_nodes import _NODES, phase_index  # noqa: E402
+from dl_flow_nodes import (  # noqa: E402
+    FERMATE_SILENT_STEPS,
+    _NODES,
+    phase_index,
+    tacet_silent_steps,
+)
 
 
 @dataclass(frozen=True)
@@ -21,6 +26,7 @@ class NodeStatus:
     entered_at: str | None
     exited_at: str | None
     sub_total: int  # 子步总数（时间轴枝叶渲染用；无编排节点=1）
+    steps: tuple[int, ...]  # 可见子步号（tacet 静默/fermate 裁剪步剔除后）
 
 
 @dataclass(frozen=True)
@@ -53,9 +59,20 @@ def iter_workflow_names(project: Path) -> list[str]:
     return sorted(p.name for p in root.iterdir() if (p / "state.json").exists())
 
 
+def _silent_steps(state: dict) -> set:
+    """该工作流的整步静默集：fermate 裁剪（深度）+ tacet 静默（密度），正交叠加。"""
+    silent: set = set()
+    if state.get("force_fermate"):
+        silent |= FERMATE_SILENT_STEPS
+    if state.get("force_tacet"):
+        silent |= tacet_silent_steps(fermate=bool(state.get("force_fermate")))
+    return silent
+
+
 def node_statuses(state: dict) -> tuple[NodeStatus, ...]:
     hist = {(h["phase"], h["sub"]): h for h in state.get("history", [])}
     cur = (state.get("phase"), state.get("sub_index"))
+    silent = _silent_steps(state)
     out: list[NodeStatus] = []
     ordered = sorted(_NODES.items(), key=lambda kv: (phase_index(kv[1].phase), kv[1].sub))
     for nid, node in ordered:
@@ -66,11 +83,14 @@ def node_statuses(state: dict) -> tuple[NodeStatus, ...]:
             status = "done"
         else:
             status = "pending"
+        sub_total = len(node.sub_steps) if node.sub_steps else 1
         out.append(NodeStatus(
             node_id=nid, label=node.label, phase=node.phase, status=status,
             entered_at=h.get("entered_at") if h else None,
             exited_at=h.get("exited_at") if h else None,
-            sub_total=len(node.sub_steps) if node.sub_steps else 1,
+            sub_total=sub_total,
+            steps=tuple(i for i in range(1, sub_total + 1)
+                        if f"{nid}#{i}" not in silent),
         ))
     return tuple(out)
 

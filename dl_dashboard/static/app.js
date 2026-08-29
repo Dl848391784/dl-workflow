@@ -93,9 +93,9 @@ function renderSidebar(workflows) {
     if (w.error) item.classList.add("err");
     if (sel.project === w.project && sel.name === w.name) item.classList.add("sel");
     const dot = w.error ? "err" : isWaiting(w) ? "wait" : w.driver_pid ? "ok" : "off";
-    const modeTag = w.force_tacet
-      ? `<span class="tag mode-tacet">tacet</span>`
-      : w.force_fermate ? `<span class="tag mode-fermate">fermate</span>` : "";
+    const modeTag = (w.force_tacet ? `<span class="tag mode-tacet">tacet</span>` : "") +
+      (w.force_fermate ? `<span class="tag mode-fermate">fermate</span>` : "") +
+      (w.gate === "done" ? `<span class="tag mode-done">已完结</span>` : "");
     item.innerHTML =
       `<div class="wf-line1"><span class="dot ${dot}"></span>` +
       `<span class="wf-name">${esc(w.name)}</span>${modeTag}` +
@@ -222,7 +222,7 @@ function renderTimelineTree(stats, nodes, info, artifacts) {
     // major_state 汇总：跨节点聚合该阶段全部 step
     const pstat = { dur: 0, turns: 0, tin: 0, tout: 0, cost: 0 };
     for (const n of ph.nodes) {
-      for (let i = 1; i <= n.sub_total; i++) {
+      for (const i of n.steps) {
         const a = stepMap.get(`${n.node_id}#${i}`);
         if (a) {
           pstat.dur += a.dur; pstat.turns += a.turns;
@@ -244,7 +244,7 @@ function renderTimelineTree(stats, nodes, info, artifacts) {
     for (const n of ph.nodes) {
       let nodeMax = 1;
       const nstat = { dur: 0, turns: 0, tin: 0, tout: 0, cost: 0 };
-      for (let i = 1; i <= n.sub_total; i++) {
+      for (const i of n.steps) {
         const a = stepMap.get(`${n.node_id}#${i}`);
         if (a) {
           if (a.dur > nodeMax) nodeMax = a.dur;
@@ -276,7 +276,7 @@ function renderTimelineTree(stats, nodes, info, artifacts) {
       }
       const leaves = document.createElement("div");
       leaves.className = "tl-leaves";
-      for (let i = 1; i <= n.sub_total; i++) {
+      for (const i of n.steps) {
         const key = `${n.node_id}#${i}`;
         const a = stepMap.get(key);
         const isCur = n.status === "current" && i === info.sub_step_index;
@@ -503,7 +503,7 @@ function renderTimeline(stats, nodes, info, artifacts) {
   box.classList.add(skin);
   // 总进度条：已完成 step / 可见 step（fermate 只计前两阶段）
   const vis = visibleNodes(nodes, info);
-  const total = vis.reduce((a, n) => a + n.sub_total, 0);
+  const total = vis.reduce((a, n) => a + n.steps.length, 0);
   const visIds = new Set(vis.map((n) => n.node_id));
   const doneKeys = new Set(
     stats.filter((s) => visIds.has(s.node)).map((s) => `${s.node}#${s.sub_step}`));
@@ -694,9 +694,11 @@ async function refreshDetail() {
     `&name=${encodeURIComponent(sel.name)}`);
   const d = await r.json();
   const modeTags = (d.info.force_tacet ? `<span class="tag mode-tacet">tacet</span>` : "") +
-    (d.info.force_fermate ? `<span class="tag mode-fermate">fermate</span>` : "");
+    (d.info.force_fermate ? `<span class="tag mode-fermate">fermate</span>` : "") +
+    (d.info.gate === "done" ? `<span class="tag mode-done">已完结</span>` : "");
   $("d-title").innerHTML = `${esc(d.info.name)} · ${esc(d.info.node)}` +
-    (d.driver_pid ? `（driver #${d.driver_pid}）` : "（driver 已停）") + modeTags;
+    (d.info.gate === "done" ? "" :
+      (d.driver_pid ? `（driver #${d.driver_pid}）` : "（driver 已停）")) + modeTags;
   // 在跑徽标：当前步已跑时长（从末段记录起算，SSE 2s 刷新）
   const live = $("tl-live");
   const curNodeInfo = d.info.nodes.find((n) => n.status === "current");
@@ -714,8 +716,9 @@ async function refreshDetail() {
   }
   $("d-statement").textContent = d.info.problem_statement;
   // 标题行 gate 放行按钮（门栏扣留时的主操作，置顶突出）
+  const done = d.info.gate === "done";
   const gb = $("gate-btn");
-  gb.classList.toggle("hidden", !(d.info.held_for_gate || d.info.gate === "pending"));
+  gb.classList.toggle("hidden", done || !(d.info.held_for_gate || d.info.gate === "pending"));
   gb.onclick = async () => {
     const r = await post("/api/gate", { project: sel.project, name: sel.name });
     toast(r.msg, r.ok);
@@ -723,7 +726,7 @@ async function refreshDetail() {
   };
   // 标题行暂停/恢复按钮（随 driver 状态切换）
   const pt = $("pause-toggle");
-  pt.classList.remove("hidden");
+  pt.classList.toggle("hidden", done);
   pt.textContent = d.driver_pid ? "暂停" : "恢复驱动";
   pt.onclick = async () => {
     const r = await post(d.driver_pid ? "/api/pause" : "/api/drive",

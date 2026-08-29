@@ -167,6 +167,8 @@ def restart_drive(project: Path, name: str, mgr) -> tuple[bool, str]:
     state, err = _get_state(project, name)
     if err:
         return False, err
+    if state.get("gate") == "done":
+        return False, "工作流已完结，无需恢复"
     if state.get("held_for_gate"):
         return False, "工作流扣留在门栏（held_for_gate）——请点「gate 放行」，而非恢复驱动"
     pid = mgr.start(project, name, Path(state["worktree_path"]))

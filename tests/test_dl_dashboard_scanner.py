@@ -116,3 +116,19 @@ def test_scan_all_sorted_by_created_at_desc(tmp_path):
     _mk_workflow(tmp_path, "nots", BASE_STATE)  # 无 created_at -> 回退 updated_at
     names = [i.name for i in scan_all([tmp_path])]
     assert names.index("new") < names.index("mid") < names.index("old")
+
+
+def test_steps_exclude_tacet_silent_and_fermate_cut(tmp_path):
+    # tacet：只有脊柱步可见
+    _mk_workflow(tmp_path, "tacet", dict(BASE_STATE, force_tacet=True))
+    by_id = {n.node_id: n for n in scan_workflow(tmp_path, "tacet").nodes}
+    assert set(by_id["understand:1"].steps) == {1, 2, 3, 4}  # 脊柱 4 步
+    assert by_id["plan:2"].steps == ()  # plan:2 非脊柱节点整节点静默
+    # fermate+tacet：脊柱换 fermate 版 + FERMATE_SILENT 裁剪
+    _mk_workflow(tmp_path, "ft", dict(BASE_STATE, force_tacet=True, force_fermate=True))
+    by_id = {n.node_id: n for n in scan_workflow(tmp_path, "ft").nodes}
+    assert 3 not in by_id["understand:4"].steps  # u:4#3 被 fermate 裁剪
+    # 普通工作流：全部步可见
+    _mk_workflow(tmp_path, "full", BASE_STATE)
+    by_id = {n.node_id: n for n in scan_workflow(tmp_path, "full").nodes}
+    assert len(by_id["understand:1"].steps) == by_id["understand:1"].sub_total
