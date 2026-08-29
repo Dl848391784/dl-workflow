@@ -239,9 +239,12 @@ function renderTimelineTree(stats, nodes, info, artifacts) {
         ? `<div class="tl-pstat num">Σ ${pstat.dur}s · ${pstat.turns}轮 · ` +
           `in${fmtTok(pstat.tin)}/out${fmtTok(pstat.tout)} · $${pstat.cost.toFixed(2)}</div>`
         : "");
+    // 整节点静默（tacet 非脊柱/fermate 裁剪节点，无可见步）不展示
+    const showNodes = ph.nodes.filter((n) => n.steps.length > 0 || n.status === "current");
+    if (!showNodes.length) continue;
     const branches = document.createElement("div");
     branches.className = "tl-branches";
-    for (const n of ph.nodes) {
+    for (const n of showNodes) {
       let nodeMax = 1;
       const nstat = { dur: 0, turns: 0, tin: 0, tout: 0, cost: 0 };
       for (const i of n.steps) {
@@ -726,7 +729,7 @@ async function refreshDetail() {
   };
   // 标题行暂停/恢复按钮（随 driver 状态切换）
   const pt = $("pause-toggle");
-  pt.classList.toggle("hidden", done);
+  pt.classList.toggle("hidden", done || (d.info.held_for_gate && !d.driver_pid));
   pt.textContent = d.driver_pid ? "暂停" : "恢复驱动";
   pt.onclick = async () => {
     const r = await post(d.driver_pid ? "/api/pause" : "/api/drive",
