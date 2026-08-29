@@ -396,13 +396,14 @@ def handoff_pack(project_root: Path, name: str) -> str | None:
             "上游材料薄是设计内状态，非缺漏；禁自行补做已沉默的步骤。\n"
         )
     if state.get("force_fermate"):
-        # fermate（plan-only）：告知终点形态（fermate-plan-only-design §3 F1），
-        # 防模型按全量记忆预期/预习 plan:3。
+        # fermate（plan-only）：告知终点形态（fermate-plan-only-design §3 F1
+        # + fermate-auto-complete-design 自动完结），防模型按全量记忆预期/预习
+        # plan:3 或等 /dl gate 收货。
         lines.append(
             "### 运行轨道：fermate（plan-only）\n"
             "本实例 plan 止于 plan:2（拆解任务与阶段）——plan:3/plan:4 已裁剪不存在；"
-            "plan:2 末步过门控后门栏扣留，用户 /dl gate 确认收货即完结。plan.md "
-            "只有「执行步骤」一节=最终交付物；禁预期/预习 plan:3/plan:4 内容。\n"
+            "plan:2 末步过门控即实例完结（gate=done，无门栏无 /dl gate 收货环节）。"
+            "plan.md 只有「执行步骤」一节=最终交付物；禁预期/预习 plan:3/plan:4 内容。\n"
         )
     lines += [
         f"### 当前位置：{cur_node.label}（{node_id(cur_phase, cur_sub)}）子步骤 {cur_step}",

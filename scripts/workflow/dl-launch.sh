@@ -11,8 +11,8 @@
 #   dl <name> --debug      debug 落盘到 per-wf 目录（cc_debug.log + cc_sdk.log）
 #   dl <name> --verbose    子会话输出尾随上屏（默认静默只落 drive-stream.jsonl）
 #   dl <name> --headless   v3 全程 headless driver（driver 占终端，stdin 断点）
-#   dl <name> --force-tacet  force-tacet 实验轨道（六步脊柱执行，其余 38 步 TACET 静默；到 plan:4 门栏停等；front 默认 / --headless 均可）
-#   dl <name>                默认 fermate（plan-only，2026-08-26 用户决议）：plan 止于 plan:2，门栏确认收货即完结
+#   dl <name> --force-tacet  force-tacet 实验轨道（六步脊柱执行，其余 38 步 TACET 静默；forte 组合到 plan:4 门栏停等，fermate 组合随 plan:2 完结；front 默认 / --headless 均可）
+#   dl <name>                默认 fermate（plan-only，2026-08-26 用户决议）：plan 止于 plan:2，末步过门控即完结（2026-08-29 起无门栏无收货环节，归档走 --done）
 #   dl <name> --forte        完整模式（u→p→e→r→evolution 全 5 阶段；与 --fermate 互斥）
 #   dl <name> --fermate      显式 fermate（同默认；用于 resume 时翻回 plan-only）
 #   dl list                列举所有工作流
@@ -205,7 +205,7 @@ if [ -n "$WF_FERMATE_ACTION" ]; then
 fi
 # 有效轨道回显（单源按 state——新建/resume/flag 三路径统一；resume 无 flag 也可见当前轨道）
 if [ "$(wf_state_get "$WF_NAME" force_fermate 2>/dev/null)" = "True" ]; then
-  echo "  𝄐 fermate（plan-only）生效：plan 止于 plan:2（plan:3/plan:4 裁剪），plan:2 门栏 /dl gate 确认收货即完结（--forte 回完整模式）"
+  echo "  𝄐 fermate（plan-only）生效：plan 止于 plan:2（plan:3/plan:4 裁剪），plan:2 末步过门控即完结（gate=done；归档 dl <name> --done；--forte 回完整模式）"
 fi
 
 # 阶段跳转（--phase 或新建后默认 understand 已由 init 设置）

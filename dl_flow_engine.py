@@ -1572,13 +1572,12 @@ def apply_tacet_skip(project_root: Path, name: str) -> tuple[bool, str]:
 def node_holds_for_gate(state: dict[str, Any], node: "Node") -> bool:
     """末步门栏扣留判据单源（_advance_sub_step / release_subgate 两处引用）。
 
-    node.hold_for_gate = 全量轨道唯一门栏（plan:4，2026-07-28 用户决议「围栏
-    只设在 plan 完成」）；fermate（plan-only，fermate-plan-only-design §2.2）
-    下 plan:2 成为终点门栏——plan:3/plan:4 不存在，/dl gate 语义=「确认收货」。
+    node.hold_for_gate = 全系统唯一门栏（plan:4，2026-07-28 用户决议「围栏
+    只设在 plan 完成」）。fermate 不再设终点门栏（fermate-auto-complete-
+    design，2026-08-29 用户决议）：plan-only 跑完=完成态，人工确认点唯一
+    = /dl done 归档，「收货」无把关对象（放行后什么都不发生）。
     """
-    if node.hold_for_gate:
-        return True
-    return bool(state.get("force_fermate")) and node.phase == "plan" and node.sub == 2
+    return node.hold_for_gate
 
 
 def _advance_sub_step(
@@ -1606,9 +1605,26 @@ def _advance_sub_step(
         # 此前 force_tacet 自动放行+advance_state 一并穿越 plan->execute 大闸门
         # = 首跑直接跑进 execute/review/evolution。现 tacet 与 main 同路径：
         # plan 完成 -> held_for_gate 停等 -> 用户 /dl gate 放行才继续。
-        # fermate（plan-only）：plan:2 末步同此扣留（node_holds_for_gate 单源），
-        # /dl gate = 确认收货即完结，不推进 plan:3（release_subgate 终态分支）。
         state["held_for_gate"] = True
+        state["updated_at"] = _now()
+        save_state(project_root, name, state)
+        return state
+    if state.get("force_fermate") and node.phase == "plan" and node.sub == 2:
+        # fermate 终态（fermate-auto-complete-design，2026-08-29 用户决议）：
+        # plan-only 跑完=完成态——无门栏无 /dl gate 收货（把关对象不存在：
+        # 放行后什么都不发生），末步过门控直接置 done（镜像 advance_state
+        # 的 next_node_id None 终态分支）；人工确认点唯一 = /dl done 归档。
+        # 留痕对齐手动放行原则（via 标识机械自动完结）。
+        write_gate_verdict(
+            project_root,
+            name,
+            node,
+            state.get("node_attempts", 0),
+            str(project_root),
+            via="fermate-auto-complete",
+            sub_step=cur,
+        )
+        state["gate"] = "done"
         state["updated_at"] = _now()
         save_state(project_root, name, state)
         return state
@@ -1689,19 +1705,6 @@ def release_subgate(project_root: Path, name: str, cwd: str) -> tuple[bool, str]
     state.pop("held_for_gate", None)
     state["updated_at"] = _now()
     save_state(project_root, name, state)
-    if state.get("force_fermate") and node.phase == "plan" and node.sub == 2:
-        # fermate 终态（fermate-plan-only-design §2.2）：/dl gate = 确认收货，
-        # 不推进 plan:3——置 gate="done"（镜像 advance_state 的 next_node_id None
-        # 终态分支），实例完结，/dl done 归档走既有路径。
-        state["gate"] = "done"
-        state["updated_at"] = _now()
-        save_state(project_root, name, state)
-        return (
-            True,
-            "门栏放行（fermate 终态）：改动点清单已确认收货 —— 本实例 plan-only "
-            "完结（plan.md「执行步骤」节=交付物，/dl done 归档）。升级全量执行："
-            "python3 dl_flow_engine.py fermate <name> off + /dl state-reset plan:2",
-        )
     if node.advance == "phase":
         # advance="phase" 节点（understand:4）：门栏放行 ≠ 阶段推进。
         # 模型写产物 + PHASE_DONE -> phase 大闸门（仍需第二次 /dl gate）。
@@ -3339,8 +3342,9 @@ def set_force_fermate(project_root: Path, name: str, on: bool) -> tuple[bool, st
     """fermate（plan-only）开关（fermate-plan-only-design §2.1，镜像 set_force_tacet）。
 
     state.force_fermate=True（sticky，resume/续跑保持）：plan:3/plan:4 不存在
-    （能力包/检查点消费方全在 execute，无执行=产物纯税），plan:2 末步门栏
-    扣留，/dl gate 确认收货即完结（gate="done"）。模型无权自封——档位不进
+    （能力包/检查点消费方全在 execute，无执行=产物纯税），plan:2 末步过门控
+    即完结（gate="done"，fermate-auto-complete-design：无门栏无收货环节，
+    人工确认点唯一 = /dl done 归档）。模型无权自封——档位不进
     模型可写面（同 force_tacet 防偷工论证）。关闭=回全量编排。
     """
     state = load_state(project_root, name)
@@ -3351,7 +3355,7 @@ def set_force_fermate(project_root: Path, name: str, on: bool) -> tuple[bool, st
     save_state(project_root, name, state)
     return True, (
         "fermate（plan-only）已开启（plan 止于 plan:2，plan:3/plan:4 裁剪；"
-        "plan:2 末步门栏扣留，/dl gate 确认收货即完结）"
+        "plan:2 末步过门控即完结，归档走 /dl done）"
         if on
         else "fermate（plan-only）已关闭（回全量编排）"
     )

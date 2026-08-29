@@ -6,7 +6,7 @@
 > 本文件只含**节点结构索引**（几步/每步干什么/关键不对称/消费契约锚点）；
 > 拆步的第一性原理方法论在 `node-design.md` §3.8。
 
-> **fermate（plan-only）轨道注记（2026-08-26，designs/fermate-plan-only-design.md）**：fermate 实例（2026-08-26 起=**默认轨道**，`--forte` 回完整模式）下 plan:3/plan:4 节点不进入（终点=plan:2 门栏确认收货即完结，plan.md 只装「执行步骤」一节）；下方 plan:3/plan:4 索引仅对全量轨道有效。tacet 组合时脊柱重映射 plan:4#4->plan:2#4。**v2（2026-08-26，u4-sub3-fermate-cut-design）**：fermate 下 u:4#3（验收方式设计）整步机械静默（kind=fermate 落痕），u:4#4 验收包减为三字段+type_label 占位声明（append-trace 声明×state 双向核验，gate 静态兜底条款零变体）。
+> **fermate（plan-only）轨道注记（2026-08-26，designs/fermate-plan-only-design.md）**：fermate 实例（2026-08-26 起=**默认轨道**，`--forte` 回完整模式）下 plan:3/plan:4 节点不进入（终点=plan:2 末步过门控即完结（fermate-auto-complete-design：无门栏，归档走 /dl done），plan.md 只装「执行步骤」一节）；下方 plan:3/plan:4 索引仅对全量轨道有效。tacet 组合时脊柱重映射 plan:4#4->plan:2#4。**v2（2026-08-26，u4-sub3-fermate-cut-design）**：fermate 下 u:4#3（验收方式设计）整步机械静默（kind=fermate 落痕），u:4#4 验收包减为三字段+type_label 占位声明（append-trace 声明×state 双向核验，gate 静态兜底条款零变体）。
 
 
 > **P3-1 读回分级（2026-08-13 用户裁决，v4-cost-latency-optimization-design §2 P3）**：

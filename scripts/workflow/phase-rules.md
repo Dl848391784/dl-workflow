@@ -78,7 +78,7 @@
 - 拆 **4 子阶段**，依次完成（plan:1/plan:2/plan:3/plan:4 均有子步骤编排逐步门控；plan:1/2/3 末步通过门控即自动续轮进下一子阶段（无门栏），**仅 plan:4 末步门栏扣留等 `/dl gate`**——2026-07-28 起围栏只设在 plan 完成）：
 <!-- END NO_FERMATE -->
 <!-- BEGIN FERMATE_ONLY -->
-- **本实例 = fermate（plan-only）轨道**：拆 **2 子阶段**（plan:1/plan:2 均有子步骤编排逐步门控；plan:1 末步通过门控即自动续轮进 plan:2（无门栏），**plan:2 末步门栏扣留等 `/dl gate`——确认收货即实例完结**）。plan:3/plan:4 已裁剪不存在（能力包/检查点的消费方全在 execute，本实例无 execute）——**禁预期、禁预习、禁打听其内容**；plan.md 只有「执行步骤」一节 = 最终交付物：
+- **本实例 = fermate（plan-only）轨道**：拆 **2 子阶段**（plan:1/plan:2 均有子步骤编排逐步门控；plan:1 末步通过门控即自动续轮进 plan:2（无门栏），**plan:2 末步通过门控即实例完结（gate=done）——无门栏无 `/dl gate`，fermate-auto-complete-design**）。plan:3/plan:4 已裁剪不存在（能力包/检查点的消费方全在 execute，本实例无 execute）——**禁预期、禁预习、禁打听其内容**；plan.md 只有「执行步骤」一节 = 最终交付物：
 <!-- END FERMATE_ONLY -->
   1. **设计解决方案**（**子步骤编排，6 步逐步 STEP_DONE 门控**，严格时序不可乱序）：
      - 编排强制语义与 understand:1 **完全相同**（①横幅后按「▶ 当前子步骤」块逐步执行；②写 evidence 是 STEP_DONE 前置（append-trace 两动作）；③输完 STEP_DONE 即 end_turn；④S15/S10/S13/阶段写围栏；⑤连续 block 3 次升级用户裁决）——见上方 understand:1 各条，不再重复。
@@ -103,7 +103,7 @@
      - **末步自动推进（无门栏）**：末子步骤(5) 通过门控后**自动推进并续轮开做 plan:3 子1**（2026-07-28 起 plan:1/2/3 边界无门栏）。不要输出 `### PHASE_DONE: plan`——plan 还有 plan:3 未完成。
 <!-- END NO_FERMATE -->
 <!-- BEGIN FERMATE_ONLY -->
-     - **末步门栏扣留（fermate 终点）**：末子步骤(5) 通过门控后**推进被扣留**（held_for_gate）。等用户 `/dl gate` 确认收货——放行即实例完结（gate=done）：**无 `### PHASE_DONE: plan`、无 plan:3、无 execute**（都不要输出/预期）。扣留期间不要做收尾外的事；`/dl step-pass` 末步放行 ≠ 门栏放行。
+     - **末步即完结（fermate 终点）**：末子步骤(5) 通过门控后**实例直接完结**（gate=done，无门栏无 `/dl gate` 收货环节——plan-only 跑完=完成态，人工确认点唯一 = 用户 `/dl done` 归档）：**无 `### PHASE_DONE: plan`、无 plan:3、无 execute**（都不要输出/预期）。完结后不要做收尾外的事。
 <!-- END FERMATE_ONLY -->
 <!-- BEGIN NO_FERMATE -->
   3. **选择能力与工具**（**子步骤编排，6 步逐步 STEP_DONE 门控**，严格时序不可乱序）：
@@ -135,7 +135,7 @@
 - **此阶段完成后是闸门**：需用户 `/dl gate` 放行才进 execute。
 <!-- END NO_FERMATE -->
 <!-- BEGIN FERMATE_ONLY -->
-- 完成（fermate）：plan:1/plan:2 用 `### STEP_DONE: <n>` 逐步推进（plan:1 末步通过门控自动进 plan:2；**plan:2 末步门栏扣留等 `/dl gate`**）；plan:2 子5 装配 `plan.md`「{{artifact_sections:plan.md#0}}」节（=唯一节，最终交付物）；`/dl gate` 确认收货即实例完结——**无 `### PHASE_DONE: plan`、无后续阶段**。
+- 完成（fermate）：plan:1/plan:2 用 `### STEP_DONE: <n>` 逐步推进（plan:1 末步通过门控自动进 plan:2；**plan:2 末步通过门控即实例完结（gate=done），无门栏无 `/dl gate`**）；plan:2 子5 装配 `plan.md`「{{artifact_sections:plan.md#0}}」节（=唯一节，最终交付物）——**无 `### PHASE_DONE: plan`、无后续阶段**；归档由用户 `/dl done` 决定。
 <!-- END FERMATE_ONLY -->
 
 ### execute（执行）
