@@ -12,3 +12,5 @@ __pycache__/
 
 # 重放脚本 token（tests/replays/_common.py 读取，禁入库）
 tests/replays/.token
+dashboard-cache/
+dashboard-run/

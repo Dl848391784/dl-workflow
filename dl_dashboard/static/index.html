@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>dl-workflow 控制台</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/static/style.css?v=a55fc59">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">dl</span>
+    <div class="brand-text">
+      <h1>dl-workflow 控制台</h1>
+      <p>5 阶段工作流 · 跨项目运维面</p>
+    </div>
+  </div>
+  <button id="create-toggle" type="button" class="btn primary">新建工作流</button>
+</header>
+<div id="create-modal" class="modal-veil hidden">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>新建工作流</h3>
+      <button id="create-close" type="button" class="modal-close">×</button>
+    </div>
+    <form id="create-form">
+      <div class="field">
+        <label for="cf-project">项目</label>
+        <select id="cf-project" required></select>
+      </div>
+      <div class="field">
+        <label for="cf-name">工作流名（自动生成，不可编辑）</label>
+        <input id="cf-name" readonly tabindex="-1" placeholder="由问题自动生成">
+      </div>
+      <div class="field">
+        <label for="cf-statement">问题（problem_statement）</label>
+        <textarea id="cf-statement" rows="3" placeholder="要研究的问题，多行描述随便写" required></textarea>
+      </div>
+      <div class="field">
+        <label>范围（单选）</label>
+        <div class="mode-cards" id="scope-cards">
+          <div class="mode-card sel" data-v="fermate">
+            <b>fermate</b>
+            <span>plan 止于 plan:2，确认收货即完结——快速出计划（默认）</span>
+          </div>
+          <div class="mode-card" data-v="forte">
+            <b>forte 完整</b>
+            <span>理解 → 计划 → 执行 → 审核 → 进化，全 5 阶段</span>
+          </div>
+        </div>
+      </div>
+      <div class="field">
+        <label>轨道（单选，与范围自由组合）</label>
+        <div class="mode-cards" id="track-cards">
+          <div class="mode-card sel" data-v="standard">
+            <b>标准</b>
+            <span>逐步全量执行（默认）</span>
+          </div>
+          <div class="mode-card" data-v="tacet">
+            <b>tacet 实验轨道</b>
+            <span>六步脊柱执行，其余步 TACET 静默——成本最低</span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="submit" class="btn primary">创建并启动</button>
+      </div>
+    </form>
+  </div>
+</div>
+<div class="layout">
+  <aside id="sidebar">
+    <div class="side-head">
+      <h2>工作流</h2><span id="wf-count" class="count"></span>
+      <button id="sidebar-toggle" class="btn ghost" type="button">收起</button>
+    </div>
+    <div id="wf-list"><div class="side-empty">连接中…</div></div>
+  </aside>
+  <main>
+    <section id="detail-empty">
+      <p>← 从左侧选择一个工作流</p>
+    </section>
+    <section id="detail-view" class="hidden">
+      <div class="section-head">
+        <h2 id="d-title"></h2>
+        <button id="gate-btn" class="btn primary hidden" type="button">gate 放行</button>
+        <button id="pause-toggle" class="btn ghost hidden" type="button"></button>
+      </div>
+      <p id="d-statement"></p>
+      <div class="section-head">
+        <h3>步骤时间轴</h3><span id="tl-live"></span><span id="tl-summary" class="hint"></span>
+        <span class="tl-switch" id="tl-switch">
+          <button type="button" data-skin="cards">卡片树</button><button type="button" data-skin="metro">地铁</button><button type="button" data-skin="gantt">甘特图</button>
+        </span>
+      </div>
+      <div id="tl-progress" class="hidden">
+        <div class="tl-prog-track"><div id="tl-prog-fill"></div></div>
+        <span id="tl-prog-label" class="num"></span>
+      </div>
+      <div id="timeline"></div>
+      <div class="section-head">
+        <h3>代码改动面</h3><span id="cp-count" class="hint"></span>
+        <button id="outputs-refresh" class="btn ghost" type="button">刷新产物</button>
+      </div>
+      <div id="change-points"></div>
+      <div id="interact"></div>
+      <div class="section-head"><h3>证据链</h3><span class="hint">q → a → 结论，每步产出有据可查</span></div>
+      <div id="outputs"></div>
+      <div class="section-head"><h3>driver 日志</h3><span class="hint">尾部 4KB</span></div>
+      <div class="terminal"><pre id="log-tail"></pre></div>
+    </section>
+  </main>
+</div>
+<div id="toast-box"></div>
+<script src="/static/app.js?v=a55fc59"></script>
+</body>
+</html>

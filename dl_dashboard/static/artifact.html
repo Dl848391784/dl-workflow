@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>产物文档 · dl-workflow 控制台</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/static/style.css?v=a55fc59">
+<style>
+  main { max-width: 980px; }
+  #art-title { font-size: 15px; margin: 0; }
+  #art-content {
+    margin-top: 14px;
+    padding: 20px 24px;
+    background: var(--bg-raise);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.75;
+    color: var(--text);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">dl</span>
+    <div class="brand-text">
+      <h1 id="art-title">产物文档</h1>
+      <p id="art-sub"></p>
+    </div>
+  </div>
+  <a href="javascript:history.back()" class="btn ghost" style="text-decoration:none">← 返回控制台</a>
+</header>
+<main>
+  <pre id="art-content">加载中…</pre>
+</main>
+<script>
+"use strict";
+const qs = new URLSearchParams(location.search);
+const KIND_LABEL = { understands: "understand.md", plans: "plan.md" };
+const kind = qs.get("kind");
+const name = qs.get("name");
+document.getElementById("art-title").textContent =
+  `${KIND_LABEL[kind] || kind} · ${name}`;
+document.getElementById("art-sub").textContent = qs.get("project");
+document.title = `${KIND_LABEL[kind] || kind} · ${name} · dl-workflow 控制台`;
+fetch(`/api/artifact?${qs.toString()}`)
+  .then((r) => r.json())
+  .then((d) => {
+    document.getElementById("art-content").textContent =
+      d.content || d.detail || "（产物不存在）";
+  })
+  .catch(() => {
+    document.getElementById("art-content").textContent = "加载失败";
+  });
+</script>
+</body>
+</html>
