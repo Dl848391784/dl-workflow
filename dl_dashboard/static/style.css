@@ -1083,3 +1083,15 @@ td.num { text-align: right; color: var(--text-2); }
 }
 .dl-advanced summary:hover { color: var(--text-2); }
 .dl-advanced[open] summary { margin-bottom: 8px; }
+
+/* 改动面防溢出：长 JSON/代码串在卡内换行或内滚，不撑宽页面 */
+.cp-card { max-width: 100%; min-width: 0; overflow: hidden; }
+.cp-summary { overflow-wrap: anywhere; word-break: break-word; }
+.cp-before span:last-child, .cp-after span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+.cp-head { flex-wrap: wrap; }
+.cp-head .cp-file { overflow-wrap: anywhere; }
+.cp-ctx { max-width: 100%; }
