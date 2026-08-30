@@ -73,6 +73,12 @@ function toast(msg, ok = true) {
 
 function selectWorkflow(project, name) {
   sel.project = project; sel.name = name;
+  lastDetailFp = "";  // 换工作流：详情强制全量渲
+  // 高亮即时翻转（侧栏不整列重建）
+  document.querySelectorAll(".wf-item.sel").forEach((x) => x.classList.remove("sel"));
+  document.querySelector(
+    `.wf-item[data-project="${CSS.escape(project)}"][data-name="${CSS.escape(name)}"]`)
+    ?.classList.add("sel");
   $("detail-empty").classList.add("hidden");
   $("detail-view").classList.remove("hidden");
   // 手机端选中后自动收起侧栏，让位详情区
@@ -90,6 +96,8 @@ function renderSidebar(workflows) {
   for (const w of workflows) {
     const item = document.createElement("div");
     item.className = "wf-item";
+    item.dataset.project = w.project;
+    item.dataset.name = w.name;
     if (w.error) item.classList.add("err");
     if (sel.project === w.project && sel.name === w.name) item.classList.add("sel");
     const dot = w.error ? "err" : isWaiting(w) ? "wait" : w.driver_pid ? "ok" : "off";
@@ -708,18 +716,40 @@ async function loadOutputs() {
   }
 }
 
+let lastDetailFp = "";
+
 async function refreshDetail() {
   if (!sel.project) return;
   const r = await fetch(
     `/api/workflow?project=${encodeURIComponent(sel.project)}` +
     `&name=${encodeURIComponent(sel.name)}`);
   const d = await r.json();
+  /* 差异化刷新：指纹（updated_at/gate/held/need_user/driver/stats/log）变了才动
+     静态面（标题/按钮/交互区/日志）；动态面（徽标/时间轴）只在 driver 活着时
+     按拍刷（在跑计时/增长条），driver 停且无变化 = 完全不动。 */
+  const fp = JSON.stringify([
+    d.info.updated_at, d.info.gate, d.info.held_for_gate, d.info.need_user,
+    d.driver_pid, d.log_tail.length, d.stats.length,
+    d.stats.length ? d.stats[d.stats.length - 1].ts : "",
+  ]);
+  const changed = fp !== lastDetailFp;
+  lastDetailFp = fp;
+  if (changed) renderDetailStatic(d);
+  if (changed || d.driver_pid) renderDetailLive(d);
+}
+
+function renderDetailStatic(d) {
   const modeTags = (d.info.force_tacet ? `<span class="tag mode-tacet">tacet</span>` : "") +
     (d.info.force_fermate ? `<span class="tag mode-fermate">fermate</span>` : "") +
     (d.info.gate === "done" ? `<span class="tag mode-done">已完结</span>` : "");
   $("d-title").innerHTML = `${esc(d.info.name)} · ${esc(d.info.node)}` +
     (d.info.gate === "done" ? "" :
       (d.driver_pid ? `（driver #${d.driver_pid}）` : "（driver 已停）")) + modeTags;
+  renderInteract(d);
+  $("log-tail").textContent = d.log_tail;
+}
+
+function renderDetailLive(d) {
   // 在跑徽标：当前步已跑时长（从末段记录起算，SSE 2s 刷新）
   const live = $("tl-live");
   const curNodeInfo = d.info.nodes.find((n) => n.status === "current");
@@ -756,8 +786,6 @@ async function refreshDetail() {
     refreshDetail();
   };
   renderTimeline(d.stats, d.info.nodes, d.info, d.artifacts);
-  renderInteract(d);
-  $("log-tail").textContent = d.log_tail;
 }
 
 $("sidebar-toggle").onclick = () => {
@@ -881,11 +909,17 @@ document.querySelectorAll("#tl-switch button").forEach((b) => {
   };
 });
 
+let lastSidebarJson = "";
 const es = new EventSource("/api/events");
 es.onmessage = (e) => {
   const data = JSON.parse(e.data);
   lastProjects = data.projects || [];
   lastWorkflowNames = new Set(data.workflows.map((w) => w.name));
-  renderSidebar(data.workflows);
+  // 侧栏指纹：数据没变就不重建（选中高亮在 selectWorkflow 里即时翻 class）
+  const sj = JSON.stringify(data.workflows);
+  if (sj !== lastSidebarJson) {
+    lastSidebarJson = sj;
+    renderSidebar(data.workflows);
+  }
   if (sel.project) refreshDetail();
 };
