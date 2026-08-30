@@ -560,9 +560,18 @@ function renderInteract(d) {
   const proj = sel.project, name = sel.name;
   const mkBtn = (label, fn, cls) => {
     const b = document.createElement("button");
-    b.textContent = label; b.onclick = fn;
+    b.textContent = label;
+    b.onclick = () => fn(b);
     b.className = cls || "btn";
     return b;
+  };
+  /* 慢操作 busy 态：转圈 + 禁用直到返回（inject 要等 30-120s——
+     无反馈时用户会连点，三连 inject 实爆） */
+  const busy = (b, label) => {
+    b.disabled = true;
+    const orig = b.innerHTML;
+    b.innerHTML = `<span class="spinner"></span>${label}`;
+    return () => { b.disabled = false; b.innerHTML = orig; };
   };
   if (d.need_user && d.need_user.questions && !d.inject_ready) {
     // 问题已落盘但交互段记录未就绪（时间窗）——此时提交必被中止，显示准备中
@@ -598,16 +607,21 @@ function renderInteract(d) {
       box.appendChild(div);
       answers.push(i);
     });
-    box.appendChild(mkBtn("提交答案", async () => {
-      const parts = answers.map((i) => {
-        const checked = document.querySelector(`input[name=q${i}]:checked`);
-        const other = $(`q${i}-other`).value.trim();
-        return `问题${i + 1}：${other || (checked ? checked.value : "（未选）")}`;
-      });
-      const r = await post("/api/inject",
-        { project: proj, name, answer: parts.join("\n") });
-      toast(r.msg, r.ok);
-      refreshDetail();
+    box.appendChild(mkBtn("提交答案", async (btn) => {
+      const done = busy(btn, "注入中…（交互段回复要 1-2 分钟，勿重复点）");
+      try {
+        const parts = answers.map((i) => {
+          const checked = document.querySelector(`input[name=q${i}]:checked`);
+          const other = $(`q${i}-other`).value.trim();
+          return `问题${i + 1}：${other || (checked ? checked.value : "（未选）")}`;
+        });
+        const r = await post("/api/inject",
+          { project: proj, name, answer: parts.join("\n") });
+        toast(r.msg, r.ok);
+        refreshDetail();
+      } finally {
+        done();
+      }
     }, "btn primary"));
   }
   const adv = document.createElement("details");
