@@ -190,7 +190,21 @@ def delete_workflow(project: Path, name: str, mgr) -> tuple[bool, str]:
         capture_output=True, text=True, timeout=120,
     )
     if not meta_root(project, name).exists():
-        return True, f"工作流 {name} 已删除"
+        # dl --done 不清产物（plans/understands/evidence 留主仓）——不一起删
+        # 则同名新工作流直接继承旧改动面与证据链（实爆：用户怀疑删除没生效）。
+        # dashboard 的删除语义 = 该名字下的一切归零。
+        removed = []
+        for rel in (f".claude/plans/{name}.md", f".claude/understands/{name}.md",
+                    f".claude/evidence/{name}.jsonl"):
+            f = project / rel
+            if f.exists():
+                f.unlink()
+                removed.append(rel.split("/")[-1])
+        # dashboard 自己的 legacy 段统计缓存（offset 书签）一并清
+        cache = DLWF / "dashboard-cache" / f"{str(project).replace('/', '_')}--{name}.json"
+        cache.unlink(missing_ok=True)
+        suffix = f"（含产物 {'/'.join(removed)}）" if removed else ""
+        return True, f"工作流 {name} 已删除{suffix}"
     return False, f"删除失败：{(p.stdout + p.stderr)[-300:]}"
 
 

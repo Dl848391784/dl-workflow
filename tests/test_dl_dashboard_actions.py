@@ -263,3 +263,24 @@ def test_restart_drive_refuses_when_held_for_gate(tmp_path):
     _mk_state(tmp_path, "demo", [], worktree_path="/wt")  # held_for_gate=True
     ok, msg = actions.restart_drive(tmp_path, "demo", MagicMock(**{"alive.return_value": None}))
     assert not ok and "gate 放行" in msg
+
+
+def test_delete_also_removes_artifacts_and_cache(tmp_path):
+    _mk_state(tmp_path, "demo", [])
+    for rel in (".claude/plans/demo.md", ".claude/understands/demo.md",
+                ".claude/evidence/demo.jsonl"):
+        f = tmp_path / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("x", encoding="utf-8")
+    mgr = MagicMock()
+    mgr.alive.return_value = None
+
+    def fake_run(cmd, **kw):
+        shutil.rmtree(tmp_path / ".claude" / "workflows" / "demo")
+        return MagicMock(returncode=0, stdout="", stderr="")
+    with patch.object(actions.subprocess, "run", side_effect=fake_run):
+        ok, msg = actions.delete_workflow(tmp_path, "demo", mgr)
+    assert ok and "产物" in msg
+    assert not (tmp_path / ".claude/plans/demo.md").exists()
+    assert not (tmp_path / ".claude/understands/demo.md").exists()
+    assert not (tmp_path / ".claude/evidence/demo.jsonl").exists()
