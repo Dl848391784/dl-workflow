@@ -189,7 +189,7 @@ def test_delete_stops_driver_and_runs_done(tmp_path):
     mgr.alive.return_value = 4242
 
     def fake_run(cmd, **kw):
-        assert "--done" in cmd and "demo" in cmd
+        assert "--delete" in cmd and "demo" in cmd
         shutil.rmtree(meta)  # launcher 成功 = 元数据删除
         return MagicMock(returncode=0, stdout="已删除", stderr="")
     with patch.object(actions.subprocess, "run", side_effect=fake_run):
