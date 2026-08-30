@@ -16,7 +16,8 @@
 #   dl <name> --forte        完整模式（u→p→e→r→evolution 全 5 阶段；与 --fermate 互斥）
 #   dl <name> --fermate      显式 fermate（同默认；用于 resume 时翻回 plan-only）
 #   dl list                列举所有工作流
-#   dl <name> --done       归档工作流（删 worktree，保留元数据）
+#   dl <name> --done       归档工作流（删 worktree，保留分支+元数据+产物，可回看）
+#   dl <name> --delete     删除工作流（彻底丢弃：worktree+分支+元数据全删，不可恢复）
 
 set -euo pipefail
 
@@ -68,6 +69,7 @@ WF_RESUME=0
 WF_PHASE_OVERRIDE=""
 WF_BASE=""
 WF_DONE=0
+WF_DELETE=0
 WF_DEBUG=0
 WF_VERBOSE=0
 WF_HEADLESS=0
@@ -80,6 +82,7 @@ while [ $# -gt 0 ]; do
     --phase) WF_PHASE_OVERRIDE="$2"; shift;;
     --base)  WF_BASE="$2"; shift;;
     --done)  WF_DONE=1;;
+    --delete)  WF_DELETE=1;;
     --debug) WF_DEBUG=1;;
     --verbose) WF_VERBOSE=1;;
     --headless) WF_HEADLESS=1;;
@@ -103,16 +106,30 @@ STATE_FILE="$WF_META_ROOT/$WF_NAME/state.json"
 WORKTREE_PATH="$WF_WT_ROOT/$WF_NAME"
 BRANCH="wf/$WF_NAME"
 
-# ---------- --done：归档（彻底清理） ----------
-if [ "$WF_DONE" = "1" ]; then
+# ---------- --delete：删除（彻底清理，丢弃一切，不可恢复） ----------
+if [ "$WF_DELETE" = "1" ]; then
   if [ ! -f "$STATE_FILE" ]; then
     echo "wf-launch: 工作流 '$WF_NAME' 不存在。" >&2; exit 1
   fi
-  echo "▸ 归档工作流 '$WF_NAME'（彻底清理）"
+  echo "▸ 删除工作流 '$WF_NAME'（彻底清理）"
   git -C "$WF_REPO_ROOT" worktree remove --force "$WORKTREE_PATH" 2>/dev/null || true
   git -C "$WF_REPO_ROOT" branch -D "$BRANCH" 2>/dev/null || true
   rm -rf "$WF_META_ROOT/$WF_NAME"
   echo "  worktree + 分支 $BRANCH + 元数据 已删除。"
+  exit 0
+fi
+
+# ---------- --done：归档（只删 worktree，保留分支+元数据+产物） ----------
+# 归档语义（2026-08-29 用户决议）：执行完的工作流默认归此——释放 worktree
+# 磁盘，分支/元数据/产物全留，dashboard 仍可回看时间轴/改动面/证据链；
+# 要彻底消失用 --delete。
+if [ "$WF_DONE" = "1" ]; then
+  if [ ! -f "$STATE_FILE" ]; then
+    echo "wf-launch: 工作流 '$WF_NAME' 不存在。" >&2; exit 1
+  fi
+  echo "▸ 归档工作流 '$WF_NAME'（删 worktree，保留分支与元数据）"
+  git -C "$WF_REPO_ROOT" worktree remove --force "$WORKTREE_PATH" 2>/dev/null || true
+  echo "  worktree 已删；分支 $BRANCH + 元数据 + 产物保留。"
   exit 0
 fi
 

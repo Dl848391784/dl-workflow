@@ -185,7 +185,7 @@ def delete_workflow(project: Path, name: str, mgr) -> tuple[bool, str]:
         mgr.stop(project, name)
     p = subprocess.run(
         ["bash", str(DLWF / "scripts" / "workflow" / "dl-launch.sh"),
-         "--workflow", name, "--done"],
+         "--workflow", name, "--delete"],
         cwd=str(project), stdin=subprocess.DEVNULL,
         capture_output=True, text=True, timeout=120,
     )
