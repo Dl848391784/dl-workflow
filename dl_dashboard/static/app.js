@@ -107,7 +107,7 @@ function renderSidebar(workflows) {
       e.stopPropagation();
       const yes = await showConfirm({
         title: `删除工作流 ${w.name}`,
-        body: "将彻底删除 worktree + 分支 + 元数据，不可恢复。",
+        body: "将彻底删除 worktree + 分支 + 元数据 + 产物文档（改动面/understand/证据链），不可恢复。",
         okText: "删除",
         danger: true,
       });
@@ -836,24 +836,39 @@ document.querySelectorAll(".mode-cards").forEach((row) => {
 
 $("create-form").onsubmit = async (e) => {
   e.preventDefault();
+  // 创建中禁重复提交（launcher 要跑十几秒——无反馈时用户会连点，
+  // per-workflow 锁在服务端兜底，前端先拦）
+  const submitBtn = $("create-form").querySelector("button[type=submit]");
+  if (submitBtn.disabled) return;
+  submitBtn.disabled = true;
+  submitBtn.innerHTML = `<span class="spinner"></span>创建中…`;
+  const restore = () => {
+    submitBtn.disabled = false;
+    submitBtn.textContent = "创建并启动";
+  };
   const statement = $("cf-statement").value.trim();
   const base = genName(statement);
   if (!base) {
     toast("问题里没有可识别的英文词，无法生成工作流名——请在问题中包含英文关键词（如因子名/页面名）", false);
+    restore();
     return;
   }
   const name = dedupeName(base);
   const scope = document.querySelector("#scope-cards .mode-card.sel").dataset.v;
   const tacet = document.querySelector("#track-cards .mode-card.sel").dataset.v === "tacet";
-  const r = await post("/api/create", {
-    project: $("cf-project").value,
-    name,
-    statement,
-    scope,
-    tacet,
-  });
-  toast(r.ok ? `已创建 ${name}` : r.msg, r.ok);
-  if (r.ok) closeCreateModal();
+  try {
+    const r = await post("/api/create", {
+      project: $("cf-project").value,
+      name,
+      statement,
+      scope,
+      tacet,
+    });
+    toast(r.ok ? `已创建 ${name}` : r.msg, r.ok);
+    if (r.ok) closeCreateModal();
+  } finally {
+    restore();
+  }
 };
 
 document.querySelectorAll("#tl-switch button").forEach((b) => {
