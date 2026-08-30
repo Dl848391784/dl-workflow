@@ -119,6 +119,7 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
             "stats": [asdict(s) for s in stats],
             "totals": metrics.totals(stats),
             "need_user": need_user,
+            "inject_ready": actions.inject_ready(proj, name) if need_user else False,
             "driver_pid": mgr.alive(proj, name),
             "log_tail": log_tail,
             "artifacts": outputs.artifact_status(proj, name),

@@ -564,7 +564,16 @@ function renderInteract(d) {
     b.className = cls || "btn";
     return b;
   };
-  if (d.need_user && d.need_user.questions) {
+  if (d.need_user && d.need_user.questions && !d.inject_ready) {
+    // 问题已落盘但交互段记录未就绪（时间窗）——此时提交必被中止，显示准备中
+    const h = document.createElement("h3");
+    h.textContent = "等待输入";
+    box.appendChild(h);
+    const prep = document.createElement("div");
+    prep.className = "q";
+    prep.textContent = "交互段准备中…就绪后问题自动出现（无需刷新）";
+    box.appendChild(prep);
+  } else if (d.need_user && d.need_user.questions) {
     const h = document.createElement("h3");
     h.textContent = "等待输入";
     box.appendChild(h);

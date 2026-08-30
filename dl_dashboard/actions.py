@@ -79,6 +79,18 @@ def _find_needuser_sid(project: Path, name: str, state: dict, nid: str, cur: int
     return None
 
 
+def inject_ready(project: Path, name: str) -> bool:
+    """注入目标段是否已落台账（need_user.json 已展示 与 可注入 之间有时间窗：
+    问题在段运行中落盘，段记录在完成时落台账——窗口内提交必被中止，
+    前端据此显示「准备中」而非可提交表单）。"""
+    state = engine.load_state(project, name)
+    if state is None:
+        return False
+    nid = state.get("node")
+    cur = state.get("sub_step_index", 1)
+    return _find_needuser_sid(project, name, state, nid, cur) is not None
+
+
 def inject_answer(project: Path, name: str, answer: str) -> tuple[bool, str]:
     state_raw = engine.load_state(project, name)
     if state_raw is None:

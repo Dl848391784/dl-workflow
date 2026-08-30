@@ -284,3 +284,17 @@ def test_delete_also_removes_artifacts_and_cache(tmp_path):
     assert not (tmp_path / ".claude/plans/demo.md").exists()
     assert not (tmp_path / ".claude/understands/demo.md").exists()
     assert not (tmp_path / ".claude/evidence/demo.jsonl").exists()
+
+
+def test_inject_ready_false_before_needuser_segment(tmp_path):
+    _mk_state(tmp_path, "demo", [
+        {"ts": "t", "session_id": "s1", "kind": "headless-step",
+         "node": "plan:4", "sub_step": 2, "note": "rc=0"}])
+    assert actions.inject_ready(tmp_path, "demo") is False
+
+
+def test_inject_ready_true_when_segment_recorded(tmp_path):
+    _mk_state(tmp_path, "demo", [
+        {"ts": "t", "session_id": "s1", "kind": "tui-step-needuser",
+         "node": "plan:4", "sub_step": 2, "note": "rc=0"}])
+    assert actions.inject_ready(tmp_path, "demo") is True
