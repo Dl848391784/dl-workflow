@@ -828,6 +828,7 @@ $("outputs-refresh").onclick = () => loadOutputs();
 
 /* 新建工作流弹窗：项目下拉（config 登记源）+ 模式选择（fermate/forte/tacet） */
 let lastProjects = [];
+let lastProviders = [];
 let lastWorkflowNames = new Set();  // 已存在工作流名（生成名防碰撞用）
 
 /* 从 problem_statement 提取英文词自动生成名称（≤3 词，_ 连接）：
@@ -865,6 +866,9 @@ function openCreateModal() {
   const selP = $("cf-project");
   selP.innerHTML = lastProjects.map((p) =>
     `<option value="${esc(p)}">${esc(p)}</option>`).join("");
+  $("cf-provider").innerHTML =
+    `<option value="">server 当前环境（默认）</option>` +
+    lastProviders.map((p) => `<option value="${esc(p)}">${esc(p)}</option>`).join("");
   $("create-modal").classList.remove("hidden");
   $("cf-statement").focus();
 }
@@ -919,6 +923,7 @@ $("create-form").onsubmit = async (e) => {
       statement,
       scope,
       tacet,
+      provider: $("cf-provider").value || null,
     });
     toast(r.ok ? `已创建 ${name}` : r.msg, r.ok);
     if (r.ok) closeCreateModal();
@@ -939,6 +944,7 @@ const es = new EventSource("/api/events");
 es.onmessage = (e) => {
   const data = JSON.parse(e.data);
   lastProjects = data.projects || [];
+  lastProviders = data.providers || [];
   lastWorkflowNames = new Set(data.workflows.map((w) => w.name));
   // 侧栏指纹：数据没变就不重建（选中高亮在 selectWorkflow 里即时翻 class）
   const sj = JSON.stringify(data.workflows);

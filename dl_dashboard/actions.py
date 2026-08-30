@@ -41,6 +41,7 @@ _SCOPE_FLAGS = {"fermate": "--fermate", "forte": "--forte"}
 
 def create_workflow(project: Path, name: str, statement: str, mgr,
                     scope: str = "fermate", tacet: bool = False,
+                    provider_env: dict | None = None,
                     timeout: int = 600) -> tuple[bool, str]:
     """launcher 建实例（headless）-> 置 problem_statement -> 起 driver。
 
@@ -67,7 +68,7 @@ def create_workflow(project: Path, name: str, statement: str, mgr,
         return False, f"建实例失败：{tail}"
     engine.set_problem_statement(project, name, statement)
     state = engine.load_state(project, name)
-    mgr.start(project, name, Path(state["worktree_path"]))
+    mgr.start(project, name, Path(state["worktree_path"]), env=provider_env)
     return True, f"工作流 {name} 已建并启动 driver。{tail[-200:]}"
 
 
@@ -91,7 +92,8 @@ def inject_ready(project: Path, name: str) -> bool:
     return _find_needuser_sid(project, name, state, nid, cur) is not None
 
 
-def inject_answer(project: Path, name: str, answer: str) -> tuple[bool, str]:
+def inject_answer(project: Path, name: str, answer: str,
+                  provider_env: dict | None = None) -> tuple[bool, str]:
     state_raw = engine.load_state(project, name)
     if state_raw is None:
         return False, f"工作流 {name} 的 state.json 缺失"
@@ -120,6 +122,7 @@ def inject_answer(project: Path, name: str, answer: str) -> tuple[bool, str]:
     cmd += ["-p", answer]
     cmd += list(engine.NO_MCP_ARGS)
     env = dict(os.environ)
+    env.update(provider_env or {})
     env.update(ov.get("env") or {})
     log.info("inject -> %s#%s sid=%s…", nid, cur, sid[:8])
     p = subprocess.run(cmd, cwd=state["worktree_path"], env=env,
@@ -167,7 +170,8 @@ def dl_command(project: Path, name: str, cmd: str, value: str | None = None) -> 
     return p.returncode == 0, (p.stdout + p.stderr).strip()
 
 
-def restart_drive(project: Path, name: str, mgr) -> tuple[bool, str]:
+def restart_drive(project: Path, name: str, mgr,
+                  provider_env: dict | None = None) -> tuple[bool, str]:
     """driver 死/断点后重新驱动（续跑非重来：state 全在盘上）。
 
     门栏扣留（held_for_gate）时如实拒绝：此时恢复 driver 会秒退（driver
@@ -183,7 +187,7 @@ def restart_drive(project: Path, name: str, mgr) -> tuple[bool, str]:
         return False, "工作流已完结，无需恢复"
     if state.get("held_for_gate"):
         return False, "工作流扣留在门栏（held_for_gate）——请点「gate 放行」，而非恢复驱动"
-    pid = mgr.start(project, name, Path(state["worktree_path"]))
+    pid = mgr.start(project, name, Path(state["worktree_path"]), env=provider_env)
     return True, f"driver 已重启 pid={pid}"
 
 

@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import re
+import subprocess
 import weakref
 from dataclasses import asdict
 from pathlib import Path
@@ -37,11 +38,49 @@ def _name(raw: str) -> str:
     return raw
 
 
+def _capture_provider(name: str) -> dict[str, str] | None:
+    """source bashrc 调 ac-* 函数并捕获其 ANTHROPIC_*/CLAUDE_* env。
+
+    bashrc 函数不可被 launcher 子进程 exec（dl-launch.sh 头注释），故在
+    server 侧捕获后随 driver spawn env 传递——与终端 export 后 `dl` 等价。
+    """
+    try:
+        p = subprocess.run(
+            ["bash", "-c", f"source ~/.bashrc 2>/dev/null; {name} >/dev/null 2>&1; env"],
+            capture_output=True, text=True, timeout=30,
+        )
+    except (subprocess.SubprocessError, OSError):
+        log.warning("provider env 捕获失败: %s", name, exc_info=True)
+        return None
+    env: dict[str, str] = {}
+    for line in p.stdout.splitlines():
+        k, _, v = line.partition("=")
+        if k.startswith(("ANTHROPIC_", "CLAUDE_")):
+            env[k] = v
+    return env or None
+
+
 def create_app(config: DashboardConfig | None = None) -> FastAPI:
     cfg = config or load_config()
     mgr = DriverManager(DLWF, RUNTIME_DIR)
     app = FastAPI(title="dl-workflow dashboard")
     locks = weakref.WeakValueDictionary()
+    # provider 注册表：名字 -> env（None = 继承 server 环境）
+    providers: dict[str, dict | None] = {}
+    for name in cfg.providers:
+        env = _capture_provider(name)
+        if env:
+            providers[name] = env
+
+    def _provider_file(proj: Path, name: str) -> Path:
+        return RUNTIME_DIR / f"{mgr.slug(proj, name)}.provider"
+
+    def _driver_env(proj: Path, name: str) -> dict | None:
+        """该工作流登记过的 provider env（创建时落 .provider 文件）。"""
+        pf = _provider_file(proj, name)
+        if pf.exists():
+            return providers.get(pf.read_text(encoding="utf-8").strip())
+        return None
 
     def _project(raw: str) -> Path:
         p = Path(raw)
@@ -70,6 +109,7 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
         return {
             "workflows": [_row(i) for i in scanner.scan_all(cfg.projects)],
             "projects": [str(p) for p in cfg.projects],
+            "providers": list(providers.keys()),
         }
 
     @app.get("/")
@@ -129,10 +169,16 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
     async def create(body: dict):
         proj = _project(body["project"])
         name = _name(body["name"])
+        provider = body.get("provider")
+        if provider and provider not in providers:
+            return {"ok": False, "msg": f"未知 provider {provider}（可选：{'/'.join(providers)}）"}
         async with _lock(proj, name):
             ok, msg = await asyncio.to_thread(
                 actions.create_workflow, proj, name, body["statement"], mgr,
-                body.get("scope", "fermate"), bool(body.get("tacet")))
+                body.get("scope", "fermate"), bool(body.get("tacet")),
+                providers.get(provider) if provider else None)
+            if ok and provider:
+                _provider_file(proj, name).write_text(provider, encoding="utf-8")
         return {"ok": ok, "msg": msg}
 
     @app.post("/api/inject")
@@ -152,9 +198,11 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
             if mgr.alive(proj, name):
                 mgr.stop(proj, name)
             ok, msg = await asyncio.to_thread(
-                actions.inject_answer, proj, name, body["answer"])
+                actions.inject_answer, proj, name, body["answer"],
+                _driver_env(proj, name))
             if ok:
-                await asyncio.to_thread(actions.restart_drive, proj, name, mgr)
+                await asyncio.to_thread(
+                    actions.restart_drive, proj, name, mgr, _driver_env(proj, name))
         return {"ok": ok, "msg": msg}
 
     @app.post("/api/gate")
@@ -164,7 +212,8 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
         async with _lock(proj, name):
             ok, msg = await asyncio.to_thread(actions.gate_release, proj, name)
             if ok:
-                await asyncio.to_thread(actions.restart_drive, proj, name, mgr)
+                await asyncio.to_thread(
+                    actions.restart_drive, proj, name, mgr, _driver_env(proj, name))
         return {"ok": ok, "msg": msg}
 
     @app.post("/api/drive")
@@ -173,7 +222,7 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
         name = _name(body["name"])
         async with _lock(proj, name):
             ok, msg = await asyncio.to_thread(
-                actions.restart_drive, proj, name, mgr)
+                actions.restart_drive, proj, name, mgr, _driver_env(proj, name))
         return {"ok": ok, "msg": msg}
 
     @app.get("/api/outputs")

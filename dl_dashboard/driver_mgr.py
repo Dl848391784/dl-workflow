@@ -41,7 +41,8 @@ class DriverManager:
             log_f.close()
         self._pid_path(slug).unlink(missing_ok=True)
 
-    def start(self, project, name: str, worktree) -> int:
+    def start(self, project, name: str, worktree, env: dict | None = None) -> int:
+        """env：provider env 覆盖（ANTHROPIC_* 等），None = 继承 server 进程环境。"""
         slug = self.slug(project, name)
         log_f = open(self.log_path(slug), "ab")
         proc = subprocess.Popen(
@@ -51,6 +52,7 @@ class DriverManager:
             stdout=log_f,
             stderr=subprocess.STDOUT,
             start_new_session=True,  # setsid：后端死/终端信号不波及 driver
+            env=({**os.environ, **env} if env else None),
         )
         self._drivers[slug] = proc
         self._logs[slug] = log_f

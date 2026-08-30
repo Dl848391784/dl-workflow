@@ -13,6 +13,7 @@ class DashboardConfig:
     projects: tuple[Path, ...]
     host: str = "0.0.0.0"
     port: int = 9000
+    providers: tuple[str, ...] = ()  # 可选 provider（bashrc ac-* 函数名），创建弹窗可选
 
 
 def load_config(path: Path | None = None) -> DashboardConfig:
@@ -25,4 +26,5 @@ def load_config(path: Path | None = None) -> DashboardConfig:
         projects=projects,
         host=str(data.get("host", "0.0.0.0")),
         port=int(data.get("port", 9000)),
+        providers=tuple(data.get("providers", [])),
     )

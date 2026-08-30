@@ -1,0 +1,2 @@
+projects = ["/home/admin/projects/factor_ic_analyzer"]
+providers = ["ac-deepseek1"]
