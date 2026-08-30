@@ -792,9 +792,12 @@ function genName(statement) {
   const uniq = [...new Set(words)].slice(0, 3);
   return uniq.join("_").slice(0, 63);
 }
-$("cf-statement").addEventListener("input", () => {
-  $("cf-name").value = genName($("cf-statement").value);
-});
+/* 名称预览 = 防重后的最终名（所见即所建）：生成 -> 撞现存名自动 _2/_3 */
+function previewName() {
+  const base = genName($("cf-statement").value);
+  $("cf-name").value = base ? dedupeName(base) : "";
+}
+$("cf-statement").addEventListener("input", previewName);
 
 /* 提交时定名：生成 -> 空则拦（纯中文陈述）-> 防碰撞加 _2/_3 后缀 */
 function dedupeName(base) {
@@ -847,7 +850,7 @@ $("create-form").onsubmit = async (e) => {
     submitBtn.textContent = "创建并启动";
   };
   const statement = $("cf-statement").value.trim();
-  const base = genName(statement);
+  const base = genName(statement);  // 提交时重算兜底（名单可能刚变）
   if (!base) {
     toast("问题里没有可识别的英文词，无法生成工作流名——请在问题中包含英文关键词（如因子名/页面名）", false);
     restore();
