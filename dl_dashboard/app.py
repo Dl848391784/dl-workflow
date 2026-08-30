@@ -140,8 +140,15 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
         proj = _project(body["project"])
         name = _name(body["name"])
         async with _lock(proj, name):
-            # inject 与活 driver 竞争同一 claude 会话（实爆：注入段被 SIGTERM
-            # rc=143）——先停 driver 让出会话所有权，注入后再恢复续跑
+            # 时序铁律（两轮实爆）：
+            # 1) 未就绪（needuser 段在飞/未落台账）禁停禁注——停 driver 会杀掉
+            #    正在备题的段，且注入无目标必中止
+            # 2) 就绪且 driver 活：先停 driver 再注入（防注入段与活 driver
+            #    抢同一会话被 SIGTERM rc=143）
+            if not actions.inject_ready(proj, name):
+                return {"ok": False,
+                        "msg": "交互段未就绪——问题还在准备或 driver 已停，"
+                               "稍候重试；driver 已停请先「恢复驱动」"}
             if mgr.alive(proj, name):
                 mgr.stop(proj, name)
             ok, msg = await asyncio.to_thread(

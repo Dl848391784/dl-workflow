@@ -571,7 +571,9 @@ function renderInteract(d) {
     box.appendChild(h);
     const prep = document.createElement("div");
     prep.className = "q";
-    prep.textContent = "交互段准备中…就绪后问题自动出现（无需刷新）";
+    prep.textContent = d.driver_pid
+      ? "交互段准备中…就绪后问题自动出现（无需刷新）"
+      : "交互段未就绪且 driver 已停——点标题行「恢复驱动」，拉起后问题自动就绪";
     box.appendChild(prep);
   } else if (d.need_user && d.need_user.questions) {
     const h = document.createElement("h3");
