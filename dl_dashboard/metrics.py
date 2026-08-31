@@ -116,6 +116,11 @@ def collect_stats(project: Path, name: str, cache_dir: Path) -> list[SegmentStat
     out: list[SegmentStat] = []
     consumed: dict[str, int] = {}
     for seg in segs:
+        # merged-outer（合并段外层汇总留痕）：不进时间轴/统计——逐 turn
+        # merged-step 行才是统计载体；本行若参与配对，clamp 会把末 turn
+        # 统计在收尾步上重复计一次
+        if seg.get("kind") == "merged-outer":
+            continue
         sid = seg.get("session_id")
         if sid in current:
             # 多行 sid（合并段/段链）按台账行序逐个配对（双方同序追加）；

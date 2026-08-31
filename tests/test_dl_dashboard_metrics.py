@@ -79,6 +79,9 @@ def test_collect_merged_session_turns_zip_in_order(tmp_path):
              "node": "understand:2", "sub_step": 2, "note": "gate=advanced"},
             {"ts": "t2", "session_id": "sid-m", "kind": "merged-step",
              "node": "understand:2", "sub_step": 3, "note": "gate=advanced"},
+            # 外层汇总留痕：不进时间轴/统计（否则 clamp 重复计末 turn）
+            {"ts": "t3", "session_id": "sid-m", "kind": "merged-outer",
+             "node": "understand:2", "sub_step": 5, "note": "merged u2#2-#3 rc=0"},
         ],
     }
     (meta / "state.json").write_text(json.dumps(state), encoding="utf-8")
