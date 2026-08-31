@@ -63,7 +63,7 @@ def test_inject_targets_needuser_segment_only(tmp_path):
     assert ok, msg
     cmd = run.call_args[0][0]
     assert cmd[cmd.index("--resume") + 1] == "sid-cur"  # 当前步段，禁回落旧段
-    assert cmd[cmd.index("-p") + 1] == "选A"
+    assert "选A" in cmd[cmd.index("-p") + 1]  # 答案原文在一次性注入包装内
 
 
 def test_inject_aborts_without_needuser_segment(tmp_path):
@@ -310,9 +310,20 @@ def _needuser_seg():
     ]
 
 
-def _mk_need_user(meta: Path, ts="T1", node="plan:4", sub_step=2, bind=True):
+_QUESTIONS = [{"question": "q", "header": "h", "options": []}]
+
+
+def _questions_sha(questions) -> str:
+    import hashlib
+    return hashlib.sha1(
+        json.dumps(questions, sort_keys=True, ensure_ascii=False).encode()
+    ).hexdigest()
+
+
+def _mk_need_user(meta: Path, ts="T1", node="plan:4", sub_step=2, bind=True,
+                  questions=None):
     payload: dict = {
-        "questions": [{"question": "q", "header": "h", "options": []}],
+        "questions": questions if questions is not None else _QUESTIONS,
         "ts": ts,
     }
     if bind:
@@ -321,14 +332,26 @@ def _mk_need_user(meta: Path, ts="T1", node="plan:4", sub_step=2, bind=True):
     (meta / "need_user.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
-def _mk_answered(meta: Path, node="plan:4", sub_step=2, need_user_ts="T1", at="A1"):
+def _mk_answered(meta: Path, node="plan:4", sub_step=2, questions=None, at="A1"):
+    qs = questions if questions is not None else _QUESTIONS
     (meta / "answered.json").write_text(
         json.dumps({
             "node": node, "sub_step": sub_step,
-            "need_user_ts": need_user_ts, "answered_at": at,
+            "questions_sha": _questions_sha(qs), "answered_at": at,
         }),
         encoding="utf-8",
     )
+
+
+def _mk_block_verdict(tmp_path, sub_step=2, minor_stage="ExecutionPlanCheckpoints",
+                      ts="2026-08-31T16:00:00"):
+    ev = tmp_path / ".claude" / "evidence"
+    ev.mkdir(parents=True, exist_ok=True)
+    with open(ev / "demo.jsonl", "a", encoding="utf-8") as f:
+        f.write(json.dumps({
+            "kind": "gate", "gate": "blocked", "sub_step": sub_step,
+            "minor_stage": minor_stage, "reason": "判词", "ts": ts,
+        }) + "\n")
 
 
 def test_inject_writes_answered_marker(tmp_path):
@@ -343,7 +366,26 @@ def test_inject_writes_answered_marker(tmp_path):
     assert ok, msg
     marker = json.loads((meta / "answered.json").read_text(encoding="utf-8"))
     assert marker["node"] == "plan:4" and marker["sub_step"] == 2
-    assert marker["need_user_ts"] == "T1" and marker["answered_at"]
+    assert marker["questions_sha"] == _questions_sha(_QUESTIONS)
+    assert marker["answered_at"]
+
+
+def test_inject_wraps_answer_and_drops_ask_user_question(tmp_path):
+    """一次性注入包装（E2）：答案原文进 -p 载荷 + 禁止重问指引 + STEP_DONE；
+    -p 无真人可答，AskUserQuestion 不进 inject 会话（机制层堵死重问路）。"""
+    meta = _mk_state(tmp_path, "demo", _needuser_seg(),
+                     worktree_path=str(tmp_path / "wt"))
+    (meta / "settings.drive-tui.json").write_text("{}", encoding="utf-8")
+    (meta / "tui-rules.plan:4.md").write_text("rules", encoding="utf-8")
+    _mk_need_user(meta)
+    with patch.object(actions.subprocess, "run",
+                      return_value=MagicMock(returncode=0, stdout="", stderr="")) as run:
+        ok, _ = actions.inject_answer(tmp_path, "demo", "选A")
+    assert ok
+    cmd = run.call_args[0][0]
+    payload = cmd[cmd.index("-p") + 1]
+    assert "选A" in payload and "一次性注入" in payload and "STEP_DONE" in payload
+    assert "AskUserQuestion" not in ",".join(cmd)
 
 
 def test_inject_ready_false_when_answered(tmp_path):
@@ -356,13 +398,44 @@ def test_inject_ready_false_when_answered(tmp_path):
     assert actions.answered_at_if_covers(tmp_path, "demo") == "2026-08-31T15:00:00"
 
 
-def test_inject_ready_true_when_new_questions(tmp_path):
-    """新问题落盘（含 rework 重问）ts 变 → 标记自失效，可重新答。"""
+def test_answered_survives_identical_restash(tmp_path):
+    """E1：none 重试循环对同一步同一批问题重 stash（ts 必变）——内容 hash
+    不变 → 标记仍覆盖（v1 按 ts 判在此场景 ~90s 即失效，E2E 实爆）。"""
     meta = _mk_state(tmp_path, "demo", _needuser_seg())
-    _mk_need_user(meta, ts="T2")
-    _mk_answered(meta, need_user_ts="T1")
+    _mk_need_user(meta, ts="T2")  # 重 stash：ts 变、questions 一字不差
+    _mk_answered(meta, at="2026-08-31T15:00:00")
+    assert actions.inject_ready(tmp_path, "demo") is False
+    assert actions.answered_at_if_covers(tmp_path, "demo") == "2026-08-31T15:00:00"
+
+
+def test_inject_ready_true_when_new_questions(tmp_path):
+    """问题内容真变了（rework 补问/新问）→ hash 变 → 标记失效，可重新答。"""
+    meta = _mk_state(tmp_path, "demo", _needuser_seg())
+    _mk_need_user(meta, ts="T2",
+                  questions=[{"question": "q2", "header": "h2", "options": []}])
+    _mk_answered(meta)
     assert actions.inject_ready(tmp_path, "demo") is True
     assert actions.answered_at_if_covers(tmp_path, "demo") is None
+
+
+def test_block_verdict_invalidates_marker(tmp_path):
+    """answered_at 之后本步撞 gate=blocked = 答案被判不足——重答是 rework
+    正路，标记必须放行（否则 escalate 后永远无法重答 = 卡死）。"""
+    meta = _mk_state(tmp_path, "demo", _needuser_seg())
+    _mk_need_user(meta, ts="T1")
+    _mk_answered(meta, at="2026-08-31T15:00:00")
+    _mk_block_verdict(tmp_path, ts="2026-08-31T15:30:00")
+    assert actions.inject_ready(tmp_path, "demo") is True
+    assert actions.answered_at_if_covers(tmp_path, "demo") is None
+
+
+def test_older_block_verdict_keeps_marker(tmp_path):
+    """answered_at 之前的旧 block 裁决不影响覆盖（那是上一轮答案的判词）。"""
+    meta = _mk_state(tmp_path, "demo", _needuser_seg())
+    _mk_need_user(meta, ts="T1")
+    _mk_answered(meta, at="2026-08-31T15:00:00")
+    _mk_block_verdict(tmp_path, ts="2026-08-31T14:00:00")
+    assert actions.inject_ready(tmp_path, "demo") is False
 
 
 def test_inject_ready_true_after_state_advanced(tmp_path):
