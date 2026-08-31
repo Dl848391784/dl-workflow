@@ -201,6 +201,12 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
             # 2) 就绪且 driver 活：先停 driver 再注入（防注入段与活 driver
             #    抢同一会话被 SIGTERM rc=143）
             if not actions.inject_ready(proj, name):
+                # 已覆盖 = 答案在处理中——如实说，别用「未就绪」误导（E2 附修）
+                covered = actions.answered_at_if_covers(proj, name)
+                if covered:
+                    return {"ok": False,
+                            "msg": f"答案已提交（{covered}）——模型处理中，"
+                                   "门控通过后自动推进，无需重复提交"}
                 return {"ok": False,
                         "msg": "交互段未就绪——问题还在准备或 driver 已停，"
                                "稍候重试；driver 已停请先「恢复驱动」"}

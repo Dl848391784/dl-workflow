@@ -64,3 +64,18 @@ need_user 载荷带绑定且 ≠ state 当前位置 → 不渲染（need_user=nu
 - 在跑实例（web_ui_interaction）：旧 need_user.json 无绑定 → legacy 放行（陈旧卡暂存，下次 stash 带绑定即愈）。driver 改动（绑定字段）对在中 driver 零影响（写侧增量）。
 - dashboard server 需重启加载新 actions/app 代码（driver 是 setsid 子进程，/proc 认领，不受影响）。
 - 回滚面：三处增量各自独立可翻。
+
+## 6. 修订 v2（2026-08-31 E2E 实爆两连——v1 合并后当天真机验证抓出）
+
+v1 合并后做真实 dashboard E2E（throwaway 实例），两处在单测里看不见的问题现形：
+
+**E1 标记失效判据太脆（ts → 内容 hash + block 裁决）**：v1 用 `need_user_ts` 相等判覆盖。实测 driver 的 none 重试循环会对**同一步同一批问题**重 stash（ts 必变）→ 注入后 ~90s 标记即失效、按钮复活——D1 在真实流程里没修住。改判据：
+- 覆盖 ⟺ 位置匹配 **且 questions 内容 hash 匹配**（重 stash 同内容 hash 不变 → 仍覆盖；问题真变了 hash 变 → 失效）
+- **且 answered_at 之后无本步 kind=gate/gate=blocked 裁决**——block = 答案被判不足，重答是 rework 正路，必须放行（否则 escalate 后用户永远没法重答 = 卡死）。ts 字符串比较成立（双侧同 `_now()` 格式）
+
+**E2 注入会话可能不落库（-p 一次性轮的结构脆弱）**：E2E 注入垃圾答案后，resume 会话把注入当新陈述、**用文字重问问题**（-p 无人可答）→ 会话结束、零 trace → 门控 none → driver 重 stash 重问 → 用户看到同一张卡又能提交——「提交答案后还能提交、工作流没跑」的真正根。这正是 prompt-engineering §3.7 原则 9/10 的场景：
+- **机制层**：inject 命令移除 AskUserQuestion（-p 无真人，调了也是立即报错的白费轮；原先 ov tools 置位时反而主动加回——删）
+- **prompt 层（一次性注入包装）**：注入文本包一层任务书——置顶声明「本消息 = 一次性注入，之后无人可答，禁止重新提问」（给 rationale 防合理化）+ 答案原文 + 立即执行三步（映射问题 → append-trace 落库 → STEP_DONE）+ 缺漏如实标注由门控裁决
+- **验证 = 真机 dogfood（原则 10）**：E2E 重放全链路（注入 → 标记持续覆盖跨重 stash → trace 落库 → 过门 → 自动续跑），不是词面断言
+
+**附：inject 端点拒绝文案失真修**：已覆盖时端点先撞 inject_ready=False 返回通用「未就绪…driver 已停请恢复驱动」（误导）——改先查覆盖返回「答案已提交，无需重复提交」。

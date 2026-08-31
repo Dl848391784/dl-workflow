@@ -91,19 +91,45 @@ def test_detail_legacy_unbound_need_user_shown(client):
     assert d["need_user"] is not None
 
 
+def _sha(questions) -> str:
+    import hashlib
+    return hashlib.sha1(
+        json.dumps(questions, sort_keys=True, ensure_ascii=False).encode()
+    ).hexdigest()
+
+
+def _write_answered(project, node="plan:2", sub_step=1, at="2026-08-31T15:00:00",
+                    questions=None):
+    qs = questions if questions is not None else [{"question": "q", "header": "h"}]
+    (meta_root(project, "demo") / "answered.json").write_text(json.dumps({
+        "node": node, "sub_step": sub_step, "questions_sha": _sha(qs),
+        "answered_at": at,
+    }), encoding="utf-8")
+
+
 def test_detail_answered_passthrough(client):
     c, project = client
-    meta = meta_root(project, "demo")
     _write_need_user(project, {
         "questions": [{"question": "q", "header": "h"}],
         "ts": "T1", "node": "plan:2", "sub_step": 1,
     })
-    (meta / "answered.json").write_text(json.dumps({
-        "node": "plan:2", "sub_step": 1, "need_user_ts": "T1",
-        "answered_at": "2026-08-31T15:00:00",
-    }), encoding="utf-8")
+    _write_answered(project)
     d = c.get("/api/workflow", params={"project": str(project), "name": "demo"}).json()
     assert d["answered"] == "2026-08-31T15:00:00"
+
+
+def test_inject_rejected_message_when_covered(client):
+    """已覆盖时端点如实说「答案已提交」，不用「未就绪/恢复驱动」误导（E2 附修）。"""
+    c, project = client
+    _write_need_user(project, {
+        "questions": [{"question": "q", "header": "h"}],
+        "ts": "T1", "node": "plan:2", "sub_step": 1,
+    })
+    _write_answered(project)
+    r = c.post("/api/inject", json={
+        "project": str(project), "name": "demo", "answer": "又答一遍"})
+    d = r.json()
+    assert d["ok"] is False and "答案已提交" in d["msg"]
 
 
 def test_project_whitelist_enforced(client):

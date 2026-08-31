@@ -6,6 +6,7 @@ tui-step-needuser 段台账（唯一权威源），找不到即中止，禁回�
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -82,30 +83,64 @@ def _find_needuser_sid(project: Path, name: str, state: dict, nid: str, cur: int
     return None
 
 
-# ---------- 已答标记（dashboard-answered-marker-design §2.2） ----------
+# ---------- 已答标记（dashboard-answered-marker-design §2.2/§6） ----------
 
 
 def _answered_path(project: Path, name: str) -> Path:
     return meta_root(project, name) / "answered.json"
 
 
-def _need_user_ts(project: Path, name: str) -> "str | None":
+def _read_need_user(project: Path, name: str) -> "dict | None":
     try:
         data = json.loads(
             (meta_root(project, name) / "need_user.json").read_text(encoding="utf-8")
         )
     except (OSError, json.JSONDecodeError):
         return None
-    return data.get("ts") if isinstance(data, dict) else None
+    return data if isinstance(data, dict) else None
+
+
+def _questions_sha(nu: dict) -> "str | None":
+    """问题内容 hash（E1 修订：替代 ts 判覆盖——none 重试对同一批问题重
+    stash 时 ts 必变但内容 hash 不变，标记不再被误失效）。"""
+    qs = nu.get("questions")
+    if not isinstance(qs, list):
+        return None
+    return hashlib.sha1(
+        json.dumps(qs, sort_keys=True, ensure_ascii=False).encode()
+    ).hexdigest()
+
+
+def _block_verdict_newer(project: Path, name: str, cur: int,
+                         minor_key: "str | None", answered_at: str) -> bool:
+    """answered_at 之后本步有无 kind=gate/gate=blocked 裁决——有 = 答案被判
+    不足，重答是 rework 正路，标记必须放行（否则 escalate 后永远无法重答）。
+    ts 字符串比较成立（双侧同 _now() 格式）。"""
+    ev = project / ".claude" / "evidence" / f"{name}.jsonl"
+    try:
+        lines = ev.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return False
+    for line in lines:
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if (rec.get("kind") == "gate" and rec.get("gate") == "blocked"
+                and rec.get("sub_step") == cur
+                and rec.get("minor_stage") == minor_key
+                and str(rec.get("ts", "")) > answered_at):
+            return True
+    return False
 
 
 def answered_at_if_covers(project: Path, name: str) -> "str | None":
     """当前问题卡是否已被答案覆盖（已注入未推进窗口）。返回注入时间或 None。
 
-    覆盖 ⟺ marker(node, sub_step) == state 当前位置 且 marker.need_user_ts ==
-    need_user.json 当前 ts——纯计算自失效，无需清理：state 推进位置错位即
-    失效；新问题落盘（含 rework 重问）ts 变即失效；need_user.json 缺失 =
-    无卡可覆盖 → None。
+    覆盖 ⟺ ①marker(node, sub_step) == state 当前位置 且 ②marker.questions_sha
+    == need_user.json 当前 questions hash（重 stash 同内容仍覆盖）且
+    ③answered_at 之后无本步 block 裁决（被判不足 = 放行重答）——纯计算自
+    失效，无需清理；need_user.json 缺失 = 无卡可覆盖 → None。
     """
     state = engine.load_state(project, name)
     if state is None:
@@ -116,13 +151,21 @@ def answered_at_if_covers(project: Path, name: str) -> "str | None":
         return None
     if not isinstance(marker, dict):
         return None
-    nu_ts = _need_user_ts(project, name)
-    if nu_ts is None or marker.get("need_user_ts") != nu_ts:
+    nu = _read_need_user(project, name)
+    sha = _questions_sha(nu) if nu else None
+    if sha is None or marker.get("questions_sha") != sha:
         return None
     if (marker.get("node") != state.get("node")
             or marker.get("sub_step") != state.get("sub_step_index", 1)):
         return None
-    return marker.get("answered_at") or "（时间缺失）"
+    answered_at = marker.get("answered_at")
+    if not answered_at:
+        return "（时间缺失）"
+    node = engine.get_node(state["phase"], state["sub_index"])
+    if _block_verdict_newer(project, name, state.get("sub_step_index", 1),
+                            node.minor_key, answered_at):
+        return None
+    return answered_at
 
 
 def inject_ready(project: Path, name: str) -> bool:
@@ -170,9 +213,27 @@ def inject_answer(project: Path, name: str, answer: str,
         "--permission-mode", "acceptEdits",
     ]
     if ov["tools"]:
-        tools = tuple(ov["tools"]) + ("AskUserQuestion", "TaskCreate", "TaskUpdate")
+        # -p 一次性轮无真人可答：AskUserQuestion 结构性移除（调了也是立即
+        # 报错的白费轮，还诱导模型走「重问」死路——E2 实爆），只补清单工具
+        tools = tuple(ov["tools"]) + ("TaskCreate", "TaskUpdate")
         cmd += ["--tools", ",".join(tools)]
-    cmd += ["-p", answer]
+    else:
+        cmd += ["--disallowedTools", "AskUserQuestion"]
+    # E2：一次性注入包装——声明「之后无人可答」防重问死路（-p 单轮会话，
+    # 文字重问 = 零 trace 收场），指路落库协议；缺漏由门控裁决不重问
+    payload = (
+        f"用户已就当前交互子步骤 {nid}#{cur} 的问题清单给出回答"
+        f"（本消息 = 一次性注入，之后无人可答——禁止重新提问）：\n\n"
+        f"{answer}\n\n"
+        f"立即执行（不等更多输入）：\n"
+        f"1. 把上述回答逐条映射到问题清单（{meta}/need_user.json，"
+        f"含逐字原文与 sources 出处包）；\n"
+        f"2. 按 append-trace 协议把本步结论落 evidence（主仓绝对路径——"
+        f"相对路径会写到 worktree，hook 读不到）；\n"
+        f"3. 输出 ### STEP_DONE: {cur} 结束。\n"
+        f"回答有缺失/含糊处：在 trace 中如实标注，由门控裁决——不要因此重新提问。"
+    )
+    cmd += ["-p", payload]
     cmd += list(engine.NO_MCP_ARGS)
     env = dict(os.environ)
     env.update(provider_env or {})
@@ -182,12 +243,13 @@ def inject_answer(project: Path, name: str, answer: str,
                        stdin=subprocess.DEVNULL, capture_output=True, text=True)
     if p.returncode != 0:
         return False, f"注入失败 rc={p.returncode}：{(p.stdout + p.stderr)[-300:]}"
-    # 已答标记：覆盖当前问题卡直到 state 推进 / 新问题落盘（自失效）
+    # 已答标记：覆盖当前问题卡直到 state 推进 / 问题内容变 / 撞 block（自失效）
+    nu = _read_need_user(project, name)
     _answered_path(project, name).write_text(
         json.dumps({
             "node": nid,
             "sub_step": cur,
-            "need_user_ts": _need_user_ts(project, name),
+            "questions_sha": _questions_sha(nu) if nu else None,
             "answered_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         }),
         encoding="utf-8",
