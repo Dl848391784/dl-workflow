@@ -319,11 +319,17 @@ function renderTimelineTree(stats, nodes, info, artifacts) {
         const leaf = document.createElement("div");
         leaf.className = "tl-leaf" + (a ? " done" : isCur ? " cur" : " todo");
         if (isCur && !a) {
-          // 在跑步：实时计时（该步最新段 ts 起算，SSE 每拍重算）
+          // 在跑步：实时计时——优先在飞段起点（current_segment，driver 起跑
+          // 落盘，不含段间空隙）；缺它回退末段 ts（近似）
+          const cs = info.current_segment;
+          const csHit = cs && cs.node === n.node_id &&
+            Number(cs.sub_step) === i && cs.started_at;
           const runSeg = stats.filter((x) => x.node === n.node_id && x.sub_step === i).pop();
-          const elapsed = runSeg
-            ? Math.max(0, Math.round((Date.now() - new Date(runSeg.ts).getTime()) / 1000))
-            : null;
+          const elapsed = csHit
+            ? Math.max(0, Math.round((Date.now() - new Date(cs.started_at).getTime()) / 1000))
+            : runSeg
+              ? Math.max(0, Math.round((Date.now() - new Date(runSeg.ts).getTime()) / 1000))
+              : null;
           leaf.innerHTML =
             `<div class="tl-l1"><span class="tl-lid">${esc(stepName(n, i))}</span>` +
             `<span class="tl-ldur">在跑${elapsed != null ? ` ${elapsed}s` : ""}</span></div>`;
@@ -481,8 +487,13 @@ function renderTimelineGantt(stats, nodes, info, artifacts) {
       const isCur = n.status === "current";
       const bar = document.createElement("div");
       if (s.duration_s == null && isCur) {
-        // 在跑段：sky 实时条，右缘=now（每 SSE 拍增长）
-        const elapsed = Math.max(1, Math.round((now - new Date(s.ts).getTime()) / 1000));
+        // 在跑段：sky 实时条，右缘=now（每 SSE 拍增长）——起点优先在飞段
+        // current_segment.started_at（不含段间空隙），缺它回退末行 ts
+        const cs = info.current_segment;
+        const startTs = (cs && cs.node === n.node_id && cs.started_at)
+          ? cs.started_at
+          : s.ts;
+        const elapsed = Math.max(1, Math.round((now - new Date(startTs).getTime()) / 1000));
         bar.className = "gt-bar cur running";
         bar.style.left = x + "px";
         bar.style.width = Math.max(3, Math.round(elapsed * scale)) + "px";
@@ -820,15 +831,18 @@ function renderDetailLive(d) {
   const curNodeInfo = d.info.nodes.find((n) => n.status === "current");
   const curStepName = curNodeInfo
     ? `${curNodeInfo.label} ${stepName(curNodeInfo, d.info.sub_step_index)}` : "当前步";
-  if (d.driver_pid && d.stats.length) {
-    const lastTs = Math.max(...d.stats.map((x) => new Date(x.ts).getTime()));
-    const elapsed = Math.max(0, Math.round((Date.now() - lastTs) / 1000));
+  if (d.driver_pid) {
+    // 总执行时间 = Σ 完成段耗时 + 在飞段实跑（current_segment.started_at——
+    // driver 起跑落盘）。旧口径「末段结束 - now」把等用户答题时间也算入，
+    // 且段结束时总数倒退（两实爆）；driver 停（等答/门栏）徽标不显示
     const totDur = d.stats.reduce((a, s) => a + (s.duration_s || 0), 0);
+    const cs = d.info.current_segment;
+    const curEl = cs && cs.started_at
+      ? Math.max(0, Math.round((Date.now() - new Date(cs.started_at).getTime()) / 1000))
+      : 0;
     live.innerHTML =
       `<span class="live-badge"><span class="dot ok"></span>在跑 · ${esc(curStepName)}` +
-      ` · 总 ${fmtHMS(totDur + elapsed)}</span>`;
-  } else if (d.driver_pid) {
-    live.innerHTML = `<span class="live-badge"><span class="dot ok"></span>在跑</span>`;
+      ` · 总 ${fmtHMS(totDur + curEl)}</span>`;
   } else {
     live.textContent = "";
   }

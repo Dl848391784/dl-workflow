@@ -1083,6 +1083,55 @@ def test_merged_session_popen_errors_replace(wf_repo, monkeypatch):
     assert captured.get("errors") == "replace"
 
 
+def test_segment_begin_end_lifecycle(wf_repo, monkeypatch):
+    """在飞段起点：begin 落 state.current_segment（位置从 note 解析），end
+    清除；note 无位置 → 不记（不猜）。"""
+    drv = _load(DRIVER, "drv_under_test")
+    _write_state(wf_repo)
+    meta = wf_repo / SEG_META
+    drv._segment_begin(meta, "sid1", "understand:2#3-prep")
+    cs = _read_state(wf_repo)["current_segment"]
+    assert cs["node"] == "understand:2" and cs["sub_step"] == 3
+    assert cs["started_at"]
+    drv._segment_begin(meta, "sid1", "no-position-note")  # 无位置 → 不动旧记
+    assert _read_state(wf_repo)["current_segment"]["node"] == "understand:2"
+    drv._segment_end(meta)
+    assert "current_segment" not in _read_state(wf_repo)
+
+
+def test_run_session_marks_current_segment(wf_repo, monkeypatch):
+    """run_session 起跑落在飞标记、收工清除——徽标「总执行时间」数据源
+    （等用户答题不再计入，段收尾总数不倒退）。"""
+    from unittest.mock import MagicMock
+
+    drv = _load(DRIVER, "drv_under_test")
+    _write_state(wf_repo)
+    proc = MagicMock()
+    proc.stdout = iter([])
+    proc.wait.return_value = 0
+    proc.returncode = 0
+    seen = {}
+    monkeypatch.setattr(drv.subprocess, "Popen", lambda *a, **k: proc)
+
+    def fake_wait(*a, **k):
+        seen["cs"] = _read_state(wf_repo).get("current_segment")
+        return 0
+
+    monkeypatch.setattr(drv, "_pwait_interruptible", fake_wait)
+    meta = wf_repo / ".claude" / "workflows" / "t"
+    drv.run_session(
+        "p",
+        cwd=wf_repo / ".claude" / "worktrees" / "t",
+        settings=meta / "settings.json",
+        sys_prompt_file=meta / "rules.md",
+        meta=meta,
+        debug=False,
+        note="understand:1#2",
+    )
+    assert seen["cs"]["node"] == "understand:1" and seen["cs"]["sub_step"] == 2
+    assert "current_segment" not in _read_state(wf_repo)
+
+
 def _gate_advancing(repo: Path):
     """假门控：advanced 并真实推进 state（子步 +1；越界则跨到 understand:2#1）。
 

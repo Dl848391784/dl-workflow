@@ -50,6 +50,8 @@ class WorkflowInfo:
     force_tacet: bool = False
     force_fermate: bool = False
     error: str | None = None
+    # 在飞段（driver 起跑落盘、收工清除）：总执行时间 = Σ 完成段 + 本段实跑
+    current_segment: dict | None = None
 
 
 def meta_root(project: Path, name: str) -> Path:
@@ -163,6 +165,7 @@ def scan_workflow(project: Path, name: str) -> WorkflowInfo:
         gate_actionable=gate_actionable_of(state),
         force_tacet=bool(state.get("force_tacet")),
         force_fermate=bool(state.get("force_fermate")),
+        current_segment=state.get("current_segment"),
     )
 
 

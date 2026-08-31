@@ -135,6 +135,15 @@ def test_step_labels_exclude_silent(tmp_path):
     assert set(u1.step_labels) <= {"1", "2", "3", "4"}  # tacet 脊柱 u:1#1-4
 
 
+def test_scan_workflow_current_segment_passthrough(tmp_path):
+    """在飞段标记透传（driver 起跑落盘）——总执行时间的在飞项数据源。"""
+    st = dict(BASE_STATE, current_segment={
+        "session_id": "s1", "node": "plan:2", "sub_step": 1, "started_at": "t"})
+    _mk_workflow(tmp_path, "demo", st)
+    cs = scan_workflow(tmp_path, "demo").current_segment
+    assert cs["node"] == "plan:2" and cs["started_at"] == "t"
+
+
 def test_scan_all_isolates_broken_workflow(tmp_path):
     _mk_workflow(tmp_path, "good", BASE_STATE)
     bad = meta_root(tmp_path, "bad")
