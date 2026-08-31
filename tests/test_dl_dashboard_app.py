@@ -40,6 +40,22 @@ def test_list_workflows(client):
     assert rows[0]["totals"]["cost_usd"] == 0
 
 
+def test_index_and_artifact_inject_fresh_static_version(client):
+    """静态版本戳 = 文件 mtime 动态注入——手工死戳（?v=be08209）不再出现，
+    改静态文件后浏览器必拉新（metro 修复「没生效」实爆的根）。"""
+    import re as _re
+
+    c, _ = client
+    r = c.get("/")
+    assert r.status_code == 200
+    vers = set(_re.findall(r"(?:app\.js|style\.css)\?v=([A-Za-z0-9]+)", r.text))
+    assert vers and "be08209" not in vers
+    r2 = c.get("/static/artifact.html")
+    assert r2.status_code == 200
+    vers2 = set(_re.findall(r"(?:app\.js|style\.css)\?v=([A-Za-z0-9]+)", r2.text))
+    assert vers == vers2  # 双页同戳（同一份静态文件集合）
+
+
 def test_detail(client):
     c, project = client
     r = c.get("/api/workflow", params={"project": str(project), "name": "demo"})

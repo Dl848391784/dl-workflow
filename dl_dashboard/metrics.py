@@ -37,9 +37,14 @@ def _tok(st: dict, key: str) -> int | None:
     return v
 
 
-def _load_stats_jsonl(meta: Path) -> dict[str, dict]:
+def _load_stats_jsonl(meta: Path) -> dict[str, list[dict]]:
+    """segment_stats.jsonl -> sid 有序行列表。
+
+    一个 sid 可有多行（合并段逐 turn / 段链续步 / inject resume 同会话）——
+    旧版 dict 末行覆盖，多行 sid 的早 turn 统计被吞（合并段步骤时间轴
+    缺进度条实爆）；保序列表供 collect_stats 按台账行序逐个配对。"""
     p = meta / "segment_stats.jsonl"
-    stats: dict[str, dict] = {}
+    stats: dict[str, list[dict]] = {}
     if not p.exists():
         return stats
     for line in p.read_text(encoding="utf-8").splitlines():
@@ -50,7 +55,7 @@ def _load_stats_jsonl(meta: Path) -> dict[str, dict]:
             continue
         sid = ev.get("session_id")
         if sid:
-            stats[sid] = ev
+            stats.setdefault(sid, []).append(ev)
     return stats
 
 
@@ -107,11 +112,20 @@ def collect_stats(project: Path, name: str, cache_dir: Path) -> list[SegmentStat
     segs = state.get("segment_sessions", [])
     slug = f"{str(project).replace('/', '_')}--{name}"
     legacy = _legacy_result_stats(meta, cache_dir, slug)
-    current = _load_stats_jsonl(meta)
-    stats = {**legacy, **current}  # 新埋点优先
+    current = _load_stats_jsonl(meta)  # sid -> 有序行列表（新埋点）
     out: list[SegmentStat] = []
+    consumed: dict[str, int] = {}
     for seg in segs:
-        st = stats.get(seg.get("session_id"), {})
+        sid = seg.get("session_id")
+        if sid in current:
+            # 多行 sid（合并段/段链）按台账行序逐个配对（双方同序追加）；
+            # 行不足钳到末行（近似，不丢行）；legacy 被 current 整 sid 遮蔽
+            rows = current[sid]
+            idx = consumed.get(sid, 0)
+            st = rows[min(idx, len(rows) - 1)]
+            consumed[sid] = idx + 1
+        else:
+            st = legacy.get(sid, {})
         dur = st.get("duration_ms")
         out.append(SegmentStat(
             session_id=str(seg.get("session_id", "")),

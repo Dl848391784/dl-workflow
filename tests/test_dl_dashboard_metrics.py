@@ -66,6 +66,37 @@ def test_collect_joins_new_and_legacy_stats(tmp_path):
     assert t["cache_read_input_tokens"] == 3900
 
 
+def test_collect_merged_session_turns_zip_in_order(tmp_path):
+    """一个 sid 多条统计行（合并段逐 turn / 段链续步）：按台账行序逐个配对——
+    旧版 sid 字典末行覆盖，合并段各步全挂末行统计（时间轴进度条/耗时缺失，
+    web_ui_interaction u:2#2/#3 实爆）。"""
+    meta = meta_root(tmp_path, "demo")
+    meta.mkdir(parents=True)
+    state = {
+        "name": "demo",
+        "segment_sessions": [
+            {"ts": "t1", "session_id": "sid-m", "kind": "merged-step",
+             "node": "understand:2", "sub_step": 2, "note": "gate=advanced"},
+            {"ts": "t2", "session_id": "sid-m", "kind": "merged-step",
+             "node": "understand:2", "sub_step": 3, "note": "gate=advanced"},
+        ],
+    }
+    (meta / "state.json").write_text(json.dumps(state), encoding="utf-8")
+    (meta / "segment_stats.jsonl").write_text(
+        json.dumps({"ts": "t1", "session_id": "sid-m", "num_turns": 5,
+                    "duration_ms": 56000, "total_cost_usd": 0.3}) + "\n"
+        + json.dumps({"ts": "t2", "session_id": "sid-m", "num_turns": 13,
+                      "duration_ms": 99000, "total_cost_usd": 0.8}) + "\n",
+        encoding="utf-8",
+    )
+    stats = collect_stats(tmp_path, "demo", tmp_path / "cache")
+    assert [s.sub_step for s in stats] == [2, 3]
+    assert [s.duration_s for s in stats] == [56, 99]  # 逐步归属，非全挂末行
+    assert [s.num_turns for s in stats] == [5, 13]
+    t = totals(stats)
+    assert t["duration_s"] == 155 and t["num_turns"] == 18
+
+
 def test_legacy_scan_incremental_via_offset_cache(tmp_path):
     meta = _mk(tmp_path, "demo")
     (meta / "segment_stats.jsonl").write_text("", encoding="utf-8")

@@ -104,9 +104,18 @@ def _load(project_root: Path, name: str) -> dict:
 
 
 def _record_segment(
-    project_root: Path, name: str, *, session_id: str, kind: str, note: str
+    project_root: Path,
+    name: str,
+    *,
+    session_id: str,
+    kind: str,
+    note: str,
+    node: "str | None" = None,
+    sub_step: "int | None" = None,
 ) -> None:
-    """段会话留痕（审计用）：session id + 类型 + 当时节点指针。上限 200 条防膨胀。"""
+    """段会话留痕（审计用）：session id + 类型 + 节点指针。上限 200 条防膨胀。
+    node/sub_step 缺省 = 当时 state 指针；合并段逐步留痕时显式传入（门控
+    advanced 后 state 已推进，当时指针是下一步，归属会记串行）。"""
     state = _load(project_root, name)
     segs = state.setdefault("segment_sessions", [])
     segs.append(
@@ -114,8 +123,10 @@ def _record_segment(
             "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
             "session_id": session_id,
             "kind": kind,
-            "node": state.get("node"),
-            "sub_step": state.get("sub_step_index"),
+            "node": node if node is not None else state.get("node"),
+            "sub_step": (
+                sub_step if sub_step is not None else state.get("sub_step_index")
+            ),
             "note": note,
         }
     )
@@ -1087,6 +1098,18 @@ def _run_merged_run(
                 return None, None
             action, reason, _ns = engine.gate_sub_step_at_stop(
                 project_root, name, str(wt)
+            )
+            # 合并段逐步留痕（dashboard 时间轴缺进度条实爆：stats 按 sid join
+            # 台账，合并段内部步无台账 = 统计不出）。显式传本 turn 位置——
+            # advanced 后 state 已推进，缺省指针会记串行到下一步
+            _record_segment(
+                project_root,
+                name,
+                session_id=sess.sid,
+                kind="merged-step",
+                note=f"gate={action}",
+                node=nid,
+                sub_step=cur,
             )
             if action == "advanced":
                 none_retries = 0

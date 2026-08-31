@@ -3510,6 +3510,43 @@ def test_merged_run_single_session_covers_u2_sub2_to_sub4(wf_repo, monkeypatch):
     assert data["questions"][0]["question"] == "q-u3"
 
 
+def test_merged_run_records_per_step_ledger(wf_repo, monkeypatch):
+    """合并段逐步留痕：每个 turn 落一条 merged-step 台账（session=合并会话
+    sid，node/sub_step=本 turn 位置）——dashboard 按 sid join 统计，合并段
+    内部步无台账 = 时间轴缺进度条（web_ui_interaction u:2#2/#3 实爆）。
+    显式传位：advanced 后 state 已推进，缺省指针会记串行到下一步。"""
+    drv = _load(DRIVER, "drv_merged_main")
+    _seg_write_state(wf_repo, sub_index=2, node="understand:2", sub_step_index=2)
+    next_prep_out = (
+        "子4 完成\n### NEXT_PREP\n```json\n"
+        '{"questions": [{"question": "q-u3", "header": "h", "multiSelect": false,'
+        ' "options": []}]}\n```'
+    )
+    insts = _merged_stub(
+        drv,
+        monkeypatch,
+        [[("子2 完成", {}), ("子3 完成", {}), (next_prep_out, {})]],
+    )
+    monkeypatch.setattr(
+        drv.engine,
+        "gate_sub_step_at_stop",
+        _gate_scripted(
+            wf_repo, [("advanced",), ("advanced",), ("advanced",), ("advanced",)]
+        ),
+    )
+    _run_session_stub(drv, monkeypatch, [])
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 13
+    segs = _read_state(wf_repo)["segment_sessions"]
+    merged = [s for s in segs if s.get("kind") == "merged-step"]
+    assert [(s["node"], s["sub_step"]) for s in merged] == [
+        ("understand:2", 2),
+        ("understand:2", 3),
+        ("understand:2", 4),
+    ]
+    assert {s["session_id"] for s in merged} == {"merged-s"}
+
+
 def test_merged_run_block_reworks_in_session(wf_repo, monkeypatch):
     """门控 block → 同会话暖返工（不起新进程、不重付冷启动）：续步 prompt 带返工判词。"""
     drv = _load(DRIVER, "drv_merged_block")
