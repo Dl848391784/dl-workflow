@@ -3545,6 +3545,10 @@ def test_merged_run_records_per_step_ledger(wf_repo, monkeypatch):
         ("understand:2", 4),
     ]
     assert {s["session_id"] for s in merged} == {"merged-s"}
+    # 外层汇总留痕 kind=merged-outer（区别于 headless-step——collect_stats
+    # 跳过它，否则 clamp 配对会把末 turn 统计在收尾步上重复计一次）
+    outer = [s for s in segs if "merged " in str(s.get("note", ""))]
+    assert outer and all(s["kind"] == "merged-outer" for s in outer)
 
 
 def test_merged_run_block_reworks_in_session(wf_repo, monkeypatch):

@@ -1220,11 +1220,14 @@ def _run_merged_run(
             continue
     finally:
         sess.close()
+        # merged-outer（区别于 headless-step）：合并段外层汇总留痕。统计由
+        # 逐步 merged-step 行承载，本行不进 collect_stats（否则 clamp 配对
+        # 会把末 turn 统计在收尾步上重复计一次）
         _record_segment(
             project_root,
             name,
             session_id=sess.sid,
-            kind="headless-step",
+            kind="merged-outer",
             note=f"merged {nid}#{first_cur}-#{cur} rc={sess.rc}",
         )
 
