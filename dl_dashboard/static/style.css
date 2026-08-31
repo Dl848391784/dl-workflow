@@ -460,17 +460,22 @@ main { padding: 20px; flex: 1; min-width: 0; max-width: 1400px; }
   padding: 10px 16px 12px 12px;
 }
 #timeline.metro .tl-phase.current { border-color: var(--sky-line); }
-#timeline.metro .tl-phase::before {
+/* 地铁轨道 = 逐节点轨段（替代旧 phase 级通长线：通长线全宽恒满、无进度
+   语义，且 top:40px 与阶段 Σ 汇总文字重叠——两实爆同修）。
+   轨段几何相对节点自身（dot top:32px 高 11px(border-box) → 中心 37.5px，
+   轨高 3px → top:36px），与阶段头部有无 Σ 行解耦。 */
+#timeline.metro .tl-node::after {
   content: "";
   position: absolute;
-  top: 40px;
-  left: 0;
-  right: 0;
-  border-top: 3px solid var(--line);
+  top: 36px;
+  left: 14px;   /* dot 右缘（dot left:3px + 宽 11px） */
+  right: -29px; /* 桥接 26px 分支间距 + 探入下节点 3px 触其 dot 缘 */
+  height: 3px;
   border-radius: 2px;
+  background: var(--line);   /* 默认未到达（当前/待办站之后为暗轨） */
 }
-#timeline.metro .tl-phase.done::before { border-color: var(--accent); }
-#timeline.metro .tl-phase.current::before { border-color: var(--sky); }
+#timeline.metro .tl-node:last-child::after { display: none; }
+#timeline.metro .tl-node.done::after { background: var(--accent); } /* 已过站区间亮轨 */
 #timeline.metro .tl-phase-head {
   font-family: var(--mono);
   font-size: 10.5px;
