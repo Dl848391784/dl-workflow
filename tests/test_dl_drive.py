@@ -1021,6 +1021,68 @@ def _run_session_stub(drv, monkeypatch, outs) -> list:
     return calls
 
 
+def test_run_session_popen_errors_replace(wf_repo, monkeypatch):
+    """provider 流偶发非法 UTF-8——Popen 必须 errors='replace'：strict 解码
+    UnicodeDecodeError 直接崩 driver（web_ui_interaction u:2#1 实爆，driver
+    死在 for line in proc.stdout）。"""
+    from unittest.mock import MagicMock
+
+    drv = _load(DRIVER, "drv_under_test")
+    _write_state(wf_repo)
+    captured = {}
+    proc = MagicMock()
+    proc.stdout = iter([])  # 零行流：跳过解析循环
+    proc.wait.return_value = 0
+    proc.returncode = 0
+
+    def fake_popen(cmd, **kw):
+        captured.update(kw)
+        return proc
+
+    monkeypatch.setattr(drv.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(drv, "_pwait_interruptible", lambda *a, **k: 0)
+    meta = wf_repo / ".claude" / "workflows" / "t"
+    drv.run_session(
+        "prompt",
+        cwd=wf_repo / ".claude" / "worktrees" / "t",
+        settings=meta / "settings.json",
+        sys_prompt_file=meta / "rules.md",
+        meta=meta,
+        debug=False,
+        note="t",
+    )
+    assert captured.get("errors") == "replace"
+
+
+def test_merged_session_popen_errors_replace(wf_repo, monkeypatch):
+    """MergedSession 同款暴露（合并段读 turn 迭代同一 provider 流）。"""
+    from unittest.mock import MagicMock
+
+    drv = _load(DRIVER, "drv_under_test")
+    _write_state(wf_repo)
+    captured = {}
+    proc = MagicMock()
+    proc.wait.return_value = 0
+    proc.returncode = 0
+
+    def fake_popen(cmd, **kw):
+        captured.update(kw)
+        return proc
+
+    monkeypatch.setattr(drv.subprocess, "Popen", fake_popen)
+    meta = wf_repo / ".claude" / "workflows" / "t"
+    sess = drv.MergedSession(
+        cwd=wf_repo / ".claude" / "worktrees" / "t",
+        settings=meta / "settings.json",
+        sys_prompt_file=meta / "rules.md",
+        meta=meta,
+        debug=False,
+        note="t",
+    )
+    assert sess._proc is proc
+    assert captured.get("errors") == "replace"
+
+
 def _gate_advancing(repo: Path):
     """假门控：advanced 并真实推进 state（子步 +1；越界则跨到 understand:2#1）。
 

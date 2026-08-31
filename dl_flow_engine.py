@@ -2769,6 +2769,9 @@ def _run_judge_once(prompt: str) -> tuple[bool, str, bool]:
             ],
             capture_output=True,
             text=True,
+            # provider 偶发非法 UTF-8——strict 解码崩 judge（同类：dl_drive
+            # run_session / dashboard actions 同款修复）
+            errors="replace",
             timeout=JUDGE_TIMEOUT,
             # judge 会话必须落在非 git 目录：继承 worktree cwd 时，judge 会话自身的
             # UserPromptSubmit/Stop 会触发 workflow hooks（用户级注册）-> 递归门控

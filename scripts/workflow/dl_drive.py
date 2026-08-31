@@ -709,6 +709,10 @@ def run_session(
             stdout=subprocess.PIPE,
             stderr=err_f,
             text=True,
+            # provider 流偶发非法 UTF-8 字节（deepseek 网关实爆：strict 解码
+            # UnicodeDecodeError 直接崩 driver）——replace 成 U+FFFD，坏行由
+            # 下游 json.loads try/except 跳过，段照跑
+            errors="replace",
             bufsize=1,
             # 独立进程组：终端 Ctrl+C 只打 driver——中断/退出语义由 driver
             # 统一裁决（防 child 先收 SIGINT 自杀、driver 读 EOF 当正常收段的竞态）
@@ -867,6 +871,7 @@ class MergedSession:
             stdout=subprocess.PIPE,
             stderr=self._err_f,
             text=True,
+            errors="replace",  # 同 run_session：非法 UTF-8 不崩段（U+FFFD 跳坏行）
             bufsize=1,
             # 独立进程组（同 run_session）：终端 Ctrl+C 只打 driver
             start_new_session=True,
