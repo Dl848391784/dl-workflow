@@ -71,3 +71,23 @@ dl <name> --done          # 归档（删 worktree+分支+元数据）
 6. `install.sh` + **重启会话**（commands/*.md copy 才能注册新用法串）；hooks 文案源直引即生效，无需 install。
 
 **engine 数据形态注意**：`Node.sub_steps` 无编排节点是 **`None` 不是 `[]`**——`len(node.sub_steps)` 直接 TypeError（v2.22 TDD 红阶段抓到），遍历/计长前必须 `node.sub_steps or []` 或 `if not node.sub_steps` 先判。
+
+### 1.5 改 dashboard 的验收纪律：pytest 绿 ≠ 工作，必过真实实例 E2E
+
+> 2026-08-31 全天实爆沉淀。核心教训：**dashboard 的 bug 大多活在时序窗口、状态机联动和真实模型行为里——单元测试全绿照样三连爆**（已答标记 v1 单测 224 全绿，真实 E2E 一跑：标记 90s 失效 + 注入零落库两连）。
+
+**必须跑真实 E2E 的改动面**（改这些不许只交 pytest）：inject/答题链路、段生命周期（spawn/收段/门控）、交互卡渲染（need_user/answered）、统计 join（segment_stats/metrics）、时间轴三肤、静态版本戳。
+
+**sweep 驱动脚本模式**（`~/scripts/dl_dashboard_e2e.py`，用户决议脚本留本地不进仓）：
+1. `POST /api/create` 建 throwaway 实例（provider 指定 ac-deepseek1）→ 每 15s 轮询 `/api/workflow`
+2. `inject_ready=True` → 自动答题（选项逐字 + 痛点补充——define-problem 类 gate 要求 who/pain/why-now 可观察后果；读回类首选顶=确认语义）
+3. **异常检测器**（判据可直接复用）：READY_WITHOUT_CARD（ready 但无卡）/ MARKER_NOT_HOLD（注后标记未覆盖）/ ANSWERED_BUT_DEAD（answered 覆盖中但 driver 死>3min=横幅说谎）/ STALL_NODRIVER（driver 死+非等人+非门栏+非终态=永久停摆）/ STALE_CARD_SHOWN（卡绑定≠state=server 漏滤）/ LIST_DETAIL_DIVERGE
+4. 中段演习 pause/resume、撞门栏演习 /api/gate；终态核验 artifact/outputs/totals/evidence；`--keep` 可留实例
+5. 全量轮询落 `/tmp/e2e-sweep-<name>.jsonl` 供事后归因
+
+**复跑纪律**：修复后必须整轮复跑到零异常（不是只验证修复点）——本轮实锤：run1 抓 6 问题，修复后 run2 全生命周期零异常才算收口。
+
+**E2E 抓得到、单测抓不到的三类设计判据**（写码时就按此设计，别等 E2E 抓）：
+1. **保守分支的前提用通道物理属性判别**（stdin TTY = 有无真人键盘），不用状态标志位——新通道的写入路径会绕过标志位（症状 AK）
+2. **判覆盖/判变更用内容 hash 不用 ts**——同一内容重落盘 ts 必变（症状 AI）
+3. **join 型统计每个产出单位都要有台账锚点，多行同键保序配对**（症状 AO）

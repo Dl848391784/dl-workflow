@@ -1,7 +1,7 @@
 ---
 name: workflow-creation
-description: 建工作流系统 + 运行诊断 + 运行审计。触发：新建/改工作流、dl 命令、阶段不推进、注入没生效、/dl 报错、hook 装错位置、模型否认收到注入、5 阶段不显示、gate 裁决记录(evidence)不落地、子步骤编排(sub_steps/STEP_DONE) 不推进、evidence 写到 worktree、审计一轮运行(可避免的 error/返工/耗时/token 优化)、tacet 实验轨道/dlt/force-tacet 行为。
-version: 2.7
+description: 建工作流系统 + 运行诊断 + 运行审计。触发：新建/改工作流、dl 命令、阶段不推进、注入没生效、/dl 报错、hook 装错位置、模型否认收到注入、5 阶段不显示、gate 裁决记录(evidence)不落地、子步骤编排(sub_steps/STEP_DONE) 不推进、evidence 写到 worktree、审计一轮运行(可避免的 error/返工/耗时/token 优化)、tacet 实验轨道/dlt/force-tacet 行为、dashboard 症状（提交按钮复活/陈旧卡/时间轴缺数据/总时间不对/修复没生效）。
+version: 2.8
 ---
 
 # workflow-creation
@@ -33,7 +33,7 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
 
 **运行模式三态**（入口唯一决定，state 磁盘真源互通可续）：v4 默认 = `dl <name>` 常驻 TUI 前台 + 会话内派发 `dl_drive.py --segment` 后台段跑非交互步（designs/front-tui-hybrid-design.md，2026-08-11——hooks 走 front 分支：phase 注入派发块 / advance stall 兜底 3 次计数闸 / fence 非交互步白名单；**同日用户裁决默认翻转**）；v3 = `dl <name> --headless` 全程 headless driver（designs/headless-driver-arch-design.md）；WF_TUI=1 = v2 旧 TUI hook 编排（回滚面）。
 
-**观测/控制面 dl_dashboard**（2026-08-28 起，`dl_dashboard/` + `python3 -m dl_dashboard.app`，0.0.0.0:9000）：dl 的第三个入口（前两个=终端 `dl`/`dlt`、wf_ctl 脚本）——Web 控制台：跨项目列表/三肤步骤时间轴/改动面审核卡片/证据链/产物阅读 + 创建/注入/gate/暂停恢复/删除全驱动。机制要点：driver 为 server 的 setsid 子进程 + PID 文件 + **/proc 野生认领**（diagnostics 症状 AH）；inject 守**时序铁律**（症状 AF 窗口/AG 误杀备题段）；可见步（tacet 脊柱/fermate 裁剪）一律取 `dl_flow_nodes.tacet_silent_steps()`/`FERMATE_SILENT_STEPS` 单源，消费方禁自猜；provider 选择 = server 启动时 `bash -c 'source ~/.bashrc; <ac-fn>; env'` 捕获 ANTHROPIC_*/CLAUDE_* 注入 driver spawn env（bashrc 函数不可被子进程 exec，症状 AC 同根）。模型实测判据 = drive-stream result 事件 `modelUsage.canonicalModel`。
+**观测/控制面 dl_dashboard**（2026-08-28 起，`dl_dashboard/` + `python3 -m dl_dashboard.app`，0.0.0.0:9000）：dl 的第三个入口（前两个=终端 `dl`/`dlt`、wf_ctl 脚本）——Web 控制台：跨项目列表/三肤步骤时间轴/改动面审核卡片/证据链/产物阅读 + 创建/注入/gate/暂停恢复/删除全驱动。机制要点：driver 为 server 的 setsid 子进程 + PID 文件 + **/proc 野生认领**（diagnostics 症状 AH）；inject 守**时序铁律**（症状 AF 窗口/AG 误杀备题段）；可见步（tacet 脊柱/fermate 裁剪）一律取 `dl_flow_nodes.tacet_silent_steps()`/`FERMATE_SILENT_STEPS` 单源，消费方禁自猜；provider 选择 = server 启动时 `bash -c 'source ~/.bashrc; <ac-fn>; env'` 捕获 ANTHROPIC_*/CLAUDE_* 注入 driver spawn env（bashrc 函数不可被子进程 exec，症状 AC 同根）。模型实测判据 = drive-stream result 事件 `modelUsage.canonicalModel`。**2026-08-31 全链路加固**（全天 E2E 实爆驱动，designs/dashboard-{answered-marker,segment-autocontinue,notty-segment-and-entry-judge}-design.md）：no-TTY 判别 = stdin TTY（交互段一次性 `-p` + 结构性移除 AskUserQuestion；收段落共享门控自动续跑）；driver 接管**入口判决**（先判未判决 trace 再派活）；已答标记 `answered.json`（内容 hash + block 放行三态：准备中/表单/已提交横幅）；问题卡带步骤绑定（`need_user_stale` scanner 单源过滤）；`gate_actionable`（按钮可见性）/`step_labels`（中文步名）/`current_segment`（在飞段起点=总执行时间在飞项）scanner 统一下发；合并段逐 turn `merged-step` 台账 + sid 行序配对统计；静态版本戳 = mtime 动态注入。验收纪律见 build-and-modify §1.5（pytest 绿≠工作，改 dashboard 必过真实实例 E2E）。
 
 **TACET 实验轨道**（2026-08-23 收口合并 main，designs/force-tacet-experiment-design.md）：`dlt <name>` = 同一 launcher 自动附加 `--force-tacet`--六步脊柱（u:1#1/u:1#2/u:1#3/u:1#4/plan:1#2/plan:4#4）全额执行，其余 38 子步 engine 机械静默（零 token/零 judge），到 plan:4 门栏与 main 同路径停等。`force_tacet` 是 per-instance sticky state 开关（engine 全程 state.get 判定、默认 off），**模型无权自封**；普通 `dl` 永远全量 44 步。实例开关：`dl_flow_engine.py force-tacet <name> on|off`。
 
@@ -116,3 +116,13 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
 - "设计新编排节点 / 拆几个子步骤 / 每步什么目的 / 要不要取证步 / 步数怎么定 / 代码设计拆步 / 拆解任务 / 任务切分 / 执行计划 plan.md" → references/node-split-methodology.md；查某节点有几步/关键不对称 → references/nodes-index.md
 - "另一会话在改同仓库 / 文件被外部修改 / 两批改动怎么分开 commit / 测试全红是不是我的问题" → references/collab.md
 - "证据链 / evidence / no_markers / evidence.jsonl 不生成 / 证据不落地" → references/diagnostics.md 症状 I
+- "提交答案后按钮复活/还能再提交 / 已答窗口 / double-inject" → references/diagnostics.md 症状 AI
+- "陈旧问题卡 / 步骤推进了还显示旧问题 / 在跑和等人分不清" → references/diagnostics.md 症状 AJ
+- "dashboard 答完题不自动继续 / 每步要手动重新驱动 / driver 过门控就退" → references/diagnostics.md 症状 AK
+- "交互段挂起零台账 / 注入后反复重问同样问题 / prep 死循环 / claude 无 -p 进程长跑" → references/diagnostics.md 症状 AL
+- "driver 崩溃 UnicodeDecodeError / utf-8 codec can't decode / driver 日志 Traceback 终止" → references/diagnostics.md 症状 AM
+- "修复没生效 / 改了静态文件页面还是老样子 / 浏览器缓存" → references/diagnostics.md 症状 AN
+- "时间轴步骤缺进度条缺耗时 / 合并段步骤没数据 / 统计对不上" → references/diagnostics.md 症状 AO
+- "总时间含等待 / 在跑时间忽大忽小倒退 / 总执行时间不对" → references/diagnostics.md 症状 AP
+- "dashboard 端到端验证 / E2E 怎么跑 / 改动怎么验收" → references/build-and-modify.md §1.5（pytest 绿≠工作，真实实例 sweep 纪律）
+- "多选题只能单选 / checkbox 变 radio / 时间轴中文步名 / gate 按钮不该显示时显示" → 均已修（2026-08-31 批次），复现按症状 AN 先查静态缓存再查 scanner 单源字段（step_labels/gate_actionable）

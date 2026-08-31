@@ -467,3 +467,58 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 - **判读**：`pgrep -f "dl_drive.py <name>"` 有活进程，但 dashboard/控制面显示 driver 已停、且无对应 `.pid` 文件 = 野生 driver。终端 `dl <name> --resume` 起的 driver 对 dashboard 天然是野生的。
 - **修复**：PID 文件缺失时**扫 /proc 认领**：遍历 `/proc/*/cmdline`，匹配「argv 有元素以 `dl_drive.py` 结尾（注意全路径，不能 `b"dl_drive.py" in argv` 精确等值）且 工作流名独立成参（防子串误配）」，认领后补写 PID 文件。认领成功前禁起新 driver。
 - **教训**：liveness 真源是进程本身（/proc），PID 文件只是索引。索引丢了要重建索引，不是当进程不存在。
+
+### 症状 AI：提交答案后表单复活可重复提交（已答窗口）
+
+- **根因**（2026-08-31 web_ui_interaction 实爆）：`inject_ready()` 只看「当前步有无 tui-step-needuser 段台账」，不看「这份问题是否已答」。inject 成功 → 门控推进前台账仍在原位 → 前端重渲染完整表单 → 可 double-inject；用户无法分辨「提交没成功」还是「处理中」。
+- **判读**：detail API `inject_ready=True` 且 `need_user` 在，但 evidence 已有本步 trace / `answered.json` 存在。
+- **修复**：已答标记 `answered.json`（inject 成功时写 {node, sub_step, questions_sha, answered_at}）——`inject_ready` 被覆盖即 False，前端显示「答案已提交」横幅。**判覆盖用问题内容 hash 不用 ts**（driver none 重试会对同一批问题重 stash，ts 必变 hash 不变）；**answered_at 之后撞本步 block 裁决必须放行重答**（否则 escalate 后永远无法重答 = 卡死）。
+- **教训**：「已答」是和「就绪」并列的第三状态。任何「表单/按钮是否可用」的判据都要三态全：未就绪（准备中）/ 可答（表单）/ 已答（横幅）。designs/dashboard-answered-marker-design.md。
+
+### 症状 AJ：陈旧问题卡——state 已推进，页面仍挂旧问题
+
+- **根因**（2026-08-31 实爆）：`need_user.json` 无步骤绑定，detail 端点无条件渲染——state 到 u:1#2 了，页面还挂 u:1#1 的「等待输入」，「在跑」与「等人」不可分。
+- **判读**：`need_user.json` 的 node/sub_step ≠ state.json 当前位置（v1 后 stash 带 bind_key；无绑定字段 = 旧格式 legacy 放行）。
+- **修复**：写侧 stash 落 bind_key（与 prep_next_key 同构单源），读侧过滤规则下沉 scanner（`need_user_stale` 单源，scan bool 与 detail 渲染同口径——防列表/详情分裂）。
+- **教训**：落盘产物必须带归属（属于哪一步），读侧按归属过滤陈旧；过滤规则单源，多处消费禁止各写一份。
+
+### 症状 AK：dashboard 答完题 driver 退出不续跑（TUI 退=全退 no-TTY 误伤）
+
+- **根因**（2026-08-31 实爆）：收段分流看 autodone 标记，而 autodone 只认「driver 段内落库」（Stop hook 判 hash 变化）——dashboard 的 inject 是**段外落库**，拿不到标记 → 落入为真人 /exit 设计的保守分支「TUI 退 = 全退」→ 每过一交互步 driver 就退，需人工重新驱动。
+- **判读**：driver 日志「TUI 段结束，子步骤 N 已过门控——driver 退出。续跑：`dl <name>`」，且 driver 是 dashboard 拉的（stdin=DEVNULL）。
+- **修复**：判别条件 = **stdin 是否 TTY**（无 TTY = 无真人键盘 = 段结束只有「正常干完」一种语义）→ no-TTY 落共享门控自动续跑；有 TTY 保持全退裁决。designs/dashboard-segment-autocontinue-design.md。
+- **教训**：保守分支的前提（有真人 /exit）在新通道不成立时，判别要用通道的**物理属性**（stdin TTY），不是状态标志位——状态标志会被新通道的写入路径绕过。
+
+### 症状 AL：交互段零台账零结束 + 注入后 prep→重问死循环
+
+- **根因**（2026-08-31 E2E sweep 实爆，双根叠加）：①无 TTY 下 `run_tui_step` 派交互式 claude，弱模型调 AskUserQuestion 无人可答 → 进程挂起永不返回（零台账零结束行，killpg 残留烧 CPU）；②driver 接管**不先判未判决 trace**（旧路径只有 TUI 退出时的 `_after_tui_exit` 判）——inject 落库后重启的 driver 重跑 prep → 重 stash 问题（内容变 → 已答标记失效）→ 重问 → 再注入 → 再重跑，每圈烧 $0.6-1.0。
+- **判读**：segment_sessions 只有 prep/headless 行无 needuser 行；`ps` 有 `claude`（无 -p）长跑进程；evidence 有 trace 但 `last_judged_trace` 空、driver 反复接管。
+- **修复**：①no-TTY 改一次性 `claude -p` 段 + `--disallowedTools AskUserQuestion`（权限层堵挂起引信）；②`drive()` 接管先跑 `gate_sub_step_at_stop`（advanced 续走 / block seed rework / none 幂等零成本）——**入口判决**。designs/dashboard-notty-segment-and-entry-judge-design.md。
+- **教训**：任何「重开本步」路径都要先问「产出是否已落库未判」；交互工具（AskUserQuestion）的可用性要和通道形态绑定——无真人通道里它必须结构性不存在，不能靠模型自觉。
+
+### 症状 AM：driver/judge 崩 UnicodeDecodeError（provider 流非法 UTF-8）
+
+- **根因**（2026-08-31 web_ui_interaction u:2#1 实爆）：deepseek 网关流偶发非法 UTF-8 字节，`Popen(text=True)` 默认 strict 解码 → `for line in proc.stdout` 抛异常，driver 死在段中（问题卡已 stash 但段台账未落 = 「未就绪 + driver 已停」假象）。
+- **判读**：driver 日志尾部 `UnicodeDecodeError: 'utf-8' codec can't decode` + Traceback 终止。
+- **修复**：所有解码外部进程输出的 Popen/run 统一 `errors="replace"`（U+FFFD 坏字节，坏行由下游 json.loads try/except 跳过）——driver 段流、MergedSession、dashboard inject/create/gate、engine run_judge 全暴露面。
+- **教训**：读 provider 输出永远 `errors="replace"`——strict 解码是把 provider 抖动升级成编排器崩溃。新增 subprocess 调用点把这条当默认。
+
+### 症状 AN：静态修复「没生效」（?v= 死值缓存）
+
+- **根因**（2026-08-31 metro/多选/中文名三连「没生效」实爆）：`index.html`/`artifact.html` 里 `app.js?v=<git sha>` 是**手工敲死的**——改静态文件不更新戳，浏览器按旧 URL 永久吃缓存。server 侧文件是新的，用户看的是旧的。
+- **判读**：`curl -s http://<server>/static/<file> | grep <新特征>` 有 = server 侧已新；问题在浏览器侧 → 查 html 里 ?v= 是否变化。
+- **修复**：版本戳 = 静态文件 mtime_ns，serve html 时逐请求注入（双页同通道）。用户侧一次硬刷（Ctrl+Shift+R）后永久同步。
+- **教训**：「修复没生效」先分层验证：server 文件 → serve 输出 → 浏览器缓存。版本戳必须自动失效，靠人工纪律必漏。
+
+### 症状 AO：时间轴步骤缺进度条/耗时（合并段统计断链）
+
+- **根因**（2026-08-31 u:2#2/#3 实爆）：合并段（一个会话连续覆盖多步）内部步**无台账行**——collect_stats 按 session_id join 台账，join 不上即隐形；且 stats 按 sid 字典末行覆盖，多 turn 只留最后一个；外层汇总行指针落收尾步，还会重复计末 turn。
+- **判读**：segment_stats.jsonl 有该 sid 多行，segment_sessions 无对应步行；API stats 缺这些步。
+- **修复**：driver 合并段每 turn 落 `merged-step` 台账（显式传本 turn 位置——advanced 后 state 已推进）；metrics 改 sid 有序行列表按台账行序逐个配对；外层行 kind=`merged-outer` 免进统计。
+- **教训**：join 型统计链路，**每个产出单位都要有台账锚点**；多行同 sid 的配对要保序逐个消费，dict 覆盖必然丢行。
+
+### 症状 AP：「总执行时间」含等待 / 段收尾总数倒退
+
+- **根因**（2026-08-31 实爆）：徽标 = Σ 完成段耗时 + (now - 末段结束 ts)——第二项把末段结束到此刻的全部时间计入（含等用户答题）；且段结束时 elapsed 清零 vs duration 入账的口径差会让总数往下跳。
+- **修复**：driver 段/轮起跑落 `state.current_segment`（{node, sub_step, started_at}，收工清除）；总时间 = Σ 完成段 + 在飞段实跑（started_at 起算）；driver 停（等答/门栏）不计时。观测通道失败只 log 不阻断段。
+- **教训**：时间口径从**起点**算，不从上个终点算——「上个终点到此刻」必然混入非执行时间。
