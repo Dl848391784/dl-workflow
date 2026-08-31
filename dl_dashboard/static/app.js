@@ -563,11 +563,13 @@ function renderTimeline(stats, nodes, info, artifacts) {
 function renderInteract(d) {
   const box = $("interact");
   // SSE 每 2s 触发本区重建——先保住用户已选/已填，渲完恢复
-  // （实爆：radio 选完 2 秒被轮询清掉）
-  const savedRadio = {};
-  box.querySelectorAll("input[type=radio]:checked").forEach((r) => {
-    savedRadio[r.name] = r.value;
-  });
+  // （实爆：radio 选完 2 秒被轮询清掉）。同名多选（checkbox）存数组，
+  // 单值存取会只剩最后一个勾选
+  const savedChecks = {};
+  box.querySelectorAll("input[type=radio]:checked, input[type=checkbox]:checked")
+    .forEach((r) => {
+      (savedChecks[r.name] = savedChecks[r.name] || []).push(r.value);
+    });
   const savedOther = {};
   box.querySelectorAll("input[id$=-other]").forEach((i) => {
     savedOther[i.id] = i.value;
@@ -620,10 +622,12 @@ function renderInteract(d) {
       const div = document.createElement("div");
       div.className = "q";
       div.innerHTML = `<b>[${esc(q.header || "Q" + (i + 1))}]</b> ${esc(q.question)}`;
+      // multiSelect → checkbox（原一律 radio，多选题被压成单选——实爆）
+      const inputType = q.multiSelect ? "checkbox" : "radio";
       (q.options || []).forEach((op) => {
         const l = document.createElement("label");
         l.innerHTML =
-          `<input type="radio" name="q${i}" value="${esc(op.label)}"> ` +
+          `<input type="${inputType}" name="q${i}" value="${esc(op.label)}"> ` +
           `<b>${esc(op.label)}</b> · ${esc(op.description || "")}`;
         div.appendChild(l);
       });
@@ -638,9 +642,12 @@ function renderInteract(d) {
       const done = busy(btn, "注入中…（交互段回复要 1-2 分钟，勿重复点）");
       try {
         const parts = answers.map((i) => {
-          const checked = document.querySelector(`input[name=q${i}]:checked`);
+          const q = d.need_user.questions[i];
+          const checked = [...box.querySelectorAll(`input[name=q${i}]:checked`)]
+            .map((r) => r.value);
           const other = $(`q${i}-other`).value.trim();
-          return `问题${i + 1}：${other || (checked ? checked.value : "（未选）")}`;
+          const picked = q.multiSelect ? checked.join("；") : (checked[0] || "");
+          return `问题${i + 1}：${other || picked || "（未选）"}`;
         });
         const r = await post("/api/inject",
           { project: proj, name, answer: parts.join("\n") });
@@ -668,10 +675,12 @@ function renderInteract(d) {
   });
   adv.appendChild(form); adv.appendChild(go);
   box.appendChild(adv);
-  // 恢复重建前的选择与输入
-  for (const [name, value] of Object.entries(savedRadio)) {
-    const r = box.querySelector(`input[name=${name}][value="${CSS.escape(value)}"]`);
-    if (r) r.checked = true;
+  // 恢复重建前的选择与输入（同名多选逐个恢复）
+  for (const [name, values] of Object.entries(savedChecks)) {
+    for (const value of values) {
+      const r = box.querySelector(`input[name=${name}][value="${CSS.escape(value)}"]`);
+      if (r) r.checked = true;
+    }
   }
   for (const [id, value] of Object.entries(savedOther)) {
     const i = box.querySelector(`#${id}`);
