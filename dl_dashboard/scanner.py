@@ -29,6 +29,7 @@ class NodeStatus:
     exited_at: str | None
     sub_total: int  # 子步总数（时间轴枝叶渲染用；无编排节点=1）
     steps: tuple[int, ...]  # 可见子步号（tacet 静默/fermate 裁剪步剔除后）
+    step_labels: dict[str, str]  # 可见子步号(字符串键) -> 中文短名（Step.short）
 
 
 @dataclass(frozen=True)
@@ -93,6 +94,19 @@ def _silent_steps(state: dict) -> set:
     return silent
 
 
+def _step_labels(node, nid: str, sub_total: int, silent: set) -> dict[str, str]:
+    """可见子步号 -> 中文短名（Step.short 单源，如 逼问定义）——时间轴叶
+    节点按名展示（替代 #1/#2 裸序号）；无编排节点/缺定义回退 #n。"""
+    steps = node.sub_steps or ()
+    labels: dict[str, str] = {}
+    for i in range(1, sub_total + 1):
+        if f"{nid}#{i}" in silent:
+            continue
+        step = steps[i - 1] if i - 1 < len(steps) else None
+        labels[str(i)] = (getattr(step, "short", None) or f"#{i}")
+    return labels
+
+
 def node_statuses(state: dict) -> tuple[NodeStatus, ...]:
     hist = {(h["phase"], h["sub"]): h for h in state.get("history", [])}
     cur = (state.get("phase"), state.get("sub_index"))
@@ -115,6 +129,7 @@ def node_statuses(state: dict) -> tuple[NodeStatus, ...]:
             sub_total=sub_total,
             steps=tuple(i for i in range(1, sub_total + 1)
                         if f"{nid}#{i}" not in silent),
+            step_labels=_step_labels(node, nid, sub_total, silent),
         ))
     return tuple(out)
 

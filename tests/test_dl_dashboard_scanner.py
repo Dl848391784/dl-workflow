@@ -113,6 +113,28 @@ def test_scan_workflow_gate_actionable_field(tmp_path):
     assert scan_workflow(tmp_path, "u").gate_actionable is False
 
 
+def test_step_labels_from_step_short(tmp_path):
+    """可见子步号 -> 中文短名（Step.short 单源）——时间轴按名展示替代 #n；
+    无编排节点（无 sub_steps）回退 #1。"""
+    _mk_workflow(tmp_path, "demo", BASE_STATE)
+    info = scan_workflow(tmp_path, "demo")
+    by_id = {n.node_id: n for n in info.nodes}
+    u1 = by_id["understand:1"]
+    assert u1.step_labels["1"] == "逼问定义"
+    assert u1.step_labels["3"] == "因果链挖掘"
+    assert u1.step_labels["7"] == "读回确认"
+    assert by_id["execute:0"].step_labels == {"1": "#1"}
+
+
+def test_step_labels_exclude_silent(tmp_path):
+    """静默步（tacet 非脊柱）不进 step_labels——与 steps 过滤同口径。"""
+    _mk_workflow(tmp_path, "demo", dict(BASE_STATE, force_tacet=True))
+    info = scan_workflow(tmp_path, "demo")
+    u1 = next(n for n in info.nodes if n.node_id == "understand:1")
+    assert set(u1.step_labels) == set(map(str, u1.steps))
+    assert set(u1.step_labels) <= {"1", "2", "3", "4"}  # tacet 脊柱 u:1#1-4
+
+
 def test_scan_all_isolates_broken_workflow(tmp_path):
     _mk_workflow(tmp_path, "good", BASE_STATE)
     bad = meta_root(tmp_path, "bad")

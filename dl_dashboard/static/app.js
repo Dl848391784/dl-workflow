@@ -24,6 +24,20 @@ function fmtTok(n) {
   return String(n);
 }
 
+/* 总耗时人性化：35m07s / 1h05m（在跑徽标的工作流总执行时间用） */
+function fmtHMS(s) {
+  s = Math.max(0, Math.round(s));
+  if (s >= 3600) {
+    return `${Math.floor(s / 3600)}h${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
+  }
+  return `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
+}
+
+/* 子步中文名（scanner step_labels 单源，如 逼问定义）；缺定义回退 #n */
+function stepName(n, i) {
+  return (n.step_labels && n.step_labels[i]) || `#${i}`;
+}
+
 function isWaiting(w) {
   // gate_actionable（scanner 单源）= 门栏扣留 / 闸门后置阶段 pending——
   // 替代旧「held && pending」近似（漏阶段闸门等待态）
@@ -311,22 +325,22 @@ function renderTimelineTree(stats, nodes, info, artifacts) {
             ? Math.max(0, Math.round((Date.now() - new Date(runSeg.ts).getTime()) / 1000))
             : null;
           leaf.innerHTML =
-            `<div class="tl-l1"><span class="tl-lid num">#${i}</span>` +
+            `<div class="tl-l1"><span class="tl-lid">${esc(stepName(n, i))}</span>` +
             `<span class="tl-ldur">在跑${elapsed != null ? ` ${elapsed}s` : ""}</span></div>`;
         } else if (a) {
           const barW = Math.max(2, Math.round((a.dur / nodeMax) * 90));
           leaf.title =
-            `${n.label} #${i}\n耗时 ${a.dur}s · ${a.turns} 轮\n` +
+            `${n.label} ${stepName(n, i)}\n耗时 ${a.dur}s · ${a.turns} 轮\n` +
             `tok in ${a.tin} / out ${a.tout}\n$${a.cost.toFixed(3)}`;
           leaf.innerHTML =
-            `<div class="tl-l1"><span class="tl-lid num">#${i}</span>` +
+            `<div class="tl-l1"><span class="tl-lid">${esc(stepName(n, i))}</span>` +
             `<span class="tl-bar" style="width:${barW}px"></span>` +
             `<span class="tl-ldur num">${a.dur}s</span></div>` +
             `<div class="tl-l2 num">${a.turns}轮 ` +
             `in${fmtTok(a.tin)}/out${fmtTok(a.tout)} ` +
             `$${a.cost.toFixed(2)}</div>`;
         } else {
-          leaf.innerHTML = `<div class="tl-l1"><span class="tl-lid num">#${i}</span></div>`;
+          leaf.innerHTML = `<div class="tl-l1"><span class="tl-lid">${esc(stepName(n, i))}</span></div>`;
         }
         leaves.appendChild(leaf);
       }
@@ -472,24 +486,24 @@ function renderTimelineGantt(stats, nodes, info, artifacts) {
         bar.className = "gt-bar cur running";
         bar.style.left = x + "px";
         bar.style.width = Math.max(3, Math.round(elapsed * scale)) + "px";
-        bar.title = `${n.label} #${s.sub_step}\n${s.ts} 起 · 在跑 ${elapsed}s`;
+        bar.title = `${n.label} ${stepName(n, s.sub_step)}\n${s.ts} 起 · 在跑 ${elapsed}s`;
         if (elapsed * scale > 68) {
-          bar.textContent = `#${s.sub_step} 在跑 ${elapsed}s`;
+          bar.textContent = `${stepName(n, s.sub_step)} 在跑 ${elapsed}s`;
         }
       } else if (s.duration_s == null) {
         bar.className = "gt-mark";
         bar.style.left = x + "px";
-        bar.title = `${n.label} #${s.sub_step}\n${s.ts} · 无统计数据`;
+        bar.title = `${n.label} ${stepName(n, s.sub_step)}\n${s.ts} · 无统计数据`;
       } else {
         bar.className = "gt-bar" + (isCur ? " cur" : "");
         bar.style.left = x + "px";
         bar.style.width = Math.max(3, Math.round(s.duration_s * scale)) + "px";
         bar.title =
-          `${n.label} #${s.sub_step}\n${s.ts} 起 · 耗时 ${s.duration_s}s · ` +
+          `${n.label} ${stepName(n, s.sub_step)}\n${s.ts} 起 · 耗时 ${s.duration_s}s · ` +
           `${fmtDur(s.num_turns)} 轮\ntok in ${s.input_tokens ?? "-"} / out ` +
           `${s.output_tokens ?? "-"}\n$${(s.cost_usd ?? 0).toFixed(3)}`;
         if (s.duration_s * scale > 68) {
-          bar.textContent = `#${s.sub_step} ${s.duration_s}s·${fmtDur(s.num_turns)}轮`;
+          bar.textContent = `${stepName(n, s.sub_step)} ${s.duration_s}s·${fmtDur(s.num_turns)}轮`;
         }
       }
       rail.appendChild(bar);
@@ -791,16 +805,19 @@ function renderDetailStatic(d) {
 }
 
 function renderDetailLive(d) {
-  // 在跑徽标：当前步已跑时长（从末段记录起算，SSE 2s 刷新）
+  // 在跑徽标：当前步中文名 + 工作流总执行时间（Σ 已完成段 + 当前段已跑——
+  // step 自己的时间只在当前跑步叶子上展示，不在这里）；SSE 2s 刷新
   const live = $("tl-live");
   const curNodeInfo = d.info.nodes.find((n) => n.status === "current");
   const curStepName = curNodeInfo
-    ? `${curNodeInfo.label} #${d.info.sub_step_index}` : "当前步";
+    ? `${curNodeInfo.label} ${stepName(curNodeInfo, d.info.sub_step_index)}` : "当前步";
   if (d.driver_pid && d.stats.length) {
     const lastTs = Math.max(...d.stats.map((x) => new Date(x.ts).getTime()));
     const elapsed = Math.max(0, Math.round((Date.now() - lastTs) / 1000));
+    const totDur = d.stats.reduce((a, s) => a + (s.duration_s || 0), 0);
     live.innerHTML =
-      `<span class="live-badge"><span class="dot ok"></span>在跑 · ${esc(curStepName)} · ${elapsed}s</span>`;
+      `<span class="live-badge"><span class="dot ok"></span>在跑 · ${esc(curStepName)}` +
+      ` · 总 ${fmtHMS(totDur + elapsed)}</span>`;
   } else if (d.driver_pid) {
     live.innerHTML = `<span class="live-badge"><span class="dot ok"></span>在跑</span>`;
   } else {
