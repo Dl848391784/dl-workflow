@@ -298,3 +298,96 @@ def test_inject_ready_true_when_segment_recorded(tmp_path):
         {"ts": "t", "session_id": "s1", "kind": "tui-step-needuser",
          "node": "plan:4", "sub_step": 2, "note": "rc=0"}])
     assert actions.inject_ready(tmp_path, "demo") is True
+
+
+# ---------- 已答标记（dashboard-answered-marker-design） ----------
+
+
+def _needuser_seg():
+    return [
+        {"ts": "t", "session_id": "s1", "kind": "tui-step-needuser",
+         "node": "plan:4", "sub_step": 2, "note": "rc=0"}
+    ]
+
+
+def _mk_need_user(meta: Path, ts="T1", node="plan:4", sub_step=2, bind=True):
+    payload: dict = {
+        "questions": [{"question": "q", "header": "h", "options": []}],
+        "ts": ts,
+    }
+    if bind:
+        payload["node"] = node
+        payload["sub_step"] = sub_step
+    (meta / "need_user.json").write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _mk_answered(meta: Path, node="plan:4", sub_step=2, need_user_ts="T1", at="A1"):
+    (meta / "answered.json").write_text(
+        json.dumps({
+            "node": node, "sub_step": sub_step,
+            "need_user_ts": need_user_ts, "answered_at": at,
+        }),
+        encoding="utf-8",
+    )
+
+
+def test_inject_writes_answered_marker(tmp_path):
+    meta = _mk_state(tmp_path, "demo", _needuser_seg(),
+                     worktree_path=str(tmp_path / "wt"))
+    (meta / "settings.drive-tui.json").write_text("{}", encoding="utf-8")
+    (meta / "tui-rules.plan:4.md").write_text("rules", encoding="utf-8")
+    _mk_need_user(meta, ts="T1")
+    with patch.object(actions.subprocess, "run",
+                      return_value=MagicMock(returncode=0, stdout="", stderr="")):
+        ok, msg = actions.inject_answer(tmp_path, "demo", "选A")
+    assert ok, msg
+    marker = json.loads((meta / "answered.json").read_text(encoding="utf-8"))
+    assert marker["node"] == "plan:4" and marker["sub_step"] == 2
+    assert marker["need_user_ts"] == "T1" and marker["answered_at"]
+
+
+def test_inject_ready_false_when_answered(tmp_path):
+    """已答窗口（inject 成功 → 门控推进前）：段台账仍在原位，但标记覆盖 →
+    不可再注入（D1：按钮不再复活，防 double-inject）。"""
+    meta = _mk_state(tmp_path, "demo", _needuser_seg())
+    _mk_need_user(meta, ts="T1")
+    _mk_answered(meta, at="2026-08-31T15:00:00")
+    assert actions.inject_ready(tmp_path, "demo") is False
+    assert actions.answered_at_if_covers(tmp_path, "demo") == "2026-08-31T15:00:00"
+
+
+def test_inject_ready_true_when_new_questions(tmp_path):
+    """新问题落盘（含 rework 重问）ts 变 → 标记自失效，可重新答。"""
+    meta = _mk_state(tmp_path, "demo", _needuser_seg())
+    _mk_need_user(meta, ts="T2")
+    _mk_answered(meta, need_user_ts="T1")
+    assert actions.inject_ready(tmp_path, "demo") is True
+    assert actions.answered_at_if_covers(tmp_path, "demo") is None
+
+
+def test_inject_ready_true_after_state_advanced(tmp_path):
+    """state 推进 → 标记位置错位 → 失效。"""
+    meta = _mk_state(tmp_path, "demo", _needuser_seg())
+    _mk_need_user(meta, ts="T1")
+    _mk_answered(meta, sub_step=1)  # state 在 #2，标记在 #1
+    assert actions.inject_ready(tmp_path, "demo") is True
+
+
+def test_inject_aborts_when_answered(tmp_path):
+    """server 侧双保险：已覆盖直接中止注入（防 double-inject）。"""
+    meta = _mk_state(tmp_path, "demo", _needuser_seg(),
+                     worktree_path=str(tmp_path / "wt"))
+    (meta / "settings.drive-tui.json").write_text("{}", encoding="utf-8")
+    (meta / "tui-rules.plan:4.md").write_text("rules", encoding="utf-8")
+    _mk_need_user(meta, ts="T1")
+    _mk_answered(meta)
+    ok, msg = actions.inject_answer(tmp_path, "demo", "又选A")
+    assert not ok and "已注入" in msg
+
+
+def test_answered_not_covers_when_need_user_gone(tmp_path):
+    """need_user.json 缺失 = 无卡可覆盖 → 不覆盖；台账语义不变。"""
+    meta = _mk_state(tmp_path, "demo", _needuser_seg())
+    _mk_answered(meta)
+    assert actions.answered_at_if_covers(tmp_path, "demo") is None
+    assert actions.inject_ready(tmp_path, "demo") is True

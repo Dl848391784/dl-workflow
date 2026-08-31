@@ -1079,6 +1079,21 @@ def test_stash_need_user_payload(wf_repo):
     )
 
 
+def test_stash_need_user_payload_binds_step(wf_repo):
+    """bind_key（"<node>#<sub_step>"，与 prep_next_key 同构单源）→ 载荷写步骤绑定
+    （dashboard 据此滤陈旧卡）；不传 = 无绑定字段（legacy 旧格式放行）。
+    dashboard-answered-marker-design §2.1。"""
+    drv = _load(DRIVER, "drv_seg")
+    meta = wf_repo / SEG_META
+    good = 'x\n### NEED_USER\n```json\n{"questions": [{"question": "q1"}]}\n```'
+    assert drv._stash_need_user_payload(meta, good, bind_key="understand:2#3") is True
+    data = json.loads((meta / "need_user.json").read_text())
+    assert data["node"] == "understand:2" and data["sub_step"] == 3
+    assert drv._stash_need_user_payload(meta, good) is True
+    data = json.loads((meta / "need_user.json").read_text())
+    assert "node" not in data and "sub_step" not in data
+
+
 def test_step_prompt_prep_variant(wf_repo):
     """prep 变体 prompt（§4.3）：交付=NEED_USER+问题载荷；禁 AskUserQuestion/
     禁落 trace/禁编造答复；无 append-trace 指引（prep 不交 trace）。"""

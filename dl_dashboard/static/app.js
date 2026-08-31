@@ -573,7 +573,18 @@ function renderInteract(d) {
     b.innerHTML = `<span class="spinner"></span>${label}`;
     return () => { b.disabled = false; b.innerHTML = orig; };
   };
-  if (d.need_user && d.need_user.questions && !d.inject_ready) {
+  if (d.answered) {
+    // 已答窗口（dashboard-answered-marker-design §2.4）：标记覆盖当前问题卡
+    // ——横幅替代表单，提交后按钮不再复活；新问题落盘/步骤推进自动切换
+    const h = document.createElement("h3");
+    h.textContent = "答案已提交";
+    box.appendChild(h);
+    const prep = document.createElement("div");
+    prep.className = "q";
+    prep.textContent = `${d.answered} 已注入——模型处理中，门控通过后自动推进下一步` +
+      "（无需重复提交；需要你再答的新问题出现时会自动替换本卡）";
+    box.appendChild(prep);
+  } else if (d.need_user && d.need_user.questions && !d.inject_ready) {
     // 问题已落盘但交互段记录未就绪（时间窗）——此时提交必被中止，显示准备中
     const h = document.createElement("h3");
     h.textContent = "等待输入";

@@ -6,10 +6,12 @@ tui-step-needuser 段台账（唯一权威源），找不到即中止，禁回�
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from dl_dashboard.scanner import meta_root
@@ -80,16 +82,63 @@ def _find_needuser_sid(project: Path, name: str, state: dict, nid: str, cur: int
     return None
 
 
+# ---------- 已答标记（dashboard-answered-marker-design §2.2） ----------
+
+
+def _answered_path(project: Path, name: str) -> Path:
+    return meta_root(project, name) / "answered.json"
+
+
+def _need_user_ts(project: Path, name: str) -> "str | None":
+    try:
+        data = json.loads(
+            (meta_root(project, name) / "need_user.json").read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data.get("ts") if isinstance(data, dict) else None
+
+
+def answered_at_if_covers(project: Path, name: str) -> "str | None":
+    """当前问题卡是否已被答案覆盖（已注入未推进窗口）。返回注入时间或 None。
+
+    覆盖 ⟺ marker(node, sub_step) == state 当前位置 且 marker.need_user_ts ==
+    need_user.json 当前 ts——纯计算自失效，无需清理：state 推进位置错位即
+    失效；新问题落盘（含 rework 重问）ts 变即失效；need_user.json 缺失 =
+    无卡可覆盖 → None。
+    """
+    state = engine.load_state(project, name)
+    if state is None:
+        return None
+    try:
+        marker = json.loads(_answered_path(project, name).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(marker, dict):
+        return None
+    nu_ts = _need_user_ts(project, name)
+    if nu_ts is None or marker.get("need_user_ts") != nu_ts:
+        return None
+    if (marker.get("node") != state.get("node")
+            or marker.get("sub_step") != state.get("sub_step_index", 1)):
+        return None
+    return marker.get("answered_at") or "（时间缺失）"
+
+
 def inject_ready(project: Path, name: str) -> bool:
     """注入目标段是否已落台账（need_user.json 已展示 与 可注入 之间有时间窗：
     问题在段运行中落盘，段记录在完成时落台账——窗口内提交必被中止，
-    前端据此显示「准备中」而非可提交表单）。"""
+    前端据此显示「准备中」而非可提交表单）。
+    已答窗口（inject 成功 → 门控推进前段台账仍在原位）：被 answered 标记
+    覆盖 → False（D1：按钮不复活，防 double-inject）。"""
     state = engine.load_state(project, name)
     if state is None:
         return False
     nid = state.get("node")
     cur = state.get("sub_step_index", 1)
-    return _find_needuser_sid(project, name, state, nid, cur) is not None
+    if _find_needuser_sid(project, name, state, nid, cur) is None:
+        return False
+    return answered_at_if_covers(project, name) is None
 
 
 def inject_answer(project: Path, name: str, answer: str,
@@ -108,6 +157,10 @@ def inject_answer(project: Path, name: str, answer: str,
     if sid is None:
         return False, (f"中止注入：{nid}#{cur} 无 tui-step-needuser 段记录——"
                        "state 可能已推进（先刷新确认当前步）")
+    covered_at = answered_at_if_covers(project, name)
+    if covered_at is not None:
+        return False, (f"中止注入：{nid}#{cur} 答案已注入过（{covered_at}）——"
+                       "防重复注入；新问题落盘后自动恢复可注入")
     meta = meta_root(project, name)
     ov = engine.segment_spawn_overrides(node, step)
     cmd = [
@@ -129,6 +182,16 @@ def inject_answer(project: Path, name: str, answer: str,
                        stdin=subprocess.DEVNULL, capture_output=True, text=True)
     if p.returncode != 0:
         return False, f"注入失败 rc={p.returncode}：{(p.stdout + p.stderr)[-300:]}"
+    # 已答标记：覆盖当前问题卡直到 state 推进 / 新问题落盘（自失效）
+    _answered_path(project, name).write_text(
+        json.dumps({
+            "node": nid,
+            "sub_step": cur,
+            "need_user_ts": _need_user_ts(project, name),
+            "answered_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }),
+        encoding="utf-8",
+    )
     return True, f"已注入 {nid}#{cur}"
 
 
