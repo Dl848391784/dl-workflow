@@ -1,7 +1,7 @@
 ---
 name: workflow-creation
 description: 建工作流系统 + 运行诊断 + 运行审计。触发：新建/改工作流、dl 命令、阶段不推进、注入没生效、/dl 报错、hook 装错位置、模型否认收到注入、5 阶段不显示、gate 裁决记录(evidence)不落地、子步骤编排(sub_steps/STEP_DONE) 不推进、evidence 写到 worktree、审计一轮运行(可避免的 error/返工/耗时/token 优化)、tacet 实验轨道/dlt/force-tacet 行为。
-version: 2.6
+version: 2.7
 ---
 
 # workflow-creation
@@ -28,9 +28,12 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
      ├─ ~/.dl-workflow/hooks/workflow_session.py (SessionStart) -> /clear/startup 且工作流有 trace 时注入交接包（engine.handoff_pack：前序证据+用户裁决+产物指针；resume/compact 不注入）——上下文交接架构（designs/context-handoff-design.md，v2.45）：会话不重置则 token 成本=轮次×单调涨的上下文=平方膨胀；pass 续轮超 150k 阈值附 /clear nudge（纯建议）。正确性前置=读回步 user_decision_recorded 机械校验（裁决必入 trace）
      ├─ ~/.dl-workflow/dl_flow_engine.py (编排内核,被 hook 咨询) -> 节点树+gate判据+推进 唯一真源；gate-pass 时 write_gate_verdict 写 kind=gate 裁决记录到 evidence/<name>.jsonl（替代旧 ### EVIDENCE 溯源，§8.6c）
      └─ /dl status|next|back|jump|gate|done  → ~/.dl-workflow/scripts/workflow/dl-cmd.sh
+   清理两命令语义拆正（2026-08-29 用户决议）：`dl <name> --delete`=删除（彻底丢弃：worktree+分支+元数据全删，dashboard 连带删产物 plans/understands/evidence）；`dl <name> --done`=归档（只删 worktree 释放磁盘，分支+元数据+产物全留可回看；暂不自动触发，执行完不自动归档）
 ```
 
 **运行模式三态**（入口唯一决定，state 磁盘真源互通可续）：v4 默认 = `dl <name>` 常驻 TUI 前台 + 会话内派发 `dl_drive.py --segment` 后台段跑非交互步（designs/front-tui-hybrid-design.md，2026-08-11——hooks 走 front 分支：phase 注入派发块 / advance stall 兜底 3 次计数闸 / fence 非交互步白名单；**同日用户裁决默认翻转**）；v3 = `dl <name> --headless` 全程 headless driver（designs/headless-driver-arch-design.md）；WF_TUI=1 = v2 旧 TUI hook 编排（回滚面）。
+
+**观测/控制面 dl_dashboard**（2026-08-28 起，`dl_dashboard/` + `python3 -m dl_dashboard.app`，0.0.0.0:9000）：dl 的第三个入口（前两个=终端 `dl`/`dlt`、wf_ctl 脚本）——Web 控制台：跨项目列表/三肤步骤时间轴/改动面审核卡片/证据链/产物阅读 + 创建/注入/gate/暂停恢复/删除全驱动。机制要点：driver 为 server 的 setsid 子进程 + PID 文件 + **/proc 野生认领**（diagnostics 症状 AH）；inject 守**时序铁律**（症状 AF 窗口/AG 误杀备题段）；可见步（tacet 脊柱/fermate 裁剪）一律取 `dl_flow_nodes.tacet_silent_steps()`/`FERMATE_SILENT_STEPS` 单源，消费方禁自猜；provider 选择 = server 启动时 `bash -c 'source ~/.bashrc; <ac-fn>; env'` 捕获 ANTHROPIC_*/CLAUDE_* 注入 driver spawn env（bashrc 函数不可被子进程 exec，症状 AC 同根）。模型实测判据 = drive-stream result 事件 `modelUsage.canonicalModel`。
 
 **TACET 实验轨道**（2026-08-23 收口合并 main，designs/force-tacet-experiment-design.md）：`dlt <name>` = 同一 launcher 自动附加 `--force-tacet`--六步脊柱（u:1#1/u:1#2/u:1#3/u:1#4/plan:1#2/plan:4#4）全额执行，其余 38 子步 engine 机械静默（零 token/零 judge），到 plan:4 门栏与 main 同路径停等。`force_tacet` 是 per-instance sticky state 开关（engine 全程 state.get 判定、默认 off），**模型无权自封**；普通 `dl` 永远全量 44 步。实例开关：`dl_flow_engine.py force-tacet <name> on|off`。
 

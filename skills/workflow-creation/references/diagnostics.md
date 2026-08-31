@@ -446,3 +446,24 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 - **判读**：工作流目录下 `discoveries.jsonl` 不存在/体积极小，但 transcript 里大量 grep/Read；或 steps 之间重复 trace 同一 symbol。
 - **修复**：让 `dl codebase` 在目标会话里真正可跑（症状 AC），并把「同类查询走 dl codebase」写进该步 purpose/selfcheck；台账才有数据可复用。
 - **教训**：去重机制不是「台账文件在就行」，是「模型必须实际走这条通道」。改工具/文案后，检查下一个 run 的 `discoveries.jsonl` 是否真的被写入。
+
+### 症状 AF：need_user 已显示、inject 却「中止：无 tui-step-needuser 段记录」
+
+- **根因**（2026-08-30 web_ui_interaction 实爆）：**问题落盘 ≠ 注入就绪，是两个状态**。`_stash_need_user_payload` 在段**运行中**把问题写进 need_user.json（dashboard/前台据此显示表单），但注入目标段记录（`segment_sessions` 的 `tui-step-needuser` 条目）只在段**完成时**落台账。窗口内提交必被 `_find_needuser_sid` 中止。
+- **判读**：`need_user.json` 存在 + `segment_sessions` 里当前 node#step 只有 `tui-step`/`headless-step` 没有 `tui-step-needuser` = 窗口内。driver 活着 = 等段落账即可自愈；driver 死了见症状 AG。
+- **修复**：消费方（dashboard）在展示表单前先判就绪（`_find_needuser_sid` 同源匹配），未就绪显示「准备中」而非可提交表单。
+- **教训**：「问题已显示」只证明 need_user.json 落盘，不证明段已可 `--resume`。就绪判据唯一 = 台账里当前 node#step 有 kind=tui-step-needuser 的段。
+
+### 症状 AG：inject 前停 driver 误杀备题段（rc=143 变体，工作流卡死）
+
+- **根因**（2026-08-30 实爆）：为防「注入段与活 driver 抢同一会话被 SIGTERM（rc=143）」而给 inject 加「先停 driver」，但时机错了——driver 当时正在跑 needuser 段备题，killpg 把备题段一起杀死：driver 死、段记录永不落账、need_user.json 残留 → 工作流卡死在「问题显示着、注入必中止、恢复也没用」。
+- **判读**：`segment_sessions` 尾部有 `tui-step-needuser rc=143`（被杀的段）或 needuser 段始终不出现 + driver 死 + need_user.json 在。
+- **修复（时序铁律）**：①**未就绪（症状 AF 窗口内）禁停禁注**——停 driver 会杀备题段，注入也无目标；②**就绪且 driver 活：先停后注**（断点稳定态、段已退出，此时 `--resume` 无竞争）；③注完自动 restart_drive 续跑。恢复已卡死实例：restart driver，driver 经 P2-1 消费暂存的 need_user.json 重起交互段并落账，即可正常注入。
+- **教训**：停 driver 的合法时机只在「段已退出、driver 断点稳定等待」时。「先停再操作」不是通用安全动作，在段在飞时就是杀段。
+
+### 症状 AH：server/进程重启后 restart 起重复 driver（双执行体并行）
+
+- **根因**（2026-08-29 dashboard 排查实爆）：driver 的 liveness 只看 PID 文件，PID 文件丢失（server 重启、外部 `dl` 启动、文件被误清）时 restart 直接起新 driver——与还在跑的「野生」driver 并行，两个执行体驱动同一 state（双 driver 竞态是事故级）。
+- **判读**：`pgrep -f "dl_drive.py <name>"` 有活进程，但 dashboard/控制面显示 driver 已停、且无对应 `.pid` 文件 = 野生 driver。终端 `dl <name> --resume` 起的 driver 对 dashboard 天然是野生的。
+- **修复**：PID 文件缺失时**扫 /proc 认领**：遍历 `/proc/*/cmdline`，匹配「argv 有元素以 `dl_drive.py` 结尾（注意全路径，不能 `b"dl_drive.py" in argv` 精确等值）且 工作流名独立成参（防子串误配）」，认领后补写 PID 文件。认领成功前禁起新 driver。
+- **教训**：liveness 真源是进程本身（/proc），PID 文件只是索引。索引丢了要重建索引，不是当进程不存在。
