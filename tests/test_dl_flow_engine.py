@@ -3608,10 +3608,18 @@ class TestRunJudgeHarnessTrim:
 
         def _run(cmd, **kw):
             captured["cmd"] = cmd
+            captured.update(kw)
             return _Res()
 
         monkeypatch.setattr(eng.subprocess, "run", _run)
         return captured
+
+    def test_judge_invocation_errors_replace(self, monkeypatch):
+        """provider 偶发非法 UTF-8——judge 解码必须 errors='replace'
+        （strict 解码崩门控，web_ui_interaction 实爆同类）。"""
+        captured = self._capture(monkeypatch)
+        eng.run_judge("rubric", "label", "out")
+        assert captured.get("errors") == "replace"
 
     def test_judge_invocation_disables_tools(self, monkeypatch):
         captured = self._capture(monkeypatch)

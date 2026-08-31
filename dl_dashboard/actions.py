@@ -62,6 +62,7 @@ def create_workflow(project: Path, name: str, statement: str, mgr,
         p = subprocess.run(argv,
             cwd=str(project), stdin=subprocess.DEVNULL,
             capture_output=True, text=True, timeout=timeout,
+            errors="replace",
         )
         tail = (p.stdout + p.stderr)[-500:]
     except subprocess.TimeoutExpired:
@@ -239,8 +240,11 @@ def inject_answer(project: Path, name: str, answer: str,
     env.update(provider_env or {})
     env.update(ov.get("env") or {})
     log.info("inject -> %s#%s sid=%s…", nid, cur, sid[:8])
+    # errors="replace"：provider 偶发非法 UTF-8——strict 解码崩 server 线程
+    # （同类：dl_drive run_session / engine run_judge 同款修复）
     p = subprocess.run(cmd, cwd=state["worktree_path"], env=env,
-                       stdin=subprocess.DEVNULL, capture_output=True, text=True)
+                       stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                       errors="replace")
     if p.returncode != 0:
         return False, f"注入失败 rc={p.returncode}：{(p.stdout + p.stderr)[-300:]}"
     # 已答标记：覆盖当前问题卡直到 state 推进 / 问题内容变 / 撞 block（自失效）
@@ -268,7 +272,7 @@ def gate_release(project: Path, name: str) -> tuple[bool, str]:
     p = subprocess.run(
         ["bash", str(DLWF / "scripts" / "workflow" / "dl-cmd.sh"), "gate"],
         cwd=state["worktree_path"], stdin=subprocess.DEVNULL,
-        capture_output=True, text=True,
+        capture_output=True, text=True, errors="replace",
     )
     msg = (p.stdout + p.stderr).strip()
     return p.returncode == 0, msg
@@ -288,13 +292,13 @@ def dl_command(project: Path, name: str, cmd: str, value: str | None = None) -> 
         if value:
             argv.append(value)
         p = subprocess.run(argv, cwd=wt, stdin=subprocess.DEVNULL,
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, errors="replace")
         return p.returncode == 0, (p.stdout + p.stderr).strip()
     argv = ["python3", str(DLWF / "dl_flow_engine.py"), cmd, name]
     if value:
         argv.append(value)
     p = subprocess.run(argv, cwd=wt, stdin=subprocess.DEVNULL,
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, errors="replace")
     return p.returncode == 0, (p.stdout + p.stderr).strip()
 
 
@@ -331,7 +335,7 @@ def delete_workflow(project: Path, name: str, mgr) -> tuple[bool, str]:
         ["bash", str(DLWF / "scripts" / "workflow" / "dl-launch.sh"),
          "--workflow", name, "--delete"],
         cwd=str(project), stdin=subprocess.DEVNULL,
-        capture_output=True, text=True, timeout=120,
+        capture_output=True, text=True, timeout=120, errors="replace",
     )
     if not meta_root(project, name).exists():
         # dl --done 不清产物（plans/understands/evidence 留主仓）——不一起删
