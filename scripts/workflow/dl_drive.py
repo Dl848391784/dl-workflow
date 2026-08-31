@@ -135,6 +135,48 @@ def _record_segment(
     engine.save_state(project_root, name, state)
 
 
+# ---------- 在飞段起点（dashboard「总执行时间」真实口径数据源） ----------
+
+
+_SEG_NOTE_RE = re.compile(r"([a-z]+:\d+)#(\d+)")
+
+
+def _segment_begin(meta: Path, sid: str, note: str) -> None:
+    """段/轮起跑落 state.current_segment——徽标总执行时间 = Σ 完成段耗时 +
+    在飞段实跑（起点 - now），不再用「末段结束 - now」（那口径把等用户
+    答题的时间也算进执行时间，且段结束时总数会倒退——两实爆）。
+    note 统一形如 "<nid>#<cur>[-suffix]"，位置从 note 解析（零调用点改动）。"""
+    m = _SEG_NOTE_RE.search(note)
+    if not m:
+        return  # note 不带位置（不应发生）——不记胜于猜
+    try:
+        project_root, name = meta.parents[2], meta.name
+        state = _load(project_root, name)
+        state["current_segment"] = {
+            "session_id": sid,
+            "node": m.group(1),
+            "sub_step": int(m.group(2)),
+            "started_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }
+        engine.save_state(project_root, name, state)
+    except (SystemExit, OSError) as exc:
+        # 观测通道不阻断主流（同 _append_segment_stat 纪律）：state 缺失/写
+        # 失败 = 在飞标记缺一期，段照跑，但必须 log 不静默
+        log.warning("在飞标记落盘失败（%s）: %s", meta, exc)
+
+
+def _segment_end(meta: Path) -> None:
+    """段/会话收工清在飞标记。driver 被杀留下的陈旧标记无害：徽标时间
+    以 driver_pid 存活为闸门，且下次 _segment_begin 覆盖。"""
+    try:
+        project_root, name = meta.parents[2], meta.name
+        state = _load(project_root, name)
+        if state.pop("current_segment", None) is not None:
+            engine.save_state(project_root, name, state)
+    except (SystemExit, OSError) as exc:
+        log.warning("在飞标记清理失败（%s）: %s", meta, exc)
+
+
 def _append_segment_stat(meta: Path, ev: dict) -> None:
     """result 事件统计落盘（dashboard 观测埋点，2026-08-27 dashboard-design §3）。
 
@@ -734,6 +776,7 @@ def run_session(
         assert proc.stdin is not None
         proc.stdin.write(prompt)
         proc.stdin.close()  # 关闭触发子进程读入（EOF），勿 flush 后留开（挂起）
+        _segment_begin(meta, resume_sid or "", note)
         interrupted = False
         first_fresh: "int | None" = None
         last_ctx: "int | None" = None
@@ -799,6 +842,7 @@ def run_session(
         rc = _pwait_interruptible(
             proc, on_first=lambda: None, already_interrupted=interrupted
         )
+        _segment_end(meta)
         if interrupted:
             return RC_INTERRUPTED, "\n".join(texts), sid
     return rc, "\n".join(texts), sid
@@ -889,6 +933,7 @@ class MergedSession:
             # u2-residual-cost：段前缀剥离 env（None=继承父进程，零覆盖）
             env=({**os.environ, **spawn_env} if spawn_env else None),
         )
+        _segment_begin(meta, self.sid, note)
 
     def send(self, prompt: str) -> None:
         """注入一条用户消息（NDJSON user 事件）= 一个子步骤的任务 prompt。"""
@@ -966,6 +1011,7 @@ class MergedSession:
         except (BrokenPipeError, OSError, AssertionError):
             pass
         self.rc = _pwait_interruptible(self._proc, on_first=lambda: None)
+        _segment_end(self.meta)
         self._log_f.close()
         self._err_f.close()
         warn = _fresh_warn_line(self.first_fresh, self.note)
@@ -1039,6 +1085,8 @@ def _run_merged_run(
             step = engine.sub_step_at(node, cur)
             if step is None:
                 return None, None  # 越界——主循环的越界断点处理
+            # 续步 turn 起跑（刷新在飞标记位置与起点——合并段逐步实跑口径）
+            _segment_begin(meta, sess.sid, f"{nid}#{cur}-merged")
             try:
                 out, _info = sess.read_turn()
             except _MergedInterrupted:
@@ -1968,6 +2016,7 @@ def run_tui_step(
                 ),
                 encoding="utf-8",
             )
+            _segment_begin(meta, sid, f"{engine.node_id(node.phase, node.sub)}#{cur}")
             try:
                 rc = _pwait_interruptible(
                     proc,
@@ -1977,6 +2026,7 @@ def run_tui_step(
                 )
             finally:
                 _tui_segment_file(meta).unlink(missing_ok=True)  # 段已收，标记即失效
+                _segment_end(meta)
     finally:
         if disp is not None:
             disp.start()
