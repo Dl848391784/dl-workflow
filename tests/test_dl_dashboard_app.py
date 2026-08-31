@@ -50,6 +50,62 @@ def test_detail(client):
     assert isinstance(d["log_tail"], str)
 
 
+# ---------- 问题卡步骤绑定 + 已答透传（dashboard-answered-marker-design） ----------
+
+
+def _write_need_user(project, payload):
+    (meta_root(project, "demo") / "need_user.json").write_text(
+        json.dumps(payload), encoding="utf-8")
+
+
+def test_detail_shows_bound_need_user_matching(client):
+    c, project = client
+    _write_need_user(project, {
+        "questions": [{"question": "q", "header": "h"}],
+        "ts": "T1", "node": "plan:2", "sub_step": 1,
+    })
+    d = c.get("/api/workflow", params={"project": str(project), "name": "demo"}).json()
+    assert d["need_user"]["node"] == "plan:2"
+    assert d["answered"] is None
+
+
+def test_detail_hides_stale_bound_need_user(client):
+    """绑定 ≠ state 当前位置 = 陈旧卡（已推进的步的问题）不渲染（D2）。"""
+    c, project = client
+    _write_need_user(project, {
+        "questions": [{"question": "q", "header": "h"}],
+        "ts": "T1", "node": "plan:1", "sub_step": 3,
+    })
+    d = c.get("/api/workflow", params={"project": str(project), "name": "demo"}).json()
+    assert d["need_user"] is None
+    assert d["inject_ready"] is False
+
+
+def test_detail_legacy_unbound_need_user_shown(client):
+    """旧格式无绑定字段 → 现状放行（legacy pin）。"""
+    c, project = client
+    _write_need_user(project, {
+        "questions": [{"question": "q", "header": "h"}], "ts": "T1",
+    })
+    d = c.get("/api/workflow", params={"project": str(project), "name": "demo"}).json()
+    assert d["need_user"] is not None
+
+
+def test_detail_answered_passthrough(client):
+    c, project = client
+    meta = meta_root(project, "demo")
+    _write_need_user(project, {
+        "questions": [{"question": "q", "header": "h"}],
+        "ts": "T1", "node": "plan:2", "sub_step": 1,
+    })
+    (meta / "answered.json").write_text(json.dumps({
+        "node": "plan:2", "sub_step": 1, "need_user_ts": "T1",
+        "answered_at": "2026-08-31T15:00:00",
+    }), encoding="utf-8")
+    d = c.get("/api/workflow", params={"project": str(project), "name": "demo"}).json()
+    assert d["answered"] == "2026-08-31T15:00:00"
+
+
 def test_project_whitelist_enforced(client):
     c, _ = client
     r = c.get("/api/workflow", params={"project": "/etc", "name": "x"})

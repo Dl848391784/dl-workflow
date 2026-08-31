@@ -1089,7 +1089,9 @@ def _run_merged_run(
                 # NEXT_PREP 附带交付落 stash（语义同主循环：门控通过后才落——
                 # 被 block 的内容备的问题不得转前台）
                 if cur_prep[0] is not None and _NEXT_PREP_JSON_RE.search(out):
-                    if _stash_need_user_payload(meta, out, _NEXT_PREP_JSON_RE):
+                    if _stash_need_user_payload(
+                        meta, out, _NEXT_PREP_JSON_RE, bind_key=cur_prep[1]
+                    ):
                         _mark_next_prep(project_root, name, cur_prep[1])
                         _warn_sources_missing(meta, disp)
                 st2 = _load(project_root, name)
@@ -1239,12 +1241,18 @@ _NEXT_PREP_JSON_RE = re.compile(r"###\s*NEXT_PREP.*?```json\s*(\{.*?)```", re.DO
 
 
 def _stash_need_user_payload(
-    meta: Path, out: str, pattern: "re.Pattern" = _NEED_USER_JSON_RE
+    meta: Path,
+    out: str,
+    pattern: "re.Pattern" = _NEED_USER_JSON_RE,
+    bind_key: "str | None" = None,
 ) -> bool:
     """从会话输出提取问题载荷落 need_user.json（§4.4 文件通道）。
 
     非法/缺失载荷 → 删除陈旧文件（防上一轮载荷被当下轮的用）并返回 False，
     TUI 侧退回自组织提问（宁纵勿枉）。pattern 参数 = NEXT_PREP/NEED_USER 双通道。
+    bind_key（"<node>#<sub_step>"，与 prep_next_key 同构单源）→ 载荷写步骤绑定：
+    dashboard 据此滤陈旧卡（dashboard-answered-marker-design §2.1）；不传 =
+    无绑定字段（legacy 旧格式）。消费侧只读 questions/sources，纯增量。
     """
     target = meta / "need_user.json"
     data: object = None
@@ -1267,6 +1275,11 @@ def _stash_need_user_payload(
     # 前台退回现状自重读，_warn_sources_missing 落可观察信号）。
     if isinstance(data.get("sources"), list) and data["sources"]:
         payload["sources"] = data["sources"]
+    if bind_key is not None:
+        nid, _, ss = bind_key.rpartition("#")
+        if nid and ss.isdigit():
+            payload["node"] = nid
+            payload["sub_step"] = int(ss)
     payload["ts"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     target.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2),
@@ -2347,7 +2360,13 @@ def _run_boundary_loop(
                             _session_called_ask_user(meta, sid)
                         )
                         if need:
-                            _stash_need_user_payload(meta, out)
+                            _stash_need_user_payload(
+                                meta,
+                                out,
+                                bind_key=(
+                                    f"{engine.node_id(node.phase, node.sub)}#{cur}"
+                                ),
+                            )
                             _warn_sources_missing(meta, disp)
                             # drive 当场重分类起 TUI 段；--segment 抛 _SegmentExit(13)
                             rc, sid, seg_kind = on_need_user(
@@ -2560,7 +2579,9 @@ def _run_boundary_loop(
                     if prep_next is not None and _NEXT_PREP_JSON_RE.search(out):
                         # P2-1：只在门控通过后落标记——被 block 的内容备的问题
                         # 不得转前台（返工段会重新输出，覆盖更新）
-                        if _stash_need_user_payload(meta, out, _NEXT_PREP_JSON_RE):
+                        if _stash_need_user_payload(
+                            meta, out, _NEXT_PREP_JSON_RE, bind_key=prep_next_key
+                        ):
                             _mark_next_prep(
                                 project_root,
                                 name,
