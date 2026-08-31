@@ -1904,6 +1904,16 @@ def _after_tui_exit(project_root: Path, name: str, wt: Path, cur: int, disp) -> 
     return 0
 
 
+def _stdin_attached_to_terminal() -> bool:
+    """stdin 接终端 = 有真人键盘（终端 v3 headless）；DEVNULL/nohup/管道 = 无终端
+    （dashboard driver_mgr spawn / 无人值守）。stdin 缺失/关闭/异常 → False——
+    无键盘是事实，宁续跑勿误判有真人（dashboard-segment-autocontinue-design §2）。"""
+    try:
+        return sys.stdin.isatty()
+    except (AttributeError, ValueError, OSError):
+        return False
+
+
 def _handle_tui_segment_end(
     project_root: Path, name: str, wt: Path, cur: int, meta: Path, disp
 ) -> "int | None":
@@ -1912,10 +1922,18 @@ def _handle_tui_segment_end(
     有 autodone 标记（Stop hook 机械判定本段落库 = 活已干完）→ 返回 None：
     主循环落共享门控——advanced 直接续跑下一步 / block 带判词自动重开 /
     escalate 断点，driver 不退出，/exit 依赖消失。
-    无标记（手动 /exit / 双击 Ctrl+C）→ TUI 退 = 全退（裁决不变），返回退出码。
+    无标记 + 无终端 → 同 autodone 语义返回 None：无真人 /exit 可区分，
+    「TUI 退 = 全退」前提不成立，段结束唯一语义 = 正常干完
+    （dashboard-segment-autocontinue-design，2026-08-31——dashboard 驱动
+    每过一交互步 driver 停摆、需人工重新驱动实爆）。
+    无标记 + 有终端（手动 /exit / 双击 Ctrl+C）→ TUI 退 = 全退（裁决不变），
+    返回退出码。
     """
     if _consume_tui_autodone(meta) is not None:
         disp.log("  ⚑ 模型已落库——driver 自动收段，判门控后续跑（无需 /exit）")
+        return None
+    if not _stdin_attached_to_terminal():
+        disp.log("  ⚑ 无终端段结束（无 /exit 语义）——落共享门控自动续跑")
         return None
     return _after_tui_exit(project_root, name, wt, cur, disp)
 

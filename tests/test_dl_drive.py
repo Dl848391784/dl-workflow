@@ -806,9 +806,11 @@ def test_handle_tui_segment_end_autodone_goes_shared_gate(wf_repo):
 
 
 def test_handle_tui_segment_end_manual_exit_full_quit(wf_repo, monkeypatch):
-    """无 autodone（手动 /exit / 双击 Ctrl+C）→ TUI 退 = 全退（裁决不变）。"""
+    """有终端 + 无 autodone（手动 /exit / 双击 Ctrl+C）→ TUI 退 = 全退（裁决不变）。
+    TTY 显式钉真：pytest 下 stdin 非 TTY，不钉会被 no-TTY 分支截获。"""
     drv = _load(DRIVER, "drv_under_test")
     _write_state(wf_repo)
+    monkeypatch.setattr(drv, "_stdin_attached_to_terminal", lambda: True)
     monkeypatch.setattr(engine, "gate_sub_step_at_stop", _fake_gate("advanced"))
     disp = _DispStub()
     rc = drv._handle_tui_segment_end(
@@ -821,6 +823,54 @@ def test_handle_tui_segment_end_manual_exit_full_quit(wf_repo, monkeypatch):
     )
     assert rc == 0
     assert any("已过门控" in line for line in disp.lines)
+
+
+def test_handle_tui_segment_end_no_tty_goes_shared_gate(wf_repo, monkeypatch):
+    """无终端（dashboard spawn stdin=DEVNULL / 无人值守 nohup）+ 无 autodone
+    → 同 autodone 语义返回 None 落共享门控自动续跑——无真人 /exit 可区分，
+    「TUI 退 = 全退」前提不成立（dashboard-segment-autocontinue-design）。
+    本函数不判门控（门控归主循环共享门控，防双判），不调 _after_tui_exit。"""
+    drv = _load(DRIVER, "drv_under_test")
+    _write_state(wf_repo)
+    monkeypatch.setattr(drv, "_stdin_attached_to_terminal", lambda: False)
+
+    def _boom(*a, **k):
+        raise AssertionError("_after_tui_exit 不应被调用（全退只属有终端路径）")
+
+    monkeypatch.setattr(drv, "_after_tui_exit", _boom)
+    gate_calls = []
+
+    def _gate(*a, **k):
+        gate_calls.append(1)
+        return ("advanced", "", None)
+
+    monkeypatch.setattr(engine, "gate_sub_step_at_stop", _gate)
+    disp = _DispStub()
+    rc = drv._handle_tui_segment_end(
+        wf_repo,
+        "t",
+        wf_repo / ".claude" / "worktrees" / "t",
+        1,
+        wf_repo / ".claude" / "workflows" / "t",
+        disp,
+    )
+    assert rc is None
+    assert not gate_calls
+    assert any("无终端" in line for line in disp.lines)
+
+
+def test_stdin_attached_to_terminal_fallback(wf_repo, monkeypatch):
+    """stdin 缺失/关闭/isatty 异常 → False（无键盘是事实，宁续跑勿误判有真人）。"""
+    drv = _load(DRIVER, "drv_under_test")
+
+    class _BadStdin:
+        def isatty(self):
+            raise ValueError("I/O operation on closed file")
+
+    monkeypatch.setattr(sys, "stdin", _BadStdin())
+    assert drv._stdin_attached_to_terminal() is False
+    monkeypatch.setattr(sys, "stdin", None)
+    assert drv._stdin_attached_to_terminal() is False
 
 
 # ---------- --segment 段执行器（front-tui-hybrid-design M1）----------
@@ -1074,7 +1124,8 @@ def test_segment_force_tacet_skips_silent_steps(wf_repo, monkeypatch):
     _seg_write_state(wf_repo, sub_step_index=2, force_tacet=True)
     need_out = 'ok\n### NEED_USER\n```json\n{"questions": [{"question": "q"}]}```'
     calls = _run_session_stub(
-        drv, monkeypatch,
+        drv,
+        monkeypatch,
         [(0, "", "s"), (0, "", "s"), (0, "", "s"), (0, need_out, "s")],
     )
     monkeypatch.setattr(engine, "gate_sub_step_at_stop", _gate_advancing(wf_repo))
