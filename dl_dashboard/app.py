@@ -15,7 +15,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from dl_dashboard import actions, metrics, outputs, scanner
@@ -112,14 +112,43 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
             "providers": list(providers.keys()),
         }
 
+    def _static_ver() -> str:
+        """静态资源版本戳 = 静态文件最新 mtime_ns——随代码变更自动失效。
+
+        旧版 ?v=<git sha> 是手工敲进 html 的死值，改 app.js/style.css 不更新
+        → 浏览器按旧 URL 命中缓存，新静态文件永远不可见（metro 修复「没
+        生效」实爆）。serve 时逐请求注（3 次 stat，成本可忽略），免人工纪律。
+        """
+        return str(
+            max(
+                p.stat().st_mtime_ns
+                for p in STATIC_DIR.iterdir()
+                if p.is_file()
+            )
+        )
+
+    def _serve_html(fname: str) -> HTMLResponse:
+        """读 html 注入新鲜版本戳（?v= 死值/旧值一律替换）。"""
+        html = re.sub(
+            r"((?:app\.js|style\.css|artifact\.html)\?v=)[A-Za-z0-9]+",
+            lambda m: f"{m.group(1)}{_static_ver()}",
+            (STATIC_DIR / fname).read_text(encoding="utf-8"),
+        )
+        return HTMLResponse(
+            html, headers={"Cache-Control": "no-cache, must-revalidate"}
+        )
+
     @app.get("/")
     def index():
         # no-cache：HTML 是静态资源版本号的唯一引用源，它自己被缓存
         # 会让版本号机制失效（用户看到旧 CSS/JS 的实爆教训）
-        return FileResponse(
-            STATIC_DIR / "index.html",
-            headers={"Cache-Control": "no-cache, must-revalidate"},
-        )
+        return _serve_html("index.html")
+
+    @app.get("/static/artifact.html")
+    def artifact_page():
+        # 产物阅读页同样带 ?v= 死值——与首页同通道注戳（先于 /static 挂载
+        # 注册，优先命中）
+        return _serve_html("artifact.html")
 
     @app.get("/api/workflows")
     def list_workflows():
