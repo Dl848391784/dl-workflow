@@ -1754,6 +1754,70 @@ def _consume_tui_autodone(meta: Path) -> "dict | None":
 _TUI_STEP_TOOLS = ("AskUserQuestion", "TaskCreate", "TaskUpdate")
 
 
+def _run_tui_step_print_mode(
+    project_root: Path,
+    name: str,
+    state: dict,
+    node: "engine.Node",
+    cur: int,
+    step: "engine.Step",
+    meta: Path,
+    debug: bool,
+    wt: Path,
+    *,
+    rework: str | None,
+    disp: "LiveProgress | None" = None,
+    bare: bool = False,
+    needuser: bool = False,
+) -> tuple[int, str]:
+    """无 TTY 一次性交互段（BUG-1，dashboard-notty-segment-and-entry-judge §2.2）。
+
+    dashboard spawn（stdin=DEVNULL）下不起交互式 claude——改 run_session
+    （claude -p stream-json 一次性，可靠结束）+ disallow_ask 权限层移除
+    AskUserQuestion（无真人可答，工具在 = 挂起引信）。prompt/settings/rules
+    与交互路径同源；不写 tui_segment.json（无交互进程可 SIGTERM，autodone
+    通道无意义——注入 trace 段外落库由入口判决 §2.1 覆盖）。
+    段职责不变：提问呈现（prep 已 stash）+ 会话含问答上下文（inject --resume
+    的靶子）+ 结束落台账（inject_ready 就位）。返回 (rc, session_id) 与
+    run_tui_step 同构，调用方/台账/收段分流零改动。
+    """
+    settings = ensure_tui_settings(project_root, name)
+    rules = ensure_tui_rules(project_root, name, node, cur, state)
+    prompt = None
+    if not bare:
+        prompt = build_step_prompt(
+            project_root,
+            name,
+            state,
+            node,
+            cur,
+            step,
+            rework=rework,
+            interactive=True,
+            needuser=needuser,
+        )
+    if prompt is None:
+        # bare+无 TTY 角落（dashboard 创建必带 statement，正常不可达；防
+        # -p 空输入 rc=1）：一次性静默段，保台账/resume 靶子语义
+        prompt = "用户尚未陈述问题（将在 dashboard 侧输入）——本会话一次性，直接结束。"
+    _ov = engine.segment_spawn_overrides(node, step)
+    rc, _out, sid = run_session(
+        prompt,
+        cwd=wt,
+        settings=settings,
+        sys_prompt_file=rules,
+        meta=meta,
+        debug=debug,
+        note=f"{engine.node_id(node.phase, node.sub)}#{cur}-tui-pm",
+        verbose=False,
+        disp=disp,
+        disallow_ask=True,
+        spawn_env=_ov["env"],
+        tools=_ov["tools"],
+    )
+    return rc, sid
+
+
 def run_tui_step(
     project_root: Path,
     name: str,
@@ -1778,6 +1842,27 @@ def run_tui_step(
     bare=True（裸开场）：不喂任务书 prompt——会话安静等用户打字（v2.0 开场）。
     needuser=True（prep 后接管）：prompt 带 need_user.json 逐字照抄指针。
     """
+    if not _stdin_attached_to_terminal():
+        # BUG-1（dashboard-notty-segment-and-entry-judge §2.2）：dashboard
+        # （stdin=DEVNULL）下交互式 claude 无 TTY——弱模型调 AskUserQuestion
+        # 无人可答进程挂起（E2E run1 needuser 段零台账零结束行、killpg 僵尸
+        # 实爆）；不调则侥幸结束——行为随模型摆动，结构上必偶发死锁。
+        # 改走 run_session 一次性 -p（可靠结束）+ 权限层移除 AskUserQuestion。
+        return _run_tui_step_print_mode(
+            project_root,
+            name,
+            state,
+            node,
+            cur,
+            step,
+            meta,
+            debug,
+            wt,
+            rework=rework,
+            disp=disp,
+            bare=bare,
+            needuser=needuser,
+        )
     sid = str(uuid.uuid4())
     settings = ensure_tui_settings(project_root, name)  # 全量模板+hook 路径同仓化
     rules = ensure_tui_rules(
@@ -2129,6 +2214,33 @@ def drive(project_root: Path, name: str, debug: bool, verbose: bool = False) -> 
             needuser=True,
         )
         return rc, sid, "tui-step-needuser"
+
+    # 入口判决（BUG-2，dashboard-notty-segment-and-entry-judge §2.1）：接管先判
+    # 当前步未判决 trace——注入轮/断点续跑的 driver 不再把已落库产出当没干过
+    # 重开（prep→重 stash→重问死循环，E2E run1 实爆）。放 drive()（接管时刻）
+    # 而非 _run_boundary_loop：--segment 是前台派发不是接管，前台会话自有
+    # Stop hook 判决路径。last_judged 同 sha 幂等：无新 trace = none 零成本。
+    _ej_action, _ej_reason, _ = engine.gate_sub_step_at_stop(
+        project_root, name, str(wt)
+    )
+    if _ej_action == "advanced":
+        disp.log("  ✓ 入口判决：未判决 trace 过门——续跑下一步")
+    elif _ej_action == "block":
+        disp.log("  ✗ 入口判决门控未过——带判词返工本步")
+        _st = _load(project_root, name)
+        _st["pending_rework"] = _rework_text(_ej_reason)
+        engine.save_state(project_root, name, _st)
+    elif _ej_action == "escalate":
+        if (
+            _breakpoint(
+                f"⛔ 入口判决：连续 block 达阈值（判词：{_ej_reason[:200]}）"
+                f"——用户裁决：step-pass 强制通过 / state-reset 回退 / q 退出。",
+                SEG_BREAKPOINT,
+            )
+            == "quit"
+        ):
+            disp.stop()
+            return 0
 
     try:
         return _run_boundary_loop(

@@ -727,12 +727,14 @@ class _FakeTuiProc:
 
 def _run_tui_step_stubbed(drv, repo, monkeypatch, captured):
     """run_tui_step 打桩：Popen→假进程；fake wait 期间抓取段标记内容（收段后即删，
-    只有 wait 窗口内可观测）。"""
+    只有 wait 窗口内可观测）。TTY 显式钉真：本辅助 pin 的是交互式路径，
+    pytest 下 stdin 非 TTY，不钉会被 print-mode 分支（BUG-1）截获。"""
     meta = repo / ".claude" / "workflows" / "t"
     _write_state(repo)
     (meta / "settings.json").write_text(
         json.dumps({"permissions": {}}), encoding="utf-8"
     )
+    monkeypatch.setattr(drv, "_stdin_attached_to_terminal", lambda: True)
     monkeypatch.setattr(drv.subprocess, "Popen", lambda *a, **k: _FakeTuiProc())
 
     def fake_wait(proc, on_first=None):
@@ -784,6 +786,109 @@ def test_run_tui_step_clears_stale_autodone(wf_repo, monkeypatch):
     (meta / "tui_autodone.json").write_text("{}", encoding="utf-8")
     _run_tui_step_stubbed(drv, wf_repo, monkeypatch, {})
     assert not (meta / "tui_autodone.json").exists()
+
+
+def test_run_tui_step_no_tty_goes_print_mode(wf_repo, monkeypatch):
+    """BUG-1：无 TTY（dashboard stdin=DEVNULL）→ run_session 一次性 -p +
+    disallow_ask（AskUserQuestion 权限层移除——无真人可答，工具在=挂起引信）；
+    不写 tui_segment.json（无交互进程可 SIGTERM）；(rc, sid) 同构返回。"""
+    drv = _load(DRIVER, "drv_under_test")
+    meta = wf_repo / ".claude" / "workflows" / "t"
+    _write_state(wf_repo)
+    (meta / "settings.json").write_text(
+        json.dumps({"permissions": {}}), encoding="utf-8"
+    )
+    monkeypatch.setattr(drv, "_stdin_attached_to_terminal", lambda: False)
+    calls = {}
+
+    def fake_run_session(prompt, **kw):
+        calls.update(kw)
+        calls["prompt"] = prompt
+        return 0, "out", "sid-pm"
+
+    monkeypatch.setattr(drv, "run_session", fake_run_session)
+    node = engine.get_node("understand", 2)
+    step = engine.sub_step_at(node, 5)
+    rc, sid = drv.run_tui_step(
+        wf_repo, "t", _read_state(wf_repo), node, 5, step, meta, False,
+        wf_repo / ".claude" / "worktrees" / "t", rework=None, needuser=True,
+    )
+    assert rc == 0 and sid == "sid-pm"
+    assert calls["disallow_ask"] is True
+    assert calls["prompt"]  # needuser 任务书（need_user.json 指针）
+    assert not (meta / "tui_segment.json").exists()  # 无交互进程，无段标记
+
+
+def test_run_tui_step_no_tty_bare_fallback_prompt(wf_repo, monkeypatch):
+    """bare+无 TTY 角落：无任务书 prompt 时兜底最小 prompt（-p 空输入 rc=1 防）。"""
+    drv = _load(DRIVER, "drv_under_test")
+    meta = wf_repo / ".claude" / "workflows" / "t"
+    _write_state(wf_repo)
+    (meta / "settings.json").write_text(
+        json.dumps({"permissions": {}}), encoding="utf-8"
+    )
+    monkeypatch.setattr(drv, "_stdin_attached_to_terminal", lambda: False)
+    calls = {}
+
+    def fake_run_session(prompt, **kw):
+        calls["prompt"] = prompt
+        return (0, "", "s")
+
+    monkeypatch.setattr(drv, "run_session", fake_run_session)
+    node = engine.get_node("understand", 1)
+    step = engine.sub_step_at(node, 1)
+    rc, _ = drv.run_tui_step(
+        wf_repo, "t", _read_state(wf_repo), node, 1, step, meta, False,
+        wf_repo / ".claude" / "worktrees" / "t", rework=None, bare=True,
+    )
+    assert rc == 0 and calls["prompt"]
+
+
+def _drive_stubbed(drv, wf_repo, monkeypatch, gate_ret):
+    """drive() 打桩到入口判决可观测：门控剧本化，主循环/模式/settings 全 stub。"""
+    _write_state(wf_repo)
+    calls = []
+
+    def fake_gate(*a, **k):
+        calls.append(1)
+        return gate_ret
+
+    monkeypatch.setattr(engine, "gate_sub_step_at_stop", fake_gate)
+    monkeypatch.setattr(engine, "set_drive_mode", lambda *a, **k: (True, ""))
+    monkeypatch.setattr(drv, "ensure_drive_settings",
+                        lambda *a, **k: wf_repo / "s.json")
+    monkeypatch.setattr(drv, "_run_boundary_loop", lambda *a, **k: 0)
+    monkeypatch.setattr(drv, "breakpoint_loop", lambda *a, **k: "quit")
+    return calls
+
+
+def test_entry_judge_on_drive_takeover(wf_repo, monkeypatch):
+    """BUG-2 入口判决：drive 接管先判未判决 trace——advanced 续走；门控调用
+    先于主循环任何活（注入轮重启不再 prep→重 stash→重问死循环）。"""
+    drv = _load(DRIVER, "drv_under_test")
+    calls = _drive_stubbed(drv, wf_repo, monkeypatch, ("advanced", "", {}))
+    rc = drv.drive(wf_repo, "t", False)
+    assert rc == 0 and calls
+
+
+def test_entry_judge_block_seeds_pending_rework(wf_repo, monkeypatch):
+    """入口判决 block → 判词落 state.pending_rework（主循环入口自取返工）。"""
+    drv = _load(DRIVER, "drv_under_test")
+    _drive_stubbed(drv, wf_repo, monkeypatch, ("block", "判词Z", {}))
+    rc = drv.drive(wf_repo, "t", False)
+    assert rc == 0
+    assert "判词Z" in _read_state(wf_repo).get("pending_rework", "")
+
+
+def test_entry_judge_none_idempotent(wf_repo, monkeypatch):
+    """无新 trace = none：state 零改动（last_judged 幂等，断点续跑零成本）。"""
+    drv = _load(DRIVER, "drv_under_test")
+    _drive_stubbed(drv, wf_repo, monkeypatch, ("none", "", {}))
+    before = _read_state(wf_repo)
+    rc = drv.drive(wf_repo, "t", False)
+    assert rc == 0
+    assert "pending_rework" not in _read_state(wf_repo)
+    assert _read_state(wf_repo)["sub_step_index"] == before["sub_step_index"]
 
 
 def test_handle_tui_segment_end_autodone_goes_shared_gate(wf_repo):

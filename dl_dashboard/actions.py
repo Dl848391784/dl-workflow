@@ -258,12 +258,15 @@ def inject_answer(project: Path, name: str, answer: str,
 
 
 def gate_release(project: Path, name: str) -> tuple[bool, str]:
-    """gate 放行 = engine CLI subgate-pass（/dl gate 同路由 release_subgate）。"""
+    """gate 放行 = /dl gate 同路由（dl-cmd.sh gate 单源：held_for_gate →
+    engine subgate-pass 门栏放行 / GATED_AFTER 阶段闸门置 passed 双分支）。
+    原直调 engine subgate-pass 只有门栏路由——阶段闸门（held 之外的第二
+    等待态）撞「无标记」报错，dashboard 放不了行（静态审计实锤）。"""
     state, err = _get_state(project, name)
     if err:
         return False, err
     p = subprocess.run(
-        ["python3", str(DLWF / "dl_flow_engine.py"), "subgate-pass", name],
+        ["bash", str(DLWF / "scripts" / "workflow" / "dl-cmd.sh"), "gate"],
         cwd=state["worktree_path"], stdin=subprocess.DEVNULL,
         capture_output=True, text=True,
     )

@@ -25,7 +25,9 @@ function fmtTok(n) {
 }
 
 function isWaiting(w) {
-  return w.need_user || (w.held_for_gate && w.gate === "pending");
+  // gate_actionable（scanner 单源）= 门栏扣留 / 闸门后置阶段 pending——
+  // 替代旧「held && pending」近似（漏阶段闸门等待态）
+  return w.need_user || w.gate_actionable;
 }
 
 /* 自定义确认弹窗（替代原生 confirm）：返回 Promise<boolean>。
@@ -767,6 +769,9 @@ async function refreshDetail() {
     d.info.updated_at, d.info.gate, d.info.held_for_gate, d.info.need_user,
     d.driver_pid, d.log_tail.length, d.stats.length,
     d.stats.length ? d.stats[d.stats.length - 1].ts : "",
+    // 直接依赖补登：已答标记翻面（注入/失效）与新题落盘（同 bool 不同 ts）
+    // 必须当场重渲交互区——不等 updated_at/driver/log 间接触发
+    d.answered, d.need_user && d.need_user.ts,
   ]);
   const changed = fp !== lastDetailFp;
   lastDetailFp = fp;
@@ -802,10 +807,12 @@ function renderDetailLive(d) {
     live.textContent = "";
   }
   $("d-statement").textContent = d.info.problem_statement;
-  // 标题行 gate 放行按钮（门栏扣留时的主操作，置顶突出）
+  // 标题行 gate 放行按钮（仅在可作用时显示——gate_actionable scanner 单源：
+  // 门栏扣留 / 闸门后置阶段 pending；gate 从启动就是 pending，旧判定
+  // 「held || pending」= 全程常显，点了报错）
   const done = d.info.gate === "done";
   const gb = $("gate-btn");
-  gb.classList.toggle("hidden", done || !(d.info.held_for_gate || d.info.gate === "pending"));
+  gb.classList.toggle("hidden", done || !d.info.gate_actionable);
   gb.onclick = async () => {
     const r = await post("/api/gate", { project: sel.project, name: sel.name });
     toast(r.msg, r.ok);

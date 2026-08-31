@@ -73,6 +73,46 @@ def test_scan_workflow_need_user_flag(tmp_path):
     assert scan_workflow(tmp_path, "demo").need_user is True
 
 
+def test_scan_workflow_need_user_stale_filtered(tmp_path):
+    """陈旧卡过滤单源（绑定 ≠ state 当前位置 → need_user=False，侧栏等待态
+    与 detail 同口径）；legacy 无绑定 → True（放行）。"""
+    meta = _mk_workflow(tmp_path, "demo", BASE_STATE)  # state plan:2#1
+    (meta / "need_user.json").write_text(json.dumps({
+        "questions": [{"question": "q"}], "ts": "T",
+        "node": "plan:1", "sub_step": 3,
+    }), encoding="utf-8")
+    assert scan_workflow(tmp_path, "demo").need_user is False  # 陈旧
+    (meta / "need_user.json").write_text(json.dumps({
+        "questions": [{"question": "q"}], "ts": "T",
+        "node": "plan:2", "sub_step": 1,
+    }), encoding="utf-8")
+    assert scan_workflow(tmp_path, "demo").need_user is True  # 当前步
+    (meta / "need_user.json").write_text(json.dumps({
+        "questions": [{"question": "q"}], "ts": "T",
+    }), encoding="utf-8")
+    assert scan_workflow(tmp_path, "demo").need_user is True  # legacy 无绑定
+
+
+def test_gate_actionable_states(tmp_path):
+    """gate_actionable = 门栏扣留 / 闸门后置阶段（plan）pending——
+    understand 全程 pending 也不可点（gate 按钮可见性单源）。"""
+    from dl_dashboard.scanner import gate_actionable_of
+    assert gate_actionable_of({"held_for_gate": True, "gate": "pending",
+                               "phase": "understand"}) is True
+    assert gate_actionable_of({"gate": "pending", "phase": "plan"}) is True
+    assert gate_actionable_of({"gate": "pending", "phase": "understand"}) is False
+    assert gate_actionable_of({"gate": "passed", "phase": "plan"}) is False
+    assert gate_actionable_of({"gate": "done", "phase": "plan"}) is False
+
+
+def test_scan_workflow_gate_actionable_field(tmp_path):
+    _mk_workflow(tmp_path, "demo", BASE_STATE)  # plan + pending → True
+    assert scan_workflow(tmp_path, "demo").gate_actionable is True
+    st = dict(BASE_STATE, phase="understand", node="understand:1", sub_index=1)
+    _mk_workflow(tmp_path, "u", st)
+    assert scan_workflow(tmp_path, "u").gate_actionable is False
+
+
 def test_scan_all_isolates_broken_workflow(tmp_path):
     _mk_workflow(tmp_path, "good", BASE_STATE)
     bad = meta_root(tmp_path, "bad")

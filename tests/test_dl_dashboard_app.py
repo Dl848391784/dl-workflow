@@ -48,6 +48,8 @@ def test_detail(client):
     assert d["info"]["name"] == "demo"
     assert d["stats"] == [] and d["need_user"] is None
     assert isinstance(d["log_tail"], str)
+    # fixture：plan + gate=pending（闸门后置阶段）→ gate 可作用透传
+    assert d["info"]["gate_actionable"] is True
 
 
 # ---------- 问题卡步骤绑定 + 已答透传（dashboard-answered-marker-design） ----------

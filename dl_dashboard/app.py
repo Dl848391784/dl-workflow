@@ -145,13 +145,13 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
                 need_user = json.loads(nu_p.read_text(encoding="utf-8"))
             except json.JSONDecodeError:
                 need_user = {"error": "need_user.json 解析失败"}
-        # 步骤绑定过滤（dashboard-answered-marker-design §2.3）：载荷带绑定
-        # 且 ≠ state 当前位置 = 陈旧卡（已推进的步的问题 / NEXT_PREP 预备的
-        # 未来步问题）——不渲染，防「在跑」与「等人」不可分；无绑定字段
-        # （旧格式）= legacy 现状放行。
-        if (isinstance(need_user, dict) and need_user.get("node") is not None
-                and (need_user.get("node") != info.node
-                     or need_user.get("sub_step") != info.sub_step_index)):
+        # 陈旧卡过滤（dashboard-answered-marker-design §2.3）——规则单源 =
+        # scanner.need_user_stale（与 scan bool/侧栏等待态同口径）；解析失败
+        # 的错误卡不过滤（stale 判定需要合法 dict）
+        if (isinstance(need_user, dict) and "questions" in need_user
+                and scanner.need_user_stale(
+                    need_user, {"node": info.node,
+                                "sub_step_index": info.sub_step_index})):
             need_user = None
         slug = mgr.slug(proj, name)
         log_p = mgr.log_path(slug)
