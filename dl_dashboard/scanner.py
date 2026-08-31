@@ -1,6 +1,7 @@
 """跨项目扫描 .claude/workflows/*/state.json -> 节点状态模型（只读）。"""
 from __future__ import annotations
 
+import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,6 +12,7 @@ sys.path.insert(0, str(DLWF))
 from dl_flow_common import load_state  # noqa: E402
 from dl_flow_nodes import (  # noqa: E402
     FERMATE_SILENT_STEPS,
+    GATED_AFTER,
     _NODES,
     phase_index,
     tacet_silent_steps,
@@ -43,6 +45,7 @@ class WorkflowInfo:
     created_at: str
     problem_statement: str
     nodes: tuple[NodeStatus, ...]
+    gate_actionable: bool = False  # gate 按钮可作用（门栏扣留 / 闸门后置阶段 pending）
     force_tacet: bool = False
     force_fermate: bool = False
     error: str | None = None
@@ -50,6 +53,27 @@ class WorkflowInfo:
 
 def meta_root(project: Path, name: str) -> Path:
     return project / ".claude" / "workflows" / name
+
+
+def need_user_stale(data: dict, state: dict) -> bool:
+    """need_user 载荷是否陈旧（dashboard-answered-marker-design §2.3：
+    绑定 ≠ state 当前位置 = 已推进的步的问题 / NEXT_PREP 预备的未来步）。
+    无绑定字段 = legacy 旧格式 → False（现状放行）。
+    单源：scan_workflow 的 bool 与 detail 的渲染过滤共用，防列表/详情口径分裂。"""
+    return data.get("node") is not None and (
+        data.get("node") != state.get("node")
+        or data.get("sub_step") != state.get("sub_step_index", 1)
+    )
+
+
+def gate_actionable_of(state: dict) -> bool:
+    """gate 放行是否可作用（与 /dl gate 路由域逐义对齐，前端按钮可见性单源）：
+    门栏扣留 held_for_gate / 闸门后置阶段（GATED_AFTER）且 gate=pending。
+    gate=passed/done 或非闸门后置阶段（如 understand 全程）= 点了也没用，不显示。"""
+    return bool(state.get("held_for_gate")) or (
+        str(state.get("gate")) == "pending"
+        and str(state.get("phase")) in GATED_AFTER
+    )
 
 
 def iter_workflow_names(project: Path) -> list[str]:
@@ -101,7 +125,14 @@ def scan_workflow(project: Path, name: str) -> WorkflowInfo:
         if (meta_root(project, name) / "state.json").exists():
             raise ValueError(f"工作流 {name} 的 state.json 损坏（JSON 解析失败）")
         raise FileNotFoundError(f"工作流 {name} 的 state.json 缺失")
-    need_user = (meta_root(project, name) / "need_user.json").exists()
+    need_user = False
+    nu_p = meta_root(project, name) / "need_user.json"
+    try:
+        nu = json.loads(nu_p.read_text(encoding="utf-8"))
+        # 陈旧卡过滤单源（need_user_stale）：侧栏等待态与 detail 同口径
+        need_user = isinstance(nu, dict) and not need_user_stale(nu, state)
+    except (OSError, json.JSONDecodeError):
+        need_user = nu_p.exists()  # 解析失败按有卡处理（detail 出错误卡）
     return WorkflowInfo(
         project=str(project), name=name,
         phase=str(state.get("phase", "?")),
@@ -114,6 +145,7 @@ def scan_workflow(project: Path, name: str) -> WorkflowInfo:
         created_at=str(state.get("created_at", "")),
         problem_statement=str(state.get("problem_statement", "")),
         nodes=node_statuses(state),
+        gate_actionable=gate_actionable_of(state),
         force_tacet=bool(state.get("force_tacet")),
         force_fermate=bool(state.get("force_fermate")),
     )

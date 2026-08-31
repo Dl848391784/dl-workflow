@@ -85,14 +85,17 @@ def test_inject_returns_false_when_state_lacks_worktree_path(tmp_path):
     assert not ok and "state.json 缺 worktree_path" in msg
 
 
-def test_gate_release_runs_engine_cli(tmp_path):
+def test_gate_release_runs_dl_cmd_gate(tmp_path):
+    """gate 放行 = /dl gate 同路由（dl-cmd.sh gate 单源：门栏 subgate-pass /
+    阶段闸门置 passed 双分支）——原直调 engine subgate-pass 放不了阶段闸门。"""
     _mk_state(tmp_path, "demo", [], worktree_path=str(tmp_path / "wt"))
     with patch.object(actions.subprocess, "run",
                       return_value=MagicMock(returncode=0, stdout="✓ 已放行", stderr="")) as run:
         ok, msg = actions.gate_release(tmp_path, "demo")
     assert ok
     cmd = run.call_args[0][0]
-    assert "subgate-pass" in cmd and "demo" in cmd
+    assert cmd[:2] == ["bash", str(actions.DLWF / "scripts" / "workflow" / "dl-cmd.sh")]
+    assert cmd[2] == "gate"
 
 
 def test_gate_release_returns_false_when_state_missing(tmp_path):
