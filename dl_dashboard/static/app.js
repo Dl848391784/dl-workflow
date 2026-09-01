@@ -804,6 +804,13 @@ async function refreshDetail() {
     // 直接依赖补登：已答标记翻面（注入/失效）与新题落盘（同 bool 不同 ts）
     // 必须当场重渲交互区——不等 updated_at/driver/log 间接触发
     d.answered, d.need_user && d.need_user.ts,
+    // renderTimeline 直接输入补登（2026-09-01 实爆）：driver 死 + fp 恒定时
+    // renderDetailLive 被跳过——换肤点击不重渲（得 F5 才生效）；产物装配/
+    // 删除也不反映（产出物「又没有了」）。皮肤与产物 exists 都是渲染输入，
+    // 不入指纹 = 输入变了不重渲
+    localStorage.getItem("dl_tl_skin"),
+    d.artifacts && d.artifacts.understands && d.artifacts.understands.exists,
+    d.artifacts && d.artifacts.plans && d.artifacts.plans.exists,
   ]);
   const changed = fp !== lastDetailFp;
   lastDetailFp = fp;
