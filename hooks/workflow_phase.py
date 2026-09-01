@@ -52,7 +52,7 @@ PHASE_RULES = {
     },
     "plan": {
         "goal": "针对真实问题设计实现方案",
-        "allow": "understand 的工具 + 起草 design.md(H8)",
+        "allow": "understand 的工具",
         "deny": "改源码",
         "artifact": f"plan.md（{engine.SECTIONS_TEXT['plan.md']}）",
         "advance": "闸门：完成后需用户 /dl gate 放行才进 execute",

@@ -810,8 +810,17 @@ def test_run_tui_step_no_tty_goes_print_mode(wf_repo, monkeypatch):
     node = engine.get_node("understand", 2)
     step = engine.sub_step_at(node, 5)
     rc, sid = drv.run_tui_step(
-        wf_repo, "t", _read_state(wf_repo), node, 5, step, meta, False,
-        wf_repo / ".claude" / "worktrees" / "t", rework=None, needuser=True,
+        wf_repo,
+        "t",
+        _read_state(wf_repo),
+        node,
+        5,
+        step,
+        meta,
+        False,
+        wf_repo / ".claude" / "worktrees" / "t",
+        rework=None,
+        needuser=True,
     )
     assert rc == 0 and sid == "sid-pm"
     assert calls["disallow_ask"] is True
@@ -838,8 +847,17 @@ def test_run_tui_step_no_tty_bare_fallback_prompt(wf_repo, monkeypatch):
     node = engine.get_node("understand", 1)
     step = engine.sub_step_at(node, 1)
     rc, _ = drv.run_tui_step(
-        wf_repo, "t", _read_state(wf_repo), node, 1, step, meta, False,
-        wf_repo / ".claude" / "worktrees" / "t", rework=None, bare=True,
+        wf_repo,
+        "t",
+        _read_state(wf_repo),
+        node,
+        1,
+        step,
+        meta,
+        False,
+        wf_repo / ".claude" / "worktrees" / "t",
+        rework=None,
+        bare=True,
     )
     assert rc == 0 and calls["prompt"]
 
@@ -855,8 +873,9 @@ def _drive_stubbed(drv, wf_repo, monkeypatch, gate_ret):
 
     monkeypatch.setattr(engine, "gate_sub_step_at_stop", fake_gate)
     monkeypatch.setattr(engine, "set_drive_mode", lambda *a, **k: (True, ""))
-    monkeypatch.setattr(drv, "ensure_drive_settings",
-                        lambda *a, **k: wf_repo / "s.json")
+    monkeypatch.setattr(
+        drv, "ensure_drive_settings", lambda *a, **k: wf_repo / "s.json"
+    )
     monkeypatch.setattr(drv, "_run_boundary_loop", lambda *a, **k: 0)
     monkeypatch.setattr(drv, "breakpoint_loop", lambda *a, **k: "quit")
     return calls
@@ -2316,14 +2335,13 @@ def _read_evidence_recs(repo: Path) -> list:
 
 def test_confirm_artifact_mapping():
     node = engine.get_node("understand", 4)
-    assert engine.confirm_artifact(node) == ("understand.md", None)
-    assert engine.confirm_artifact(engine.get_node("plan", 2)) == ("plan.md", None)
-    assert engine.confirm_artifact(engine.get_node("plan", 3)) == ("plan.md", None)
-    assert engine.confirm_artifact(engine.get_node("plan", 4)) == ("plan.md", None)
-    assert engine.confirm_artifact(engine.get_node("plan", 1)) == (
-        "design.md",
-        "USE_WORKFLOW_NAME",
-    )
+    assert engine.confirm_artifact(node) == "understand.md"
+    assert engine.confirm_artifact(engine.get_node("plan", 2)) == "plan.md"
+    assert engine.confirm_artifact(engine.get_node("plan", 3)) == "plan.md"
+    assert engine.confirm_artifact(engine.get_node("plan", 4)) == "plan.md"
+    # design.md 装配已退役（designs/design-md-assembly-retire-design.md）——
+    # plan:1 读回确认无产物，只展示+裁决入 trace
+    assert engine.confirm_artifact(engine.get_node("plan", 1)) is None
     assert engine.confirm_artifact(engine.get_node("understand", 1)) is None
 
 

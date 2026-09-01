@@ -2485,12 +2485,10 @@ def _run_boundary_loop(
                         disp.log(f"  ⚠ render-readback 降级：{text_rb[:120]}")
                     art = engine.confirm_artifact(node)
                     if art is not None:
-                        _base, _slug = art
                         ok_a, msg_a = engine.render_artifact(
                             project_root,
                             name,
-                            _base,
-                            slug=(name if _slug == "USE_WORKFLOW_NAME" else _slug),
+                            art,
                         )
                         if ok_a:
                             disp.log(f"  ✓ 产物装配：{msg_a[:120]}")
@@ -2498,7 +2496,7 @@ def _run_boundary_loop(
                             # fail loud：下游步骤读该产物——断点等裁决
                             if (
                                 on_breakpoint(
-                                    f"⛔ 确认级产物装配失败（{_base}）：{msg_a[:150]}——"
+                                    f"⛔ 确认级产物装配失败（{art}）：{msg_a[:150]}——"
                                     f"回车重试 / step-pass / state-reset / q 退出。",
                                     SEG_BREAKPOINT,
                                 )

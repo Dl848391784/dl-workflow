@@ -2593,7 +2593,7 @@ class TestPlan4Orchestration:
     def test_shorts_order(self):
         shorts = [s.short for s in self._steps()]
         assert shorts == [
-            "四源清点",
+            "三源清点",
             "调度与检查点",
             "锚点核验",
             "归一化计划包",
@@ -2605,9 +2605,8 @@ class TestPlan4Orchestration:
 
     def test_input_chain(self):
         steps = self._steps()
-        assert (
-            "design.md" in steps[0].input
-        )  # 四源聚合：design+plan+understand+evidence
+        assert "plan.md" in steps[0].input  # 三源聚合：plan+understand+evidence
+        assert "design.md" not in steps[0].input  # design.md 装配已退役
         assert "understand.md" in steps[0].input
         assert steps[1].input == "step1.control_baseline"
         assert steps[2].input == "step2.control_proposals"
@@ -10985,93 +10984,17 @@ class TestRenderReadback:
             assert last.tier == "confirm", f"{phase}:{sub} 末步（P3-1 确认级）"
 
 
-class TestRenderArtifactDesignMd:
-    """v2.62：design.md 进 render-artifact（v2.59 遗留项清零）。
+class TestRenderArtifactDesignMdRetired:
+    """design.md 装配退役（designs/design-md-assembly-retire-design.md）：
 
-    动态文件名 designs/<slug>-design.md（repo 根 designs/，非 .claude/）——
-    slug 命名留模型（--slug），装配归脚本；八键 fields 全键渲染；
-    已存在拒覆盖（--force 放行 state-reset 重跑）。
+    render-artifact 不再支持 design.md——工作流内部零消费（下游 judge 读
+    evidence 不读产物文件），H8 按路径分流（dl-workflow 驱动改动豁免）。
     """
 
-    def _seed(self, tmp_path):
-        fields = {
-            k: f"{k} 值"
-            for k in (
-                "change_list",
-                "interface_sig",
-                "data_contract",
-                "callers",
-                "rejected",
-                "assumptions",
-                "acceptance_map",
-                "h9_units",
-            )
-        }
-        recs = [
-            json.dumps(
-                {
-                    "kind": "skill-trace",
-                    "minor_stage": "DesignSolution",
-                    "sub_step": 5,
-                    "statements": [
-                        {
-                            "text": "模板层删一次 *100",
-                            "type_label": "推荐",
-                            "boundary": "已证实边界 x.html:69",
-                            "fields": fields,
-                        }
-                    ],
-                },
-                ensure_ascii=False,
-            ),
-            json.dumps(
-                {
-                    "kind": "skill-trace",
-                    "minor_stage": "DesignSolution",
-                    "sub_step": 6,
-                    "q": ["裁决：选型拍板"],
-                    "a": ["用户拍板推荐方案"],
-                },
-                ensure_ascii=False,
-            ),
-        ]
-        _write_evidence(tmp_path, "t", recs)
-
-    def test_design_md_full_render(self, tmp_path):
-        self._seed(tmp_path)
-        ok, msg = eng.render_artifact(tmp_path, "t", "design.md", slug="fix-double-pct")
-        assert ok, msg
-        out = tmp_path / "designs" / "fix-double-pct-design.md"
-        text = out.read_text(encoding="utf-8")
-        assert "## 设计决策" in text
-        assert "### 模板层删一次 *100（推荐）" in text
-        assert "- change_list：change_list 值" in text  # 八键全键渲染
-        assert "- h9_units：h9_units 值" in text
-        assert "## 裁决记录" in text and "用户拍板推荐方案" in text
-
-    def test_design_md_slug_required(self, tmp_path):
-        self._seed(tmp_path)
-        ok, msg = eng.render_artifact(tmp_path, "t", "design.md")
-        assert not ok and "--slug" in msg
-
-    def test_design_md_slug_traversal_rejected(self, tmp_path):
-        self._seed(tmp_path)
-        for bad in ("../escape", "a/b", ".."):
-            ok, _ = eng.render_artifact(tmp_path, "t", "design.md", slug=bad)
-            assert not ok, bad
-
-    def test_design_md_overwrite_refused_then_force(self, tmp_path):
-        self._seed(tmp_path)
-        assert eng.render_artifact(tmp_path, "t", "design.md", slug="x")[0]
-        ok, msg = eng.render_artifact(tmp_path, "t", "design.md", slug="x")
-        assert not ok and "已存在" in msg and "--force" in msg
-        ok, _ = eng.render_artifact(tmp_path, "t", "design.md", slug="x", force=True)
-        assert ok
-
-    def test_design_md_missing_evidence_rejected(self, tmp_path):
+    def test_design_md_rejected(self, tmp_path):
         _write_evidence(tmp_path, "t", [])
-        ok, _ = eng.render_artifact(tmp_path, "t", "design.md", slug="x")
-        assert not ok  # evidence 空 -> evidence 缺失分支
+        ok, msg = eng.render_artifact(tmp_path, "t", "design.md")
+        assert not ok and "不支持" in msg
 
 
 class TestCLIIntermixedArgs:
@@ -13216,7 +13139,9 @@ class TestSegmentSpawnOverrides:
 
     def test_p2_step1_reuse_clause_pinned(self):
         # p2-sub1-cost L3：purpose/selfcheck 复用钉死条款（#25/#29 收紧形态
-        # ——默认零重验+枚举例外[包内留痕与 design.md 不一致]+单点配额）
+        # ——默认零重验+单点配额）。design.md 装配退役（designs/
+        # design-md-assembly-retire-design.md）后交接包留痕=唯一权威出处源，
+        # 「定点 Read 一次/零重读」条款随之退役（无产物文件可读）。
         # 关键词钉死——防未来编辑静默改丢（条款是本步步体主杠杆：基线
         # understand.md 47KB 全量读+evidence grep/python×2+locate×3=纯税）。
         step1 = eng._NODES["plan:2"].sub_steps[0]
@@ -13224,8 +13149,7 @@ class TestSegmentSpawnOverrides:
         assert "复用 <节点>子N 留痕" in step1.purpose
         assert "零 evidence 全量翻找" in step1.purpose
         assert "零 understand.md 读取" in step1.purpose
-        assert "定点 Read 一次" in step1.purpose
-        assert "零重读" in step1.purpose
+        assert "唯一权威出处源" in step1.purpose
         assert "零 understand.md 读取" in step1.selfcheck
         # ref 通道退役同步（grep evidence/understand.md 不再出现）
         assert "grep evidence" not in step1.ref
@@ -13597,8 +13521,9 @@ class TestForceFermate:
     def test_render_phase_rules_fermate_variant(self):
         # 条件块渲染（§2.5）：fermate 变体剔 plan:3/plan:4 整段 + 终点文案在场；
         # 全量变体剔 FERMATE_ONLY 块且 plan:3/plan:4 完整（回归）；标记零残留。
-        template = (Path(__file__).parent.parent / "scripts" / "workflow" /
-                    "phase-rules.md").read_text(encoding="utf-8")
+        template = (
+            Path(__file__).parent.parent / "scripts" / "workflow" / "phase-rules.md"
+        ).read_text(encoding="utf-8")
         full = eng.render_phase_rules(template)
         ferm = eng.render_phase_rules(template, fermate=True)
         assert "选择能力与工具" in full and "制定执行计划和检查点" in full
@@ -13612,8 +13537,13 @@ class TestForceFermate:
     def test_tui_and_progress_rows_hide_plan34(self):
         # 显示面（§2.5）：fermate 下 TUI 清单与 progress 快照都不枚举 plan:3/4；
         # 全量轨道照常枚举（回归）。
-        base = {"phase": "plan", "sub_index": 2, "index": 2, "node": "plan:2",
-                "sub_step_index": 1}
+        base = {
+            "phase": "plan",
+            "sub_index": 2,
+            "index": 2,
+            "node": "plan:2",
+            "sub_step_index": 1,
+        }
         rows = eng.tui_tasklist_lines({**base, "force_fermate": True})
         assert not any("2.3" in r or "2.4" in r for r in rows)
         rows_full = eng.tui_tasklist_lines(dict(base))

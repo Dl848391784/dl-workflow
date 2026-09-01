@@ -1077,7 +1077,9 @@ def step_needs_evidence(step: Step) -> bool:
 # +一轮门控还多抄错/抄漏失败面。render-artifact 从各节点最新 statements/
 # 裁决 trace 机械装配 understand.md/plan.md，模型零接触产物文件。
 # 内容要改 = 改对应步 trace 后重渲染（trace 仍是唯一真源）。
-# design.md 动态文件名（designs/<主题>-design.md）暂留模型装配（独立项）。
+# design.md 装配已退役（designs/design-md-assembly-retire-design.md）：
+# 工作流内部零消费（下游 judge 读 evidence 不读产物文件），H8 按路径分流——
+# dl-workflow 驱动改动豁免 design.md，非工作流改动仍手写。
 _ARTIFACT_RENDER_SOURCES: dict[str, dict] = {
     "understand.md": {
         # 节名 = ARTIFACT_SECTIONS 单源；源 = (minor_stage, 归一化步 sub_step)。
@@ -1123,25 +1125,7 @@ _ARTIFACT_RENDER_SOURCES: dict[str, dict] = {
         "require_all": False,
         "out_dir": "plans",
     },
-    # v2.62：design.md 进机械装配（v2.59 遗留项清零）。动态文件名 =
-    # designs/<slug>-design.md（repo 根 designs/，非 .claude/）——slug 由
-    # 模型经 --slug 给定（命名是轻创作，留在模型侧；路径/装配归脚本）。
-    "design.md": {
-        "sections": {"设计决策": ("DesignSolution", 5)},
-        "decision_steps": (("DesignSolution", 6),),
-        "unselected_minors": (),
-        "require_all": True,
-        "out_dir": "designs",
-        # statements 带八键 fields（change_list/interface_sig/data_contract/
-        # callers/rejected/assumptions/acceptance_map/h9_units）——全键渲染，
-        # 不做简单 bullet。
-        "rich_statements": True,
-    },
 }
-
-# design.md slug 校验（--slug）：kebab/下划线/点/中文皆可，禁路径分隔与
-# 父目录引用（防写出 designs/ 外）。
-_SLUG_RE = re.compile(r"^(?!\.{1,2}$)[^/\\]{1,80}$")
 
 
 def _trace_qa_items(rec: dict) -> list[dict]:
@@ -1156,16 +1140,11 @@ def render_artifact(
     project_root: Path,
     name: str,
     basename: str,
-    slug: str | None = None,
-    force: bool = False,
 ) -> tuple[bool, str]:
     """render-artifact：从 evidence 最新 trace 机械装配产物（v2.59）。
 
     返回 (ok, 消息)。源 trace 缺失时按 spec 处理（require_all=缺一节即拒；
     否则跳过该节并在输出点名）。幂等覆盖写，落主仓 .claude/<out_dir>/<name>.md。
-    v2.62：design.md 动态文件名——slug 必给（命名留模型，装配归脚本），
-    落 repo 根 designs/<slug>-design.md；已存在拒覆盖（state-reset 重跑
-    场景用 --force）。
     """
     spec = _ARTIFACT_RENDER_SOURCES.get(basename)
     if spec is None:
@@ -1174,13 +1153,6 @@ def render_artifact(
             + "/".join(sorted(_ARTIFACT_RENDER_SOURCES))
             + "）"
         )
-    if basename == "design.md":
-        if not slug or not _SLUG_RE.match(slug.strip()):
-            return False, (
-                "design.md 须给合法 --slug（designs/<slug>-design.md 的文件名段，"
-                "禁路径分隔符）——命名归你，装配归脚本"
-            )
-        slug = slug.strip()
     text = read_evidence(project_root, name)
     if not text:
         return False, f"evidence 缺失——{name}.jsonl 不存在或为空"
@@ -1199,9 +1171,7 @@ def render_artifact(
         latest[(rec.get("minor_stage"), rec.get("sub_step"))] = rec
 
     parts = [
-        f"# {name} · {basename}"
-        if basename != "design.md"
-        else f"# {slug}-design（{name}）",
+        f"# {name} · {basename}",
         "",
         "（render-artifact 机械装配，禁手改——改内容请改对应步 trace 后重渲染）",
         "",
@@ -1226,16 +1196,6 @@ def render_artifact(
         parts.append(f"## {sec}")
         parts.append("")
         for it in stmts:
-            if spec.get("rich_statements"):
-                # v2.62 design.md：八键 fields 全键渲染（设计包逐项落档）
-                parts.append(f"### {it.get('text', '')}（{it.get('type_label', '')}）")
-                if str(it.get("boundary") or "").strip():
-                    parts.append(f"- 边界/指针：{it['boundary']}")
-                for k, v in (it.get("fields") or {}).items():
-                    if str(v).strip():
-                        parts.append(f"- {k}：{v}")
-                parts.append("")
-                continue
             extras = [str(it.get("type_label") or ""), str(it.get("boundary") or "")]
             extras += [
                 f"{k}={v}"
@@ -1277,15 +1237,7 @@ def render_artifact(
                 parts.append(f"- 【{it['q']}】{it['a']}")
             parts.append("")
 
-    if basename == "design.md":
-        out = project_root / "designs" / f"{slug}-design.md"
-        if out.exists() and not force:
-            return False, (
-                f"{out} 已存在——拒覆盖（防抹掉其它工作的设计稿）；"
-                "state-reset 重跑场景加 --force，或换 slug"
-            )
-    else:
-        out = project_root / ".claude" / spec["out_dir"] / f"{name}.md"
+    out = project_root / ".claude" / spec["out_dir"] / f"{name}.md"
     try:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text("\n".join(parts) + "\n", encoding="utf-8")
@@ -1382,18 +1334,16 @@ def render_readback(project_root: Path, name: str) -> tuple[bool, str]:
 # ---------- P3-1 确认级读回（2026-08-13 用户裁决，设计文档 §2 P3）----------
 
 
-def confirm_artifact(node: "Node") -> "tuple[str, str | None] | None":
-    """确认级读回步的装配产物声明：(basename, slug|None)；无产物 -> None。
+def confirm_artifact(node: "Node") -> "str | None":
+    """确认级读回步的装配产物声明：basename；无产物 -> None。
 
-    映射：node.artifact（understand.md/plan.md）直出；plan:1 读回确认装配
-    design.md（v2.62 起脚本装配），slug 原归模型命名——确认级无模型会话，
-    取工作流名（name 本身即主题 slug，确定性零发明）。其余节点无装配。
+    映射：node.artifact（understand.md/plan.md）直出。plan:1 读回确认的
+    design.md 装配已退役（designs/design-md-assembly-retire-design.md：
+    工作流内部零消费，H8 按路径分流豁免），读回步只展示+裁决入 trace。
     """
     art = getattr(node, "artifact", None)
     if art in ("understand.md", "plan.md"):
-        return (art, None)
-    if node.phase == "plan" and node.sub == 1:
-        return ("design.md", "USE_WORKFLOW_NAME")
+        return art
     return None
 
 
@@ -1561,10 +1511,9 @@ def apply_tacet_skip(project_root: Path, name: str) -> tuple[bool, str]:
     if cur == len(node.sub_steps):
         art = confirm_artifact(node)
         if art is not None:
-            slug = name if art[1] == "USE_WORKFLOW_NAME" else art[1]
-            ok, msg = render_artifact(project_root, name, art[0], slug=slug)
+            ok, msg = render_artifact(project_root, name, art)
             if not ok:
-                return False, f"tacet 装配失败（{art[0]}）：{msg}"
+                return False, f"tacet 装配失败（{art}）：{msg}"
     _advance_sub_step(project_root, name, state, node, cur, via="tacet-skip")
     return True, ""
 
@@ -3497,15 +3446,6 @@ def main(argv: list[str] | None = None) -> int:
         help="append-trace：生成当前子步骤 .md 载荷骨架到 worktree 根 .trace-payload-<name>.md 并打印路径（格式脚本管，模型只填「待填」）",
     )
     parser.add_argument(
-        "--slug",
-        help="render-artifact design.md 的文件名段（designs/<slug>-design.md）",
-    )
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        help="render-artifact design.md：允许覆盖已存在的设计稿（state-reset 重跑场景）",
-    )
-    parser.add_argument(
         "--fermate",
         action="store_true",
         help="render-phase-rules：渲染 fermate（plan-only）变体（plan:3/plan:4 段剔除）",
@@ -3650,14 +3590,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "render-artifact":
         if not args.value:
             print(
-                "✗ 用法: render-artifact [name] <understand.md|plan.md|design.md>"
-                "（design.md 须 --slug <主题>）",
+                "✗ 用法: render-artifact [name] <understand.md|plan.md>",
                 file=sys.stderr,
             )
             return 1
-        ok, msg = render_artifact(
-            project_root, name, args.value, slug=args.slug, force=args.force
-        )
+        ok, msg = render_artifact(project_root, name, args.value)
         print(msg, file=sys.stdout if ok else sys.stderr)
         return 0 if ok else 1
     if args.cmd == "render-readback":
