@@ -1732,6 +1732,16 @@ _NONE_TIER_PATH_RE = re.compile(
     r"[\w./-]+\.(?:py|md|json|jsonl|parquet|yaml|yml|toml|sql)|\d+:\d+|:\d+"
 )
 
+# full 档理由须附「仓内已查无对照基线」举证（v2.77，2026-09-01
+# web_ui_interaction u:1 审计：量级合理性问题按旧枚举直落 full，外部取证
+# 零承重——过度升档零成本、block 威胁只在漏取证侧，激励单向）。
+# 与 none 档对称：路径指针 或「已查仓内 X 无」式声明；语义真伪（仓内是否
+# 真有显而易见对照）由 judge 判（举证失真条款），机械层只查存在性。
+_FULL_TIER_JUSTIFY_RE = re.compile(
+    r"[\w./-]+\.(?:py|md|json|jsonl|parquet|yaml|yml|toml|sql)|\d+:\d+|:\d+"
+    r"|仓内无|无对照|无同口径|已查仓内|仓内已查"
+)
+
 
 def _check_fetch_tier_items(items: list, qa: list | None = None) -> str | None:
     """fetch_tier_items：atomic_questions 逐项校验（u:1 子2 专属，nodes 声明）。
@@ -1766,6 +1776,12 @@ def _check_fetch_tier_items(items: list, qa: list | None = None) -> str | None:
                 f"atomic_questions[{i}] 标 none 档但 tier_reason 无仓内取证路径"
                 "指针（文件路径/file:line）——none=答案仓内可达，理由须指出"
                 "去哪查（如 formatters.py:92）；指不出路径的问题不得标 none"
+            )
+        if tier == "full" and not _FULL_TIER_JUSTIFY_RE.search(reason):
+            return (
+                f"atomic_questions[{i}] 标 full 档但 tier_reason 无「仓内已查"
+                "无对照基线」举证（路径指针或「已查仓内…无」式声明）——full="
+                "仓内给不出对照才值得五层源综合，与 none 档对称举证，缺则当场拒"
             )
     return None
 

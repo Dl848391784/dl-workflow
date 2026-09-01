@@ -430,8 +430,10 @@ class TestEvidenceTierRedesign:
 
     def test_sub2a_tier_rule_value_check(self):
         p2 = self._steps()[1].purpose  # sub2a 规划拆解
-        # A2：值不值得取证判据（外部取证是否改变结论方向）
-        assert "值不值得" in p2 or "是否改变「问题是否成立」" in p2
+        # A2：值不值得取证判据（外部取证是否改变结论方向）；v2.77 升一票前置
+        assert "值不值得" in p2 or "是否会改变「问题是否成立」" in p2
+        # v2.77：锚点先查 + full 档对称举证
+        assert "锚点先查" in p2 and "对称举证" in p2
         # A1：light 旧例子「年化量级合理性」移除、换成「有具体公认一次即得」
         assert "（如年化量级合理性判断）" not in p2
         assert "有具体、公认、一次即得" in p2
@@ -6708,7 +6710,13 @@ class TestV237FirstPassRate:
                 "a": "H1=X（待子3取证，两种可能）；H2=Y（未实测，保留理由：…）",
             },
         ]
-        aq = [{"q": "原子 A", "tier": "full", "tier_reason": "开放问题需五层源双向"}]
+        aq = [
+            {
+                "q": "原子 A",
+                "tier": "full",
+                "tier_reason": "开放问题需五层源双向，已查仓内无对照基线",
+            }
+        ]
         (tmp_path / "payload.json").write_text(
             json.dumps(
                 {"purpose": "p", "qa": qa, "atomic_questions": aq}, ensure_ascii=False
@@ -9865,9 +9873,28 @@ class TestFetchTier:
                 "tier": "light",
                 "tier_reason": "数值 claim 有公开锚点",
             },
-            {"q": "系统怎么设计", "tier": "full", "tier_reason": "开放方法论问题"},
+            {
+                "q": "系统怎么设计",
+                "tier": "full",
+                "tier_reason": "开放方法论问题，已查仓内 designs/ 无对照",
+            },
         ]
         ok, msg = self._append_s2(tmp_path, aq)
+        assert ok, msg
+
+    def test_full_tier_requires_repo_justification(self, tmp_path):
+        # v2.77（2026-09-01 web_ui_interaction u:1 审计）：full 档与 none 档
+        # 对称举证——tier_reason 须含路径指针或「已查仓内…无」式声明。
+        ok, msg = self._append_s2(
+            tmp_path, [{"q": "A", "tier": "full", "tier_reason": "开放方法论问题"}]
+        )
+        assert not ok and "仓内已查" in msg and "对称举证" in msg
+
+    def test_full_tier_justify_by_statement_accepted(self, tmp_path):
+        ok, msg = self._append_s2(
+            tmp_path,
+            [{"q": "A", "tier": "full", "tier_reason": "开放设计题，仓内无对照基线"}],
+        )
         assert ok, msg
 
     # ---- fetch_report_recorded tier-aware（none 档豁免报告项）----
