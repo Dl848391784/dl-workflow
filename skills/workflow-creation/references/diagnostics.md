@@ -323,6 +323,7 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
    - **门栏/闸门位置变更专项**（2026-07-28 围栏收窄实例：6 门栏撤除 + understand 移出 GATED_AFTER）：连锁面六类——①节点表两字段（`hold_for_gate` + `GATED_AFTER`）一处改；②**产物装配时机**：「放行后写产物」窗口依赖 hold 存在——撤门栏的 advance="phase" 节点必须把产物改**步内装配**（`artifact_on_release=False` + 末步 purpose 加装配义务），否则产物永远没窗口写；③phase-rules 门栏文案逐节点删改（门栏段 ↔「末步自动推进」段）+ 阶段完成行 + PHASE_DONE 通道增删；④注入 `PHASE_RULES` 的 advance 文案（手维护，非数据驱动，漏改=模型被告知已撤的闸门）；⑤测试：全量遍历断言（`hold_field_only_on_gate_nodes` / meta `gated_after`）+ 末步 held 类用例**换靶**到剩余门栏节点（旧靶改断自动推进；换靶用整块替换防尾部残余 assert）；⑥SKILL §0/症状 J/design 真源（workflow-system-design 闸门位置行）。GATED_AFTER 下游零改动（dl-lib.sh 经 meta CLI 单源读）。**存量会话兼容**：被撤门栏上的 held 残留标记无害（注入/release 三重判定含 `node.hold_for_gate`），`/dl next` 即走过。
    - **SKILL §0 摘要是 purpose 的「第三通道」，不会自动同步**（2026-07-28 实例）：Step.purpose 改动经 GENERATED 渲染自动同步 phase-rules + 注入双通道，但 §0 的子步骤摘要行是**手工副本**——改既有节点 purpose 的实质内容（判据口径/分类清单/裁决点）后必须同步摘要行，否则 skill 读者拿到过期契约。当日实例：plan 会话更新了 plan:1 摘要却没同步另一会话的 understand:3/4 编程域修订，靠收尾核对才发现。
    - **front 路由/判定语义变更专项**（2026-08-12 §8 实爆，merge 98a3c1a）：「前台亲自干 vs 派后台」类判定有多个消费侧（`workflow_phase` 注入路由 + `workflow_step_fence` 白名单 + `workflow_advance` stall 兜底）——改判定必须三路同改，正治是**收 engine 单源**（`front_interactive_work_here`），禁各持副本。实爆链：§8 裸开场收窄只翻转了 phase 侧，fence 侧仍按旧判定「交互步=前台干」，有陈述 u:1#1 的段派发命令被 S15 deny → 模型把 deny 误读成「后台段把交互步交回本会话」在 TUI 抢干活（transcript 实锤）。配套两教训：①**deny 文案会被模型按「交回/完成」语义误读**——围栏文案显式写「这是围栏拦截，不是交回」；②**路由语义翻转后必跑真机 dogfood**——单测全绿覆盖不了「模型误读 deny 文案」这一层。
+   - **摘除/退役机制或产物专项**（2026-09-01 design.md 装配退役实例，designs/design-md-assembly-retire-design.md）：下线一个机制的 grep 面比新增更宽——新增查「接入点齐不齐」，摘除查「所有引用点死没死」：①**跨节点产物引用**（下游节点 input/判材边界/合法正例可能引上游产物——plan:2 权威出处源、plan:4 四源枚举均引 design.md，design 稿按「机制定义点」估改动面漏了这层，实施中逐层追出）；②**运行时单点补丁**（`_apply_confirm_readback_tier` 类 dataclasses.replace 补丁整体替换 purpose——只改 Step.purpose 原文对运行时无效，补丁文本才是生效面）；③**交接包/产物指针**（「已装配产物」清单有消费步免 locate 依赖）；④**pinning tests 是故意锁旧契约的**（关键词钉死类断言——本次 confirm_artifact 映射/复用钉死条款/四源清点 3 处全需同步改 pin）；⑤nodes-index 第三通道（手工副本不自动同步）。**摘除类 design 稿的改动面按「引用面全枚举」写，不按「机制定义点」写**。
 
 ### 症状 G：install.sh 后 hook 没触发
 
@@ -522,3 +523,10 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 - **根因**（2026-08-31 实爆）：徽标 = Σ 完成段耗时 + (now - 末段结束 ts)——第二项把末段结束到此刻的全部时间计入（含等用户答题）；且段结束时 elapsed 清零 vs duration 入账的口径差会让总数往下跳。
 - **修复**：driver 段/轮起跑落 `state.current_segment`（{node, sub_step, started_at}，收工清除）；总时间 = Σ 完成段 + 在飞段实跑（started_at 起算）；driver 停（等答/门栏）不计时。观测通道失败只 log 不阻断段。
 - **教训**：时间口径从**起点**算，不从上个终点算——「上个终点到此刻」必然混入非执行时间。
+
+### 症状 AQ：dashboard 无确认卡 + 工作流停滞（driver 死断点 / confirm 级设计内无卡）
+
+- **根因**（2026-09-01 web_ui_interaction 实爆）：确认卡的唯一来源 = driver 跑交互段时 stash 的 `need_user.json`——driver 死了 / 步没跑到，dashboard 再正常也**无卡可显**。本次 driver 在 plan:1#6 确认级装配撞拒覆盖 → `on_breakpoint` 断点抛终端 → 退出，state 停在 #6 未跑，用户误以为「读回确认阶段 dashboard 该有确认点却没有 = 显示 bug」。
+- **判读三件套**：①driver 日志尾（`~/.dl-workflow/dashboard-run/<proj>--<name>.log`）有 `⛔` 断点文案 + 「退出 driver」；②`state.current_segment=None` 且段台账尾行停在**上一**子步（当前步无段记录）；③`pgrep -f "dl_drive.py <name>"` 空。三者齐 = driver 死断点——恢复断点因（本次=删拒覆盖撞上的孤儿文件）后 restart driver（dashboard /api/drive 或 `dl <name>`）即续。
+- **分流（先问「这步该不该有卡」）**：**confirm 级读回步（P3-1：short=读回确认/读回装配，8 个末步）在 drive 模式本来就不弹卡**（render-readback 机械展示 + write_confirm_trace 静默通过）——「读回确认阶段没让我确认」是设计内行为，交互卡只剩 5 个 decision 级步（u:1-4#1 + plan:1#2）。步该有卡却没有 → 按三件套查 driver；步是 confirm 级 → 零问题。
+- **教训**：dashboard 是观测面不是状态机——「页面没什么」先查编排层为什么没产出，别先当显示 bug。断点（on_breakpoint）是终端通道，driver 无 TTY 死掉时断点文案只留在日志里，不传导到 dashboard。
