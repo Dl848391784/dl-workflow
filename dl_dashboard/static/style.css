@@ -1005,13 +1005,6 @@ td.num { text-align: right; color: var(--text-2); }
   font-size: 10.5px;
 }
 
-/* 只读名称框（自动生成展示位，禁输入） */
-#cf-name[readonly] {
-  color: var(--text-3);
-  border-style: dashed;
-  cursor: not-allowed;
-}
-
 /* 确认弹窗（替代原生 confirm） */
 .confirm-modal { max-width: 380px; }
 .confirm-body {

@@ -887,29 +887,63 @@ let lastProjects = [];
 let lastProviders = [];
 let lastWorkflowNames = new Set();  // 已存在工作流名（生成名防碰撞用）
 
-/* 从 problem_statement 提取英文词自动生成名称（≤3 词，_ 连接）：
-   提取拉丁 token -> 小写 -> 去停用词 -> 取前 3；纯中文陈述提取不出词则留空手填。
+/* 从 problem_statement 提取英文关键词自动生成名称（≤5 词，_ 连接，≤63 字符）：
+   提取拉丁 token -> 小写 -> 去停用词（含疑问词/泛化动词套话）-> 去重；
+   候选超 5 个时按词长优选（长词信息量高），再恢复原语句序保持可读；
+   纯中文陈述提取不出词则留空，名称框可手填。
    名称正则约束 ^[a-z0-9][a-z0-9_-]{0,63}$（与后端 _NAME_RE 一致）。 */
 const NAME_STOP = new Set([
   "the", "a", "an", "of", "for", "and", "or", "is", "are", "to", "in", "on",
   "we", "our", "you", "your", "this", "that", "it", "its", "be", "by", "at",
   "as", "if", "so", "no", "not", "do", "does", "did", "has", "have", "had",
+  /* 疑问词 + 泛化动词/套话：高频但不携带问题主题 */
+  "why", "how", "what", "when", "where", "which", "who", "please", "help",
+  "want", "need", "make", "get", "use", "using", "fix", "add", "create",
+  "change", "update", "bug", "issue", "problem", "error", "fail", "failed",
+  "can", "could", "should", "would", "will", "just", "like", "know", "think",
+  "see", "look", "run", "running", "way", "too", "very", "much", "more",
+  "some", "any", "all", "than", "then", "them", "they", "there", "here",
+  "with", "from", "about", "after", "before", "while", "also", "still",
+  "even", "only", "same", "now", "new", "seems", "me", "my", "us", "let",
+  "between", "investigate", "analyze", "analyse", "check",
 ]);
+const NAME_MAX_WORDS = 5;
+const NAME_MAX_LEN = 63;
+const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 function genName(statement) {
   const words = (statement.match(/[a-zA-Z][a-zA-Z0-9]*/g) || [])
     .map((w) => w.toLowerCase())
     .filter((w) => !NAME_STOP.has(w) && w.length > 1);
-  const uniq = [...new Set(words)].slice(0, 3);
-  return uniq.join("_").slice(0, 63);
+  const uniq = [...new Set(words)];
+  /* 候选超上限：按词长（信息量代理）优选，再按原语序排回——名称仍读得出原句结构 */
+  const picked = uniq.length <= NAME_MAX_WORDS
+    ? uniq
+    : [...uniq]
+        .sort((a, b) => b.length - a.length)
+        .slice(0, NAME_MAX_WORDS)
+        .sort((a, b) => uniq.indexOf(a) - uniq.indexOf(b));
+  /* 逐词拼接、整词截断：避免 slice 切出半个词或尾部下划线 */
+  let name = "";
+  for (const w of picked) {
+    const cand = name ? `${name}_${w}` : w;
+    if (cand.length > NAME_MAX_LEN) break;
+    name = cand;
+  }
+  return name;
 }
-/* 名称预览 = 防重后的最终名（所见即所建）：生成 -> 撞现存名自动 _2/_3 */
+/* 名称预览 = 防重后的最终名（所见即所建）：生成 -> 撞现存名自动 _2/_3；
+   用户手改过的名字不被后续输入覆盖（值等于上次生成结果才视为未手改） */
+let lastGenName = "";
 function previewName() {
+  const cur = $("cf-name").value;
+  if (cur && cur !== lastGenName) return;
   const base = genName($("cf-statement").value);
-  $("cf-name").value = base ? dedupeName(base) : "";
+  lastGenName = base ? dedupeName(base) : "";
+  $("cf-name").value = lastGenName;
 }
 $("cf-statement").addEventListener("input", previewName);
 
-/* 提交时定名：生成 -> 空则拦（纯中文陈述）-> 防碰撞加 _2/_3 后缀 */
+/* 提交时定名：以输入框为准（预览已填入，用户可手改）-> 空则拦 -> 防碰撞加 _2/_3 后缀 */
 function dedupeName(base) {
   if (!lastWorkflowNames.has(base)) return base;
   for (let i = 2; ; i++) {
@@ -963,13 +997,19 @@ $("create-form").onsubmit = async (e) => {
     submitBtn.textContent = "创建并启动";
   };
   const statement = $("cf-statement").value.trim();
-  const base = genName(statement);  // 提交时重算兜底（名单可能刚变）
+  // 名称以输入框为准（预览已填入生成名，用户可手改；纯中文陈述生成不出时手填）
+  const base = $("cf-name").value.trim() || genName(statement);
   if (!base) {
-    toast("问题里没有可识别的英文词，无法生成工作流名——请在问题中包含英文关键词（如因子名/页面名）", false);
+    toast("无法生成工作流名——请手填名称，或在问题中包含英文关键词（如因子名/页面名）", false);
     restore();
     return;
   }
-  const name = dedupeName(base);
+  if (!NAME_RE.test(base)) {
+    toast("名称只能含小写字母/数字/_/-，且以字母或数字开头（≤63 字符）", false);
+    restore();
+    return;
+  }
+  const name = dedupeName(base);  // 提交时重防撞（名单可能刚变）
   const scope = document.querySelector("#scope-cards .mode-card.sel").dataset.v;
   const tacet = document.querySelector("#track-cards .mode-card.sel").dataset.v === "tacet";
   try {
