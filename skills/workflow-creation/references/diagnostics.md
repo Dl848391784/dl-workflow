@@ -530,3 +530,17 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 - **判读三件套**：①driver 日志尾（`~/.dl-workflow/dashboard-run/<proj>--<name>.log`）有 `⛔` 断点文案 + 「退出 driver」；②`state.current_segment=None` 且段台账尾行停在**上一**子步（当前步无段记录）；③`pgrep -f "dl_drive.py <name>"` 空。三者齐 = driver 死断点——恢复断点因（本次=删拒覆盖撞上的孤儿文件）后 restart driver（dashboard /api/drive 或 `dl <name>`）即续。
 - **分流（先问「这步该不该有卡」）**：**confirm 级读回步（P3-1：short=读回确认/读回装配，8 个末步）在 drive 模式本来就不弹卡**（render-readback 机械展示 + write_confirm_trace 静默通过）——「读回确认阶段没让我确认」是设计内行为，交互卡只剩 5 个 decision 级步（u:1-4#1 + plan:1#2）。步该有卡却没有 → 按三件套查 driver；步是 confirm 级 → 零问题。
 - **教训**：dashboard 是观测面不是状态机——「页面没什么」先查编排层为什么没产出，别先当显示 bug。断点（on_breakpoint）是终端通道，driver 无 TTY 死掉时断点文案只留在日志里，不传导到 dashboard。
+
+### 症状 AR：py 改动「修复没生效」（常驻 server 进程内存旧码）
+
+- **根因**（2026-09-01 scanner fermate 可见集修复实爆）：dashboard 是常驻 python 服务（`python3 -m dl_dashboard.app`），py 模块在启动时加载进内存——改后端代码（scanner/metrics/app 等）后**文件是新的、进程跑的还是旧的**；光刷浏览器只拉静态文件，API 输出不变，现象与缓存问题一模一样。
+- **判读**：症状 AN 分层验证（server 文件 → serve 输出 → 浏览器缓存）全过但 API 输出仍旧 → 对比进程启动时间与文件 mtime：`ps -o lstart= -p $(pgrep -f "^python3 -m dl_dashboard.app")` vs `stat -c %y <改动的.py>`，进程更老 = 内存旧码。
+- **修复**：重启 server——`kill $(pgrep -f "^python3 -m dl_dashboard.app"); cd ~/.dl-workflow && nohup setsid python3 -m dl_dashboard.app > dashboard-run/server.out 2>&1 &`；起后 curl API 直接验证新行为（绕过浏览器层）。
+- **教训**：「修复没生效」完整分层 = server 文件 → **server 进程内存（py=必重启）** → serve 输出 → 浏览器缓存（静态=硬刷）。静态改动免重启（版本戳 mtime 注入，症状 AN），py 改动必重启；验证修复优先 curl API，把浏览器层摘出变量集。
+
+### 症状 AS：fermate 工作流「没跑完」误判 / 时间轴挂永不执行的节点、进度不满 100%
+
+- **根因**（2026-09-01 web_ui_interaction 实爆）：fermate（plan-only）轨道终点 = plan:2——plan:3/plan:4 裁剪不存在，plan:2 末步过门控 gate=done 自动完结（fermate-auto-complete），execute/review/evolution 本就不进。两层实爆：①**判读层**——按 5 阶段全量形态误读「停在 plan:2 = 没跑完」；②**显示层**（已根治）——dashboard 前端手写 visibleNodes 只按阶段过滤、漏裁 plan:3/plan:4，时间轴永挂 pending 幽灵节点 + 进度分母虚高（32/43=74% 永到不了 100%）。
+- **判读**：「跑完了么 / 卡住了」先看 `state.force_fermate` + `state.gate`——fermate 下 gate=done 即完结（唯一人工动作 = `/dl done` 归档），别数 5 阶段进度。显示异常先 curl API 看下发节点集：API 已过滤 = 前端/缓存层；API 未过滤 = scanner 或进程内存层（症状 AR）。
+- **修复**（显示层，2026-09-01 已落地 commit 1959685）：可见性判据下沉 `dl_flow_nodes.fermate_cut_node`（plan:3/plan:4 裁剪）+ `fermate_phase_reachable`（execute+ 不可达），scanner 组合下发、前端零手写过滤。脊柱再演进只改这一处单源。
+- **教训**：运行轨道分叉（forte/fermate/tacet）的判读入口 = state 开关位，不是默认全量形态。展示层手写跟随引擎演进必掉队——可见**节点**与可见**步**同规：一律取 dl_flow_nodes 单源，消费方禁自猜。
