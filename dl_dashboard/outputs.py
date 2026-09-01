@@ -18,12 +18,14 @@ log = logging.getLogger("dl_dashboard.outputs")
 
 # change_point= 块（跨行，止于 ；interface= / ；Produces= / 空行 / 串尾）
 _CP_RE = re.compile(r"change_point=(.+?)(?:；interface=|；Produces=|\n\n|$)", re.S)
-# 锚点行：web_ui/app.py:_render_report:L267（改）：改前=X → 改后=Y
-#         _macros.html:-:L57（改）：改前=...（注）→ 改后=...（注）
+# 锚点行（2026-08-25 up-change-spec-gate 钦定语法，dl_flow_nodes._CHANGE_SPEC_RULE）：
+#         web_ui/app.py:_render_report:L267-269（改）：改前 X → 改后 Y（注）
+#         _macros.html:-:L57-57（改）：改前 ... → 改后 ...（注）
 #         test_x.py:-（增@文件尾）：新增测试描述
+# 行号为区间 L<a>-<b>（单行即 a=b）；改前/改后等号可省（新旧两态都收）。
 _ANCHOR_RE = re.compile(
-    r"([\w./-]+\.\w+):([\w.-]*):?L?(\d+|-)?（(改|增|删)[^）]*）"
-    r"(?:：改前=(.*?)\s*→\s*改后=(.*?))?(?:：([^；\n]*))?(?=；|\n|$)"
+    r"([\w./-]+\.\w+):([\w.-]*):?L?(\d+|-)?(?:-\d+)?（(改|增|删)[^）]*）"
+    r"(?:：改前=?(.*?)\s*→\s*改后=?(.*?))?(?:：([^；\n]*))?(?=；|\n|$)"
 )
 _CTX_RADIUS = 4  # 现状代码上下文半径（锚点行 ±4）
 

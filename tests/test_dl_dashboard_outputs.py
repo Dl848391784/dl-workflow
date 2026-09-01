@@ -66,6 +66,36 @@ def test_load_change_points_extracts_anchors(tmp_path):
     assert load_change_points(proj, "nonexistent") == []
 
 
+def test_load_change_points_up_change_spec_gate_grammar(tmp_path):
+    """2026-08-25 up-change-spec-gate 钦定语法（dl_flow_nodes._CHANGE_SPEC_RULE）：
+    L<a>-<b> 行区间 + 改前/改后无等号。锚点行取自 web_ui_interaction_2 真实 plan.md
+    （回归材料：旧 regex 只认 L57 单行 + 改前= 带等号 -> 6 条全漏、改动面空卡）。"""
+    proj = _mk_project(tmp_path)
+    plans = tmp_path / ".claude" / "plans"
+    plans.mkdir(parents=True)
+    (plans / "demo.md").write_text(
+        "## 执行步骤\n"
+        "- 步骤一（change_point=web_ui/templates/_macros.html:-:L57-57（改）："
+        "改前 {% set _ann_pct = _ann * 100 %} → 改后 {% set _ann_pct = _ann %}（删 ×100，ann 已为百分数）\n"
+        "web_ui/templates/_macros.html:-:L55-55（改）：改前契约注释「ann: 年化 decimal (0.2 = 20%)」"
+        "→ 改后「ann: 年化百分数（49.2 = 49.2%，loader 已换算）」；interface=Consumes=a）\n"
+        "- 步骤二（change_point=web_ui/templates/_section_compare.html:-:L61-61（改）："
+        "改前 r.long_short_return_annual * 100 → 改后 r.long_short_return_annual（删 ×100）；Produces=out）\n",
+        encoding="utf-8",
+    )
+    cps = load_change_points(proj, "demo")
+    assert len(cps) == 3
+    assert cps[0]["file"] == "web_ui/templates/_macros.html"
+    assert cps[0]["line"] == "57" and cps[0]["action"] == "改"
+    assert cps[0]["before"] == "{% set _ann_pct = _ann * 100 %}"
+    assert cps[0]["after"].startswith("{% set _ann_pct = _ann %}")
+    assert cps[1]["line"] == "55"
+    assert "decimal (0.2 = 20%)" in cps[1]["before"]
+    assert cps[2]["file"] == "web_ui/templates/_section_compare.html"
+    assert cps[2]["before"] == "r.long_short_return_annual * 100"
+    assert cps[2]["after"].startswith("r.long_short_return_annual")
+
+
 def test_change_point_code_context_from_worktree(tmp_path):
     proj = _mk_project(tmp_path)
     plans = tmp_path / ".claude" / "plans"
