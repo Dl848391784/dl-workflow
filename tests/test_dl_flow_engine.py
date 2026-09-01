@@ -5363,6 +5363,111 @@ class TestStatementsRecordFormat:
         ok, msg = eng.append_trace(tmp_path, "t", str(payload))
         assert ok, msg
 
+    # ---- v2.126 传导幽灵 ID + 披露缺口修复（web_ui_interaction u:2#4 实爆：
+    # 子3 引注「sources#2#3」被 _ID_RE 抽成条目编号 → 子4 被要求传导幽灵
+    # ID，同形态连拒 4 次打地鼠 733s；报错不教写法，模型靠 grep 其他实例
+    # evidence 反推格式）----
+
+    def test_hash_id_citation_noise_not_extracted(self):
+        # #N 前紧跟 ASCII 字母/数字/下划线 = 引注噪声（sources#2#3/task#12），
+        # 非枚举位，不产生传导义务
+        found = set(eng._ID_RE.findall("出处：need_user.json Q1a、sources#2#3。"))
+        assert "#2" not in found and "#3" not in found
+        assert not set(eng._ID_RE.findall("task#12 引用 abc#1"))
+
+    def test_hash_id_enumeration_position_still_extracted(self):
+        # 枚举位形态不受影响：行首/空白/斜杠/顿号前的 #N 仍是条目编号
+        found = set(eng._ID_RE.findall("候选 #1 与 #2a 成立；承接 #1/#2、#3"))
+        assert {"#1", "#2a", "#2", "#3"} <= found
+
+    def test_id_coverage_citation_noise_source_passes(self, tmp_path):
+        # 重放 web_ui_interaction u:2#4：源步（子3）trace 仅引注含 #N——
+        # 无真实条目编号 → 无传导义务，statements 不带 #N 标记直接通过
+        _write_state_full(tmp_path, "t", "understand", 2, sub_step=4)
+        ev = eng._evidence_path(tmp_path, "t")
+        ev.parent.mkdir(parents=True, exist_ok=True)
+        src = json.dumps(
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "GoalsAndValue",
+                "sub_step": 3,
+                "skill": "推理(价值链+分层理由)",
+                "purpose": "价值论证",
+                "q": ["who 出处？"],
+                "a": ["who 全部来自 need_user.json Q1a、sources#2#3。"],
+            },
+            ensure_ascii=False,
+        )
+        ev.write_text(src + "\n", encoding="utf-8")
+        payload = tmp_path / "payload.json"
+        self._write_payload(
+            payload,
+            {"purpose": "p", "statements": self._statements("年化率显示真实值")},
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert ok, msg
+
+    def test_id_coverage_rejection_discloses_legal_forms(self, tmp_path):
+        # 拒绝文案三披露（#54 打地鼠分诊=披露缺口的修法）：①缺传 ID 的源
+        # 出处上下文 ②传导判定规则（字面包含）③合法形态示例——不披露则
+        # 模型只能考古其他实例 evidence 学格式（733s 事故的直接原因）
+        self._setup_sc4(tmp_path)
+        ev = eng._evidence_path(tmp_path, "t")
+        ev.parent.mkdir(parents=True, exist_ok=True)
+        src = json.dumps(
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "ScopeAndConstraints",
+                "sub_step": 3,
+                "skill": "define-problem",
+                "purpose": "范围界定",
+                "q": ["in 侧？"],
+                "a": ["in[1] 因子卡片 in[2] 分层表 out[A] 后端 C1.1 硬规则"],
+            },
+            ensure_ascii=False,
+        )
+        ev.write_text(src + "\n", encoding="utf-8")
+        payload = tmp_path / "payload.json"
+        self._write_payload(
+            payload,
+            {
+                "purpose": "p",
+                "statements": self._statements(
+                    "in[1] 因子卡片允许改 out[A] 不动 C1.1 遵守"
+                ),
+            },
+        )
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert not ok and "in[2]" in msg
+        assert "分层表" in msg  # ①缺传 ID 的源出处上下文
+        assert "承接" in msg and "剔除" in msg  # ③合法形态示例
+
+    def test_scaffold_announces_transmission_ids(self, tmp_path):
+        # scaffold 成功消息预印传导要件（披露前置：打地鼠成本≈(提交数-1)×
+        # 全上下文重交，首次提交前披露是零成本出口）
+        _write_state_full(tmp_path, "t", "understand", 3, sub_step=4)
+        ev = eng._evidence_path(tmp_path, "t")
+        ev.parent.mkdir(parents=True, exist_ok=True)
+        src = json.dumps(
+            {
+                "kind": "skill-trace",
+                "major_stage": "Understand",
+                "minor_stage": "ScopeAndConstraints",
+                "sub_step": 3,
+                "skill": "define-problem",
+                "purpose": "范围界定",
+                "q": ["in 侧？"],
+                "a": ["in[1] 因子卡片 in[2] 分层表"],
+            },
+            ensure_ascii=False,
+        )
+        ev.write_text(src + "\n", encoding="utf-8")
+        ok, msg = eng.scaffold_payload(tmp_path, "t")
+        assert ok, msg
+        assert "in[1]" in msg and "in[2]" in msg and "传导" in msg
+
 
 class TestRubricDispute:
     """v2.30 #7 判据申诉通道（tail_volume u:3 子4：模型第 4 轮已正确诊断

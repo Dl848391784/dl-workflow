@@ -48,11 +48,15 @@ _NOUN_SKIP_EXTS = (".md", ".rst", ".txt")
 # T1、SC4.1、#1a 全部漏捕——plan 域节点的 ID 传导核对静默空转。
 # ASCII 边界用否定环视（CJK 在 re.UNICODE 下是 \w，\b 在 CJK-Latin 交界不可靠，
 # 同 _NOUN_L/_NOUN_R 先例）。
+# v2.126 #N 分支加枚举位左边界（web_ui_interaction u:2#4 实爆）：「sources#2#3」
+# 式引注噪声（# 前紧跟 ASCII 字母/数字/下划线）被抽成条目编号 → 幽灵传导义务
+# 5 提交 4 拒打地鼠 733s。枚举位（行首/空白/标点/CJK 前）的 #N 不受影响——
+# 传导义务只该由「声明式编号」产生，引注参照不产生义务。
 _ID_RE = re.compile(
     r"[A-Za-z]+\[[\w-]+\]"  # in[1]/out[A]
     r"|[A-Z]{1,3}\d+\.\d+"  # C1.1/SC4.1/H1.1
     r"|RC-[A-Z]"  # RC-A 红队反例
-    r"|#[0-9]+[a-z]?\d*"  # #1a/#2/#1b1 候选与陈述项
+    r"|(?<![A-Za-z0-9_])#[0-9]+[a-z]?\d*"  # #1a/#2/#1b1 候选与陈述项（枚举位）
     r"|(?<![A-Za-z0-9_])[UT]\d+(?![A-Za-z0-9_])"  # U1 任务/T1 目标
 )
 
@@ -110,18 +114,18 @@ def _implementation_nouns(project_root: Path) -> set[str]:
     return nouns
 
 
-def _step_trace_ids(
+def _step_trace_text(
     project_root: Path, name: str, sub_step: int, minor_key: str | None
-) -> set[str]:
-    """取某子步骤最新 trace 文本里的条目编号集（ID 传导覆盖核对的源侧）。"""
+) -> str:
+    """取某子步骤最新 trace 的全文本（ID 传导核对与披露版的共用源侧）。"""
     text = read_evidence(project_root, name)
     if not text:
-        return set()
+        return ""
     latest = None
     for _, rec in _iter_trace_segments(text, sub_step, minor_key):
         latest = rec
     if latest is None:
-        return set()
+        return ""
     parts = [str(latest.get("purpose") or "")]
     for v in latest.get("q") or []:
         parts.append(str(v))
@@ -135,7 +139,34 @@ def _step_trace_ids(
             flds = item.get("fields")
             if isinstance(flds, dict):
                 parts.extend(str(v) for v in flds.values())
-    return set(_ID_RE.findall(" ".join(parts)))
+    return " ".join(parts)
+
+
+def _step_trace_ids(
+    project_root: Path, name: str, sub_step: int, minor_key: str | None
+) -> set[str]:
+    """取某子步骤最新 trace 文本里的条目编号集（ID 传导覆盖核对的源侧）。"""
+    return set(_step_trace_id_contexts(project_root, name, sub_step, minor_key))
+
+
+def _step_trace_id_contexts(
+    project_root: Path, name: str, sub_step: int, minor_key: str | None
+) -> dict[str, str]:
+    """_step_trace_ids 的披露版（v2.126）：每个 ID 附源文 ±24 字片段。
+
+    拒绝文案引出处用——模型据此判断缺传 ID 是真条目还是引注噪声，
+    免于 grep 其他实例 evidence 反推格式（web_ui_interaction u:2#4 打地鼠
+    事故的披露缺口修法）。
+    """
+    text = _step_trace_text(project_root, name, sub_step, minor_key)
+    ctx: dict[str, str] = {}
+    for m in _ID_RE.finditer(text):
+        if m.group(0) in ctx:
+            continue
+        lo = max(0, m.start() - 24)
+        hi = min(len(text), m.end() + 24)
+        ctx[m.group(0)] = text[lo:hi].replace("\n", " ").strip()
+    return ctx
 
 
 def _source_step_index(step, cur: int) -> int | None:

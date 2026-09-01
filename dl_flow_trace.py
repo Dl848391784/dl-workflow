@@ -30,6 +30,7 @@ from dl_flow_checks import (
     _load_atomic_questions,
     _placeholder_hit,
     _source_step_index,
+    _step_trace_id_contexts,
     _step_trace_ids,
 )
 from dl_flow_common import (
@@ -634,12 +635,27 @@ def scaffold_payload(project_root: Path, name: str) -> tuple[bool, str]:
         out.write_text("\n\n".join(parts) + "\n", encoding="utf-8")
     except OSError as e:
         return False, f"写骨架失败：{e}"
+    # v2.126 披露前置（web_ui_interaction u:2#4 打地鼠 733s）：statements 步
+    # 的源步 ID 传导要件随骨架成功消息预印——首次提交前披露是零成本出口
+    # （打地鼠成本≈(提交数-1)×全上下文重交，#54 审计手法）。
+    transmit_note = ""
+    if getattr(step, "record_format", "qa") == "statements":
+        src = _source_step_index(step, cur)
+        if src:
+            src_ids = sorted(_step_trace_ids(project_root, name, src, node.minor_key))
+            if src_ids:
+                transmit_note = (
+                    f"；传导要件：源步（子{src}）编号 {'/'.join(src_ids)} "
+                    "须逐项字面出现在某条 statement 的 text/boundary"
+                    "（写「承接 X」或「X 剔除：理由」均可）"
+                )
     return True, (
         f"✓ 骨架已生成 {out}（子步骤 {cur} {step.ref}）{stale_cleaned}——"
         "先 Read 该文件再 Write/Edit（harness 写前必读，跳过会报 "
         "read-first 错）；把所有「待填」换成实际内容（漏填会被占位符扫描当场拒；"
         "内容随便带引号/换行/代码，格式全归脚本），"
         f"然后 Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace --from-file {out}`"
+        f"{transmit_note}"
     )
 
 
@@ -764,18 +780,31 @@ def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool
                     )
         src = _source_step_index(step, cur)
         if src:
-            src_ids = _step_trace_ids(project_root, name, src, node.minor_key)
-            if src_ids:
+            # v2.126 披露版（web_ui_interaction u:2#4 打地鼠 733s）：报错附
+            # 每个缺传 ID 的源文出处 + 传导判定规则 + 合法形态——旧文案只说
+            # 「逐条补或显式标注剔除理由」，不教写在哪/什么语法算标注，模型
+            # 靠 grep 其他实例 evidence 反推格式（#54 打地鼠=披露缺口）。
+            src_id_ctx = _step_trace_id_contexts(
+                project_root, name, src, node.minor_key
+            )
+            if src_id_ctx:
                 new_text = " ".join(
                     f"{it['text']} {it['type_label']} {it['boundary']} "
                     + " ".join(str(v) for v in (it.get("fields") or {}).values())
                     for it in statements
                 )
-                missing = sorted(i for i in src_ids if i not in new_text)
+                missing = sorted(i for i in src_id_ctx if i not in new_text)
                 if missing:
+                    origins = "；".join(
+                        f"「{i}」源文 …{src_id_ctx[i]}…" for i in missing
+                    )
                     return False, (
                         f"源步（子{src}）条目未逐项传导，缺：{'、'.join(missing)}"
-                        "——逐项原子化传导是形式要件，逐条补或显式标注剔除理由"
+                        f"（{origins}）"
+                        "——逐项原子化传导是形式要件：编号字面出现在任一 "
+                        "statement 的 text/boundary/fields 即算传导，写「承接 "
+                        f"{missing[0]}」或「{missing[0]} 剔除：理由」均可；"
+                        "源文是引注噪声（非真条目）的按剔除标注并写明源出处"
                     )
         # statements 侧 mech_checks（首个落地，u:2#4 预留独立项 #30 ⑰ 的解）：
         # 与 qa 分支同款循环，查 statements 注册表，签名单 (statements, project_root, name)。
