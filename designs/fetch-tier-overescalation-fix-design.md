@@ -44,3 +44,32 @@ web_ui_interaction u:1 子4「双向取证」635s/$2.81，子5 三关质检 20 �
 
 - 不改 judge 模型/harness；不改 none/light 档既有判据语义；
 - 不做承重率台账聚合（攒样本轨道，后续独立项）。
+
+## 实测结果（2026-09-01，ac-deepseek1=deepseek-v4-flash，harness=/tmp/tier_replay/harness.py）
+
+重放方式：claude -p 只读白名单、cwd=/tmp、无 workflow settings（探针纪律）；
+定档步镜像 max_explore_calls=8；取证 agent 用真源 fetch_prompt 骨架。
+
+**简单案（web_ui 5713.9% 重放）——达标**
+- 定档 205s：A 量级=light（锚点先查命中 backtest/result/default/ 同因子 12%/
+  ob_quality 57% 对照）、B/C/D=none（均附 file:line）；机械校验 PASS。
+  旧规则下 A 必落 full（枚举明文）。
+- light 取证 96s/4 curl：锚点「异象多空年化个位数至低双位数%」与仓内锚点
+  一致、实质佐证；未收敛按契约标「建议升档」留痕不自行加码。
+- 全程 301s vs 原路径 910s（275s 定档+635s full 取证）= **-67%**。
+
+**复杂案（T+1/涨跌停离线评估方法论，新构造）——达标**
+- 定档：3 方法论原子=full（举证「已查仓内无对照」合法）+1 管线核查=none。
+- 单原子 full 取证 182s、12/12 预算恰好收敛：2 条谓词级强证据
+  （Expanded Implementation Shortfall、arXiv Implementation Risk in
+  Portfolio Backtesting）+ 对拍仓内缺口（:166 固定费率、:284-286 无涨跌停
+  过滤）；机制证据「背景·不承重」标注被正确使用（#5 生效）。
+
+**测试中逮到的附带 bug（已修）**：骨架分档清单被 agent 当任务单——3 full
+原子场景单代理把 3 个原子全取一遍（38 curl、原子2 超预算 20/12）。多原子
+生产派发会 N× 重复取证。修=骨架纪律 12「只取 claim 区列出的原子」，重放
+验证：单代理 182s 只取本原子、预算 12/12 恰好。
+
+**未触发项留痕**：够用即停条款两轮测试均未触发（agent 持续有命中，属正常）；
+judge 对称判面（gate 方框二 full 举证失真）未做 live 重放（机械校验已拦截
+形式层，语义层待真实运行攒样本）。
