@@ -66,6 +66,20 @@ def test_scan_workflow_node_statuses(tmp_path):
         "understand", "plan", "execute", "review", "evolution"}
 
 
+def test_scan_workflow_fermate_node_visibility(tmp_path):
+    """fermate 轨道可见集单源（dl_flow_nodes fermate_cut_node/fermate_phase_
+    reachable）：plan:3/plan:4 裁剪 + execute/review/evolution 不可达——scanner
+    下发即过滤，前端不再手写（web_ui_interaction 32/43=74% 幽灵进度防回归）。"""
+    _mk_workflow(tmp_path, "demo", {**BASE_STATE, "force_fermate": True})
+    info = scan_workflow(tmp_path, "demo")
+    ids = {n.node_id for n in info.nodes}
+    assert ids == {f"understand:{i}" for i in range(1, 5)} | {"plan:1", "plan:2"}
+    # 过滤不影响既有状态标注
+    by_id = {n.node_id: n for n in info.nodes}
+    assert by_id["understand:1"].status == "done"
+    assert by_id["plan:2"].status == "current"
+
+
 def test_scan_workflow_need_user_flag(tmp_path):
     meta = _mk_workflow(tmp_path, "demo", BASE_STATE)
     assert scan_workflow(tmp_path, "demo").need_user is False

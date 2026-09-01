@@ -65,6 +65,7 @@ from dl_flow_nodes import (
     TACET_SPINE_STEPS,  # noqa: F401  # re-export：tests 经 eng.TACET_SPINE_STEPS 访问
     TACET_SPINE_STEPS_FERMATE,  # fermate 组合脊柱（fermate-plan-only-design §2.4）
     FERMATE_SILENT_STEPS,  # fermate 裁剪静默步集（u4-sub3-fermate-cut-design §1.2①）
+    fermate_cut_node,  # fermate 轨道节点裁剪单源（dl_flow_nodes，展示层共用）
 )
 
 # ---------- state/trace 低层 helper（单源在 dl_flow_common.py，2026-08-27 拆分）----------
@@ -2991,8 +2992,8 @@ def tui_tasklist_lines(state: dict[str, Any]) -> list[str]:
         stt = "completed" if i < idx else ("in_progress" if i == idx else "pending")
         rows.append(f"  {i}. {lbl} -> {stt}")
         for j, slabel in enumerate(subphase_labels(p), 1):
-            if st.get("force_fermate") and p == "plan" and j > 2:
-                continue  # fermate：plan:3/plan:4 裁剪不存在（§2.5）
+            if st.get("force_fermate") and fermate_cut_node(p, j):
+                continue  # fermate：plan:3/plan:4 裁剪不存在（§2.5，单源 dl_flow_nodes）
             if i < idx:
                 sst = "completed"
             elif i == idx:
@@ -3041,8 +3042,8 @@ def progress_rows(state: dict[str, Any]) -> list[dict[str, Any]]:
         for nid, node in members:
             if node.sub == 0:
                 continue  # 整阶段节点：阶段行即节点行
-            if st.get("force_fermate") and node.phase == "plan" and node.sub > 2:
-                continue  # fermate：plan:3/plan:4 裁剪不存在（§2.5）
+            if st.get("force_fermate") and fermate_cut_node(node.phase, node.sub):
+                continue  # fermate：plan:3/plan:4 裁剪不存在（§2.5，单源 dl_flow_nodes）
             o = order[nid]
             n_status = (
                 "done" if o < cur_ord else ("current" if o == cur_ord else "todo")

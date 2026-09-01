@@ -171,17 +171,9 @@ function phaseLabel(name) {
   return PHASE_LABELS[name] || name;
 }
 
-/* fermate（plan-only）：plan 之后阶段不存在，且 plan:3/plan:4 节点在 fermate
-   脊柱上被裁掉（dl_flow_nodes.py 终步重映射 plan:4#4 -> plan:2#4）——时间轴
-   只展示 understand + plan:1/plan:2，否则幽灵节点永 pending、进度分母虚高。 */
-function visibleNodes(nodes, info) {
-  if (!info.force_fermate) return nodes;
-  return nodes.filter(
-    (n) =>
-      n.phase === "understand" ||
-      (n.phase === "plan" && n.node_id !== "plan:3" && n.node_id !== "plan:4"),
-  );
-}
+/* fermate（plan-only）可见集由后端 scanner 单源过滤下发（dl_flow_nodes
+   fermate_cut_node / fermate_phase_reachable）——前端不再手写过滤，
+   防展示层掉队于脊柱演进（32/43=74% 幽灵进度事故）。 */
 
 function attachTimelineScroll(box) {
   let dragging = false, startX = 0, startLeft = 0;
@@ -243,7 +235,7 @@ function renderTimelineTree(stats, nodes, info, artifacts) {
     a.cost += s.cost_usd || 0;
   }
   const phases = [];
-  for (const n of visibleNodes(nodes, info)) {
+  for (const n of nodes) {
     let ph = phases.find((p) => p.name === n.phase);
     if (!ph) { ph = { name: n.phase, nodes: [] }; phases.push(ph); }
     ph.nodes.push(n);
@@ -424,7 +416,7 @@ function renderTimelineGantt(stats, nodes, info, artifacts) {
     byNode.get(s.node).push(s);
   }
   let lastPhase = null, group = null;
-  for (const n of visibleNodes(nodes, info)) {
+  for (const n of nodes) {
     const nodeSegs = byNode.get(n.node_id);
     if (!nodeSegs) continue;
     if (n.phase !== lastPhase) {
@@ -436,7 +428,7 @@ function renderTimelineGantt(stats, nodes, info, artifacts) {
       ph.textContent = phaseLabel(n.phase);
       // major_state 汇总（本阶段已跑段的合计）
       const pstat = { dur: 0, turns: 0, tin: 0, tout: 0, cost: 0 };
-      for (const nn of visibleNodes(nodes, info)) {
+      for (const nn of nodes) {
         if (nn.phase !== n.phase) continue;
         for (const s of byNode.get(nn.node_id) || []) {
           pstat.dur += s.duration_s || 0;
@@ -556,8 +548,8 @@ function renderTimeline(stats, nodes, info, artifacts) {
   const skin = tlSkin();
   box.classList.remove("metro", "gantt", "cards");
   box.classList.add(skin);
-  // 总进度条：已完成 step / 可见 step（fermate 只计前两阶段）
-  const vis = visibleNodes(nodes, info);
+  // 总进度条：已完成 step / 可见 step（可见集 = 后端 scanner 单源过滤）
+  const vis = nodes;
   const total = vis.reduce((a, n) => a + n.steps.length, 0);
   const visIds = new Set(vis.map((n) => n.node_id));
   const doneKeys = new Set(

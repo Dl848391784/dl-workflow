@@ -14,6 +14,8 @@ from dl_flow_nodes import (  # noqa: E402
     FERMATE_SILENT_STEPS,
     GATED_AFTER,
     _NODES,
+    fermate_cut_node,
+    fermate_phase_reachable,
     phase_index,
     tacet_silent_steps,
 )
@@ -113,9 +115,18 @@ def node_statuses(state: dict) -> tuple[NodeStatus, ...]:
     hist = {(h["phase"], h["sub"]): h for h in state.get("history", [])}
     cur = (state.get("phase"), state.get("sub_index"))
     silent = _silent_steps(state)
+    fermate = bool(state.get("force_fermate"))
     out: list[NodeStatus] = []
     ordered = sorted(_NODES.items(), key=lambda kv: (phase_index(kv[1].phase), kv[1].sub))
     for nid, node in ordered:
+        # fermate 轨道可见集单源（dl_flow_nodes）：可达阶段 ∧ 非裁剪节点。
+        # 前端不再手写过滤——展示层过滤掉队 = 幽灵 pending 节点 + 进度分母
+        # 虚高（web_ui_interaction 32/43=74% 永到不了 100% 事故）。
+        if fermate and (
+            fermate_cut_node(node.phase, node.sub)
+            or not fermate_phase_reachable(node.phase)
+        ):
+            continue
         h = hist.get((node.phase, node.sub))
         if (node.phase, node.sub) == cur:
             status = "current"

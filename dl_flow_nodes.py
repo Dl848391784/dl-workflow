@@ -4973,6 +4973,25 @@ TACET_SPINE_STEPS_FERMATE: frozenset[str] = frozenset(
 FERMATE_SILENT_STEPS: frozenset[str] = frozenset({"understand:4#3"})
 
 
+# fermate 轨道节点可见性单源（fermate-plan-only-design §2.4/§2.5 +
+# fermate-auto-complete-design）：两个正交事实各一名，消费方按需组合——
+# 引擎 TUI 渲染只用 fermate_cut_node（tui_tasklist_lines「phase 行 +
+# 子阶段行全程保留」契约不动，仅裁 plan:3/plan:4 节点行）；dashboard
+# 时间轴可见集 = 轨道可达阶段 ∧ 非裁剪节点（scanner 组合两判据下发，
+# 前端不再手写过滤——web_ui_interaction 32/43=74% 永到不了 100%
+# 事故根因 = 展示层手写过滤掉队于脊柱演进）。
+def fermate_cut_node(phase: str, sub: int) -> bool:
+    """fermate 下被裁的节点：plan:3/plan:4（能力包/检查点消费方全在
+    execute，无执行 = 产物纯税）。"""
+    return phase == "plan" and sub > 2
+
+
+def fermate_phase_reachable(phase: str) -> bool:
+    """fermate 下可达阶段：understand + plan（plan:2 末步过门控即完结，
+    execute/review/evolution 永不进入）。"""
+    return phase in ("understand", "plan")
+
+
 def tacet_silent_steps(fermate: bool = False) -> frozenset[str]:
     """force_tacet 下整步静默的步集 = 全编排子步骤 − 六步脊柱（机械推导单源）。
 
