@@ -171,10 +171,16 @@ function phaseLabel(name) {
   return PHASE_LABELS[name] || name;
 }
 
-/* fermate（plan-only）：plan 之后阶段不存在，时间轴只展示前两阶段 */
+/* fermate（plan-only）：plan 之后阶段不存在，且 plan:3/plan:4 节点在 fermate
+   脊柱上被裁掉（dl_flow_nodes.py 终步重映射 plan:4#4 -> plan:2#4）——时间轴
+   只展示 understand + plan:1/plan:2，否则幽灵节点永 pending、进度分母虚高。 */
 function visibleNodes(nodes, info) {
   if (!info.force_fermate) return nodes;
-  return nodes.filter((n) => n.phase === "understand" || n.phase === "plan");
+  return nodes.filter(
+    (n) =>
+      n.phase === "understand" ||
+      (n.phase === "plan" && n.node_id !== "plan:3" && n.node_id !== "plan:4"),
+  );
 }
 
 function attachTimelineScroll(box) {
