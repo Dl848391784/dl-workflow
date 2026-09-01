@@ -125,5 +125,6 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
 - "时间轴步骤缺进度条缺耗时 / 合并段步骤没数据 / 统计对不上" → references/diagnostics.md 症状 AO
 - "总时间含等待 / 在跑时间忽大忽小倒退 / 总执行时间不对" → references/diagnostics.md 症状 AP
 - "dashboard 没确认卡 / 工作流停了没人问 / 读回确认没让我确认 / driver 断点退出" → references/diagnostics.md 症状 AQ
+- "NEED_USER 载荷畸形 / prep 段白烧 / TUI 段已结束但未落库 / need_user.json 不存在" → references/diagnostics.md 症状 AT
 - "dashboard 端到端验证 / E2E 怎么跑 / 改动怎么验收" → references/build-and-modify.md §1.5（pytest 绿≠工作，真实实例 sweep 纪律）
 - "多选题只能单选 / checkbox 变 radio / 时间轴中文步名 / gate 按钮不该显示时显示" → 均已修（2026-08-31 批次），复现按症状 AN 先查静态缓存再查 scanner 单源字段（step_labels/gate_actionable）

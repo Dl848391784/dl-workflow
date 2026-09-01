@@ -59,6 +59,18 @@ NEED_USER_RE = re.compile(r"###\s*NEED_USER")
 # 尖锐重发 N 次仍无 -> 断点等用户（防无限白烧，对齐 escalate 语义）。
 NONE_RETRY_LIMIT = 3
 
+# prep 载荷非法重试上限（2026-09-01 web_ui_interaction_2 实爆）：NEED_USER
+# 标记在但 json 载荷解析失败（弱模型长 JSON 漏闭合/sources 嵌错层级），
+# 静默丢弃后问答段在 no-TTY 下无人能答 = 白烧一段再撞断点——带判词重试
+# 一轮 prep 给模型修 JSON 的机会，仍败 no-TTY 直断点报真实原因。
+PREP_PAYLOAD_RETRY_LIMIT = 1
+_PREP_PAYLOAD_REWORK = (
+    "上一轮你输出的 ### NEED_USER 载荷不是合法 JSON（json.loads 解析失败）——"
+    "整批问题被丢弃，等于没交付。常见错法：长载荷末尾漏 ] } 闭合符；"
+    "把 sources 嵌进了最后一个 question 对象（sources 必须与 questions 平级在根对象）。"
+    "重发完整载荷：### NEED_USER + 一个 ```json 围栏块，输出前逐层数一遍 { } [ ] 配平。"
+)
+
 # Ctrl+C 语义（drive-tasklist-render-design §2.6，2026-08-09 用户裁决）：
 # 单击=中断当前活动（TUI 原生中断生成 / headless 杀子会话进断点），
 # 双击=退出这个会话包括子任务（driver 退 130）。
@@ -1166,7 +1178,8 @@ def _run_merged_run(
                 # 被 block 的内容备的问题不得转前台）
                 if cur_prep[0] is not None and _NEXT_PREP_JSON_RE.search(out):
                     if _stash_need_user_payload(
-                        meta, out, _NEXT_PREP_JSON_RE, bind_key=cur_prep[1]
+                        meta, out, _NEXT_PREP_JSON_RE, bind_key=cur_prep[1],
+                        disp=disp,
                     ):
                         _mark_next_prep(project_root, name, cur_prep[1])
                         _warn_sources_missing(meta, disp)
@@ -1324,6 +1337,7 @@ def _stash_need_user_payload(
     out: str,
     pattern: "re.Pattern" = _NEED_USER_JSON_RE,
     bind_key: "str | None" = None,
+    disp=None,
 ) -> bool:
     """从会话输出提取问题载荷落 need_user.json（§4.4 文件通道）。
 
@@ -1332,20 +1346,27 @@ def _stash_need_user_payload(
     bind_key（"<node>#<sub_step>"，与 prep_next_key 同构单源）→ 载荷写步骤绑定：
     dashboard 据此滤陈旧卡（dashboard-answered-marker-design §2.1）；不传 =
     无绑定字段（legacy 旧格式）。消费侧只读 questions/sources，纯增量。
+    disp：失败可观察化（2026-09-01 web_ui_interaction_2 实爆——静默失败 =
+    dashboard 无卡 + driver 撞断点死，排查 20 分钟；一行 log = 秒级定位）。
     """
     target = meta / "need_user.json"
     data: object = None
+    fail_why = "标记后未找到 ```json 围栏块"
     m = pattern.search(out)
     if m:
         try:
             data = json.loads(m.group(1))
-        except json.JSONDecodeError:
-            data = None
+        except json.JSONDecodeError as e:
+            fail_why = f"载荷 JSON 解析失败（{e.msg} @char{e.pos}）"
     if (
         not isinstance(data, dict)
         or not isinstance(data.get("questions"), list)
         or not data["questions"]
     ):
+        if isinstance(data, dict):
+            fail_why = "载荷结构不合（questions 缺失/非数组/为空）"
+        if disp is not None:
+            disp.log(f"  ⚠ NEED_USER 载荷未落盘：{fail_why}")
         target.unlink(missing_ok=True)
         return False
     payload: dict = {"questions": data["questions"]}
@@ -1658,6 +1679,9 @@ def build_step_prompt(
             "择要收录，无则免读）逐字收录进载荷 sources 字段（禁编造、禁概括替换原话）\n"
             "3. 输出 `### NEED_USER`，紧跟一个 ```json 代码块（问题载荷契约）：\n"
             f"   {_QUESTIONS_CONTRACT}\n"
+            "   载荷自检（输出前必做）：sources 与 questions **平级**在根对象"
+            "（禁嵌进某个 question 内）；逐层数一遍 { } [ ] 配平——"
+            "载荷必须 json.loads 可解析，解析失败 = 整批问题被丢弃、带判词重备\n"
             "4. 输出完即结束本轮"
         )
         rules_block = (
@@ -2364,6 +2388,7 @@ def _run_boundary_loop(
         "pending_rework"
     )  # TUI block 退出时落盘的返工上下文（消费即清）；block/none 后下次会话的返工上下文
     none_retries = 0
+    prep_payload_retries = 0  # NEED_USER 载荷非法的 prep 重试计数（限 PREP_PAYLOAD_RETRY_LIMIT）
     phase_done_at: tuple[str, int] | None = None  # 已见 PHASE_DONE 的节点（防重跑会话）
 
     try:
@@ -2551,14 +2576,55 @@ def _run_boundary_loop(
                             _session_called_ask_user(meta, sid)
                         )
                         if need:
-                            _stash_need_user_payload(
+                            stashed = _stash_need_user_payload(
                                 meta,
                                 out,
                                 bind_key=(
                                     f"{engine.node_id(node.phase, node.sub)}#{cur}"
                                 ),
+                                disp=disp,
                             )
-                            _warn_sources_missing(meta, disp)
+                            if not stashed and NEED_USER_RE.search(out):
+                                # 显式标记但载荷非法（2026-09-01 web_ui_interaction_2
+                                # 实爆：k3 长 JSON 漏 ]} + sources 嵌进 q4——静默
+                                # 丢弃后 no-TTY 问答段无人能答，白烧 6 轮撞断点死）。
+                                # 带判词重试 prep 给模型修 JSON 的机会；仍败 →
+                                # no-TTY 直断点报真实原因（问答段白起），
+                                # TTY 退回自组织兜底（真人在场可答）。
+                                if prep_payload_retries < PREP_PAYLOAD_RETRY_LIMIT:
+                                    prep_payload_retries += 1
+                                    disp.log(
+                                        "  ⚠ NEED_USER 载荷非法——带判词重试 prep"
+                                        f"（{prep_payload_retries}/{PREP_PAYLOAD_RETRY_LIMIT}）"
+                                    )
+                                    _record_segment(
+                                        project_root,
+                                        name,
+                                        session_id=sid,
+                                        kind=seg_kind,
+                                        note="payload_invalid",
+                                    )
+                                    pending_rework = _PREP_PAYLOAD_REWORK
+                                    continue
+                                prep_payload_retries = 0
+                                if not _stdin_attached_to_terminal():
+                                    if (
+                                        on_breakpoint(
+                                            f"⛔ 子步骤 {cur} NEED_USER 载荷连续"
+                                            f" {PREP_PAYLOAD_RETRY_LIMIT + 1} 轮非法"
+                                            "（JSON 解析失败，详见日志）——"
+                                            "step-pass 强制通过 / state-reset 回退 / "
+                                            "q 退出（人工修复 need_user.json 后重启可续）",
+                                            SEG_BREAKPOINT,
+                                        )
+                                        == "quit"
+                                    ):
+                                        return 0
+                                    continue
+                                # TTY：落回下方 on_need_user 自组织提问
+                            else:
+                                prep_payload_retries = 0
+                                _warn_sources_missing(meta, disp)
                             # drive 当场重分类起 TUI 段；--segment 抛 _SegmentExit(13)
                             rc, sid, seg_kind = on_need_user(
                                 state, node, cur, step, pending_rework
@@ -2771,7 +2837,8 @@ def _run_boundary_loop(
                         # P2-1：只在门控通过后落标记——被 block 的内容备的问题
                         # 不得转前台（返工段会重新输出，覆盖更新）
                         if _stash_need_user_payload(
-                            meta, out, _NEXT_PREP_JSON_RE, bind_key=prep_next_key
+                            meta, out, _NEXT_PREP_JSON_RE, bind_key=prep_next_key,
+                            disp=disp,
                         ):
                             _mark_next_prep(
                                 project_root,

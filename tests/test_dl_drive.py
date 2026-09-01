@@ -1329,6 +1329,72 @@ def test_stash_need_user_payload_binds_step(wf_repo):
     assert "node" not in data and "sub_step" not in data
 
 
+def test_stash_need_user_payload_fail_logged(wf_repo):
+    """失败可观察化（2026-09-01 web_ui_interaction_2 实爆：静默失败 = dashboard
+    无卡 + driver 撞断点死，排查 20 分钟）——disp 收到具体失败原因。"""
+    drv = _load(DRIVER, "drv_seg")
+    meta = wf_repo / SEG_META
+
+    class _Disp:
+        def __init__(self):
+            self.msgs = []
+
+        def log(self, m):
+            self.msgs.append(m)
+
+    disp = _Disp()
+    # 真实事故形态：sources 嵌进 q4 + 末尾漏 ]}（弱模型长 JSON 收尾漏闭合）
+    bad = (
+        'x\n### NEED_USER\n```json\n{"questions": [{"question": "q1"}, '
+        '{"question": "q4", "options": [{"label": "a"}], "sources": ["s1"]}\n```'
+    )
+    assert drv._stash_need_user_payload(meta, bad, disp=disp) is False
+    assert not (meta / "need_user.json").exists()
+    assert any("JSON 解析失败" in m for m in disp.msgs)
+    disp.msgs.clear()
+    assert (
+        drv._stash_need_user_payload(meta, "### NEED_USER\n没给json", disp=disp)
+        is False
+    )
+    assert any("围栏块" in m for m in disp.msgs)
+
+
+def test_segment_prep_payload_invalid_retry(wf_repo, monkeypatch):
+    """prep 载荷非法自愈（web_ui_interaction_2 实爆）：带判词重试一轮 prep——
+    第二轮产出合法载荷 → stash 成功 → 转问答段（--segment 退 13）。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(
+        wf_repo, phase="understand", index=1, sub_index=2,
+        node="understand:2", sub_step_index=1,
+    )
+    bad = 'x\n### NEED_USER\n```json\n{"questions": [{"question": "q1"}\n```'
+    good = 'x\n### NEED_USER\n```json\n{"questions": [{"question": "q2"}]}\n```'
+    calls = _run_session_stub(drv, monkeypatch, [(0, bad, "s1"), (0, good, "s2")])
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 13  # stash 成功后转问答段（--segment 抛 _SegmentExit(SEG_NEED_USER)）
+    assert len(calls) == 2
+    assert "载荷不是合法 JSON" in calls[1]  # 第二轮 prep 带判词返工
+    data = json.loads((wf_repo / SEG_META / "need_user.json").read_text())
+    assert data["questions"][0]["question"] == "q2"
+    assert data["node"] == "understand:2" and data["sub_step"] == 1
+
+
+def test_segment_prep_payload_invalid_exhausted(wf_repo, monkeypatch):
+    """重试仍败（连续 2 轮非法）→ no-TTY 直断点报真实原因（--segment 退 12），
+    不再白起无人能答的问答段。"""
+    drv = _load(DRIVER, "drv_seg")
+    _seg_write_state(
+        wf_repo, phase="understand", index=1, sub_index=2,
+        node="understand:2", sub_step_index=1,
+    )
+    bad = 'x\n### NEED_USER\n```json\n{"questions": [{"question": "q1"}\n```'
+    calls = _run_session_stub(drv, monkeypatch, [(0, bad, "s1"), (0, bad, "s2")])
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 12  # SEG_BREAKPOINT
+    assert len(calls) == 2
+    assert not (wf_repo / SEG_META / "need_user.json").exists()
+
+
 def test_step_prompt_prep_variant(wf_repo):
     """prep 变体 prompt（§4.3）：交付=NEED_USER+问题载荷；禁 AskUserQuestion/
     禁落 trace/禁编造答复；无 append-trace 指引（prep 不交 trace）。"""
@@ -2373,7 +2439,7 @@ def test_segment_confirm_readback_no_session(wf_repo, monkeypatch):
     calls = _run_session_stub(
         drv,
         monkeypatch,
-        [(0, 'ok\n### NEED_USER\n```json\n{"questions": []}\n```', "s")],
+        [(0, 'ok\n### NEED_USER\n```json\n{"questions": [{"question": "q1"}]}\n```', "s")],
     )
     monkeypatch.setattr(engine, "gate_sub_step_at_stop", _gate_advancing(wf_repo))
     rc = drv.run_segment(wf_repo, "t")
@@ -2524,7 +2590,7 @@ def test_segment_u1_last_work_step_without_next_prep_output(wf_repo, monkeypatch
     drv = _load(DRIVER, "drv_seg")
     _seg_write_state(wf_repo, sub_step_index=6)
     monkeypatch.setattr(engine, "render_readback", lambda *a: (True, "展示"))
-    prep_out = 'ok\n### NEED_USER\n```json\n{"questions": []}\n```'
+    prep_out = 'ok\n### NEED_USER\n```json\n{"questions": [{"question": "q1"}]}\n```'
     calls = _run_session_stub(
         drv, monkeypatch, [(0, "落库完成", "s"), (0, prep_out, "s")]
     )
@@ -3528,7 +3594,7 @@ def _gate_scripted(repo: Path, actions):
     return fake
 
 
-_NEED_OUT = 'q\n### NEED_USER\n```json\n{"questions": []}\n```'
+_NEED_OUT = 'q\n### NEED_USER\n```json\n{"questions": [{"question": "q1"}]}\n```'
 
 
 def test_merged_run_single_session_covers_u2_sub2_to_sub4(wf_repo, monkeypatch):

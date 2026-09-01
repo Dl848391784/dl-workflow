@@ -544,3 +544,10 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 - **判读**：「跑完了么 / 卡住了」先看 `state.force_fermate` + `state.gate`——fermate 下 gate=done 即完结（唯一人工动作 = `/dl done` 归档），别数 5 阶段进度。显示异常先 curl API 看下发节点集：API 已过滤 = 前端/缓存层；API 未过滤 = scanner 或进程内存层（症状 AR）。
 - **修复**（显示层，2026-09-01 已落地 commit 1959685）：可见性判据下沉 `dl_flow_nodes.fermate_cut_node`（plan:3/plan:4 裁剪）+ `fermate_phase_reachable`（execute+ 不可达），scanner 组合下发、前端零手写过滤。脊柱再演进只改这一处单源。
 - **教训**：运行轨道分叉（forte/fermate/tacet）的判读入口 = state 开关位，不是默认全量形态。展示层手写跟随引擎演进必掉队——可见**节点**与可见**步**同规：一律取 dl_flow_nodes 单源，消费方禁自猜。
+
+### 症状 AT：NEED_USER 载荷畸形 → 静默 stash 失败 → 无卡 + driver 死（no-TTY 组合坑）
+
+- **根因**（2026-09-01 web_ui_interaction_2 实爆）：prep 段产出 `### NEED_USER` 但 ```json 载荷非法（k3 长 JSON 收尾漏 `]}` 闭合 + `sources` 嵌进最后一个 question 对象）→ `_stash_need_user_payload` json.loads 失败**静默** return False（零日志）→ need_user.json 不存在。后续链全崩：no-TTY 问答段把 4 问**纯文本**问出 end_turn（无卡无人能答，白烧 6 轮）→ 收段门控 none → 断点「TUI 段已结束但未落库」（文案 TTY 取向，误导）→ 无 TTY 自动 quit → driver 死。表面 = 「工作流卡住 + dashboard 没确认选项」。
+- **判读**：症状 AQ 三件套（driver 死 + 段台账停上一子步 + 日志 ⛔）成立后，**再查 need_user.json 是否存在**——不存在且 prep 段输出有 `### NEED_USER` = 本症。验证载荷：从 drive-stream.jsonl 抽 prep 会话文本，跑 `_NEED_USER_JSON_RE` + `json.loads` 重放（畸形点多在 payload 末尾闭合符）。
+- **修复**（2026-09-01 已落地）：①stash 失败可观察化（`_stash_need_user_payload` 加 disp 参数，失败落具体原因日志——无围栏块/JSON 解析失败@char/结构不合）；②自愈重试——显式标记但载荷非法时带判词（`_PREP_PAYLOAD_REWORK`：指明漏闭合/sources 层级两常见错法）重试一轮 prep（`PREP_PAYLOAD_RETRY_LIMIT=1`）；③重试仍败：no-TTY 直断点报真实原因（不再白起问答段），TTY 保自组织兜底；④prep prompt 载荷契约加「输出前自检 { } [ ] 配平 + sources 平级根对象」。**已发实例恢复**：从 drive-stream 抽 prep 载荷做结构修复（补闭合符 + sources 提回根级）落 need_user.json + state 补 `next_prep_stashed="<node>#<sub>"` 标记 → 重启 driver 走 P2-1 直达问答段。
+- **教训**：「宁纵勿枉」的 fallback 设计要随运行形态重审——stash 失败的 TUI 兜底（自组织提问，真人在场可答）在 no-TTY 下不成立（纯文本提问无人能答）；no-TTY 改造（2026-08-31）建立在「prep stash 必成功」假设上，失败分支没跟着改。模型手滑是概率事件，**通道对格式硬假设 + 失败静默**才是系统缺口（no silent fallback 铁律级疏漏）。
