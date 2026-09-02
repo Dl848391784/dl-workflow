@@ -34,6 +34,40 @@ def _codegraph_json(sub: str, symbol: str) -> dict:
         return {"error": "codegraph 输出非 JSON", "raw": r.stdout[:500]}
 
 
+def _cgx_json(sub: str, symbol: str) -> dict | None:
+    """项目自带 scripts/cgx.py 时走 cgx 精确层（置信度分层+unresolved 候选+文本兜底）。
+
+    返回 {"ok": parsed, "via": "cgx"}；cgx 不存在/执行失败/输出非 JSON 返回 None
+    （调用方回落 codegraph CLI）。factor_ic_analyzer designs/precision_tiers_landing-design.md。
+    """
+    db = _find_codegraph_db(Path.cwd())
+    if db is None:
+        return None
+    candidates = [
+        Path.cwd() / "scripts" / "cgx.py",
+        db.parents[1] / "scripts" / "cgx.py",
+    ]
+    cgx = next((c for c in candidates if c.exists()), None)
+    if cgx is None:
+        return None
+    r = _run(["python3", str(cgx), sub, symbol, "--json", "--db", str(db)])
+    if r.returncode != 0:
+        return None
+    try:
+        return {"ok": json.loads(r.stdout), "via": "cgx"}
+    except json.JSONDecodeError:
+        return None
+
+
+def _precise_json(sub: str, symbol: str) -> dict:
+    """callers/impact 优先 cgx 精确层；其余子命令或无 cgx 时回落 codegraph CLI。"""
+    if sub in ("callers", "impact"):
+        hit = _cgx_json(sub, symbol)
+        if hit is not None:
+            return hit
+    return _codegraph_json(sub, symbol)
+
+
 def _resolve_ledger_path() -> Path | None:
     """从 cwd 反查发现台账路径；cwd 不在 <project>/.claude/worktrees/<name> 内返回 None。
 
@@ -110,8 +144,8 @@ def query_symbol(symbol: str) -> dict:
     payload = {
         "symbol": symbol,
         "definition": _codegraph_json("query", symbol),
-        "callers": _codegraph_json("callers", symbol),
-        "impact": _codegraph_json("impact", symbol),
+        "callers": _precise_json("callers", symbol),
+        "impact": _precise_json("impact", symbol),
     }
     if path is not None:
         _ledger_append(path, f"symbol:{symbol}", "symbol", symbol, payload)
@@ -246,9 +280,9 @@ def query_trace(symbol: str) -> dict:
     payload = {
         "symbol": symbol,
         "definition": _codegraph_json("query", symbol),
-        "callers": _codegraph_json("callers", symbol),
+        "callers": _precise_json("callers", symbol),
         "callees": _codegraph_json("callees", symbol),
-        "impact": _codegraph_json("impact", symbol),
+        "impact": _precise_json("impact", symbol),
         "history": _git_log_symbol(symbol),
     }
     if path is not None:
