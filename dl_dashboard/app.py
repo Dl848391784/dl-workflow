@@ -299,7 +299,7 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
         load_artifact 的防穿越姿势。不存在 404（前端 artLink 按
         artifact_status.html_exists 决定链向，正常不会打到这）。
         """
-        if kind not in ("understands", "plans"):
+        if kind not in ("understands", "plans", "proposals"):
             raise HTTPException(400, f"未知产物类型: {kind}")
         proj = _project(project)
         name = _name(name)

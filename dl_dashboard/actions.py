@@ -342,8 +342,17 @@ def delete_workflow(project: Path, name: str, mgr) -> tuple[bool, str]:
         # 则同名新工作流直接继承旧改动面与证据链（实爆：用户怀疑删除没生效）。
         # dashboard 的删除语义 = 该名字下的一切归零。
         removed = []
-        for rel in (f".claude/plans/{name}.md", f".claude/understands/{name}.md",
-                    f".claude/evidence/{name}.jsonl"):
+        # v0.4.0：proposals 第三产物 + 三 kind 的 html 伴随品一同归零（v0.3.0
+        # 起 html 是孤儿残留——删除语义=该名字下一切归零，含赠品）。
+        for rel in (
+            f".claude/plans/{name}.md",
+            f".claude/understands/{name}.md",
+            f".claude/proposals/{name}.md",
+            f".claude/plans/{name}.html",
+            f".claude/understands/{name}.html",
+            f".claude/proposals/{name}.html",
+            f".claude/evidence/{name}.jsonl",
+        ):
             f = project / rel
             if f.exists():
                 f.unlink()

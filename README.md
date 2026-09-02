@@ -10,6 +10,10 @@ Claude Code 5 阶段工作流 + codegraph H15 查证门禁的独立仓库。**�
    - 阶段：理解和求证问题 -> 生成执行计划 -> 执行 -> 审核结果 -> 进化
    - 每个工作流独立 git worktree + 分支 + session，可恢复
    - 阶段自动推进 + 闸门（`/dl gate`），原生 TaskList 常驻进度清单
+   - 产物三线：`understands|plans/<name>.md` 给模型（trace 机械装配真源），
+     `proposals/<name>.md` 给人（标准技术方案骨架：背景根因/目标验收/方案取舍/
+     改动面/风险/检查点……render-artifact 装配 understand/plan 时顺带重渲），
+     三者同目录 `<name>.html` 人读渲染版（装了 HTML 导出依赖时自动伴随）
 
 2. **codegraph H15 查证门禁**
    - PreToolUse hook：改已有 `.py` 源码前必须先跑 codegraph 查证
@@ -37,7 +41,7 @@ install.sh 做什么：
 - 追写 `~/.bashrc`：`export DL_WF_HOME` + `dl` 函数（工作流入口，独立于 ac-ark/claude）
 - dashboard 依赖：`pip3 install --user fastapi uvicorn`（可选层，失败只警告）
 - codegraph CLI：`npm i -g @colbymchenry/codegraph`（可选层，失败只警告；npm 全局目录不可写时自动改 `~/.npm-global` 免 sudo；走 npmmirror 一次性参数，不改用户全局 registry）
-- HTML 导出依赖：`vendor/baoyu-markdown-to-html` 的 `bun install`（可选层 `--skip-html`，失败只警告）。装了它，render-artifact 装配 `understands|plans/<name>.md` 时自动附带同目录 `<name>.html`——md 是给模型的真源，HTML 是给人的赠品，转换失败只降级不阻断
+- HTML 导出依赖：`vendor/baoyu-markdown-to-html` 的 `bun install`（可选层 `--skip-html`，失败只警告）。装了它，render-artifact 装配 `understands|plans|proposals/<name>.md` 时自动附带同目录 `<name>.html`——md 是给模型的真源，HTML 是给人的赠品，转换失败只降级不阻断
 - 自检报告：逐项 ✓/✗ + 警告汇总，失败项非零退出
 
 > 为什么 hooks 不 copy 而 skills 要 copy？`settings.json` 的 hook command 是自由字符串（任意路径）；但 skills/output-styles/commands 的加载路径是 Claude Code 硬编码的 `~/.claude/{skills,output-styles,commands}/`，必须物理在那。

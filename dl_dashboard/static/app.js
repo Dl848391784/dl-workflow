@@ -202,10 +202,11 @@ function tlEmpty(box) {
 
 /* 树形 DOM（metro 与 cards 共用；视觉差异全部由容器类 CSS 决定）：
    major_state 分带 -> minor_state 为枝 -> step 为叶（嵌迷你耗时条）。 */
-const ART_PHASE = { understands: "understand", plans: "plan" };
+const ART_PHASE = { understands: "understand", plans: "plan", proposals: "plan" };
 const ART_LABEL = {
   understands: { html: "understand.html", md: "understand.md" },
   plans: { html: "plan.html", md: "plan.md" },
+  proposals: { html: "proposal.html", md: "proposal.md" },
 };
 
 /* 产物链接挂载点 = 对应阶段最后一个可见节点（fermate 下 plan:4 不存在、
@@ -307,7 +308,7 @@ function renderTimelineTree(stats, nodes, info, artifacts) {
         nodeEl.appendChild(st);
       }
       // 归属节点的产物链接（新页面阅读）
-      for (const kind of ["understands", "plans"]) {
+      for (const kind of ["understands", "plans", "proposals"]) {
         if (artAnchorNode(nodes, kind) === n.node_id &&
             artifacts && artifacts[kind] && artifacts[kind].exists) {
           const al = document.createElement("div");
@@ -476,7 +477,7 @@ function renderTimelineGantt(stats, nodes, info, artifacts) {
         `Σ ${nstat.dur}s · ${nstat.turns}轮 · in${fmtTok(nstat.tin)}/out${fmtTok(nstat.tout)}`;
       label.appendChild(st);
     }
-    for (const kind of ["understands", "plans"]) {
+    for (const kind of ["understands", "plans", "proposals"]) {
       if (artAnchorNode(nodes, kind) === n.node_id &&
           artifacts && artifacts[kind] && artifacts[kind].exists) {
         const al = document.createElement("div");

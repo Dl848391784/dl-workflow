@@ -126,6 +126,8 @@ def test_artifact_status_and_content(tmp_path):
     assert st["understands"]["exists"] is False
     assert st["plans"]["exists"] is False
     assert st["plans"]["html_exists"] is False and st["plans"]["html_size"] == 0
+    # v0.4.0 第三产物 kind：proposals 同两态
+    assert st["proposals"]["exists"] is False and st["proposals"]["html_exists"] is False
     ud = tmp_path / ".claude" / "understands"
     ud.mkdir(parents=True)
     (ud / "demo.md").write_text("# understand 内容", encoding="utf-8")

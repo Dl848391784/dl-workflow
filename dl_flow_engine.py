@@ -1129,6 +1129,82 @@ _ARTIFACT_RENDER_SOURCES: dict[str, dict] = {
         "require_all": False,
         "out_dir": "plans",
     },
+    # proposal.md：人读技术方案（designs/proposal-artifact-design.md，v0.4.0）。
+    # plan.md 是机器执行 spec（密文=门检优点），proposal 是同源 trace 按标准
+    # 技术方案骨架的第二次装配——零门检（不进 ARTIFACT_SECTIONS）零节点改动，
+    # piggyback 随 understand.md/plan.md 装配顺带重渲，幂等长全。
+    # blocks 有序节：t=s statements 节（可附 qa_srcs/qa_kw 补录）、t=qa 收录节
+    # （full_srcs 全收 / qa_srcs+qa_kw 定点筛选 / kw_minors+qa_kw 跨步筛选）、
+    # t=decisions 裁决记录锚点。收录去重：DesignSolution 剔除项只进方案对比、
+    # ScopeAndConstraints 搁置项只进范围节（design §2）。
+    "proposal.md": {
+        "blocks": [
+            {
+                "t": "s",
+                "title": "背景与根因",
+                "srcs": (("ProblemContext", 6),),
+                "qa_srcs": (("ProblemContext", 3),),
+                "qa_kw": ("根因@",),
+            },
+            {
+                "t": "s",
+                "title": "目标与成功标准",
+                "srcs": (("GoalsAndValue", 4), ("SuccessCriteria", 4)),
+            },
+            {
+                "t": "s",
+                "title": "范围与非目标",
+                "srcs": (("ScopeAndConstraints", 4),),
+                "qa_srcs": (("ScopeAndConstraints", 2), ("ScopeAndConstraints", 3)),
+                "qa_kw": ("搁置",),
+            },
+            {"t": "s", "title": "方案概述", "srcs": (("DesignSolution", 5),)},
+            {
+                "t": "qa",
+                "title": "方案对比与取舍",
+                "full_srcs": (("DesignSolution", 4),),
+                "kw_minors": ("DesignSolution",),
+                "qa_kw": ("剔除", "证伪", "未选定"),
+            },
+            {"t": "s", "title": "改动面", "srcs": (("TaskBreakdown", 4),)},
+            {
+                "t": "qa",
+                "title": "风险与不可逆操作",
+                "kw_minors": ("ExecutionPlanCheckpoints",),
+                "qa_kw": ("假设", "不可逆", "回滚", "风险"),
+            },
+            {
+                "t": "s",
+                "title": "实施计划与检查点",
+                "srcs": (("ExecutionPlanCheckpoints", 4),),
+            },
+            {"t": "decisions"},
+            {
+                "t": "qa",
+                "title": "开放问题与接续",
+                "kw_minors": (
+                    "ProblemContext",
+                    "GoalsAndValue",
+                    "ScopeAndConstraints",
+                    "SuccessCriteria",
+                ),
+                "qa_kw": ("剔除", "未选定", "开放"),
+            },
+        ],
+        "decision_steps": (
+            ("ProblemContext", 7),
+            ("GoalsAndValue", 5),
+            ("ScopeAndConstraints", 5),
+            ("SuccessCriteria", 5),
+            ("DesignSolution", 6),
+            ("TaskBreakdown", 5),
+            ("CapabilityToolSelection", 6),
+            ("ExecutionPlanCheckpoints", 5),
+        ),
+        "unselected_minors": (),
+        "require_all": False,
+        "out_dir": "proposals",
+    },
 }
 
 
@@ -1180,50 +1256,155 @@ def render_artifact(
         "（render-artifact 机械装配，禁手改——改内容请改对应步 trace 后重渲染）",
         "",
     ]
-    missing = []
-    for sec, (minor, stp) in spec["sections"].items():
-        rec = latest.get((minor, stp))
-        stmts = (rec or {}).get("statements")
-        if not stmts:
-            if (minor, stp) in tacet_silent:
-                # force-tacet：沉默源节占位装配（防下游路径断 + 诚实可见），
-                # 计入已装配节（require_all 视为满足）。
-                parts.append(f"## {sec}")
-                parts.append("")
-                parts.append(
-                    "**[TACET 沉默：本节来源步未执行（force-tacet 实验轨道）]**"
-                )
-                parts.append("")
+    missing: list[str] = []
+    emitted_titles: list[str] = []  # 实际落节标题（blocks spec 的消息节数）
+    traced = set(latest) | tacet_silent
+
+    def _emit_stmts(
+        title: str,
+        srcs: tuple,
+        qa_srcs: tuple = (),
+        qa_kw: tuple = (),
+    ) -> None:
+        """statements 节：逐源渲染（TACET 沉默占位/缺源点名）；qa_srcs+qa_kw 补录项。"""
+        body: list[str] = []
+        for minor, stp in srcs:
+            rec = latest.get((minor, stp))
+            stmts = (rec or {}).get("statements")
+            if not stmts:
+                if (minor, stp) in tacet_silent:
+                    # force-tacet：沉默源节占位装配（防下游路径断 + 诚实可见），
+                    # 计入已装配节（require_all 视为满足）。
+                    body.append(
+                        "**[TACET 沉默：本节来源步未执行（force-tacet 实验轨道）]**"
+                    )
+                    body.append("")
+                    continue
+                missing.append(f"{title}（{minor} 子{stp} 无 statements trace）")
                 continue
-            missing.append(f"{sec}（{minor} 子{stp} 无 statements trace）")
-            continue
-        parts.append(f"## {sec}")
+            for it in stmts:
+                extras = [
+                    str(it.get("type_label") or ""),
+                    str(it.get("boundary") or ""),
+                ]
+                extras += [
+                    f"{k}={v}"
+                    for k, v in (it.get("fields") or {}).items()
+                    if str(v).strip()
+                ]
+                tail = "；".join(x for x in extras if x.strip())
+                body.append(f"- {it.get('text', '')}" + (f"（{tail}）" if tail else ""))
+            body.append("")
+        if qa_srcs:
+            qa_hits = 0
+            for minor, stp in qa_srcs:
+                for it in _trace_qa_items(latest.get((minor, stp)) or {}):
+                    blob = str(it["q"]) + str(it["a"])
+                    if any(k in blob for k in qa_kw):
+                        body.append(f"- 【{it['q']}】{it['a']}")
+                        qa_hits += 1
+            if qa_hits:
+                body.append("")
+        if body:
+            parts.append(f"## {title}")
+            parts.append("")
+            parts.extend(body)
+            emitted_titles.append(title)
+
+    def _emit_qa(
+        title: str,
+        full_srcs: tuple = (),
+        qa_srcs: tuple = (),
+        kw_minors: tuple = (),
+        qa_kw: tuple = (),
+    ) -> None:
+        """qa 收录节：full_srcs 全收 / qa_srcs 定点筛选 / kw_minors 跨步筛选（去重）。"""
+        items: list[dict] = []
+        seen: set[tuple] = set()
+
+        def _push(it: dict) -> None:
+            key = (str(it["q"]), str(it["a"]))
+            if key not in seen:
+                seen.add(key)
+                items.append(it)
+
+        for m, s in full_srcs:
+            for it in _trace_qa_items(latest.get((m, s)) or {}):
+                _push(it)
+        for m, s in qa_srcs:
+            for it in _trace_qa_items(latest.get((m, s)) or {}):
+                blob = str(it["q"]) + str(it["a"])
+                if any(k in blob for k in qa_kw):
+                    _push(it)
+        if kw_minors:
+            for (m, _s), rec in latest.items():
+                if m in kw_minors:
+                    for it in _trace_qa_items(rec):
+                        blob = str(it["q"]) + str(it["a"])
+                        if any(k in blob for k in qa_kw):
+                            _push(it)
+        if not items:
+            # 源步全 TACET 沉默 -> 占位节（诚实可见）；否则缺源点名不落节。
+            named = tuple(full_srcs) + tuple(qa_srcs)
+            if named:
+                silent = all(src in tacet_silent for src in named)
+            else:
+                minor_traced = [src for src in traced if src[0] in kw_minors]
+                silent = bool(minor_traced) and all(
+                    src in tacet_silent for src in minor_traced
+                )
+            if not silent:
+                missing.append(f"{title}（qa 源零匹配）")
+                return
+        parts.append(f"## {title}")
         parts.append("")
-        for it in stmts:
-            extras = [str(it.get("type_label") or ""), str(it.get("boundary") or "")]
-            extras += [
-                f"{k}={v}"
-                for k, v in (it.get("fields") or {}).items()
-                if str(v).strip()
-            ]
-            tail = "；".join(x for x in extras if x.strip())
-            parts.append(f"- {it.get('text', '')}" + (f"（{tail}）" if tail else ""))
+        if items:
+            for it in items:
+                parts.append(f"- 【{it['q']}】{it['a']}")
+        else:
+            parts.append("**[TACET 沉默：本节来源步未执行（force-tacet 实验轨道）]**")
         parts.append("")
+        emitted_titles.append(title)
+
+    def _emit_decisions() -> None:
+        decisions = []
+        for minor, stp in spec["decision_steps"]:
+            rec = latest.get((minor, stp))
+            for it in _trace_qa_items(rec or {}):
+                if "裁决" in str(it["q"]) or "读回" in str(it["q"]):
+                    decisions.append(it)
+        if decisions:
+            parts.append("## 裁决记录")
+            parts.append("")
+            for it in decisions:
+                parts.append(f"- 【{it['q']}】{it['a']}")
+            parts.append("")
+
+    if "blocks" in spec:
+        for blk in spec["blocks"]:
+            if blk["t"] == "decisions":
+                _emit_decisions()
+            elif blk["t"] == "s":
+                _emit_stmts(
+                    blk["title"],
+                    blk["srcs"],
+                    blk.get("qa_srcs", ()),
+                    blk.get("qa_kw", ()),
+                )
+            else:
+                _emit_qa(
+                    blk["title"],
+                    blk.get("full_srcs", ()),
+                    blk.get("qa_srcs", ()),
+                    blk.get("kw_minors", ()),
+                    blk.get("qa_kw", ()),
+                )
+    else:
+        for sec, (minor, stp) in spec["sections"].items():
+            _emit_stmts(sec, ((minor, stp),))
+        _emit_decisions()
     if missing and spec["require_all"]:
         return False, "装配源 trace 缺失：" + "、".join(missing)
-
-    decisions = []
-    for minor, stp in spec["decision_steps"]:
-        rec = latest.get((minor, stp))
-        for it in _trace_qa_items(rec or {}):
-            if "裁决" in str(it["q"]) or "读回" in str(it["q"]):
-                decisions.append(it)
-    if decisions:
-        parts.append("## 裁决记录")
-        parts.append("")
-        for it in decisions:
-            parts.append(f"- 【{it['q']}】{it['a']}")
-        parts.append("")
 
     if spec["unselected_minors"]:
         dropped = []
@@ -1249,9 +1430,19 @@ def render_artifact(
         return False, f"写产物失败：{e}"
     note = f"；跳过缺源节：{'、'.join(missing)}" if missing else ""
     html_note = _render_html_companion(out)
+    # proposal piggyback（v0.4.0）：understand/plan 装配成功顺带重渲人读技术方案——
+    # 第二级赠品，失败独立降级不阻断主产物（design §3）。
+    prop_note = ""
+    if basename in ("understand.md", "plan.md"):
+        prop_note = _render_proposal_companion(project_root, name)
+    n_secs = (
+        len(emitted_titles)
+        if "blocks" in spec
+        else len(spec["sections"]) - len(missing)
+    )
     return (
         True,
-        f"✓ 已装配 {out}（{len(spec['sections']) - len(missing)} 节 + 裁决记录{note}）{html_note}",
+        f"✓ 已装配 {out}（{n_secs} 节 + 裁决记录{note}）{html_note}{prop_note}",
     )
 
 
@@ -1309,6 +1500,23 @@ def _render_html_companion(md_path: Path) -> str:
         reason = tail[-1][:120] if tail else f"rc={proc.returncode}"
         return f"；HTML 降级：{reason}"
     return f"；HTML ✓ {html}"
+
+
+def _render_proposal_companion(project_root: Path, name: str) -> str:
+    """proposal.md 伴随装配（piggyback，v0.4.0）：understand/plan 渲染成功时顺带重渲。
+
+    人读赠品第二级（第一级=HTML）：失败只降级注记，绝不阻断主产物
+    （designs/proposal-artifact-design.md §3）。proposal 自身渲染不递归
+    （render_artifact 只对 understand.md/plan.md 触发本函数）。
+    """
+    ok, msg = render_artifact(project_root, name, "proposal.md")
+    if not ok:
+        return f"；proposal 降级：{msg}"
+    out = project_root / ".claude" / "proposals" / f"{name}.md"
+    note = "；proposal ✓"
+    if "跳过缺源节" in msg:
+        note += "（有缺源节，详见文件）"
+    return f"{note} {out}"
 
 
 def render_readback(project_root: Path, name: str) -> tuple[bool, str]:
@@ -3494,7 +3702,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "value",
         nargs="?",
-        help="fence 的值（on|off）/ state-reset 的回退目标 / render-artifact 的产物名（understand.md|plan.md）",
+        help="fence 的值（on|off）/ state-reset 的回退目标 / render-artifact 的产物名（understand.md|plan.md|proposal.md）",
     )
     parser.add_argument("--cwd", help="覆盖 cwd（默认进程 cwd）")
     parser.add_argument(
@@ -3651,7 +3859,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "render-artifact":
         if not args.value:
             print(
-                "✗ 用法: render-artifact [name] <understand.md|plan.md>",
+                "✗ 用法: render-artifact [name] <understand.md|plan.md|proposal.md>",
                 file=sys.stderr,
             )
             return 1

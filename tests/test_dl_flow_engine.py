@@ -10821,6 +10821,163 @@ class TestHtmlCompanion:
         assert (tmp_path / ".claude" / "plans" / "t.html").exists()
 
 
+class TestProposalArtifact:
+    """v0.4.0 proposal.md：人读技术方案产物（designs/proposal-artifact-design.md §6）。
+
+    与 understand/plan 同源 trace 的标准骨架第二次装配：零门检、piggyback 随
+    understand/plan 渲染顺带重渲、缺源/TACET 沉默诚实占位。
+    """
+
+    def _stmt(self, minor, step, texts):
+        return json.dumps(
+            {
+                "kind": "skill-trace",
+                "minor_stage": minor,
+                "sub_step": step,
+                "statements": [{"text": t} for t in texts],
+            },
+            ensure_ascii=False,
+        )
+
+    def _qa(self, minor, step, items):
+        return json.dumps(
+            {
+                "kind": "skill-trace",
+                "minor_stage": minor,
+                "sub_step": step,
+                "q": [q for q, _ in items],
+                "a": [a for _, a in items],
+            },
+            ensure_ascii=False,
+        )
+
+    def _tacet(self, minor, step):
+        return json.dumps(
+            {
+                "kind": "tacet",
+                "minor_stage": minor,
+                "sub_step": step,
+                "q": ["占位"],
+                "a": ["占位"],
+            },
+            ensure_ascii=False,
+        )
+
+    def _full_evidence(self, tmp_path):
+        _write_evidence(
+            tmp_path,
+            "t",
+            [
+                self._stmt("ProblemContext", 6, ["年化显示 4856.4% 异常"]),
+                self._qa(
+                    "ProblemContext",
+                    3,
+                    [
+                        (
+                            "链 A 收口",
+                            "根因@A@web_ui/_macros.html:-:L56-57：模板二次×100",
+                        )
+                    ],
+                ),
+                self._stmt("GoalsAndValue", 4, ["修正显示防误决策"]),
+                self._stmt("SuccessCriteria", 4, ["显示=48.56%"]),
+                self._stmt("ScopeAndConstraints", 4, ["允许改模板层"]),
+                self._qa(
+                    "ScopeAndConstraints", 3, [("双向矩阵", "loader 契约改动显式搁置")]
+                ),
+                self._stmt("DesignSolution", 5, ["取 C1 族显示层去二次×100"]),
+                self._qa("DesignSolution", 4, [("Pugh 矩阵", "C1 + / C2 S / C3 −")]),
+                self._qa("DesignSolution", 2, [("候选处置", "C4 剔除：重复造轮子")]),
+                self._stmt("TaskBreakdown", 4, ["S1 修模板"]),
+                self._stmt("CapabilityToolSelection", 5, ["能力包 模板编辑"]),
+                self._qa(
+                    "ExecutionPlanCheckpoints",
+                    1,
+                    [("五类清单", "不可逆操作候选：无；假设：loader 契约")],
+                ),
+                self._stmt("ExecutionPlanCheckpoints", 4, ["CP1 提交后自动核验"]),
+                self._qa("ProblemContext", 7, [("裁决：who 与目标", "用户认可")]),
+                self._qa("ProblemContext", 5, [("处置后问题集", "H3 剔除：无证据")]),
+            ],
+        )
+
+    def test_full_assembly_all_sections(self, tmp_path):
+        self._full_evidence(tmp_path)
+        ok, msg = eng.render_artifact(tmp_path, "t", "proposal.md")
+        assert ok, msg
+        assert "跳过缺源节" not in msg
+        text = (tmp_path / ".claude" / "proposals" / "t.md").read_text(encoding="utf-8")
+        for sec in (
+            "背景与根因",
+            "目标与成功标准",
+            "范围与非目标",
+            "方案概述",
+            "方案对比与取舍",
+            "改动面",
+            "风险与不可逆操作",
+            "实施计划与检查点",
+            "裁决记录",
+            "开放问题与接续",
+        ):
+            assert f"## {sec}" in text, sec
+        assert "根因@A@web_ui/_macros.html:-:L56-57" in text
+        assert "Pugh 矩阵" in text
+        assert "不可逆操作候选" in text
+        assert "loader 契约改动显式搁置" in text
+        assert "H3 剔除" in text
+        # 收录去重（design §2）：DesignSolution 剔除项只进方案对比、不进开放问题
+        assert text.count("C4 剔除") == 1
+        # 节序：方案对比在改动面前，风险在检查点前
+        assert text.index("## 方案对比与取舍") < text.index("## 改动面")
+        assert text.index("## 风险与不可逆操作") < text.index("## 实施计划与检查点")
+
+    def test_partial_sources_skipped_and_named(self, tmp_path):
+        # understand 侧源就绪、plan 侧零 trace -> plan 侧节缺省 + 消息点名
+        _write_evidence(
+            tmp_path,
+            "t",
+            [
+                self._stmt("ProblemContext", 6, ["问题重述"]),
+                self._qa("ProblemContext", 3, [("链 A", "根因@A@x.py:-:L1：机制")]),
+                self._stmt("GoalsAndValue", 4, ["目标"]),
+                self._stmt("SuccessCriteria", 4, ["标准"]),
+                self._stmt("ScopeAndConstraints", 4, ["范围"]),
+            ],
+        )
+        ok, msg = eng.render_artifact(tmp_path, "t", "proposal.md")
+        assert ok, msg
+        assert "跳过缺源节" in msg and "方案概述" in msg and "改动面" in msg
+        text = (tmp_path / ".claude" / "proposals" / "t.md").read_text(encoding="utf-8")
+        assert "## 背景与根因" in text and "## 目标与成功标准" in text
+        assert "## 方案概述" not in text
+
+    def test_tacet_silent_placeholders(self, tmp_path):
+        _write_evidence(
+            tmp_path,
+            "t",
+            [
+                self._tacet("ProblemContext", 6),
+                self._tacet("DesignSolution", 5),
+                self._stmt("TaskBreakdown", 4, ["S1 修模板"]),
+            ],
+        )
+        ok, _ = eng.render_artifact(tmp_path, "t", "proposal.md")
+        assert ok
+        text = (tmp_path / ".claude" / "proposals" / "t.md").read_text(encoding="utf-8")
+        assert "## 背景与根因" in text and "TACET 沉默" in text
+        assert "## 方案概述" in text and "## 改动面" in text
+
+    def test_piggyback_on_plan_render(self, tmp_path):
+        self._full_evidence(tmp_path)
+        ok, msg = eng.render_artifact(tmp_path, "t", "plan.md")
+        assert ok, msg
+        assert "proposal ✓" in msg
+        assert (tmp_path / ".claude" / "proposals" / "t.md").exists()
+        # proposal 自渲染不递归（消息无 proposal 注记）
+        ok2, msg2 = eng.render_artifact(tmp_path, "t", "proposal.md")
+        assert ok2 and "proposal ✓" not in msg2
+
+
 class TestIngestAgentReport:
     """v2.60 append-trace --ingest-agent：子代理报告原文落载荷（审计违规②根治）。
 

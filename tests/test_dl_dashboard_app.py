@@ -280,6 +280,18 @@ def test_artifact_html_endpoint_rejects_bad_kind(client):
     assert r.status_code == 400
 
 
+def test_artifact_html_endpoint_serves_proposals(client):
+    # v0.4.0 第三产物 kind：proposals（人读技术方案）同白名单直投
+    c, project = client
+    d = project / ".claude" / "proposals"
+    d.mkdir(parents=True)
+    (d / "demo.html").write_text("<html><body>技术方案</body></html>", encoding="utf-8")
+    r = c.get("/artifact-html",
+              params={"project": str(project), "name": "demo", "kind": "proposals"})
+    assert r.status_code == 200
+    assert "技术方案" in r.text
+
+
 def test_post_pause_calls_action(client):
     c, project = client
     with patch("dl_dashboard.app.actions.pause_workflow",

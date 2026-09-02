@@ -132,7 +132,7 @@ def load_change_points(project: Path, name: str) -> list[dict]:
 
 def artifact_status(project: Path, name: str) -> dict:
     out: dict[str, dict] = {}
-    for kind in ("understands", "plans"):
+    for kind in ("understands", "plans", "proposals"):
         p = project / ".claude" / kind / f"{name}.md"
         h = p.with_suffix(".html")
         out[kind] = {
@@ -146,7 +146,7 @@ def artifact_status(project: Path, name: str) -> dict:
 
 def load_artifact(project: Path, name: str, kind: str) -> str | None:
     """产物文档全文。kind 白名单防路径穿越（文件名由 kind 决定，不受 name 影响路径深度）。"""
-    if kind not in ("understands", "plans"):
+    if kind not in ("understands", "plans", "proposals"):
         raise ValueError(f"未知产物类型: {kind}")
     p = project / ".claude" / kind / f"{name}.md"
     if not p.exists():
