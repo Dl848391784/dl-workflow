@@ -1180,6 +1180,14 @@ _NODES: dict[str, Node] = {
                     "<repo>`，查询结果留痕）+ Read/Grep/Bash 查数据，"
                     "证实/证伪问题在本仓存在 + 查已有解法；none 档原子在此全覆盖"
                     "（仓内可达即定答，无外部源）。"
+                    "模式枚举二态（禁沉默，append-trace 机械核验存在性）：根因/问题"
+                    "机制指向可文本检索的代码写法（表达式/调用/写法形态，如 `* 100`）"
+                    "时，必跑全仓枚举（grep -rn 或等效），载荷载「模式枚举」q 项="
+                    "命令原文+命中清单（文件:行号，全量不截断）+范围声明（全仓或"
+                    "限定目录+限定理由）——同族病灶召回靠枚举完备性，不靠印象；"
+                    "机制为单点逻辑错误（无可文本枚举的同族写法形态）时，载"
+                    "「模式枚举：不适用——<一句理由>」。二态必居其一；"
+                    "plan:1#2 的范围抉择将基于该清单出题。"
                     "④收报告——子代理蒸馏报告**原文收录**进本步 trace：逐 agent 运行 "
                     "`python3 ~/.dl-workflow/dl_flow_engine.py append-trace "
                     "--ingest-agent <task-id>`（脚本按 task-id 提取报告原文落载荷 "
@@ -1207,6 +1215,9 @@ _NODES: dict[str, Node] = {
                     "（禁手工粘贴；提及/转述不算记录）？标「建议升档 full」的原子补派 "
                     "full agent 并 ingest 收录升档理由了吗？内部仓库层 codegraph "
                     "新鲜度查询留痕了吗？"
+                    "模式枚举二态声明载了吗——代码写法类机制载「模式枚举」项"
+                    "（命令+文件:行号 全量清单+范围声明）、单点逻辑类载"
+                    "「不适用+理由」（禁沉默）？"
                 ),
                 # S15 前置围栏：本步合法工具 = 内部仓库层（Bash）+ 取证子代理（Agent）；
                 # 子代理进程内的 curl 经同一 PreToolUse 围栏、本步声明 Bash 故放行；
@@ -1228,6 +1239,7 @@ _NODES: dict[str, Node] = {
                     "fetch_report_recorded",
                     "fetch_skeleton_out",
                     "fetch_preflight_out",
+                    "pattern_enum_declared",
                 ),
                 # v2.77-v2.79（2026-08-04，designs/u1-sub3-gate-framing-design.md）：
                 # §3.5 #28 泛化第三例——framing 反转（从严→默认-PASS）+ 方框化
@@ -1247,9 +1259,11 @@ _NODES: dict[str, Node] = {
                     "evidence/<name>.jsonl 含 kind=skill-trace 且 sub_step==4 的记录。"
                     "形式要件：每个 tier≠none 的原子问题有可检验化 claim（含证实/"
                     "证伪判定标准）；light 档报告为锚点值+来源+量级对比；codegraph "
-                    "新鲜度查询留痕。（报告收录项数按档核验/骨架 --out 落盘存在性与新鲜度/外部源预检落盘"
-                    " 已由 append-trace 机械校验通过——你不得以这些形式要件"
-                    "为由 block，只判下面五件事的真实性。）\n"
+                    "新鲜度查询留痕。（报告收录项数按档核验/骨架 --out 落盘存在性与新鲜度/外部源预检落盘/"
+                    "模式枚举二态声明存在性与形态 已由 append-trace 机械校验通过——"
+                    "你不得以这些形式要件为由 block，只判下面五件事的真实性；"
+                    "模式枚举的清单真伪与范围合理性不判——真值归用户，"
+                    "「不适用+理由」为合法形态，不得发明「理由充分性」要件。）\n"
                     "默认 pass--仅当以下成立才判 block（每条附合法形态，"
                     "合法形态在场不得判）：\n"
                     "一、claim 缺失：tier≠none 原子缺可检验化 claim 或证实/证伪"
@@ -3629,6 +3643,14 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     "「人工看一下」式须显式辩护）/验收包映射"
                     "（承接哪条 SuccessCriteria ID）/追溯锚（承接哪个要素 ID）；"
                     "④假设传导（子3 假设项原样携带，不丢不淡化）。"
+                    "⑤回归防护二态（禁沉默，append-trace 机械核验存在性）："
+                    "change_point 含源码（非 test 文件）（改|删|增）条目的批次，"
+                    "要么带测试条目项（change_point 含 test 文件 （增|改） 条目），"
+                    "要么在任一项 boundary 载「回归防护：无测试——<理由>」——"
+                    "要不要测试是显式裁决点，理由充分性归用户 plan 门栏审。"
+                    "前序留痕无测试单元而本批含源码改动时，回归防护测试条目是"
+                    "材料边界的唯一合法新增例外（锚点 （增@test 文件），boundary 载"
+                    "「回归防护：新增——<覆盖点>」）；其余新增仍属混入即失真。"
                     "放不进一项=未定义完。"
                     '载荷格式：statements 逐项 {"text":交付物单句，'
                     '"type_label":所属阶段,"boundary":假设传导+补充指针,'
@@ -3642,6 +3664,8 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     "材料边界（复用钉死）：归一化材料=交接包本节点前序留痕全文"
                     "（子1 要素基线+验收包/子2 单元定义+DAG/子3 锚点核验+假设"
                     "清单）——逐项逐字引用即合法形态，默认零新取证。"
+                    "唯一新增例外=回归防护测试条目（见⑤，boundary 须载"
+                    "「回归防护：新增——<覆盖点>」）。"
                     "无取证例外：子2/子3 未定的改动点/接口/验证方法不得进项"
                     "（混入即失真），新取证在本步无判据出口；零 evidence 翻找"
                     "（前序 trace 已在包内）、零设计文档/understand.md 重读"
@@ -3686,14 +3710,22 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     "验收包与要素双向覆盖无漏吗？"
                     # p2-sub4-cost L3：复用钉死自查
                     "材料全部引自交接包本节点前序留痕吗"
-                    "（零新取证/零 evidence 翻找/零设计文档重读）？"
+                    "（零新取证/零 evidence 翻找/零设计文档重读；唯一例外="
+                    "回归防护测试条目新增）？"
+                    "回归防护二态满足了吗——本批含源码改动时，带测试条目项"
+                    "（新增者 boundary 载「回归防护：新增——覆盖点」）或"
+                    "boundary 载「回归防护：无测试——理由」（禁沉默）？"
                 ),
                 # v2.109（designs/plan2-sub4-gate-framing-design.md）：sc_coverage_trace
                 # 承接 default-PASS judge 判不稳且与 clean 误伤跷跷板的跨步判据
                 # （验收包映射漏项=子1 验收包 SC ID vs 子4 acceptance_map 差集，
                 # 强措辞伤 clean[judge 发明映射归属要件]/弱措辞漏判 vio4=⑤ 实锤）。
                 # statements 侧首个 mech（u:2#4 预留独立项 #30 ⑰ 的解）。纯 token 扫描，⑯-safe。
-                mech_checks=("sc_coverage_trace", "change_point_anchor_verify"),
+                mech_checks=(
+                    "sc_coverage_trace",
+                    "change_point_anchor_verify",
+                    "regression_guard_declared",
+                ),
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace、"
                     "minor_stage=TaskBreakdown 且 sub_step==4 的记录。"
@@ -3706,7 +3738,13 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     "change_point 改动规格条目语法齐备与锚点真伪（file 在仓/"
                     "symbol 在索引/行号在跨度）已由 append-trace 机械三验——"
                     "你不得以「改动点缺行号/缺改法/锚点可能不存在」为由 block"
-                    "（写侧已过的机械判项勿重复判）。\n"
+                    "（写侧已过的机械判项勿重复判）。"
+                    "回归防护二态存在性（测试条目项在场或「回归防护：无测试——"
+                    "理由」声明在场）已由 append-trace 机械校验——不得以「缺测试"
+                    "条目/未声明回归防护」为由 block；boundary 载「回归防护："
+                    "新增——<覆盖点>」的新增测试条目项 = 材料边界唯一合法新增"
+                    "例外，不得以「混入子2/子3 未定内容」为由 block；"
+                    "声明理由充分性不判（归用户 plan 门栏审）。\n"
                     "默认 pass——仅当以下成立才判 block（每条附合法形态，"
                     "合法形态在场不得判）：\n"
                     "一、验收包映射已由 sc_coverage_trace 机械校验——子1 验收包 SC ID "

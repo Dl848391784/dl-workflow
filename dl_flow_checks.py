@@ -1597,6 +1597,56 @@ def _check_change_list_anchor(statements: list, project_root: Path, name) -> str
     )
 
 
+# 回归防护显式抉择的 test 文件词形（regression_guard_declared 用）：
+# test_*.py / *_test.py / test_cases 或 tests 目录下文件 = 测试条目。
+_TEST_FILE_RE = re.compile(
+    r"(^|/)(test_[^/]*\.py|[^/]*_test\.py)$|/(test_cases|tests)/"
+)
+# 改动规格条目动作词（改|删|增@…）。
+_CHANGE_ACTION_RE = re.compile(r"（(?:改|删|增)[^）]*）")
+
+
+def _check_regression_guard_declared(
+    statements: list, project_root: Path, name: str
+) -> str | None:
+    """regression_guard_declared：plan:2 子4 回归防护显式抉择机械核验（plan:2 子4 专属）。
+
+    动机（designs/pattern-enum-regression-guard-design.md §3，样本=web_ui_interaction_2
+    tacet+fermate 改动面无测试条目，对照组 fermate 全量有 2 条 （增） 测试项）：
+    「要不要回归测试」此前是模型自由裁量——旧判据无要件，带不带测试靠发挥。
+    显式裁决点化：change_point 含源码（非 test 文件）（改|删|增）条目的批次，
+    二态必居其一——①带测试条目项（change_point 含 test 文件条目）；②任一项
+    boundary 载「回归防护：无测试——<理由>」。触发=文件路径集合运算（机械可判
+    零裁量）；纯测试/纯文档改动不触发（宁纵勿枉）；理由充分性不判（归用户
+    plan 门栏审）。
+    """
+    has_src_change = False
+    has_test_entry = False
+    has_guard_decl = False
+    for it in statements:
+        cp = str((it.get("fields") or {}).get("change_point", ""))
+        for line in cp.splitlines():
+            if not _CHANGE_ACTION_RE.search(line):
+                continue
+            file_part = line.split(":", 1)[0]
+            if _TEST_FILE_RE.search(file_part):
+                has_test_entry = True
+            else:
+                has_src_change = True
+        blob = json.dumps(it, ensure_ascii=False)
+        if "回归防护" in blob:
+            has_guard_decl = True
+    if not has_src_change or has_test_entry or has_guard_decl:
+        return None
+    return (
+        "回归防护显式抉择缺失——本批 change_point 含源码改动（非 test 文件）"
+        "但无测试条目：二态必居其一——①加测试条目项（change_point 含 test 文件 "
+        "（增|改） 条目，如 test_cases/test_x.py:-（增@文件尾）：新增回归测试）；"
+        "②在任一项 boundary 载「回归防护：无测试——<理由>」。禁沉默"
+        "（要不要测试是显式裁决点，理由充分性归用户 plan 门栏审）"
+    )
+
+
 def _check_change_point_anchor(
     statements: list, project_root: Path, name
 ) -> str | None:
@@ -1655,6 +1705,7 @@ _MECH_STATEMENTS_CHECKS = {
     "change_list_anchor_verify": _check_change_list_anchor,
     "change_point_anchor_verify": _check_change_point_anchor,
     "fermate_placeholder_consistency": _check_fermate_placeholder_consistency,
+    "regression_guard_declared": _check_regression_guard_declared,
 }
 
 
@@ -2001,6 +2052,45 @@ def _dispatched_vs_unrecorded_task_ids(
     if project_root is not None and name is not None:
         recorded |= _recorded_task_ids_in_evidence(project_root, name)
     return sorted(dispatched - recorded)
+
+
+# 模式枚举清单的 文件:行号 形态（pattern_enum_declared 用）。
+_PATTERN_ENUM_FILE_LINE_RE = re.compile(r"[\w./-]+\.\w+[:：]L?\d+")
+
+
+def _check_pattern_enum_declared(qa: list, *_ctx) -> str | None:
+    """pattern_enum_declared：u:1 子4 模式枚举二态声明机械核验（u:1 子4 专属）。
+
+    动机（designs/pattern-enum-regression-guard-design.md §2，样本=web_ui_interaction_2
+    tacet+fermate 漏 composite 页 3 处同族 ×100 病灶）：同族病灶召回依赖 u:1#4 单次
+    取证的枚举完备性，而旧判据无枚举要件——召回靠模型发挥（_1 枚举 4 模板、_2 枚举
+    3 个，同一判据两种结果）。tacet 裁掉二次审视步后波动零兜底直传交付物。
+    存在性/形态属机械可判（#12 下沉）：载荷必载「模式枚举」q 项，二态必居其一——
+    ①命令+命中清单（文件:行号 形态）；②「不适用+理由」（单点逻辑无可枚举同族）。
+    无条件触发：非代码问题写「不适用」一行即过（#7 低成本合法路径在场）。
+    真值（命令是否真跑/清单是否真实）不判——judge 判不了真值，消费侧兜底=
+    plan:1#2 用户拍板时见全量清单（真值归用户）。
+    """
+    for item in qa:
+        if "模式枚举" not in str(item.get("q", "")):
+            continue
+        a = str(item.get("a", ""))
+        if "不适用" in a:
+            return None
+        if _PATTERN_ENUM_FILE_LINE_RE.search(a):
+            return None
+        return (
+            "模式枚举项形态不合——二态必居其一：①枚举清单=命令原文+命中清单"
+            "（文件:行号，全量不截断）+范围声明（全仓或限定目录+理由）；"
+            "②「模式枚举：不适用——<一句理由>」（机制为单点逻辑、无可文本检索的"
+            "同族写法形态时）。空泛声明（「已全仓检查」式无清单无理由）不算记录"
+        )
+    return (
+        "模式枚举二态声明缺失——根因/问题机制指向可文本检索的代码写法时，必跑"
+        "全仓枚举（grep -rn 或等效）并载「模式枚举」q 项（命令+命中清单 文件:行号 "
+        "全量+范围声明）；机制为单点逻辑不可枚举同族时载「模式枚举：不适用——理由」。"
+        "二态必居其一，禁沉默（缺项=枚举可能未做，同族病灶召回无兜底）"
+    )
 
 
 def _check_fetch_report_recorded(qa: list, *_ctx) -> str | None:
@@ -2543,6 +2633,7 @@ _MECH_QA_CHECKS = {
     "binding_residue_trace": _check_binding_residue_trace,
     "assumption_completeness_trace": _check_assumption_completeness_trace,
     "fetch_report_recorded": _check_fetch_report_recorded,
+    "pattern_enum_declared": _check_pattern_enum_declared,
     "fetch_skeleton_out": _check_fetch_skeleton_out,
     "fetch_preflight_out": _check_fetch_preflight_out,
     "redteam_report_recorded": _check_redteam_report_recorded,

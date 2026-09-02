@@ -7596,6 +7596,92 @@ class TestV237FirstPassRate:
             "无子1 应过"
         )
 
+    # ---- u:1 子4 模式枚举二态 mech（designs/pattern-enum-regression-guard-design.md §2，
+    # 样本=web_ui_interaction_2 tacet+fermate 漏 composite 页 3 处同族病灶）----
+
+    def test_u1s4_pattern_enum_declared(self):
+        # 违规：无「模式枚举」项（沉默=可能未枚举）
+        qa_silent = [{"q": "③内部仓库层如何？", "a": "codegraph 查得 callers=..."}]
+        err = eng._check_pattern_enum_declared(qa_silent)
+        assert err and "模式枚举" in err, "缺模式枚举项应拒"
+        # 合法态 1：不适用声明（单点逻辑，不可文本枚举同族）
+        qa_na = [
+            {
+                "q": "模式枚举（同族病灶全仓枚举）？",
+                "a": "模式枚举：不适用——机制为单点逻辑错误（_render 内变量误用，"
+                "无可文本检索的同族写法形态）。",
+            }
+        ]
+        assert eng._check_pattern_enum_declared(qa_na) is None, "不适用声明应过"
+        # 合法态 2：枚举清单（命令+文件:行号 全量+范围声明）
+        qa_enum = [
+            {
+                "q": "模式枚举？",
+                "a": '模式枚举：命令 `grep -rn "\\* 100" web_ui/templates/`；'
+                "范围=全模板目录；命中清单：web_ui/templates/_macros.html:57、"
+                "web_ui/templates/_section_backtest.html:38、"
+                "web_ui/templates/_section_backtest.html:69、"
+                "web_ui/templates/_section_composite.html:41。",
+            }
+        ]
+        assert eng._check_pattern_enum_declared(qa_enum) is None, "枚举清单应过"
+        # 违规：有标记但既非「不适用」也无 文件:行号 形态（空泛声明）
+        qa_vague = [{"q": "模式枚举？", "a": "模式枚举：已全仓检查，无遗漏。"}]
+        err2 = eng._check_pattern_enum_declared(qa_vague)
+        assert err2 and "文件:行号" in err2, "空泛声明应拒并指路形态"
+
+    # ---- plan:2 子4 回归防护显式抉择 mech（同 design §3，样本=_2 无测试条目）----
+
+    def test_p2s4_regression_guard_declared(self, tmp_path):
+        def stmt(cp, boundary="b"):
+            return {
+                "text": "t",
+                "type_label": "单阶段",
+                "boundary": boundary,
+                "fields": {
+                    "change_point": cp,
+                    "interface": "i",
+                    "verify": "v",
+                    "acceptance_map": "SC1.1",
+                    "trace_anchor": "E1",
+                },
+            }
+
+        src_cp = "web_ui/templates/_macros.html:-:L57-57（改）：改前 X → 改后 Y"
+        test_cp = "web_ui/test_cases/test_x.py:-（增@文件尾）：新增回归测试"
+        # 违规：源码改动 + 无测试条目 + 无「回归防护」声明（沉默）
+        err = eng._check_regression_guard_declared([stmt(src_cp)], tmp_path, "t")
+        assert err and "回归防护" in err and "二态" in err, "源码改动无测试无声明应拒"
+        # 合法态 1：带测试条目项
+        assert (
+            eng._check_regression_guard_declared(
+                [stmt(src_cp), stmt(test_cp)], tmp_path, "t"
+            )
+            is None
+        ), "带测试条目应过"
+        # 合法态 2：boundary 载「回归防护：无测试——理由」
+        assert (
+            eng._check_regression_guard_declared(
+                [
+                    stmt(
+                        src_cp,
+                        boundary="回归防护：无测试——纯模板词形改动，grep 断言已覆盖",
+                    )
+                ],
+                tmp_path,
+                "t",
+            )
+            is None
+        ), "显式无测试声明应过"
+        # 不触发：纯测试文件改动
+        assert (
+            eng._check_regression_guard_declared([stmt(test_cp)], tmp_path, "t") is None
+        ), "纯测试改动不触发"
+        # 宁纵勿枉：无 change_point 条目
+        assert eng._check_regression_guard_declared([], tmp_path, "t") is None, (
+            "空 statements 应过"
+        )
+
     # ---- plan:1 子5 framing 反转配套 mech（v2.116，ADR 否决理由缺席型负判定，
     # designs/plan1-sub5-gate-framing-design.md §3）----
 
@@ -8965,6 +9051,10 @@ class TestFetchSkeletonOut:
         qa = [
             {"q": "原子 A 可检验 claim", "a": "claim：X；证实：Y；证伪：Z"},
             {
+                "q": "模式枚举（同族病灶全仓枚举）？",
+                "a": "模式枚举：不适用——夹具场景为单点逻辑，无可文本检索同族写法。",
+            },
+            {
                 "q": "原子 A 子代理蒸馏报告（原文收录）",
                 "a": "反证查询（先）：…；支持证据（后）：…；五层状态表：…",
             },
@@ -9033,6 +9123,10 @@ class TestFetchPreflightOut:
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=4)
         qa = [
             {"q": "原子 A 可检验 claim", "a": "claim：X；证实：Y；证伪：Z"},
+            {
+                "q": "模式枚举（同族病灶全仓枚举）？",
+                "a": "模式枚举：不适用——夹具场景为单点逻辑，无可文本检索同族写法。",
+            },
             {
                 "q": "原子 A 子代理蒸馏报告（原文收录）",
                 "a": "反证查询（先）：…；支持证据（后）：…；五层状态表：…",
@@ -9223,6 +9317,10 @@ class TestFetchReportRecorded:
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=4)
         qa = [
             {"q": "原子 A 可检验 claim", "a": "claim：X；证实：Y；证伪：Z"},
+            {
+                "q": "模式枚举（同族病灶全仓枚举）？",
+                "a": "模式枚举：不适用——夹具场景为单点逻辑，无可文本检索同族写法。",
+            },
             {"q": "原子 A 反证查询（先）", "a": "SE 0 items；HN 未取证+无相关"},
             {"q": "原子 A 支持证据（后）", "a": "Q76007（URL）直接针对谓词"},
         ]
@@ -9260,6 +9358,10 @@ class TestFetchReportRecorded:
         qa = [
             {"q": "原子 A 可检验 claim", "a": "claim：X；证实：Y；证伪：Z"},
             {
+                "q": "模式枚举（同族病灶全仓枚举）？",
+                "a": "模式枚举：不适用——夹具场景为单点逻辑，无可文本检索同族写法。",
+            },
+            {
                 "q": "原子 A 子代理蒸馏报告（原文收录）",
                 "a": "反证查询（先）：引用前步结论（task-id a1001db34a6f2c799）…",
             },
@@ -9284,6 +9386,10 @@ class TestFetchReportRecorded:
         qa = [
             {"q": "原子 A 可检验 claim", "a": "claim：X；证实：Y；证伪：Z"},
             {
+                "q": "模式枚举（同族病灶全仓枚举）？",
+                "a": "模式枚举：不适用——夹具场景为单点逻辑，无可文本检索同族写法。",
+            },
+            {
                 "q": "原子 A 预检不可达（原文收录）",
                 "a": "fetch-preflight 全源不可达：curl exit 7；未派发未升档",
             },
@@ -9298,6 +9404,10 @@ class TestFetchReportRecorded:
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=4)
         qa = [
             {"q": "原子 A 可检验 claim", "a": "claim：X；证实：Y；证伪：Z"},
+            {
+                "q": "模式枚举（同族病灶全仓枚举）？",
+                "a": "模式枚举：不适用——夹具场景为单点逻辑，无可文本检索同族写法。",
+            },
             {
                 "q": "原子 A 子代理蒸馏报告（原文收录）",
                 "a": "反证查询（先）：…；支持证据（后）：Q76007（URL）；五层状态表：…",
@@ -10039,6 +10149,12 @@ class TestFetchTier:
             }
             for i in range(n_reports)
         ]
+        qa.append(
+            {
+                "q": "模式枚举（同族病灶全仓枚举）？",
+                "a": "模式枚举：不适用——夹具场景为单点逻辑，无可文本检索同族写法。",
+            }
+        )
         (tmp_path / "payload.json").write_text(
             json.dumps({"purpose": "p", "qa": qa}, ensure_ascii=False), encoding="utf-8"
         )

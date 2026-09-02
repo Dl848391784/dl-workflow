@@ -183,8 +183,10 @@ from dl_flow_checks import (
     _check_no_load_trace,  # noqa: F401  # re-export：tests/hooks 经 eng.* 访问
     _check_pugh_net_score_consistency,  # noqa: F401  # re-export：tests/hooks 经 eng.* 访问
     _check_pugh_traceability_forward_coverage,  # noqa: F401  # re-export：tests/hooks 经 eng.* 访问
+    _check_pattern_enum_declared,  # noqa: F401  # re-export：tests/hooks 经 eng.* 访问
     _check_redteam_report_recorded,  # noqa: F401  # re-export：tests/hooks 经 eng.* 访问
     _check_redteam_three_piece,  # noqa: F401  # re-export：tests/hooks 经 eng.* 访问
+    _check_regression_guard_declared,  # noqa: F401  # re-export：tests/hooks 经 eng.* 访问
     _check_rejected_rationale_trace,  # noqa: F401  # re-export：tests/hooks 经 eng.* 访问
     _check_root_cause_anchor_verify,  # noqa: F401  # re-export：tests/hooks 经 eng.* 访问
     _check_sc_coverage_trace,  # noqa: F401  # re-export：tests/hooks 经 eng.* 访问
