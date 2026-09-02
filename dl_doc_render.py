@@ -1,9 +1,15 @@
-"""dl-workflow 技术文档渲染器：产物 md -> 人读 HTML（v0.5.0，designs/doc-renderer-design.md）。
+"""dl-workflow 技术文档渲染器：产物 md -> 人读 HTML（designs/doc-renderer-design.md）。
 
 替换 baoyu-markdown-to-html（定位公众号文章：单栏文章流/无目录/无锚点）。
 单文件自包含输出：左侧 sticky 目录（H2/H3 锚点 + scroll-spy）、技术排版
-（紧凑行宽/等宽代码/表格斑马纹）、statement 字段尾巴 dimmed meta 行（样式
-降级零内容删除，md 真源不动）。唯一三方依赖 = Python-Markdown。
+（紧凑行宽/等宽代码/表格斑马纹）。唯一三方依赖 = Python-Markdown。
+
+渲染层增强（md 真源不动、零内容创作、机械规则）：
+- statement 字段尾巴 -> dimmed meta 行（样式降级零内容删除）；
+- change_point= 字段 -> dashboard 同款改动面卡片（锚点+改前/改后对照+现状
+  代码 ±4 行，解析单源=dl_flow_common.parse_change_points）；
+- interface= 字段 -> 调用流程 SVG（Consumes->改动点->Produces 三层）；
+- 重点标注（ref chip/关键词 badge/数值加粗）+ 长 bullet 按 。；边界拆分。
 
 入口：render_html(md_path, html_path, version="")——异常上抛，调用方
 （engine._render_html_companion）捕获转降级注记（赠品纪律：绝不阻断装配）。
@@ -11,10 +17,13 @@
 
 from __future__ import annotations
 
+import html as _html
 import re
 from pathlib import Path
 
 import markdown
+
+from dl_flow_common import CP_RE, parse_change_points
 
 # statement extras 尾巴：`- ` 非 qa 项 bullet，行尾（…）段含 ；或 = 且 >20 字符
 # （type_label；boundary；k=v 形态，常含嵌套括号）。判中 -> 移 meta 行（样式降级，
@@ -41,6 +50,32 @@ _MD_EXT_CFG = {
 _DOC_NOTE = "（render-artifact 机械装配，禁手改——改内容请改对应步 trace 后重渲染）"
 
 _TITLE_RE = re.compile(r"^# +(.+)$", re.M)
+
+# ---------- 重点标注规则（render 层 span 化，零文字改动） ----------
+# ref chip：_macros.html:57 / data_loaders.py:166-168 / app.py:_render_report:L267
+_REF_RE = re.compile(r"([\w./-]+\.\w+(?::[\w.-]+)?:L?\d+(?:-\d+)?)")
+_BADGES = [
+    ("根因@", "b-root"),
+    ("不可逆", "b-irrev"),
+    ("证伪", "b-fals"),
+    ("剔除", "b-drop"),
+    ("裁决", "b-judge"),
+]
+_NUM_RE = re.compile(r"(\d+(?:\.\d+)?%|×\d+(?:\.\d+)?)")
+
+# 长 bullet 拆分阈值与边界（机械拆分，零内容变化）
+_SPLIT_MIN = 300
+_SENT_SPLIT_RE = re.compile(r"(?<=[。；])")
+
+# 调用流程图源：interface=Consumes：...Produces：...（change_spec 门钉死字段）。
+# 分隔符两变体兼容：Consumes：/Consumes=（全量轨老实例用半角=，实证
+# amplitude_annualized vs web_interaction 两形态并存）。
+_IFACE_RE = re.compile(
+    r"interface=Consumes[=：](.+?)Produces[=：](.+?)"
+    r"(?:；(?:verify|acceptance_map|trace_anchor)=|$)",
+    re.S,
+)
+_FLOW_CAP = (4, 4, 3)  # 三层节点上限（Consumes/改动点/Produces），超出截断注明
 
 _CSS = """
 :root{--fg:#1f2328;--muted:#656d76;--line:#d1d9e0;--accent:#2557a7;
@@ -86,9 +121,45 @@ margin:2px 0 6px;word-break:break-all}
 p.doc-note{color:var(--muted);font-size:13px}
 footer{margin-top:48px;padding-top:14px;border-top:1px solid var(--line);
 color:var(--muted);font-size:12px}
+/* 重点标注 */
+span.ref{font-family:var(--mono);font-size:.85em;background:#e8f0fe;color:#1a56db;
+padding:.05em .3em;border-radius:4px;white-space:nowrap}
+span.num{font-weight:700;color:#b45309}
+.badge{display:inline-block;font-size:11px;font-weight:600;padding:0 .45em;
+border-radius:8px;line-height:1.7;vertical-align:1px}
+.b-root{background:#fde8e8;color:#c81e1e}
+.b-irrev{background:#fce8f3;color:#9d174d}
+.b-fals{background:#fdf6b2;color:#8e4b10}
+.b-drop{background:#f3f4f6;color:#6b7280}
+.b-judge{background:#e1effe;color:#1e429f}
+/* 改动面卡片（dashboard 同款） */
+.cp-cards{margin:4px 0 14px}
+.cp-card{border:1px solid var(--line);border-radius:8px;margin:8px 0;overflow:hidden}
+.cp-head{padding:6px 12px;background:var(--bg-soft);border-bottom:1px solid var(--line);
+font-family:var(--mono);font-size:12.5px;overflow:hidden}
+.cp-act{float:right;font-weight:700;padding:0 .5em;border-radius:6px}
+.act-改{background:#fff7ed;color:#c2410c}
+.act-增{background:#ecfdf5;color:#047857}
+.act-删{background:#fef2f2;color:#b91c1c}
+.cp-ba{display:flex;gap:10px;padding:10px 12px;font-size:13px}
+.cp-before,.cp-after{flex:1;border-radius:6px;padding:6px 8px;word-break:break-all}
+.cp-before{background:#fef2f2}
+.cp-after{background:#ecfdf5}
+.cp-tag{font-weight:700;font-size:11px;margin-right:4px}
+.cp-before .cp-tag{color:#b91c1c}
+.cp-after .cp-tag{color:#047857}
+.cp-arrow{align-self:center;color:var(--muted);font-weight:700}
+.cp-ctx{margin:0;border-top:1px solid var(--line);border-radius:0;font-size:12px}
+.ctx-hl{background:rgba(250,204,21,.22)}
+/* 调用流程图 */
+.flow{overflow-x:auto;padding:8px 0}
+.flow svg{max-width:100%;height:auto}
+.flow-note{color:var(--muted);font-size:12.5px;margin:4px 0 0}
 @media (max-width:900px){
 #toc{position:static;width:auto;border-right:none;border-bottom:1px solid var(--line)}
-main{margin-left:0;padding:24px 18px 60px}}
+main{margin-left:0;padding:24px 18px 60px}
+.cp-ba{flex-direction:column}
+.cp-arrow{transform:rotate(90deg);align-self:center}}
 """
 
 _JS = """
@@ -129,35 +200,248 @@ __BODY__
 </html>
 """
 
+_esc = _html.escape
+
 
 def _extract_title(text: str, md_path: Path) -> str:
     m = _TITLE_RE.search(text)
     return m.group(1).strip() if m else md_path.stem
 
 
-def _mark_meta_tails(text: str) -> str:
-    """statement extras 尾巴 -> bullet 下独立 meta 行（样式降级，零内容删除）。"""
-    out = []
+# ---------- 改动面卡片 ----------
+def _cp_card_html(cp: dict) -> str:
+    head = (
+        f"{_esc(cp['file'])}:{_esc(cp['method'])} "
+        f"L{_esc(cp['line'])}"
+        f'<span class="cp-act act-{cp["action"]}">{cp["action"]}</span>'
+    )
+    ba = ""
+    if cp["before"] or cp["after"]:
+        ba = (
+            '<div class="cp-ba">'
+            f'<div class="cp-before"><span class="cp-tag">改前</span> '
+            f"<code>{_esc(cp['before'])}</code></div>"
+            '<div class="cp-arrow">→</div>'
+            f'<div class="cp-after"><span class="cp-tag">改后</span> '
+            f"<code>{_esc(cp['after'])}</code></div></div>"
+        )
+    elif cp["summary"]:
+        ba = (
+            '<div class="cp-ba">'
+            f'<div class="cp-after">{_esc(cp["summary"])}</div></div>'
+        )
+    ctx = ""
+    c = cp.get("context")
+    if c:
+        rows = []
+        for i, line in enumerate(c["lines"], c["start"]):
+            cls = ' class="ctx-hl"' if i == c["anchor"] else ""
+            rows.append(f"<span{cls}>{i:>4} {_esc(line)}</span>\n")
+        ctx = f'<pre class="cp-ctx"><code>{"".join(rows)}</code></pre>'
+    return f'<div class="cp-card"><div class="cp-head">{head}</div>{ba}{ctx}</div>'
+
+
+def _strip_cp_field(line: str, project_root: Path | None) -> tuple[str, str]:
+    """bullet 行内 change_point= 字段剥除 -> (剩余行, 卡片 html)。
+
+    解析单源=dl_flow_common.parse_change_points（与 dashboard 改动面同 regex）。
+    保留字段终止符段（；interface= 等）原位——残余字段仍归 meta 尾巴处理。
+    """
+    cards: list[str] = []
+
+    def _sub(m: re.Match) -> str:
+        for cp in parse_change_points(m.group(0), project_root):
+            cards.append(_cp_card_html(cp))
+        return m.group(0)[m.end(1) - m.start(0) :]
+
+    new_line = CP_RE.sub(_sub, line)
+    html = f'<div class="cp-cards">{"".join(cards)}</div>' if cards else ""
+    return new_line, html
+
+
+# ---------- 调用流程 SVG ----------
+def _iface_labels(chunk: str) -> list[str]:
+    """interface 块 -> 标签清单（去重保序）。"""
+    labels: list[str] = []
+    for entry in re.split(r"[；。]", chunk):
+        entry = entry.strip()
+        if not entry or entry.startswith(("测试侧", "本项")):
+            continue
+        label = re.split(r"[（(，,：:]", entry, 1)[0].strip()[:28]
+        if label and label not in labels:
+            labels.append(label)
+    return labels
+
+
+def _flow_svg(consumes: list[str], changes: list[str], produces: list[str]) -> str:
+    """三层左到右流动图（inline SVG，自绘零依赖）。层：Consumes->改动点->Produces。"""
+    cols = [consumes, changes, produces]
+    col_x = [10, 330, 650]
+    node_w, node_h, row_gap = 200, 42, 62
+    rows = max(len(c) for c in cols)
+    height = rows * row_gap + 10
+    palette = [("#e8f0fe", "#1a56db"), ("#fff7ed", "#c2410c"), ("#ecfdf5", "#047857")]
+    parts = [
+        f'<svg viewBox="0 0 860 {height}" xmlns="http://www.w3.org/2000/svg" '
+        'font-family="ui-monospace,Menlo,Consolas,monospace" font-size="12">',
+        '<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" '
+        'markerWidth="7" markerHeight="7" orient="auto-start-reverse">'
+        '<path d="M 0 0 L 10 5 L 0 10 z" fill="#9aa4b2"/></marker></defs>',
+    ]
+
+    def _edges(src: int, dst: int) -> None:
+        for i in range(len(cols[src])):
+            y1 = 6 + i * row_gap + node_h / 2
+            for j in range(len(cols[dst])):
+                y2 = 6 + j * row_gap + node_h / 2
+                parts.append(
+                    f'<line x1="{col_x[src] + node_w}" y1="{y1}" '
+                    f'x2="{col_x[dst]}" y2="{y2}" stroke="#9aa4b2" '
+                    'stroke-width="1" marker-end="url(#arr)"/>'
+                )
+
+    def _node(col: int, row: int, label: str) -> None:
+        x, y = col_x[col], 6 + row * row_gap
+        bg, fg = palette[col]
+        text = _esc(label if len(label) <= 22 else label[:21] + "…")
+        parts.append(
+            f'<g><rect x="{x}" y="{y}" width="{node_w}" height="{node_h}" rx="8" '
+            f'fill="{bg}" stroke="{fg}" stroke-opacity=".35"/>'
+            f'<text x="{x + node_w / 2}" y="{y + node_h / 2 + 4}" text-anchor="middle" '
+            f'fill="{fg}">{text}<title>{_esc(label)}</title></text></g>'
+        )
+
+    _edges(0, 1)
+    _edges(1, 2)
+    for col, labels in enumerate(cols):
+        for row, label in enumerate(labels):
+            _node(col, row, label)
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+def _flow_section(text: str) -> str:
+    """interface=/change_point 字段 -> 「调用流程」节（md 级插入 ## 改动面 前）。
+
+    无 interface 数据或无改动面节 -> 原文（诚实缺席）。
+    """
+    if "## 改动面" not in text:
+        return text
+    consumes: list[str] = []
+    produces: list[str] = []
+    for m in _IFACE_RE.finditer(text):
+        for x in _iface_labels(m.group(1)):
+            if x not in consumes:
+                consumes.append(x)
+        for x in _iface_labels(m.group(2)):
+            if x not in produces:
+                produces.append(x)
+    changes: list[str] = []
+    for cp in parse_change_points(text, None):
+        f = cp["file"].split("/")[-1]
+        if f not in changes:
+            changes.append(f)
+    truncated = (
+        len(consumes) > _FLOW_CAP[0]
+        or len(changes) > _FLOW_CAP[1]
+        or len(produces) > _FLOW_CAP[2]
+    )
+    consumes = consumes[: _FLOW_CAP[0]]
+    changes = changes[: _FLOW_CAP[1]]
+    produces = produces[: _FLOW_CAP[2]]
+    if not (consumes and changes):
+        return text
+    if not produces:
+        produces = ["（Produces 未标注）"]
+    svg = _flow_svg(consumes, changes, produces)
+    note = "注：由 interface=/change_point 字段机械推导（左=数据与入口，中=改动点，右=产出）"
+    if truncated:
+        note += f"；节点超限截断（上限 {'/'.join(map(str, _FLOW_CAP))}）"
+    section = (
+        f'\n## 调用流程\n\n<div class="flow">{svg}</div>\n\n'
+        f'<p class="flow-note">{note}。</p>\n'
+    )
+    return text.replace("## 改动面", section + "\n## 改动面", 1)
+
+
+# ---------- 重点标注 + 长文拆分 ----------
+def _highlight_segment(seg: str) -> str:
+    """非代码片段的重点标注（span 化，零文字改动）。"""
+    for kw, cls in _BADGES:
+        seg = seg.replace(kw, f'<span class="badge {cls}">{kw}</span>')
+    seg = _REF_RE.sub(r'<span class="ref">\1</span>', seg)
+    seg = _NUM_RE.sub(r'<span class="num">\1</span>', seg)
+    return seg
+
+
+def _highlight_line(line: str) -> str:
+    """行级高亮：backtick 代码段内不标（偶数位=代码段外）。"""
+    parts = line.split("`")
+    for i in range(0, len(parts), 2):
+        parts[i] = _highlight_segment(parts[i])
+    return "`".join(parts)
+
+
+def _split_long_bullet(line: str) -> str:
+    """>300 字符 bullet 按 。；边界拆段（<br> 视觉分行，仍同一 li，零内容变化）。"""
+    if not line.startswith("- ") or len(line) <= _SPLIT_MIN:
+        return line
+    segs = [s for s in _SENT_SPLIT_RE.split(line) if s]
+    if len(segs) <= 2:
+        return line
+    return "<br>\n  ".join(segs)
+
+
+# ---------- 预处理主管线 ----------
+def _preprocess(text: str, project_root: Path | None) -> str:
+    text = _flow_section(text)
+    out: list[str] = []
+    in_fence = False
     for line in text.splitlines():
+        if line.strip().startswith("```"):
+            in_fence = not in_fence
+            out.append(line)
+            continue
+        if in_fence or line.lstrip().startswith("<"):
+            out.append(line)
+            continue
+        if "change_point=" in line:
+            line, cards = _strip_cp_field(line, project_root)
+        else:
+            cards = ""
         m = _META_TAIL_RE.match(line)
         if (
             m
             and ("；" in m.group(2) or "=" in m.group(2))
             and len(m.group(2)) > _META_TAIL_MIN
         ):
-            out.append(m.group(1))
-            out.append(f'  <small class="meta">（{m.group(2)}）</small>')
+            line = m.group(1)
+            meta = f'  <small class="meta">（{m.group(2)}）</small>'
         else:
-            out.append(line)
+            meta = ""
+        line = _split_long_bullet(line)
+        line = _highlight_line(line)
+        out.append(line)
+        if meta:
+            out.append(meta)
+        if cards:
+            out.append(cards)
     return "\n".join(out)
 
 
 def render_html(md_path: Path, html_path: Path, version: str = "") -> None:
     """md -> 单文件人读 HTML。异常上抛（调用方转降级注记）。"""
-    text = Path(md_path).read_text(encoding="utf-8")
-    title = _extract_title(text, Path(md_path))
+    md_path = Path(md_path)
+    text = md_path.read_text(encoding="utf-8")
+    title = _extract_title(text, md_path)
+    # project_root 推断（.claude/<kind>/<name>.md -> 上两级）：改动面卡片的现状
+    # 代码片段 best-effort 实读；推断不出/文件不在 -> 卡片只显锚点+改前改后。
+    project_root = None
+    parts = md_path.resolve().parts
+    if len(parts) >= 3 and parts[-3] == ".claude":
+        project_root = Path(*parts[:-3])
     conv = markdown.Markdown(extensions=_MD_EXTS, extension_configs=_MD_EXT_CFG)
-    body = conv.convert(_mark_meta_tails(text))
+    body = conv.convert(_preprocess(text, project_root))
     body = body.replace(f"<p>{_DOC_NOTE}</p>", f'<p class="doc-note">{_DOC_NOTE}</p>')
     html = (
         _TEMPLATE.replace("__TITLE__", title)

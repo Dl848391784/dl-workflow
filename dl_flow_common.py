@@ -249,3 +249,93 @@ _PHASE_ARTIFACT_DIRS: dict[str, str] = {
     "review": "reviews",
     "evolution": "evolutions",
 }
+
+
+# ---------- change_point 锚点解析（单源，v0.6.0 自 dl_dashboard/outputs.py 迁入）----------
+# 消费方：dashboard outputs.load_change_points（改动面 API）+ dl_doc_render
+# （人读版改动面卡片）。锚点语法钦定于 dl_flow_nodes._CHANGE_SPEC_RULE。
+import logging  # noqa: E402
+import re  # noqa: E402
+
+_cp_log = logging.getLogger("dl_flow_common.change_points")
+
+# change_point= 块（跨行，止于 ；interface= / ；Produces= / 空行 / 串尾）
+CP_RE = re.compile(r"change_point=(.+?)(?:；interface=|；Produces=|\n\n|$)", re.S)
+# 锚点行（2026-08-25 up-change-spec-gate 钦定语法）：
+#         web_ui/app.py:_render_report:L267-269（改）：改前 X → 改后 Y（注）
+#         _macros.html:-:L57-57（改）：改前 ... → 改后 ...（注）
+#         test_x.py:-（增@文件尾）：新增测试描述
+# 行号为区间 L<a>-<b>（单行即 a=b）；改前/改后等号可省（新旧两态都收）。
+ANCHOR_RE = re.compile(
+    r"([\w./-]+\.\w+):([\w.-]*):?L?(\d+|-)?(?:-\d+)?（(改|增|删)[^）]*）"
+    r"(?:：改前=?(.*?)\s*→\s*改后=?(.*?))?(?:：([^；\n]*))?(?=；|\n|$)"
+)
+CTX_RADIUS = 4  # 现状代码上下文半径（锚点行 ±4）
+
+
+def code_context(root: Path | None, file: str, line: str, method: str) -> dict | None:
+    """root（worktree 或主仓）实读锚点上下文 ±CTX_RADIUS 行。
+
+    行号定位优先；无行号但有方法名时按方法名首现定位（def 行或调用行）
+    ——tacet 脊柱产物的锚点常只有 `file:method:（增）` 形态。文件缺失/
+    两者皆无 -> None。
+    """
+    if root is None:
+        return None
+    p = root / file
+    if not p.is_file():
+        return None
+    try:
+        lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        _cp_log.warning("锚点文件读失败: %s", p, exc_info=True)
+        return None
+    n: int | None = None
+    if line.isdigit():
+        n = int(line)
+        if n < 1 or n > len(lines):
+            return None
+    elif method and method != "-":
+        for idx, text in enumerate(lines, 1):
+            if f"def {method}" in text:
+                n = idx
+                break
+        if n is None:
+            for idx, text in enumerate(lines, 1):
+                if method in text:
+                    n = idx
+                    break
+    if n is None:
+        return None
+    lo, hi = max(1, n - CTX_RADIUS), min(len(lines), n + CTX_RADIUS)
+    return {
+        "start": lo,
+        "anchor": n,
+        "lines": lines[lo - 1 : hi],
+    }
+
+
+def parse_change_points(text: str, root: Path | None) -> list[dict]:
+    """plan/proposal md 文本 -> change_point 锚点列表（含现状代码上下文 best-effort）。
+
+    root=代码根（worktree 或主仓）：读不到/锚点定位失败 -> context=None（只缺
+    代码片段，锚点与改前/改后照出——老实例 worktree 已删不挡卡片渲染）。
+    """
+    out: list[dict] = []
+    for m in CP_RE.finditer(text):
+        for a in ANCHOR_RE.finditer(m.group(1)):
+            out.append(
+                {
+                    "file": a.group(1),
+                    "method": a.group(2) or "-",
+                    "line": a.group(3) or "-",
+                    "action": a.group(4),
+                    "before": (a.group(5) or "").strip(),
+                    "after": (a.group(6) or "").strip(),
+                    "summary": (a.group(7) or "").strip(),
+                    "context": code_context(
+                        root, a.group(1), a.group(3) or "", a.group(2) or ""
+                    ),
+                }
+            )
+    return out

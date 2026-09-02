@@ -11,23 +11,13 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from pathlib import Path
+
+from dl_flow_common import parse_change_points  # noqa: E402
 
 log = logging.getLogger("dl_dashboard.outputs")
 
-# change_point= 块（跨行，止于 ；interface= / ；Produces= / 空行 / 串尾）
-_CP_RE = re.compile(r"change_point=(.+?)(?:；interface=|；Produces=|\n\n|$)", re.S)
-# 锚点行（2026-08-25 up-change-spec-gate 钦定语法，dl_flow_nodes._CHANGE_SPEC_RULE）：
-#         web_ui/app.py:_render_report:L267-269（改）：改前 X → 改后 Y（注）
-#         _macros.html:-:L57-57（改）：改前 ... → 改后 ...（注）
-#         test_x.py:-（增@文件尾）：新增测试描述
-# 行号为区间 L<a>-<b>（单行即 a=b）；改前/改后等号可省（新旧两态都收）。
-_ANCHOR_RE = re.compile(
-    r"([\w./-]+\.\w+):([\w.-]*):?L?(\d+|-)?(?:-\d+)?（(改|增|删)[^）]*）"
-    r"(?:：改前=?(.*?)\s*→\s*改后=?(.*?))?(?:：([^；\n]*))?(?=；|\n|$)"
-)
-_CTX_RADIUS = 4  # 现状代码上下文半径（锚点行 ±4）
+# change_point 锚点解析单源 = dl_flow_common（v0.6.0 迁入；dashboard 与渲染器共用）（跨行，止于 ；interface= / ；Produces= / 空行 / 串尾）
 
 
 def load_evidence(project: Path, name: str) -> list[dict]:
@@ -56,48 +46,6 @@ def load_evidence(project: Path, name: str) -> list[dict]:
     return out
 
 
-def _code_context(worktree: Path | None, file: str, line: str, method: str) -> dict | None:
-    """worktree 实读锚点上下文（审核用）。
-
-    行号定位优先；无行号但有方法名时按方法名首现定位（def 行或调用行）
-    ——tacet 脊柱产物的锚点常只有 `file:method:（增）` 形态。文件缺失/
-    两者皆无 → None。
-    """
-    if worktree is None:
-        return None
-    p = worktree / file
-    if not p.is_file():
-        return None
-    try:
-        lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        log.warning("锚点文件读失败: %s", p, exc_info=True)
-        return None
-    n: int | None = None
-    if line.isdigit():
-        n = int(line)
-        if n < 1 or n > len(lines):
-            return None
-    elif method and method != "-":
-        for idx, text in enumerate(lines, 1):
-            if f"def {method}" in text:
-                n = idx
-                break
-        if n is None:
-            for idx, text in enumerate(lines, 1):
-                if method in text:
-                    n = idx
-                    break
-    if n is None:
-        return None
-    lo, hi = max(1, n - _CTX_RADIUS), min(len(lines), n + _CTX_RADIUS)
-    return {
-        "start": lo,
-        "anchor": n,
-        "lines": lines[lo - 1:hi],
-    }
-
-
 def load_change_points(project: Path, name: str) -> list[dict]:
     """plan.md 的 change_point 锚点：文件/方法/行/动作 + 改前/改后 + 现状代码上下文。"""
     p = project / ".claude" / "plans" / f"{name}.md"
@@ -113,21 +61,7 @@ def load_change_points(project: Path, name: str) -> list[dict]:
                 worktree = Path(wt)
         except json.JSONDecodeError:
             log.warning("state.json 解析失败，改动面无现状上下文: %s", state_p)
-    out: list[dict] = []
-    for m in _CP_RE.finditer(text):
-        for a in _ANCHOR_RE.finditer(m.group(1)):
-            out.append({
-                "file": a.group(1),
-                "method": a.group(2) or "-",
-                "line": a.group(3) or "-",
-                "action": a.group(4),
-                "before": (a.group(5) or "").strip(),
-                "after": (a.group(6) or "").strip(),
-                "summary": (a.group(7) or "").strip(),
-                "context": _code_context(
-                    worktree, a.group(1), a.group(3) or "", a.group(2) or ""),
-            })
-    return out
+    return parse_change_points(text, worktree)
 
 
 def artifact_status(project: Path, name: str) -> dict:
