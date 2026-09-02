@@ -558,6 +558,6 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 
 - **特征**（2026-09-02 web_ui_interaction_2 改动面空卡实爆）：dashboard 卡片（改动面/证据链/统计）显示空或缺条目，但产物文件（plan.md/evidence.jsonl）内容完整在场。本例：plan.md 有 3 个 change_point 块 7 条锚点，dashboard 改动面 0 条——`outputs.py _ANCHOR_RE` 停在旧语法（单行 `L57` + `改前=` 带等号），产出侧早已按 2026-08-25 `_CHANGE_SPEC_RULE` 钦定语法（`L<a>-<b>` 区间 + 免等号）装配，**单源语法改了、消费方没跟上**。
 - **分诊动作**：别怀疑数据，也别先刷新页面（症状 AN 是静态缓存，本症是解析层）——**拿消费方解析器直跑产物验真**：一行调用（如 `outputs.load_change_points(proj, name)`）看返回条数；返回 0 而产物在场 = 解析器与产出语法契约漂移，逐元素隔离（本例最小复现：`L57-57` 的 `-57` 区间尾让 `\d+` 后撞 `-` 整体失配）。
-- **修复原则**：解析器对齐单源语法（本例 regex 加 `(?:-\d+)?` + 等号改可选，commit 0baa356）；回归测试的锚点行**取真实产物原文**（本例测例直接用该实例 plan.md 的锚点行）。存量实例零迁移——解析侧修复刷新即生效。
+- **修复原则**：解析器对齐单源语法（本例 regex 加 `(?:-\d+)?` + 等号改可选，commit 0baa356）；回归测试的锚点行**取真实产物原文**（本例测例直接用该实例 plan.md 的锚点行）。存量实例零迁移——但 server 常驻内存旧码，**必须先重启 dl_dashboard（症状 AR）再刷新页面才生效**（2026-09-02 web_interaction_amplitude_ret3d_abs 二次实爆：0baa356 已落盘但 server 是修复前启的，改动面仍空，重启后 17 条全出）。
 - **预防**：改任何单源产出格式（语法常量/装配模板/落盘 schema）时，先 grep 全部消费方（parser/renderer/dashboard/judge 输入装配）列进改动 checklist——这是 §3.5 #29「设计变量跨层同向审计」从 gate 层到 artifact 层的泛化（原条目只覆盖 gate 文本/judge prompt/purpose/mech 层）。
 - **连带盲区**：契约漂移期间**所有**按新语法产出的实例卡片全空（不止报告的那一例）——修复后告知用户影响面，避免逐例误报「工作流没产出」。
