@@ -1,19 +1,53 @@
 #!/bin/bash
 # dl-workflow install.sh
-# copy 1 skill / 1 output-style / 1 command 到 ~/.claude/（hooks 不 copy，settings 直引源）
-# 合并 ~/.claude/settings.json 的 hook 注册（用户级只 codegraph 两个；
+# 0. 若从 tarball 解压目录跑（SRC_DIR != ~/.dl-workflow）：先把代码部署到 ~/.dl-workflow 再重-exec
+# 1. copy 1 skill / 1 output-style / 1 command 到 ~/.claude/（hooks 不 copy，settings 直引源）
+# 2. 合并 ~/.claude/settings.json 的 hook 注册（用户级只 codegraph 两个；
 #   并幂等摘除历史误注册的 workflow_phase/advance/step_fence——它们只属 per-wf settings）
-# 追写 ~/.bashrc 的 dl 函数（工作流入口，若未安装）
+# 3. 追写 ~/.bashrc 的 dl 函数（工作流入口，若未安装）
+# 4. dashboard python 依赖（pip --user fastapi uvicorn；--skip-dashboard 跳过）
+# 5. codegraph CLI（npm 全局装 @colbymchenry/codegraph；--skip-codegraph 跳过）
+# 6. 自检报告（逐项 ✓/✗ + 警告汇总）
 #
 # 幂等：连续跑两次结果一致。冲突文件备份到 ~/.claude/.dl-workflow-backup/<ts>/。
+# 可选层（4/5）失败只警告不阻断——核心工作流不依赖它们。
 
 set -euo pipefail
 
 # ---------- 路径 ----------
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DL_HOME="$HOME/.dl-workflow"
 CLAUDE_HOME="$HOME/.claude"
 BACKUP_DIR="$CLAUDE_HOME/.dl-workflow-backup/$(date +%Y%m%d-%H%M%S)"
 BASHRC="$HOME/.bashrc"
+
+SKIP_DASHBOARD=0
+SKIP_CODEGRAPH=0
+WARNINGS=()
+
+usage() {
+  cat <<'EOF'
+用法: ./install.sh [--skip-dashboard] [--skip-codegraph]
+  默认全装：核心（hooks/skill/command/bashrc）+ dashboard 依赖 + codegraph CLI
+  --skip-dashboard  不装 fastapi/uvicorn（管理后台不可用，核心工作流不受影响）
+  --skip-codegraph  不装 codegraph CLI（H15 门禁不生效，核心工作流不受影响）
+EOF
+}
+
+# ---------- tarball 部署：代码先在 ~/.dl-workflow 安家 ----------
+# settings.json hook 注册与 bashrc DL_WF_HOME 都硬编码 ~/.dl-workflow（settings 直引源设计），
+# 所以从解压目录首跑时先 overlay 复制过去，再重-exec canonical 副本走全流程。
+# cp -a overlay 不删旧文件：~/.dl-workflow 里有运行态（dashboard-run/ 等），禁 --delete。
+ensure_home() {
+  if [ "$SRC_DIR" = "$DL_HOME" ]; then
+    return 0
+  fi
+  echo "▸ 部署代码到 $DL_HOME（tarball 首跑）"
+  mkdir -p "$DL_HOME"
+  cp -a "$SRC_DIR/." "$DL_HOME/"
+  echo "  ↺ 重-exec $DL_HOME/install.sh $*"
+  exec "$DL_HOME/install.sh" "$@"
+}
 
 # ---------- 前置检查 ----------
 check_deps() {
@@ -225,16 +259,159 @@ BASHRC_EOF
   echo "  入口：dl <name> | ac-ark --dl <name>（后者需在 ac-ark 里加 --dl 拦截，见 README）"
 }
 
+# ---------- dashboard python 依赖（可选层） ----------
+install_dashboard_deps() {
+  if [ "$SKIP_DASHBOARD" = "1" ]; then
+    echo "▸ 跳过 dashboard 依赖（--skip-dashboard）"
+    return 0
+  fi
+  echo "▸ 检查 dashboard python 依赖（fastapi, uvicorn）"
+  if python3 -c "import fastapi, uvicorn" 2>/dev/null; then
+    echo "  ↺ fastapi + uvicorn 已可 import，跳过"
+    return 0
+  fi
+  if ! python3 -m pip --version >/dev/null 2>&1; then
+    echo "  ⚠ python3 -m pip 不可用——dashboard（python3 -m dl_dashboard.app）不可用，核心工作流不受影响" >&2
+    WARNINGS+=("dashboard: python3 -m pip 不可用，fastapi/uvicorn 未装")
+    return 0
+  fi
+  # 机器无任何 pip index 配置时一次性挂 aliyun 镜像（默认 pypi 源在境内服务器极慢）；
+  # 已有配置（用户/全局 pip.conf）则不碰——一次性 CLI 参数，不写入任何配置文件。
+  local pip_extra=()
+  if ! python3 -m pip config list 2>/dev/null | grep -q "index.url\|index-url"; then
+    pip_extra=(--index-url https://mirrors.aliyun.com/pypi/simple/)
+    echo "  ↺ 无 pip 镜像配置，本次安装走 aliyun 镜像（一次性，不改配置）"
+  fi
+  if python3 -m pip install --user "${pip_extra[@]}" fastapi uvicorn; then
+    echo "✓ pip --user 安装 fastapi + uvicorn 完成"
+  else
+    echo "  ⚠ pip 安装失败——dashboard 不可用，核心工作流不受影响" >&2
+    WARNINGS+=("dashboard: python3 -m pip install --user fastapi uvicorn 失败")
+  fi
+}
+
+# ---------- codegraph CLI（可选层，H15 门禁依赖） ----------
+install_codegraph() {
+  if [ "$SKIP_CODEGRAPH" = "1" ]; then
+    echo "▸ 跳过 codegraph CLI（--skip-codegraph）"
+    return 0
+  fi
+  echo "▸ 检查 codegraph CLI（H15 门禁依赖）"
+  if command -v codegraph >/dev/null; then
+    echo "  ↺ codegraph 已存在（$(command -v codegraph)），跳过"
+    return 0
+  fi
+  # 上一轮装过但当前 shell PATH 还没生效（bashrc 段落要 exec bash 才 source）
+  if [ -x "$HOME/.npm-global/bin/codegraph" ]; then
+    echo "  ↺ codegraph 已装于 ~/.npm-global/bin（exec bash 后生效），跳过"
+    return 0
+  fi
+  if ! command -v npm >/dev/null; then
+    echo "  ⚠ 缺 npm——codegraph 未装，H15 门禁不生效，核心工作流不受影响" >&2
+    WARNINGS+=("codegraph: 缺 npm")
+    return 0
+  fi
+  # 全局 prefix 不可写（系统目录要 sudo）-> 改 ~/.npm-global 免 sudo，并保证 bin 进 PATH
+  local prefix
+  prefix="$(npm config get prefix)"
+  if [ ! -w "$prefix" ]; then
+    echo "  ↺ npm 全局 prefix $prefix 不可写，改 ~/.npm-global（免 sudo）"
+    npm config set prefix "$HOME/.npm-global"
+    if ! grep -q "# BEGIN dl-workflow npm PATH" "$BASHRC" 2>/dev/null; then
+      cat >> "$BASHRC" <<'BASHRC_EOF'
+
+# BEGIN dl-workflow npm PATH  (installed by ~/.dl-workflow/install.sh)
+# npm 全局 prefix 改到 ~/.npm-global（免 sudo），全局 bin 进 PATH
+export PATH="$HOME/.npm-global/bin:$PATH"
+# END dl-workflow npm PATH
+BASHRC_EOF
+      echo "  ↺ ~/.bashrc 已追加 npm PATH 段落"
+    fi
+  fi
+  # 一次性 npmmirror 参数（默认源在境内服务器极慢），不改用户全局 registry 配置
+  if npm i -g @colbymchenry/codegraph --registry=https://registry.npmmirror.com; then
+    echo "✓ codegraph 安装完成"
+    hash -r
+  else
+    echo "  ⚠ codegraph 安装失败——H15 门禁不生效，核心工作流不受影响" >&2
+    WARNINGS+=("codegraph: npm i -g @colbymchenry/codegraph 失败")
+  fi
+}
+
+# ---------- 自检报告 ----------
+self_check() {
+  echo "▸ 自检报告"
+  local fail=0
+  _ck() { # _ck <描述> <cmd...>
+    local desc="$1"; shift
+    if "$@" >/dev/null 2>&1; then
+      echo "  ✓ $desc"
+    else
+      echo "  ✗ $desc"
+      fail=$((fail + 1))
+    fi
+  }
+  _ck "bashrc dl 段落"              grep -q "# BEGIN dl-workflow" "$BASHRC"
+  _ck "settings.json codegraph 门禁注册" grep -q "codegraph_gate.py" "$CLAUDE_HOME/settings.json"
+  _ck "settings.json design 门禁注册"    grep -q "design_gate.py" "$CLAUDE_HOME/settings.json"
+  _ck "skill 就位"                  test -f "$CLAUDE_HOME/skills/workflow-creation/SKILL.md"
+  _ck "output-style 就位"           test -f "$CLAUDE_HOME/output-styles/workflow.md"
+  _ck "command 就位"                test -f "$CLAUDE_HOME/commands/dl.md"
+  _ck "hook 源文件就位（$DL_HOME/hooks/）" test -f "$DL_HOME/hooks/workflow_phase.py"
+  if [ "$SKIP_DASHBOARD" != "1" ]; then
+    _ck "dashboard 依赖（fastapi, uvicorn）" python3 -c "import fastapi, uvicorn"
+  fi
+  if [ "$SKIP_CODEGRAPH" != "1" ]; then
+    if command -v codegraph >/dev/null 2>&1; then
+      echo "  ✓ codegraph CLI（$(command -v codegraph)）"
+    elif [ -x "$HOME/.npm-global/bin/codegraph" ]; then
+      echo "  ✓ codegraph CLI（~/.npm-global/bin/codegraph，exec bash 后生效）"
+    else
+      echo "  ✗ codegraph CLI"
+      fail=$((fail + 1))
+    fi
+  fi
+  # 顾问项（不计 fail）：understand:1 子3 双向取证的 GitHub 层提额
+  if [ -n "${GITHUB_TOKEN:-}" ] || grep -q "GITHUB_TOKEN" "$BASHRC" 2>/dev/null; then
+    echo "  ✓ GITHUB_TOKEN 已配置"
+  else
+    echo "  ○ GITHUB_TOKEN 未配置（可选；子3 双向取证 GitHub 层提额用，见 README）"
+  fi
+  if [ "${#WARNINGS[@]}" -gt 0 ]; then
+    echo "  警告汇总:"
+    printf '    ⚠ %s\n' "${WARNINGS[@]}"
+  fi
+  if [ "$fail" -gt 0 ]; then
+    echo "  ✗ $fail 项未过——按上面清单排查后重跑 ./install.sh（幂等）"
+    return 1
+  fi
+  echo "  全部通过"
+}
+
 # ---------- 主 ----------
 main() {
   echo "═══ dl-workflow install ═══"
   echo "  源目录: $SRC_DIR"
   echo "  目标:   $CLAUDE_HOME/"
   echo
+  ensure_home "$@"
+  local arg
+  for arg in "$@"; do
+    case "$arg" in
+      --skip-dashboard) SKIP_DASHBOARD=1 ;;
+      --skip-codegraph) SKIP_CODEGRAPH=1 ;;
+      -h|--help) usage; exit 0 ;;
+      *) echo "✗ 未知参数: $arg" >&2; usage >&2; exit 1 ;;
+    esac
+  done
   check_deps
   install_files
   merge_settings
   install_bashrc
+  install_dashboard_deps
+  install_codegraph
+  echo
+  self_check
   echo
   echo "═══ 完成 ═══"
   if [ -d "$BACKUP_DIR" ]; then

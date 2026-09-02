@@ -1,0 +1,6 @@
+# pack.sh 打包排除清单（git archive export-ignore）
+# designs/ = 内部设计史（173 文件，不进分发包）；tests/ = 内部测试；dashboard.toml = 机器专属配置
+designs/ export-ignore
+tests/ export-ignore
+dashboard.toml export-ignore
+.gitattributes export-ignore

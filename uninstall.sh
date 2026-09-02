@@ -34,7 +34,7 @@ with open(path, encoding="utf-8") as f:
         sys.exit(0)  # 损坏 -> 别动
 
 # 匹配 dl-workflow 注册的 hook 命令（直接引用 ~/.dl-workflow/hooks/ 源）
-DLWF_RE = re.compile(r"~?/?.*\.dl-workflow/hooks/(workflow_phase|workflow_advance|codegraph_gate|codegraph_audit)\.py")
+DLWF_RE = re.compile(r"~?/?.*\.dl-workflow/hooks/(workflow_phase|workflow_advance|codegraph_gate|codegraph_audit|design_gate|design_audit)\.py")
 
 hooks = settings.get("hooks", {})
 removed = 0

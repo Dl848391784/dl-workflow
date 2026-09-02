@@ -18,24 +18,38 @@ Claude Code 5 阶段工作流 + codegraph H15 查证门禁的独立仓库。**�
 
 ## 装
 
+分发形态 = tarball（闭源，不依赖 GitHub 访问）：
+
 ```bash
-git clone https://github.com/<你的>/dl-workflow.git ~/.dl-workflow
-cd ~/.dl-workflow
-./install.sh
+tar xzf dl-workflow-<version>.tar.gz
+cd dl-workflow-<version>
+./install.sh        # 全装；--skip-dashboard / --skip-codegraph 跳过可选层
 exec bash   # 或重开终端
 ```
 
 install.sh 做什么：
+- **部署**：首跑从解压目录把代码 overlay 到 `~/.dl-workflow/` 后重-exec（hook 注册与 `DL_WF_HOME` 都硬编码这个家；后续升级 = 解新包重跑，幂等覆盖，不删运行态）
 - **hooks 不 copy**：`~/.claude/settings.json` 里直接注册 `python3 ~/.dl-workflow/hooks/*.py`（shell 执行时 `~` 展开）。改 hook 后 `git pull` 即生效，无同步副本。
 - copy `skills/workflow-creation/` -> `~/.claude/skills/`（Claude Code 硬编码只从这里加载 skill）
 - copy `output-styles/workflow.md` -> `~/.claude/output-styles/`（同上）
 - copy `commands/dl.md` -> `~/.claude/commands/`（同上）
 - 合并 `~/.claude/settings.json` 的 hooks 注册（幂等，已存在跳过）
 - 追写 `~/.bashrc`：`export DL_WF_HOME` + `dl` 函数（工作流入口，独立于 ac-ark/claude）
+- dashboard 依赖：`pip3 install --user fastapi uvicorn`（可选层，失败只警告）
+- codegraph CLI：`npm i -g @colbymchenry/codegraph`（可选层，失败只警告；npm 全局目录不可写时自动改 `~/.npm-global` 免 sudo；走 npmmirror 一次性参数，不改用户全局 registry）
+- 自检报告：逐项 ✓/✗ + 警告汇总，失败项非零退出
 
 > 为什么 hooks 不 copy 而 skills 要 copy？`settings.json` 的 hook command 是自由字符串（任意路径）；但 skills/output-styles/commands 的加载路径是 Claude Code 硬编码的 `~/.claude/{skills,output-styles,commands}/`，必须物理在那。
 
 冲突文件会备份到 `~/.claude/.dl-workflow-backup/<timestamp>/`。
+
+### 打包（维护机用，目标机器不需要）
+
+```bash
+cd ~/.dl-workflow && ./pack.sh
+# 产 dist/dl-workflow-<VERSION>.tar.gz（git archive HEAD；designs/ tests/ dashboard.toml 被 export-ignore 排除）
+# 工作树有未提交改动时阻断——archive 只打 HEAD，防出「以为带上了」的包
+```
 
 ## 环境配置（understand:1 子3 双向取证的外部证据源）
 
@@ -95,9 +109,9 @@ ac-ark() {
 /dl gate                              # 放行闸门
 ```
 
-codegraph H15 门禁**自动生效**——项目内有 `.codegraph/codegraph.db` 时才起作用。装 codegraph CLI：
+codegraph H15 门禁**自动生效**——项目内有 `.codegraph/codegraph.db` 时才起作用。install.sh 默认已装 CLI（`--skip-codegraph` 跳过）；手动装：
 ```bash
-npm i -g @orta/codegraph   # 或按 codegraph 官方指引
+npm i -g @colbymchenry/codegraph --registry=https://registry.npmmirror.com
 cd <你的项目>
 codegraph sync             # 建索引，落到 .codegraph/codegraph.db
 ```
