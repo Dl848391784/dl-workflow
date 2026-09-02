@@ -352,6 +352,8 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 
 **「串行改并行」评估三段论**（2026-08-01 v2.36，用户问「并行能否省时间/token」的应答框架）：①**token 维度：并行必不省、大概率反涨**——生成内容总量守恒；子代理各带一份 harness 开销副本；投机执行在 block 率高时必亏（实测 block 率 54% 时「赌上一步过、先跑下一步」一半以上概率整轮作废）。②**墙钟维度：大头碰不到**——墙钟 ~2/3 是单条自回归生成流（编排层天然不可并行）；judge 段与下一步重叠 = 投机 pipeline，动的是 S10 围栏/Stop 门控的纪律承重墙；子代理输入若依赖前步过门（红队依赖子3 取证冻结）则无法提前启动。③**结论模板**：并行化 = 高复杂度 + 负 token 收益 + <10% 墙钟收益，且削的恰是质量门控的结构性串行；同工程量投串行消浪费（权限税/提一过率/judge 瘦身）可压墙钟 1/3 且 token 同步下降。先消串行浪费，再谈并行。
 
+**单段耗时离群分诊：先看 output tokens 占比，别先怀疑卡死**（2026-09-02 web_ui_interaction_2 实例：plan:2#4 归一化段 576s 被疑异常）：分诊路径 = ①`segment_stats.jsonl` 定位离群段（时长/output_tokens/turns 三列横向比）；②`drive-stream.jsonl` 按 session_id 过滤该段，**剔除 thinking_tokens 噪音行**后提取 tool_use/text 时间线；③算 **output tokens ÷ 段时长 ≈ 有效生成速率**——该段 18.7k output ÷ 576s ≈ 32 tok/s（k3 正常水位），时间轴无工具挂起、无 judge 超时 → 纯生成耗时，零异常。**tacet 实例的结构性现象**：脊柱步会承接被裁步骤的生成量（plan:2#4 一步干了子1-3 被沉默的拆解+锚点核验+归一化 4 步的活，output 是其它段 2-45 倍）——单段巨无霸生成是 tacet 的设计内代价（沉默步省下的 token 在脊柱步部分吐回），不是病。返工叠加（append-trace 拒绝一次 ≈ +90s 重写，#54 打地鼠同族）另计。
+
 ### 症状 S：工具调用挂起无返回（会话像卡死）
 
 - **transcript 尾部特征**：tool_use 之后**无 tool_result**，下一条记录直接是用户文本（用户 Esc 后问「怎么不动了」）。与用户思考区分：AskUserQuestion 必有 tool_result 配对；挂起是什么都没有。
@@ -551,3 +553,11 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 - **判读**：症状 AQ 三件套（driver 死 + 段台账停上一子步 + 日志 ⛔）成立后，**再查 need_user.json 是否存在**——不存在且 prep 段输出有 `### NEED_USER` = 本症。验证载荷：从 drive-stream.jsonl 抽 prep 会话文本，跑 `_NEED_USER_JSON_RE` + `json.loads` 重放（畸形点多在 payload 末尾闭合符）。
 - **修复**（2026-09-01 已落地）：①stash 失败可观察化（`_stash_need_user_payload` 加 disp 参数，失败落具体原因日志——无围栏块/JSON 解析失败@char/结构不合）；②自愈重试——显式标记但载荷非法时带判词（`_PREP_PAYLOAD_REWORK`：指明漏闭合/sources 层级两常见错法）重试一轮 prep（`PREP_PAYLOAD_RETRY_LIMIT=1`）；③重试仍败：no-TTY 直断点报真实原因（不再白起问答段），TTY 保自组织兜底；④prep prompt 载荷契约加「输出前自检 { } [ ] 配平 + sources 平级根对象」。自愈腿实弹重放（2026-09-01 n=1）：事故现场畸形载荷 + `_PREP_PAYLOAD_REWORK` 判词原文喂 k3（裁剪 harness）→ 产出合法载荷（4 问 + sources 回根级），判词对因有效。**已发实例恢复**：从 drive-stream 抽 prep 载荷做结构修复（补闭合符 + sources 提回根级）落 need_user.json + state 补 `next_prep_stashed="<node>#<sub>"` 标记 → 重启 driver 走 P2-1 直达问答段。
 - **教训**：「宁纵勿枉」的 fallback 设计要随运行形态重审——stash 失败的 TUI 兜底（自组织提问，真人在场可答）在 no-TTY 下不成立（纯文本提问无人能答）；no-TTY 改造（2026-08-31）建立在「prep stash 必成功」假设上，失败分支没跟着改。模型手滑是概率事件，**通道对格式硬假设 + 失败静默**才是系统缺口（no silent fallback 铁律级疏漏）。
+
+### 症状 AU：产物卡空/缺数据但产物文件在场 = 消费方解析器契约漂移
+
+- **特征**（2026-09-02 web_ui_interaction_2 改动面空卡实爆）：dashboard 卡片（改动面/证据链/统计）显示空或缺条目，但产物文件（plan.md/evidence.jsonl）内容完整在场。本例：plan.md 有 3 个 change_point 块 7 条锚点，dashboard 改动面 0 条——`outputs.py _ANCHOR_RE` 停在旧语法（单行 `L57` + `改前=` 带等号），产出侧早已按 2026-08-25 `_CHANGE_SPEC_RULE` 钦定语法（`L<a>-<b>` 区间 + 免等号）装配，**单源语法改了、消费方没跟上**。
+- **分诊动作**：别怀疑数据，也别先刷新页面（症状 AN 是静态缓存，本症是解析层）——**拿消费方解析器直跑产物验真**：一行调用（如 `outputs.load_change_points(proj, name)`）看返回条数；返回 0 而产物在场 = 解析器与产出语法契约漂移，逐元素隔离（本例最小复现：`L57-57` 的 `-57` 区间尾让 `\d+` 后撞 `-` 整体失配）。
+- **修复原则**：解析器对齐单源语法（本例 regex 加 `(?:-\d+)?` + 等号改可选，commit 0baa356）；回归测试的锚点行**取真实产物原文**（本例测例直接用该实例 plan.md 的锚点行）。存量实例零迁移——解析侧修复刷新即生效。
+- **预防**：改任何单源产出格式（语法常量/装配模板/落盘 schema）时，先 grep 全部消费方（parser/renderer/dashboard/judge 输入装配）列进改动 checklist——这是 §3.5 #29「设计变量跨层同向审计」从 gate 层到 artifact 层的泛化（原条目只覆盖 gate 文本/judge prompt/purpose/mech 层）。
+- **连带盲区**：契约漂移期间**所有**按新语法产出的实例卡片全空（不止报告的那一例）——修复后告知用户影响面，避免逐例误报「工作流没产出」。

@@ -91,3 +91,16 @@ dl <name> --done          # 归档（删 worktree+分支+元数据）
 1. **保守分支的前提用通道物理属性判别**（stdin TTY = 有无真人键盘），不用状态标志位——新通道的写入路径会绕过标志位（症状 AK）
 2. **判覆盖/判变更用内容 hash 不用 ts**——同一内容重落盘 ts 必变（症状 AI）
 3. **join 型统计每个产出单位都要有台账锚点，多行同键保序配对**（症状 AO）
+
+### 1.6 判据（purpose/mech/gate 文本）改动的 E2E 重放验证规程
+
+> 2026-09-02 enum_replay_1 实证（pattern-enum-regression-guard-design §5）。§1.5 管 dashboard 改动、judge framing/判据变更走 n≥6 三向重放（§3.5 #28），本节的缺口补的是 **mech/purpose 类判据改动**：单测能证 mech 函数对错，证不了「真实模型在新 purpose 下的行为是否如设计」——弱模型对判据文本的解读是行为变量，必须真实工作流重放。
+
+**精髓 = 镜像**：同一输入、两种判据，产出差异即判据效果。步骤：
+1. `bash -c 'source ~/.bashrc; ac-<provider>; python3 ~/scripts/wf_ctl.py create <name>'`——provider 在 create 时钉死（建议弱模型，弱模型优先原则：判据是给弱模型读的）；`wf_ctl create` 不带 `--force-tacet`（默认仅 fermate），要组合轨道再 `python3 ~/.dl-workflow/dl_flow_engine.py force-tacet <name> on`
+2. `wf_ctl.py statement <name> <与历史实例逐字相同的问题陈述>`——逐字镜像是对照有效性的前提（同一个 bug、同一触发，产出差才归得给判据）
+3. drive/inject 循环：NEED_USER 断点读 need_user.json，**镜像历史实例的同维度答案**（选中项语义对齐即可，卡片选项不必逐字同）
+4. 验收点 = trace 判据项 + 终态产物对照：新判据要求的留痕项在场且内容合格（本例 u:1#4「模式枚举」项含全仓 grep 命令+9/9 全量命中）、终态改动面与对照组逐项比（召回/精度/回归防护/成本四轴——本例修复前 7 条 vs 重放 10 条 vs 全量轨道 12 条，成本 26%）
+5. **中断恢复**：后台 drive 被 Monitor/会话退出收割（exit 137）≠ 实例损坏——state/evidence 完好，`ps` 确认无残留 driver/段进程后直接再 `drive` 即续跑（本session实证：u:1#4 中途被割，重 drive 一步跑完）
+
+**与 judge 重放的分工**：judge 判据/framing 变更 → n≥6 三向重放（§3.5 #28，裁决方向回归）；purpose/selfcheck/mech 变更 → 本节真实实例镜像重放（模型行为回归）。gate 文本双侧钉死类改动两轴都要。

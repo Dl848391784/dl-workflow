@@ -126,5 +126,7 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
 - "总时间含等待 / 在跑时间忽大忽小倒退 / 总执行时间不对" → references/diagnostics.md 症状 AP
 - "dashboard 没确认卡 / 工作流停了没人问 / 读回确认没让我确认 / driver 断点退出" → references/diagnostics.md 症状 AQ
 - "NEED_USER 载荷畸形 / prep 段白烧 / TUI 段已结束但未落库 / need_user.json 不存在" → references/diagnostics.md 症状 AT
+- "改动面空 / 产物卡空 / 卡片没数据但产物文件在场 / 解析出 0 条" → references/diagnostics.md 症状 AU（消费方解析器契约漂移，先直跑解析器验真）
 - "dashboard 端到端验证 / E2E 怎么跑 / 改动怎么验收" → references/build-and-modify.md §1.5（pytest 绿≠工作，真实实例 sweep 纪律）
+- "判据改动怎么验证 / 重放工作流 / 镜像重放 / purpose/mech 改了行为对不对" → references/build-and-modify.md §1.6（镜像重放：逐字镜像陈述+镜像答案，产出差异即判据效果）
 - "多选题只能单选 / checkbox 变 radio / 时间轴中文步名 / gate 按钮不该显示时显示" → 均已修（2026-08-31 批次），复现按症状 AN 先查静态缓存再查 scanner 单源字段（step_labels/gate_actionable）
