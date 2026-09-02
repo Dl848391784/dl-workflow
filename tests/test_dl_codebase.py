@@ -280,3 +280,73 @@ def test_main_freshness(capsys, monkeypatch, tmp_path):
     assert rc == 0
     out = json.loads(capsys.readouterr().out)
     assert out["stale"] is False
+
+
+def _fake_db(tmp_path):
+    db = tmp_path / ".codegraph" / "codegraph.db"
+    db.parent.mkdir(parents=True)
+    db.write_text("")
+    return db
+
+
+def test_precise_prefers_cgx(monkeypatch, tmp_path):
+    """有 scripts/cgx.py 时 callers 走 cgx，结果带 via=cgx。"""
+    db = _fake_db(tmp_path)
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "cgx.py").write_text("# stub")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cb, "_find_codegraph_db", lambda start: db)
+
+    def fake_run(cmd):
+        if "cgx.py" in cmd[1]:
+            return subprocess.CompletedProcess(cmd, 0, '{"hits": [1]}', "")
+        return subprocess.CompletedProcess(cmd, 0, "{}", "")
+
+    monkeypatch.setattr(cb, "_run", fake_run)
+    out = cb._precise_json("callers", "foo")
+    assert out["via"] == "cgx" and out["ok"] == {"hits": [1]}
+
+
+def test_precise_fallback_without_cgx(monkeypatch, tmp_path):
+    """无 scripts/cgx.py 时回落 codegraph CLI（无 via 键）。"""
+    db = _fake_db(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cb, "_find_codegraph_db", lambda start: db)
+    monkeypatch.setattr(
+        cb,
+        "_run",
+        lambda cmd: subprocess.CompletedProcess(cmd, 0, '{"callers": []}', ""),
+    )
+    out = cb._precise_json("callers", "foo")
+    assert "via" not in out and out["ok"] == {"callers": []}
+
+
+def test_precise_fallback_on_cgx_failure(monkeypatch, tmp_path):
+    """cgx 执行非零退出时回落 codegraph CLI。"""
+    db = _fake_db(tmp_path)
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "cgx.py").write_text("# stub")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cb, "_find_codegraph_db", lambda start: db)
+
+    def fake_run(cmd):
+        if "cgx.py" in cmd[1]:
+            return subprocess.CompletedProcess(cmd, 1, "", "boom")
+        return subprocess.CompletedProcess(cmd, 0, '{"callers": ["cli"]}', "")
+
+    monkeypatch.setattr(cb, "_run", fake_run)
+    out = cb._precise_json("callers", "foo")
+    assert "via" not in out and out["ok"] == {"callers": ["cli"]}
+
+
+def test_precise_no_db_goes_cli(monkeypatch, tmp_path):
+    """找不到 codegraph db 时直接用 codegraph CLI。"""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cb, "_find_codegraph_db", lambda start: None)
+    monkeypatch.setattr(
+        cb,
+        "_run",
+        lambda cmd: subprocess.CompletedProcess(cmd, 0, '{"callers": []}', ""),
+    )
+    out = cb._precise_json("impact", "foo")
+    assert "via" not in out
