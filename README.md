@@ -23,7 +23,7 @@ Claude Code 5 阶段工作流 + codegraph H15 查证门禁的独立仓库。**�
 ```bash
 tar xzf dl-workflow-<version>.tar.gz
 cd dl-workflow-<version>
-./install.sh        # 全装；--skip-dashboard / --skip-codegraph 跳过可选层
+./install.sh        # 全装；--skip-dashboard / --skip-codegraph / --skip-html 跳过可选层
 exec bash   # 或重开终端
 ```
 
@@ -37,6 +37,7 @@ install.sh 做什么：
 - 追写 `~/.bashrc`：`export DL_WF_HOME` + `dl` 函数（工作流入口，独立于 ac-ark/claude）
 - dashboard 依赖：`pip3 install --user fastapi uvicorn`（可选层，失败只警告）
 - codegraph CLI：`npm i -g @colbymchenry/codegraph`（可选层，失败只警告；npm 全局目录不可写时自动改 `~/.npm-global` 免 sudo；走 npmmirror 一次性参数，不改用户全局 registry）
+- HTML 导出依赖：`vendor/baoyu-markdown-to-html` 的 `bun install`（可选层 `--skip-html`，失败只警告）。装了它，render-artifact 装配 `understands|plans/<name>.md` 时自动附带同目录 `<name>.html`——md 是给模型的真源，HTML 是给人的赠品，转换失败只降级不阻断
 - 自检报告：逐项 ✓/✗ + 警告汇总，失败项非零退出
 
 > 为什么 hooks 不 copy 而 skills 要 copy？`settings.json` 的 hook command 是自由字符串（任意路径）；但 skills/output-styles/commands 的加载路径是 Claude Code 硬编码的 `~/.claude/{skills,output-styles,commands}/`，必须物理在那。

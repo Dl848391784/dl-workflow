@@ -7,10 +7,11 @@
 # 3. 追写 ~/.bashrc 的 dl 函数（工作流入口，若未安装）
 # 4. dashboard python 依赖（pip --user fastapi uvicorn；--skip-dashboard 跳过）
 # 5. codegraph CLI（npm 全局装 @colbymchenry/codegraph；--skip-codegraph 跳过）
-# 6. 自检报告（逐项 ✓/✗ + 警告汇总）
+# 6. HTML 导出依赖（vendor baoyu 的 bun install；--skip-html 跳过）
+# 7. 自检报告（逐项 ✓/✗ + 警告汇总）
 #
 # 幂等：连续跑两次结果一致。冲突文件备份到 ~/.claude/.dl-workflow-backup/<ts>/。
-# 可选层（4/5）失败只警告不阻断——核心工作流不依赖它们。
+# 可选层（4/5/6）失败只警告不阻断——核心工作流不依赖它们。
 
 set -euo pipefail
 
@@ -23,14 +24,16 @@ BASHRC="$HOME/.bashrc"
 
 SKIP_DASHBOARD=0
 SKIP_CODEGRAPH=0
+SKIP_HTML=0
 WARNINGS=()
 
 usage() {
   cat <<'EOF'
-用法: ./install.sh [--skip-dashboard] [--skip-codegraph]
-  默认全装：核心（hooks/skill/command/bashrc）+ dashboard 依赖 + codegraph CLI
+用法: ./install.sh [--skip-dashboard] [--skip-codegraph] [--skip-html]
+  默认全装：核心（hooks/skill/command/bashrc）+ dashboard 依赖 + codegraph CLI + HTML 导出依赖
   --skip-dashboard  不装 fastapi/uvicorn（管理后台不可用，核心工作流不受影响）
   --skip-codegraph  不装 codegraph CLI（H15 门禁不生效，核心工作流不受影响）
+  --skip-html       不装 vendor bun 依赖（产物 HTML 伴随导出降级，md 产物不受影响）
 EOF
 }
 
@@ -338,6 +341,42 @@ BASHRC_EOF
   fi
 }
 
+# ---------- HTML 导出依赖（可选层，产物 HTML 伴随导出） ----------
+install_html_deps() {
+  if [ "$SKIP_HTML" = "1" ]; then
+    echo "▸ 跳过 HTML 导出依赖（--skip-html）"
+    return 0
+  fi
+  echo "▸ 检查 HTML 导出依赖（vendor/baoyu-markdown-to-html）"
+  local vdir="$DL_HOME/vendor/baoyu-markdown-to-html/scripts"
+  if [ ! -f "$vdir/main.ts" ]; then
+    echo "  ⚠ vendor 转换器缺失（$vdir/main.ts）——HTML 伴随导出降级，md 产物不受影响" >&2
+    WARNINGS+=("html: vendor 转换器缺失")
+    return 0
+  fi
+  if [ -d "$vdir/node_modules/baoyu-md" ]; then
+    echo "  ↺ vendor 依赖已装，跳过"
+    return 0
+  fi
+  local bunx=()
+  if command -v bun >/dev/null; then
+    bunx=(bun)
+  elif command -v npx >/dev/null; then
+    bunx=(npx -y bun)
+  else
+    echo "  ⚠ 无 bun/npx——HTML 伴随导出降级，核心工作流不受影响" >&2
+    WARNINGS+=("html: 无 bun/npx")
+    return 0
+  fi
+  # 一次性 npmmirror（env 形态，bun 读 npm_config_registry），不改用户全局配置
+  if (cd "$vdir" && npm_config_registry=https://registry.npmmirror.com "${bunx[@]}" install); then
+    echo "✓ vendor 依赖安装完成（bun install）"
+  else
+    echo "  ⚠ bun install 失败——HTML 伴随导出降级，核心工作流不受影响" >&2
+    WARNINGS+=("html: bun install 失败")
+  fi
+}
+
 # ---------- 自检报告 ----------
 self_check() {
   echo "▸ 自检报告"
@@ -371,6 +410,9 @@ self_check() {
       fail=$((fail + 1))
     fi
   fi
+  if [ "$SKIP_HTML" != "1" ]; then
+    _ck "HTML 导出依赖（vendor bun install）" test -d "$DL_HOME/vendor/baoyu-markdown-to-html/scripts/node_modules/baoyu-md"
+  fi
   # 顾问项（不计 fail）：understand:1 子3 双向取证的 GitHub 层提额
   if [ -n "${GITHUB_TOKEN:-}" ] || grep -q "GITHUB_TOKEN" "$BASHRC" 2>/dev/null; then
     echo "  ✓ GITHUB_TOKEN 已配置"
@@ -400,6 +442,7 @@ main() {
     case "$arg" in
       --skip-dashboard) SKIP_DASHBOARD=1 ;;
       --skip-codegraph) SKIP_CODEGRAPH=1 ;;
+      --skip-html) SKIP_HTML=1 ;;
       -h|--help) usage; exit 0 ;;
       *) echo "✗ 未知参数: $arg" >&2; usage >&2; exit 1 ;;
     esac
@@ -410,6 +453,7 @@ main() {
   install_bashrc
   install_dashboard_deps
   install_codegraph
+  install_html_deps
   echo
   self_check
   echo

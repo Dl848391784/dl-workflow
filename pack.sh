@@ -55,6 +55,9 @@ REQUIRED=(
   "$PREFIX/skills/workflow-creation/SKILL.md"
   "$PREFIX/output-styles/workflow.md"
   "$PREFIX/commands/dl.md"
+  "$PREFIX/vendor/baoyu-markdown-to-html/scripts/main.ts"
+  "$PREFIX/vendor/baoyu-markdown-to-html/scripts/package.json"
+  "$PREFIX/vendor/baoyu-markdown-to-html/scripts/bun.lock"
 )
 for f in "${REQUIRED[@]}"; do
   if ! grep -qxF "$f" <<<"$LISTING"; then
@@ -63,8 +66,8 @@ for f in "${REQUIRED[@]}"; do
   fi
 done
 
-# 排除：内部资产不得泄漏进分发包
-for pat in "/designs/" "/tests/" "/dashboard.toml"; do
+# 排除：内部资产与机器侧依赖不得进分发包
+for pat in "/designs/" "/tests/" "/dashboard.toml" "/node_modules/"; do
   if grep -q "$pat" <<<"$LISTING"; then
     echo "✗ 排除项泄漏: $pat" >&2
     fail=1
