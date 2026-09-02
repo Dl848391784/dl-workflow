@@ -31,7 +31,6 @@ DLWF_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(DLWF_ROOT))
 
 import dl_flow_engine as eng  # noqa: E402
-import conftest  # noqa: E402
 
 
 # ---------- 节点标识推导 ----------
@@ -10746,60 +10745,38 @@ class TestRenderArtifact:
 class TestHtmlCompanion:
     """artifact-html-export：产物 HTML 伴随导出（赠品层，绝不阻断 md 装配）。
 
-    套件默认由 conftest autouse 桩屏蔽本层；此处恢复真函数（conftest.REAL_HTML_COMPANION）
-    验证：fake bun 桩转换 / bun 全缺降级 / render_artifact 钩子接线。
+    v0.5.0 起渲染器自研（dl_doc_render in-process Python-Markdown）——真渲染
+    毫秒级零外部进程，套件零桩（bun 时代的 conftest autouse 桩随 vendor 退役）。
     """
 
-    def _fake_bun(self, tmp_path, monkeypatch):
-        bin_dir = tmp_path / "bin"
-        bin_dir.mkdir()
-        stub = bin_dir / "bun"
-        # 参数形态：bun main.ts <md> --theme default --keep-title -> 落地 ${md%.md}.html
-        stub.write_text(
-            '#!/bin/bash\necho "<html>fake</html>" > "${2%.md}.html"\n',
+    def test_html_export_ok(self, tmp_path):
+        md = tmp_path / "t.md"
+        md.write_text(
+            "# t · plan.md\n\n## 改动面\n\n"
+            "- 步骤1 修模板（改；证据指针 x.py:1；confidence=高；凑够二十字符以上）\n",
             encoding="utf-8",
         )
-        stub.chmod(0o755)
-        monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
-        monkeypatch.setattr(eng, "_HTML_BUN_CACHE", None)
-
-    def test_html_export_ok(self, tmp_path, monkeypatch):
-        self._fake_bun(tmp_path, monkeypatch)
-        md = tmp_path / "t.md"
-        md.write_text("# t\n", encoding="utf-8")
-        note = conftest.REAL_HTML_COMPANION(md)
+        note = eng._render_html_companion(md)
         assert "HTML ✓" in note
-        assert (tmp_path / "t.html").exists()
+        h = (tmp_path / "t.html").read_text(encoding="utf-8")
+        assert '<aside id="toc">' in h and '<h2 id="改动面">' in h
+        assert 'class="meta"' in h  # statement 字段尾巴 dimmed（零内容删除）
 
-    def test_html_missing_bun_degrades(self, tmp_path, monkeypatch):
-        # PATH 置成空目录：无 bun 无 npx -> 降级注记，不产 html，不抛异常
-        monkeypatch.setenv("PATH", str(tmp_path))
-        monkeypatch.setattr(eng, "_HTML_BUN_CACHE", None)
+    def test_html_render_failure_degrades(self, tmp_path, monkeypatch):
+        # 渲染器异常（如 markdown 库内部错）-> 降级注记带原因，不抛不产 html
+        import dl_doc_render
+
+        def _boom(*_a, **_k):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(dl_doc_render, "render_html", _boom)
         md = tmp_path / "t.md"
         md.write_text("# t\n", encoding="utf-8")
-        note = conftest.REAL_HTML_COMPANION(md)
-        assert "HTML 降级" in note and "无 bun/npx" in note
+        note = eng._render_html_companion(md)
+        assert "HTML 降级" in note and "disk full" in note
         assert not (tmp_path / "t.html").exists()
 
-    def test_html_bun_failure_degrades(self, tmp_path, monkeypatch):
-        # bun 在但 rc≠0（如 vendor 依赖未 bun install）-> 降级注记带原因，不抛
-        bin_dir = tmp_path / "bin"
-        bin_dir.mkdir()
-        stub = bin_dir / "bun"
-        stub.write_text(
-            '#!/bin/bash\necho "Cannot find package" >&2\nexit 1\n', encoding="utf-8"
-        )
-        stub.chmod(0o755)
-        monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
-        monkeypatch.setattr(eng, "_HTML_BUN_CACHE", None)
-        md = tmp_path / "t.md"
-        md.write_text("# t\n", encoding="utf-8")
-        note = conftest.REAL_HTML_COMPANION(md)
-        assert "HTML 降级" in note and "Cannot find package" in note
-
-    def test_render_artifact_html_hook(self, tmp_path, monkeypatch):
-        self._fake_bun(tmp_path, monkeypatch)
-        monkeypatch.setattr(eng, "_render_html_companion", conftest.REAL_HTML_COMPANION)
+    def test_render_artifact_html_hook(self, tmp_path):
         _write_evidence(
             tmp_path,
             "t",

@@ -7,7 +7,7 @@
 # 3. 追写 ~/.bashrc 的 dl 函数（工作流入口，若未安装）
 # 4. dashboard python 依赖（pip --user fastapi uvicorn；--skip-dashboard 跳过）
 # 5. codegraph CLI（npm 全局装 @colbymchenry/codegraph；--skip-codegraph 跳过）
-# 6. HTML 导出依赖（vendor baoyu 的 bun install；--skip-html 跳过）
+# 6. HTML 导出依赖（dl_doc_render 渲染器的 Python-Markdown；--skip-html 跳过）
 # 7. 自检报告（逐项 ✓/✗ + 警告汇总）
 #
 # 幂等：连续跑两次结果一致。冲突文件备份到 ~/.claude/.dl-workflow-backup/<ts>/。
@@ -262,6 +262,21 @@ BASHRC_EOF
   echo "  入口：dl <name> | ac-ark --dl <name>（后者需在 ac-ark 里加 --dl 拦截，见 README）"
 }
 
+# ---------- pip --user 安装（dashboard 与 HTML 两层共用） ----------
+# 机器无任何 pip index 配置时一次性挂 aliyun 镜像（默认 pypi 源在境内服务器极慢）；
+# 已有配置（用户/全局 pip.conf）则不碰——一次性 CLI 参数，不写入任何配置文件。
+_pip_install_user() {  # _pip_install_user <pkg...>
+  if ! python3 -m pip --version >/dev/null 2>&1; then
+    return 2
+  fi
+  local pip_extra=()
+  if ! python3 -m pip config list 2>/dev/null | grep -q "index.url\|index-url"; then
+    pip_extra=(--index-url https://mirrors.aliyun.com/pypi/simple/)
+    echo "  ↺ 无 pip 镜像配置，本次安装走 aliyun 镜像（一次性，不改配置）"
+  fi
+  python3 -m pip install --user "${pip_extra[@]}" "$@"
+}
+
 # ---------- dashboard python 依赖（可选层） ----------
 install_dashboard_deps() {
   if [ "$SKIP_DASHBOARD" = "1" ]; then
@@ -273,23 +288,16 @@ install_dashboard_deps() {
     echo "  ↺ fastapi + uvicorn 已可 import，跳过"
     return 0
   fi
-  if ! python3 -m pip --version >/dev/null 2>&1; then
+  local rc=0
+  _pip_install_user fastapi uvicorn || rc=$?
+  if [ "$rc" = 0 ]; then
+    echo "✓ pip --user 安装 fastapi + uvicorn 完成"
+  elif [ "$rc" = 2 ]; then
     echo "  ⚠ python3 -m pip 不可用——dashboard（python3 -m dl_dashboard.app）不可用，核心工作流不受影响" >&2
     WARNINGS+=("dashboard: python3 -m pip 不可用，fastapi/uvicorn 未装")
-    return 0
-  fi
-  # 机器无任何 pip index 配置时一次性挂 aliyun 镜像（默认 pypi 源在境内服务器极慢）；
-  # 已有配置（用户/全局 pip.conf）则不碰——一次性 CLI 参数，不写入任何配置文件。
-  local pip_extra=()
-  if ! python3 -m pip config list 2>/dev/null | grep -q "index.url\|index-url"; then
-    pip_extra=(--index-url https://mirrors.aliyun.com/pypi/simple/)
-    echo "  ↺ 无 pip 镜像配置，本次安装走 aliyun 镜像（一次性，不改配置）"
-  fi
-  if python3 -m pip install --user "${pip_extra[@]}" fastapi uvicorn; then
-    echo "✓ pip --user 安装 fastapi + uvicorn 完成"
   else
     echo "  ⚠ pip 安装失败——dashboard 不可用，核心工作流不受影响" >&2
-    WARNINGS+=("dashboard: python3 -m pip install --user fastapi uvicorn 失败")
+    WARNINGS+=("dashboard: pip install --user fastapi uvicorn 失败")
   fi
 }
 
@@ -347,33 +355,31 @@ install_html_deps() {
     echo "▸ 跳过 HTML 导出依赖（--skip-html）"
     return 0
   fi
-  echo "▸ 检查 HTML 导出依赖（vendor/baoyu-markdown-to-html）"
-  local vdir="$DL_HOME/vendor/baoyu-markdown-to-html/scripts"
-  if [ ! -f "$vdir/main.ts" ]; then
-    echo "  ⚠ vendor 转换器缺失（$vdir/main.ts）——HTML 伴随导出降级，md 产物不受影响" >&2
-    WARNINGS+=("html: vendor 转换器缺失")
+  echo "▸ 检查 HTML 导出依赖（dl_doc_render 渲染器 -> Python-Markdown）"
+  # v0.5.0 起渲染器自研（dl_doc_render.py），legacy bun vendor 目录清理（H13 死代码）
+  if [ -d "$DL_HOME/vendor/baoyu-markdown-to-html" ]; then
+    rm -rf "$DL_HOME/vendor/baoyu-markdown-to-html"
+    echo "  ↺ 清理 legacy vendor/baoyu-markdown-to-html（v0.5.0 起自研渲染器）"
+  fi
+  if [ ! -f "$DL_HOME/dl_doc_render.py" ]; then
+    echo "  ⚠ 渲染器缺失（$DL_HOME/dl_doc_render.py）——HTML 伴随导出降级，md 产物不受影响" >&2
+    WARNINGS+=("html: dl_doc_render.py 缺失")
     return 0
   fi
-  if [ -d "$vdir/node_modules/baoyu-md" ]; then
-    echo "  ↺ vendor 依赖已装，跳过"
+  if python3 -c "import markdown" 2>/dev/null; then
+    echo "  ↺ markdown 已可 import，跳过"
     return 0
   fi
-  local bunx=()
-  if command -v bun >/dev/null; then
-    bunx=(bun)
-  elif command -v npx >/dev/null; then
-    bunx=(npx -y bun)
+  local rc=0
+  _pip_install_user markdown || rc=$?
+  if [ "$rc" = 0 ]; then
+    echo "✓ pip --user 安装 markdown 完成"
+  elif [ "$rc" = 2 ]; then
+    echo "  ⚠ python3 -m pip 不可用——HTML 伴随导出降级，核心工作流不受影响" >&2
+    WARNINGS+=("html: python3 -m pip 不可用，markdown 未装")
   else
-    echo "  ⚠ 无 bun/npx——HTML 伴随导出降级，核心工作流不受影响" >&2
-    WARNINGS+=("html: 无 bun/npx")
-    return 0
-  fi
-  # 一次性 npmmirror（env 形态，bun 读 npm_config_registry），不改用户全局配置
-  if (cd "$vdir" && npm_config_registry=https://registry.npmmirror.com "${bunx[@]}" install); then
-    echo "✓ vendor 依赖安装完成（bun install）"
-  else
-    echo "  ⚠ bun install 失败——HTML 伴随导出降级，核心工作流不受影响" >&2
-    WARNINGS+=("html: bun install 失败")
+    echo "  ⚠ pip 安装失败——HTML 伴随导出降级，核心工作流不受影响" >&2
+    WARNINGS+=("html: pip install --user markdown 失败")
   fi
 }
 
@@ -411,7 +417,7 @@ self_check() {
     fi
   fi
   if [ "$SKIP_HTML" != "1" ]; then
-    _ck "HTML 导出依赖（vendor bun install）" test -d "$DL_HOME/vendor/baoyu-markdown-to-html/scripts/node_modules/baoyu-md"
+    _ck "HTML 导出依赖（python markdown + dl_doc_render）" bash -c "python3 -c 'import markdown' && test -f '$DL_HOME/dl_doc_render.py'"
   fi
   # 顾问项（不计 fail）：understand:1 子3 双向取证的 GitHub 层提额
   if [ -n "${GITHUB_TOKEN:-}" ] || grep -q "GITHUB_TOKEN" "$BASHRC" 2>/dev/null; then

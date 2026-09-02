@@ -55,9 +55,7 @@ REQUIRED=(
   "$PREFIX/skills/workflow-creation/SKILL.md"
   "$PREFIX/output-styles/workflow.md"
   "$PREFIX/commands/dl.md"
-  "$PREFIX/vendor/baoyu-markdown-to-html/scripts/main.ts"
-  "$PREFIX/vendor/baoyu-markdown-to-html/scripts/package.json"
-  "$PREFIX/vendor/baoyu-markdown-to-html/scripts/bun.lock"
+  "$PREFIX/dl_doc_render.py"
 )
 for f in "${REQUIRED[@]}"; do
   if ! grep -qxF "$f" <<<"$LISTING"; then

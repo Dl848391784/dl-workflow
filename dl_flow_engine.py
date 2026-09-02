@@ -28,7 +28,6 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -1447,58 +1446,28 @@ def render_artifact(
 
 
 # ---------- 产物 HTML 伴随导出（artifact-html-export）----------
-# md 是唯一真源（给模型），HTML 是赠品（给人看）：bun 缺失/转换失败/超时
-# 一律降级为消息注记，绝不阻断 render_artifact（designs/artifact-html-export-design.md）。
-_HTML_BUN_CACHE: list[str] | None = None
-_HTML_BUN_MISSING = False  # _HTML_BUN_CACHE 的哨兵：已探测且无 bun
-
-
-def _resolve_bun() -> list[str] | None:
-    """bun 运行时解析（模块级缓存）：bun -> npx -y bun -> None。"""
-    global _HTML_BUN_CACHE
-    if _HTML_BUN_CACHE is _HTML_BUN_MISSING:
-        return None
-    if _HTML_BUN_CACHE is not None:
-        return _HTML_BUN_CACHE
-    if shutil.which("bun"):
-        _HTML_BUN_CACHE = ["bun"]
-    elif shutil.which("npx"):
-        _HTML_BUN_CACHE = ["npx", "-y", "bun"]
-    else:
-        _HTML_BUN_CACHE = _HTML_BUN_MISSING
-        return None
-    return _HTML_BUN_CACHE
+# md 是唯一真源（给模型），HTML 是赠品（给人看）：渲染器不可用/渲染异常
+# 一律降级为消息注记，绝不阻断 render_artifact。
+# v0.5.0 起渲染器自研（dl_doc_render.py，in-process Python-Markdown）——
+# baoyu/bun/vendor 路径退役（designs/doc-renderer-design.md）。
 
 
 def _render_html_companion(md_path: Path) -> str:
     """md 产物 -> 同目录 .html（best-effort）。返回成功/降级注记，拼进 render 消息。"""
-    bun = _resolve_bun()
-    if bun is None:
-        return "；HTML 降级：无 bun/npx（install.sh 的 HTML 导出依赖层未装）"
-    script = (
-        Path(__file__).resolve().parent
-        / "vendor"
-        / "baoyu-markdown-to-html"
-        / "scripts"
-        / "main.ts"
-    )
+    try:
+        import dl_doc_render
+    except ImportError as e:
+        return f"；HTML 降级：渲染器不可用（{e}——install.sh 的 HTML 导出依赖层未装）"
     html = md_path.with_suffix(".html")
     try:
-        # 先删旧 html：baoyu 对已存在 html 会留 .bak 备份——md 是真源，HTML 可再生，
-        # 不留备份防堆积。
-        html.unlink(missing_ok=True)
-        proc = subprocess.run(
-            [*bun, str(script), str(md_path), "--theme", "default", "--keep-title"],
-            capture_output=True,
-            text=True,
-            timeout=60,
+        version = (
+            (Path(__file__).resolve().parent / "VERSION")
+            .read_text(encoding="utf-8")
+            .strip()
         )
-    except (OSError, subprocess.TimeoutExpired) as e:
-        return f"；HTML 降级：转换异常（{e}）"
-    if proc.returncode != 0 or not html.exists():
-        tail = (proc.stderr or proc.stdout or "").strip().splitlines()
-        reason = tail[-1][:120] if tail else f"rc={proc.returncode}"
-        return f"；HTML 降级：{reason}"
+        dl_doc_render.render_html(md_path, html, version=version)
+    except Exception as e:  # 赠品纪律：任何渲染异常只降级不阻断，原因必须显式可见
+        return f"；HTML 降级：{type(e).__name__}（{e}）"
     return f"；HTML ✓ {html}"
 
 

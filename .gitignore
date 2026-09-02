@@ -18,5 +18,3 @@ dashboard-run/
 # pack.sh 产出（分发 tarball，不入库）
 dist/
 
-# vendor 转换器依赖（install.sh bun install 装，不进库）
-vendor/**/node_modules/
