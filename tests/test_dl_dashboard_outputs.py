@@ -125,6 +125,7 @@ def test_artifact_status_and_content(tmp_path):
     st = artifact_status(proj, "demo")
     assert st["understands"]["exists"] is False
     assert st["plans"]["exists"] is False
+    assert st["plans"]["html_exists"] is False and st["plans"]["html_size"] == 0
     ud = tmp_path / ".claude" / "understands"
     ud.mkdir(parents=True)
     (ud / "demo.md").write_text("# understand 内容", encoding="utf-8")
@@ -132,6 +133,12 @@ def test_artifact_status_and_content(tmp_path):
     assert st["understands"]["exists"] is True and st["understands"]["size"] > 0
     assert load_artifact(proj, "demo", "understands") == "# understand 内容"
     assert load_artifact(proj, "demo", "plans") is None
+    # v0.3.0 html 伴随导出：html_exists/html_size 两态（dashboard 产物链接 md->html）
+    assert st["understands"]["html_exists"] is False
+    (ud / "demo.html").write_text("<html>渲染版</html>", encoding="utf-8")
+    st = artifact_status(proj, "demo")
+    assert st["understands"]["html_exists"] is True
+    assert st["understands"]["html_size"] > 0
 
 
 def test_load_artifact_kind_whitelist(tmp_path):

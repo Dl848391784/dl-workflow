@@ -15,7 +15,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from dl_dashboard import actions, metrics, outputs, scanner
@@ -290,6 +290,23 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
         if content is None:
             raise HTTPException(404, f"产物 {kind}/{name}.md 不存在")
         return {"content": content}
+
+    @app.get("/artifact-html")
+    def artifact_html_ep(project: str, name: str, kind: str):
+        """产物人读版 HTML 直投（v0.3.0 render-artifact 伴随导出）。
+
+        kind 白名单 + _name 校验决定完整路径，无用户可控路径段，同
+        load_artifact 的防穿越姿势。不存在 404（前端 artLink 按
+        artifact_status.html_exists 决定链向，正常不会打到这）。
+        """
+        if kind not in ("understands", "plans"):
+            raise HTTPException(400, f"未知产物类型: {kind}")
+        proj = _project(project)
+        name = _name(name)
+        p = proj / ".claude" / kind / f"{name}.html"
+        if not p.exists():
+            raise HTTPException(404, f"产物 {kind}/{name}.html 不存在")
+        return FileResponse(p, media_type="text/html")
 
     @app.post("/api/pause")
     async def pause(body: dict):

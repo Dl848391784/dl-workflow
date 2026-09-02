@@ -253,6 +253,33 @@ def test_artifact_endpoint_rejects_bad_kind(client):
     assert r.status_code == 400
 
 
+def test_artifact_html_endpoint_serves_html(client):
+    # v0.3.0 人读版直投：dashboard 产物链接 md->html
+    c, project = client
+    d = project / ".claude" / "plans"
+    d.mkdir(parents=True)
+    (d / "demo.html").write_text("<html><body>人读版</body></html>", encoding="utf-8")
+    r = c.get("/artifact-html",
+              params={"project": str(project), "name": "demo", "kind": "plans"})
+    assert r.status_code == 200
+    assert "人读版" in r.text
+    assert "text/html" in r.headers["content-type"]
+
+
+def test_artifact_html_endpoint_404_when_missing(client):
+    c, project = client
+    r = c.get("/artifact-html",
+              params={"project": str(project), "name": "demo", "kind": "plans"})
+    assert r.status_code == 404
+
+
+def test_artifact_html_endpoint_rejects_bad_kind(client):
+    c, project = client
+    r = c.get("/artifact-html",
+              params={"project": str(project), "name": "demo", "kind": "../etc"})
+    assert r.status_code == 400
+
+
 def test_post_pause_calls_action(client):
     c, project = client
     with patch("dl_dashboard.app.actions.pause_workflow",

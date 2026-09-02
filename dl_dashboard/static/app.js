@@ -203,7 +203,10 @@ function tlEmpty(box) {
 /* 树形 DOM（metro 与 cards 共用；视觉差异全部由容器类 CSS 决定）：
    major_state 分带 -> minor_state 为枝 -> step 为叶（嵌迷你耗时条）。 */
 const ART_PHASE = { understands: "understand", plans: "plan" };
-const ART_LABEL = { understands: "understand.md", plans: "plan.md" };
+const ART_LABEL = {
+  understands: { html: "understand.html", md: "understand.md" },
+  plans: { html: "plan.html", md: "plan.md" },
+};
 
 /* 产物链接挂载点 = 对应阶段最后一个可见节点（fermate 下 plan:4 不存在、
    tacet 下 understand:4 静默——静态映射会丢链接，动态选存活节点） */
@@ -212,10 +215,15 @@ function artAnchorNode(nodes, kind) {
   return cands.length ? cands[cands.length - 1].node_id : null;
 }
 
-function artLink(kind) {
+/* 产物链接：html 存在（v0.3.0 伴随导出）→ /artifact-html 人读渲染版；
+   不存在 → 旧 md 查看页兜底。所见格式即所标（标签 .html/.md 不隐式兜底）。 */
+function artLink(kind, artifacts) {
   const q = `project=${encodeURIComponent(sel.project)}` +
     `&name=${encodeURIComponent(sel.name)}&kind=${kind}`;
-  return `<a class="art-link" target="_blank" href="/static/artifact.html?${q}">${ART_LABEL[kind]}</a>`;
+  if (artifacts && artifacts[kind] && artifacts[kind].html_exists) {
+    return `<a class="art-link" target="_blank" href="/artifact-html?${q}">${ART_LABEL[kind].html}</a>`;
+  }
+  return `<a class="art-link" target="_blank" href="/static/artifact.html?${q}">${ART_LABEL[kind].md}</a>`;
 }
 
 function renderTimelineTree(stats, nodes, info, artifacts) {
@@ -304,7 +312,7 @@ function renderTimelineTree(stats, nodes, info, artifacts) {
             artifacts && artifacts[kind] && artifacts[kind].exists) {
           const al = document.createElement("div");
           al.className = "tl-art";
-          al.innerHTML = artLink(kind);
+          al.innerHTML = artLink(kind, artifacts);
           nodeEl.appendChild(al);
         }
       }
@@ -473,7 +481,7 @@ function renderTimelineGantt(stats, nodes, info, artifacts) {
           artifacts && artifacts[kind] && artifacts[kind].exists) {
         const al = document.createElement("div");
         al.className = "tl-art";
-        al.innerHTML = artLink(kind);
+        al.innerHTML = artLink(kind, artifacts);
         label.appendChild(al);
       }
     }

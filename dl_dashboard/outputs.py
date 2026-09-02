@@ -134,7 +134,13 @@ def artifact_status(project: Path, name: str) -> dict:
     out: dict[str, dict] = {}
     for kind in ("understands", "plans"):
         p = project / ".claude" / kind / f"{name}.md"
-        out[kind] = {"exists": p.exists(), "size": p.stat().st_size if p.exists() else 0}
+        h = p.with_suffix(".html")
+        out[kind] = {
+            "exists": p.exists(),
+            "size": p.stat().st_size if p.exists() else 0,
+            "html_exists": h.exists(),
+            "html_size": h.stat().st_size if h.exists() else 0,
+        }
     return out
 
 
