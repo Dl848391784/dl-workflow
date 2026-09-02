@@ -1049,6 +1049,7 @@ es.onmessage = (e) => {
   lastProjects = data.projects || [];
   lastProviders = data.providers || [];
   lastWorkflowNames = new Set(data.workflows.map((w) => w.name));
+  TabAlert.check(data.workflows);
   // 侧栏指纹：数据没变就不重建（选中高亮在 selectWorkflow 里即时翻 class）
   const sj = JSON.stringify(data.workflows);
   if (sj !== lastSidebarJson) {
@@ -1057,3 +1058,113 @@ es.onmessage = (e) => {
   }
   if (sel.project) refreshDetail();
 };
+
+/* ---------- 页签关注提醒：标题闪动 + favicon 红点（tab-attention-alert-design） ----------
+   触发=SSE workflows 状态跃迁：isWaiting 进入=🔔待确认 / gate=done 进入=✅已完结。
+   首轮静默播种；标题闪动仅 document.hidden 时；favicon 计数=waiting+完结未读。 */
+const TabAlert = (() => {
+  const ORIG_TITLE = document.title;
+  const prev = new Map();      // key -> "wait"|"done"|""（上一轮状态）
+  const doneUnread = new Set(); // 完结未读（页签重获焦点时清空）
+  let lastList = [];
+  let seeded = false;
+  let flashTimer = null;
+
+  const key = (w) => `${w.project}/${w.name}`;
+  const kindOf = (w) => {
+    if (w.error) return "";
+    if (isWaiting(w)) return "wait";
+    if (w.gate === "done") return "done";
+    return "";
+  };
+  const shortName = (k) => k.split("/").pop();
+
+  function setFavicon(dataUrl) {
+    let link = document.querySelector('link[rel="icon"][data-tabalert]');
+    if (!dataUrl) {
+      link?.remove(); // 移除动态 link，回退默认 /favicon.ico
+      return;
+    }
+    if (!link) {
+      link = document.createElement("link");
+      link.rel = "icon";
+      link.dataset.tabalert = "1";
+      document.head.appendChild(link);
+    }
+    link.href = dataUrl;
+  }
+
+  function paintBadge(n) {
+    if (n <= 0) { setFavicon(null); return; }
+    const c = document.createElement("canvas");
+    c.width = c.height = 64;
+    const g = c.getContext("2d");
+    g.fillStyle = "#e5484d";
+    g.beginPath(); g.arc(32, 32, 30, 0, Math.PI * 2); g.fill();
+    g.fillStyle = "#fff";
+    g.font = "bold 34px sans-serif";
+    g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillText(n > 9 ? "9+" : String(n), 32, 35);
+    setFavicon(c.toDataURL("image/png"));
+  }
+
+  function badgeCount() {
+    return lastList.filter((w) => kindOf(w) === "wait").length + doneUnread.size;
+  }
+
+  function stopFlash() {
+    if (flashTimer) { clearInterval(flashTimer); flashTimer = null; }
+    if (document.title !== ORIG_TITLE) document.title = ORIG_TITLE;
+  }
+
+  function startFlash(text) {
+    if (!document.hidden) return; // 人正盯着页面，卡片就在眼前，闪动=骚扰
+    stopFlash();
+    let on = false;
+    document.title = text;
+    flashTimer = setInterval(() => {
+      on = !on;
+      document.title = on ? text : ORIG_TITLE;
+    }, 1200);
+  }
+
+  function check(list) {
+    lastList = list;
+    const now = new Map(list.map((w) => [key(w), kindOf(w)]));
+    for (const k of [...doneUnread]) if (!now.has(k)) doneUnread.delete(k);
+    if (!seeded) { // 首轮静默播种：存量待办不闪，只落 badge
+      seeded = true;
+      now.forEach((v, k) => prev.set(k, v));
+      paintBadge(badgeCount());
+      return;
+    }
+    const alerts = [];
+    now.forEach((cur, k) => {
+      const before = prev.get(k) || "";
+      if (cur === "wait" && before !== "wait") {
+        alerts.push({ icon: "🔔", text: `${shortName(k)} 待确认` });
+      }
+      if (cur === "done" && before !== "done") {
+        alerts.push({ icon: "✅", text: `${shortName(k)} 已完结` });
+        doneUnread.add(k);
+      }
+    });
+    prev.clear(); now.forEach((v, k) => prev.set(k, v));
+    paintBadge(badgeCount());
+    if (!alerts.length) return;
+    const last = alerts[alerts.length - 1];
+    const text = alerts.length > 1
+      ? `${last.icon} ${alerts.length} 项待处理 - dl dashboard`
+      : `${last.icon} ${last.text} - dl dashboard`;
+    startFlash(text);
+  }
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) return;
+    stopFlash();
+    doneUnread.clear(); // 回来看过=完结已读
+    paintBadge(badgeCount());
+  });
+
+  return { check };
+})();
