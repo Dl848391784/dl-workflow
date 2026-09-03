@@ -4067,3 +4067,39 @@ def test_steer_absent_when_no_notes(wf_repo):
     step = engine.sub_step_at(node, 2)
     prompt = drv.build_step_prompt(wf_repo, "t", state, node, 2, step, rework=None)
     assert "用户插话" not in prompt
+
+
+def test_merged_run_stops_at_tacet_silent_step(wf_repo, monkeypatch):
+    """tacet×MERGED 交互面（ann_pct_live_evoup 真机实爆，evolution-up P3 衍生）：
+
+    tacet 轨道升级 u:2#2（移出静默）后，主循环从 #2 派合并段——
+    _run_merged_run 续步循环内无逐步 tacet 判定，会横扫后续仍静默的 #3/#4
+    （真机实证 #3 被真跑）。修=续步前判定 step_tacet_forced，命中即收段
+    交还主循环（静默跳步归主循环语义）。"""
+    drv = _load(DRIVER, "drv_merged_tacet")
+    st = _seg_write_state(wf_repo, sub_index=2, node="understand:2", sub_step_index=2)
+    st["force_tacet"] = True
+    st["tacet_upgraded"] = ["understand:2#2"]
+    (wf_repo / SEG_META / "state.json").write_text(json.dumps(st), encoding="utf-8")
+    insts = _merged_stub(drv, monkeypatch, [[("子2 完成", {})]])
+    monkeypatch.setattr(
+        drv.engine, "gate_sub_step_at_stop", _gate_scripted(wf_repo, [("advanced",)])
+    )
+    skipped = []
+
+    class _Stop(Exception):
+        pass
+
+    def fake_skip(project_root, name):
+        skipped.append(_read_state(project_root).get("sub_step_index"))
+        raise _Stop
+
+    monkeypatch.setattr(drv.engine, "apply_tacet_skip", fake_skip)
+    _run_session_stub(drv, monkeypatch, [])
+    rc = drv.run_segment(wf_repo, "t")
+    assert rc == 1  # _Stop 被段顶层兜底捕获（driver 异常兜底是设计内）
+    assert skipped == [3]  # 主循环接管静默跳步
+    assert len(insts) == 1
+    sess = insts[0]
+    assert sess.closed  # 撞静默步收段
+    assert len(sess.sends) == 1  # 只有 #2 真跑——#3 未被横扫

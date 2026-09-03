@@ -1192,6 +1192,10 @@ def _run_merged_run(
                     engine.node_id(nnode.phase, nnode.sub) == nid
                     and nstep is not None
                     and not getattr(nstep, "interactive", False)
+                    # tacet×MERGED 交互面（ann_pct_live_evoup 真机实爆，
+                    # evolution-up P3 衍生）：升级步把 MERGED 节点带进合并段后，
+                    # 后续仍静默的步不得续步横扫——收段交还主循环静默跳步
+                    and not engine.step_tacet_forced(st2, nnode, ncur)
                 )
                 if (
                     can_continue
