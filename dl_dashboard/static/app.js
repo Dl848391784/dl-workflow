@@ -824,6 +824,8 @@ async function refreshDetail() {
     d.audit && d.audit.gates
       ? `${d.audit.gates.judged}:${d.audit.gates.blocked_total}` : "",
     d.totals && d.totals.cost_usd,
+    // 插话（evolution-up P5）：新发/被消费翻面必须当场重渲列表
+    d.steers ? d.steers.length + ":" + d.steers.filter((s) => s.consumed).length : 0,
   ]);
   const changed = fp !== lastDetailFp;
   lastDetailFp = fp;
@@ -841,6 +843,33 @@ function renderDetailStatic(d) {
   renderInteract(d);
   $("log-tail").textContent = d.log_tail;
   renderAudit(d.audit);
+  renderSteer(d.steers || []);
+}
+
+/* 插话通道（evolution-up P5）：段在跑期间的转向指令——落 steer.jsonl，
+   下一个段起跑注入段 prompt（driver steer_consume）。不打断在跑段。 */
+function renderSteer(steers) {
+  const box = $("steer-list");
+  box.innerHTML = steers.length
+    ? "<ul class='steer-ul'>" + steers.map((s) =>
+        `<li class="${s.consumed ? "steer-done" : "steer-pending"}">` +
+        `<span class="num">${esc(s.ts)}</span> ${esc(s.text)}` +
+        `<span class="hint">${s.consumed ? "已注入" : "待注入"}</span></li>`
+      ).join("") + "</ul>"
+    : "";
+  const btn = $("steer-send");
+  btn.onclick = async () => {
+    const input = $("steer-text");
+    const text = input.value.trim();
+    if (!text) return;
+    const r = await post("/api/steer", { project: sel.project, name: sel.name, text });
+    toast(r.msg, r.ok);
+    if (r.ok) input.value = "";
+    refreshDetail();
+  };
+  $("steer-text").onkeydown = (e) => {
+    if (e.key === "Enter") btn.click();
+  };
 }
 
 /* 运行审计（evolution-up P1）：每轮运行的例行体检——一次通过率/block

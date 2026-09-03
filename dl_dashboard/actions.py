@@ -376,3 +376,20 @@ def pause_workflow(project: Path, name: str, mgr) -> tuple[bool, str]:
         return False, "driver 未在运行，无需暂停"
     mgr.stop(project, name)
     return True, "已暂停（当前步恢复时从头重跑；点「恢复驱动」续跑）"
+
+
+def steer_submit(project: Path, name: str, text: str) -> tuple[bool, str]:
+    """插话提交（evolution-up P5）：落 steer.jsonl，下一个段起跑注入。
+
+    语义如实：不打断在跑段（打断=杀段重派代价大，留 v2）；建议通道——
+    注入段 prompt 文案，不豁免任何机械门。
+    """
+    from dl_flow_common import steer_append
+
+    text = (text or "").strip()
+    if not text:
+        return False, "插话内容为空"
+    if len(text) > 2000:
+        return False, "插话过长（>2000 字符）——拆成多条发送"
+    steer_append(project, name, text)
+    return True, "已记录——下一个段起跑时注入（不打断在跑段）"

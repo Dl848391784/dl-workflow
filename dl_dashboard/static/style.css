@@ -1122,3 +1122,12 @@ button:disabled { opacity: 0.6; cursor: not-allowed; }
 .audit-disputes { margin: 8px 0 16px; font-size: 13px; }
 .health-main { padding: 16px 24px; max-width: 1100px; }
 .topbar-actions { display: flex; gap: 10px; align-items: center; }
+
+/* 插话通道（evolution-up P5） */
+.steer-form { display: flex; gap: 8px; margin: 8px 0; }
+.steer-form input { flex: 1; padding: 6px 10px; background: var(--bg-input, #141820); color: inherit; border: 1px solid var(--line, #2a2f3a); border-radius: 6px; }
+.steer-ul { list-style: none; padding: 0; margin: 0 0 12px; font-size: 13px; }
+.steer-ul li { padding: 4px 0; border-bottom: 1px dashed var(--line, #2a2f3a); display: flex; gap: 8px; align-items: baseline; }
+.steer-ul li .hint { margin-left: auto; }
+.steer-pending { color: #e0b34a; }
+.steer-done { color: var(--dim, #8a93a5); }

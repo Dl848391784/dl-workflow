@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from dl_dashboard import actions, audit, health, metrics, outputs, scanner
 from dl_dashboard.config import DashboardConfig, load_config
 from dl_dashboard.driver_mgr import DriverManager
+from dl_flow_common import steer_list
 
 log = logging.getLogger("dl_dashboard")
 
@@ -208,7 +209,18 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
             "log_tail": log_tail,
             "artifacts": outputs.artifact_status(proj, name),
             "audit": audit_data,
+            "steers": steer_list(proj, name),
         }
+
+    @app.post("/api/steer")
+    async def steer(body: dict):
+        """插话提交（evolution-up P5）：落 steer.jsonl，下一段起跑注入。"""
+        proj = _project(body["project"])
+        name = _name(body["name"])
+        async with _lock(proj, name):
+            ok, msg = await asyncio.to_thread(
+                actions.steer_submit, proj, name, body.get("text", ""))
+        return {"ok": ok, "msg": msg}
 
     @app.get("/api/audit")
     def audit_ep(project: str, name: str):

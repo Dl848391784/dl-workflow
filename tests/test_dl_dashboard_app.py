@@ -220,13 +220,35 @@ def test_health_page_served(client):
     assert r.status_code == 200 and "系统健康" in r.text
 
 
+def test_steer_endpoint_and_detail(client):
+    """插话通道（evolution-up P5）：POST /api/steer 落 steer.jsonl，
+    detail 带 steers（consumed 标记）；空内容/超长拒绝。"""
+    c, project = client
+    r = c.post("/api/steer", json={
+        "project": str(project), "name": "demo", "text": "先看 loader 层"})
+    assert r.json()["ok"] is True
+    r2 = c.post("/api/steer", json={
+        "project": str(project), "name": "demo", "text": "  "})
+    assert r2.json()["ok"] is False
+    r3 = c.post("/api/steer", json={
+        "project": str(project), "name": "demo", "text": "长" * 2001})
+    assert r3.json()["ok"] is False
+    d = c.get("/api/workflow",
+              params={"project": str(project), "name": "demo"}).json()
+    assert len(d["steers"]) == 1  # 拒绝的两条未落盘
+    assert d["steers"][0]["text"] == "先看 loader 层"
+    assert d["steers"][0]["consumed"] is False
+
+
 def test_post_endpoints_reject_path_traversal_name(client):
     c, project = client
     payload = {"project": str(project), "name": "../../../etc"}
-    for path in ("/api/inject", "/api/gate", "/api/drive", "/api/dl"):
+    for path in ("/api/inject", "/api/gate", "/api/drive", "/api/dl", "/api/steer"):
         body = {**payload, "answer": "x"} if path == "/api/inject" else payload
         if path == "/api/dl":
             body["cmd"] = "advance"
+        if path == "/api/steer":
+            body["text"] = "x"
         r = c.post(path, json=body)
         assert r.status_code == 400, f"{path} should reject traversal name"
         assert "非法工作流名" in r.json()["detail"]
