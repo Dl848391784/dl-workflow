@@ -231,6 +231,9 @@ from dl_flow_handoff import (
     _write_handoff_record,  # noqa: F401  # re-export：tests/hooks 经 eng.* 访问
     estimate_context_tokens,  # noqa: F401  # re-export：tests/hooks 经 eng.* 访问
     handoff_pack,  # noqa: F401  # re-export：tests/hooks 经 eng.* 访问
+    similar_instances,  # noqa: F401  # re-export：tests 经 eng.* 访问（evolution-up P4）
+    _similar_section,  # noqa: F401  # re-export：tests 经 eng.* 访问（evolution-up P4）
+    _text_similarity,  # noqa: F401  # re-export：tests 经 eng.* 访问（evolution-up P4）
     handoff_tier,  # noqa: F401  # re-export：tests/hooks 经 eng.* 访问
     segment_spawn_overrides,  # noqa: F401  # re-export：tests/hooks 经 eng.* 访问
     write_handoff_prompt,  # noqa: F401  # re-export：tests/hooks 经 eng.* 访问
