@@ -1585,21 +1585,30 @@ def write_confirm_trace(project_root: Path, name: str, node: "Node", cur: int) -
 _TACET_SILENT_CACHE: dict[bool, frozenset[str]] = {}
 
 
+def tacet_silent_for(state: dict[str, Any]) -> frozenset[str]:
+    """本实例的有效 tacet 静默集 = 轨道静默集 − 已升级步（evolution-up P3 单源）。
+
+    state.tacet_upgraded 只经 engine CLI upgrade 写入（模型无权自写）；driver/
+    hook/statusline/scanner 的可见步判定全链路由此派生，消费方禁自猜。
+    """
+    fermate = bool(state.get("force_fermate"))
+    global _TACET_SILENT_CACHE
+    if fermate not in _TACET_SILENT_CACHE:
+        _TACET_SILENT_CACHE[fermate] = tacet_silent_steps(fermate=fermate)
+    return _TACET_SILENT_CACHE[fermate] - set(state.get("tacet_upgraded") or [])
+
+
 def step_tacet_forced(state: dict[str, Any], node: "Node", cur: int) -> bool:
     """该步是否处于强制 TACET（state.force_tacet + 静默步集 = 44 子步 − 六步脊柱）。
 
     脊柱步（问题陈述/根因/取证/修法/计划包）正常执行且质量门不放水（design §8）；
     模型无权自选 tacet（档位不进模型可写面--防偷工通道）。
     fermate 组合时脊柱重映射（plan:4#4 -> plan:2#4，fermate-plan-only-design §2.4），
-    缓存按 fermate 布尔双份。
+    缓存按 fermate 布尔双份。已升级步（tacet_upgraded）移出静默集按全量执行。
     """
     if not state.get("force_tacet"):
         return False
-    fermate = bool(state.get("force_fermate"))
-    global _TACET_SILENT_CACHE
-    if fermate not in _TACET_SILENT_CACHE:
-        _TACET_SILENT_CACHE[fermate] = tacet_silent_steps(fermate=fermate)
-    return f"{node_id(node.phase, node.sub)}#{cur}" in _TACET_SILENT_CACHE[fermate]
+    return f"{node_id(node.phase, node.sub)}#{cur}" in tacet_silent_for(state)
 
 
 def write_tacet_trace(project_root: Path, name: str, node: "Node", cur: int) -> None:
@@ -3492,6 +3501,53 @@ def set_force_tacet(project_root: Path, name: str, on: bool) -> tuple[bool, str]
     )
 
 
+_UPGRADE_STEP_RE = re.compile(r"^(understand|plan):[1-4]#[1-9]\d*$")
+
+
+def upgrade_tacet_step(project_root: Path, name: str, step_id: str) -> tuple[bool, str]:
+    """tacet 中途升级：单步移出本实例静默集，改全量执行（evolution-up P3）。
+
+    触发场景（force-tacet-run1-audit 下一步队列）：下游暴露沉默步欠账信号时
+    （stale fixture 漏网类），补救对齐 fermate off + state-reset 形态——
+    升级 + 回滚到该步重跑。state.tacet_upgraded per-instance sticky，
+    模型无权自写（只经本 CLI；防偷工通道同 force_tacet 论证）。
+    重复升级幂等；非 tacet 轨道/脊柱步/坏 id 如实拒绝（无静默集可改）。
+    """
+    state = load_state(project_root, name)
+    if state is None:
+        return False, f"工作流 {name} 的 state.json 缺失"
+    state = normalize_state(state)
+    if not state.get("force_tacet"):
+        return False, (
+            f"工作流 {name} 不在 tacet 轨道——升级只适用 tacet 静默步"
+            "（全量轨道无静默步，直接 /dl state-reset 重跑即可）"
+        )
+    if not _UPGRADE_STEP_RE.match(step_id or ""):
+        return False, (
+            f"步 id 形态非法: {step_id!r}——形态 <phase>:<子阶段>#<步号>，"
+            "如 understand:2#2"
+        )
+    silent = tacet_silent_steps(fermate=bool(state.get("force_fermate")))
+    if step_id not in silent:
+        return False, (
+            f"{step_id} 不在本实例 tacet 静默集（脊柱步或不存在）——"
+            "本就全量执行，无需升级"
+        )
+    upgraded = list(state.get("tacet_upgraded") or [])
+    nid, si = step_id.rsplit("#", 1)
+    minor, step_no = nid.split(":")[1], si
+    redo = f"/dl state-reset {nid.split(':')[0]}:{minor}:{step_no}"
+    if step_id in upgraded:
+        return True, f"{step_id} 已升级过（幂等）——{redo} 重跑即全量执行"
+    upgraded.append(step_id)
+    state["tacet_upgraded"] = upgraded
+    save_state(project_root, name, state)
+    return True, (
+        f"{step_id} 已升级为全量执行（移出本实例 tacet 静默集，"
+        f"当前升级清单: {', '.join(upgraded)}）。重跑该步: {redo}"
+    )
+
+
 def set_force_fermate(project_root: Path, name: str, on: bool) -> tuple[bool, str]:
     """fermate（plan-only）开关（fermate-plan-only-design §2.1，镜像 set_force_tacet）。
 
@@ -3616,6 +3672,7 @@ def main(argv: list[str] | None = None) -> int:
             "front-mode",
             "force-tacet",
             "fermate",
+            "upgrade",
             "dispute",
             "render-phase-rules",
             "append-trace",
@@ -3879,6 +3936,13 @@ def main(argv: list[str] | None = None) -> int:
             print("✗ 用法: fermate <name> on|off", file=sys.stderr)
             return 1
         ok, msg = set_force_fermate(project_root, name, args.value == "on")
+        print(("✓ " if ok else "✗ ") + msg, file=sys.stdout if ok else sys.stderr)
+        return 0 if ok else 1
+    if args.cmd == "upgrade":
+        if not args.value:
+            print("✗ 用法: upgrade <name> <phase>:<子阶段>#<步号>", file=sys.stderr)
+            return 1
+        ok, msg = upgrade_tacet_step(project_root, name, args.value)
         print(("✓ " if ok else "✗ ") + msg, file=sys.stdout if ok else sys.stderr)
         return 0 if ok else 1
     return 1

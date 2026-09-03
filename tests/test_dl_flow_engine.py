@@ -13868,6 +13868,102 @@ class TestForceTacet:
         assert "tacet" not in out
 
 
+class TestTacetUpgrade:
+    """tacet 中途升级（evolution-up P3，designs/evolution-up-design.md §4）。
+
+    单节点静默 -> 全量：state.tacet_upgraded 从本实例静默集剔除指定步，
+    对齐 fermate off + state-reset 的补救形态。模型无权自写（只经 engine CLI）。
+    """
+
+    def test_upgrade_removes_step_from_silent(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 2, sub_step=2)
+        st = eng.load_state(tmp_path, "t")
+        st["force_tacet"] = True
+        eng.save_state(tmp_path, "t", st)
+        node = eng._NODES["understand:2"]
+        assert eng.step_tacet_forced(st, node, 2) is True  # 升级前沉默
+        ok, msg = eng.upgrade_tacet_step(tmp_path, "t", "understand:2#2")
+        assert ok is True, msg
+        reread = eng.load_state(tmp_path, "t")
+        assert reread["tacet_upgraded"] == ["understand:2#2"]
+        assert eng.step_tacet_forced(reread, node, 2) is False  # 升级后全量
+        assert eng.step_tacet_forced(reread, node, 1) is True  # 兄弟步仍沉默
+        assert "state-reset" in msg  # 指引重跑路径
+
+    def test_upgrade_rejects_non_tacet_instance(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 2, sub_step=2)
+        ok, msg = eng.upgrade_tacet_step(tmp_path, "t", "understand:2#2")
+        assert ok is False and "tacet" in msg
+
+    def test_upgrade_rejects_spine_step(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=3)
+        st = eng.load_state(tmp_path, "t")
+        st["force_tacet"] = True
+        eng.save_state(tmp_path, "t", st)
+        ok, msg = eng.upgrade_tacet_step(tmp_path, "t", "understand:1#3")
+        assert ok is False and "静默" in msg  # 脊柱步本就全量，无需升级
+
+    def test_upgrade_idempotent(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 2, sub_step=2)
+        st = eng.load_state(tmp_path, "t")
+        st["force_tacet"] = True
+        eng.save_state(tmp_path, "t", st)
+        ok1, _ = eng.upgrade_tacet_step(tmp_path, "t", "understand:2#2")
+        ok2, msg2 = eng.upgrade_tacet_step(tmp_path, "t", "understand:2#2")
+        assert ok1 is True and ok2 is True and "幂等" in msg2
+        assert eng.load_state(tmp_path, "t")["tacet_upgraded"] == ["understand:2#2"]
+
+    def test_upgrade_rejects_bad_step_id(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 2, sub_step=2)
+        st = eng.load_state(tmp_path, "t")
+        st["force_tacet"] = True
+        eng.save_state(tmp_path, "t", st)
+        ok, msg = eng.upgrade_tacet_step(tmp_path, "t", "bogus:9#9")
+        assert ok is False and "形态" in msg
+
+    def test_upgrade_fermate_combo_uses_remapped_silent(self, tmp_path):
+        # tacet+fermate 组合：静默集 = fermate 脊柱重映射后的集合——
+        # plan:2#4 是重映射脊柱（不可升级），plan:2#3 可升级
+        _write_state_full(tmp_path, "t", "plan", 2, sub_step=3)
+        st = eng.load_state(tmp_path, "t")
+        st["force_tacet"] = True
+        st["force_fermate"] = True
+        eng.save_state(tmp_path, "t", st)
+        ok, msg = eng.upgrade_tacet_step(tmp_path, "t", "plan:2#3")
+        assert ok is True, msg
+        reread = eng.load_state(tmp_path, "t")
+        node = eng._NODES["plan:2"]
+        assert eng.step_tacet_forced(reread, node, 3) is False
+        assert eng.step_tacet_forced(reread, node, 4) is False  # 脊柱本就 False
+        ok2, _ = eng.upgrade_tacet_step(tmp_path, "t", "plan:2#4")
+        assert ok2 is False  # 重映射脊柱不可升级
+
+    def test_upgrade_cli(self, tmp_path, capsys):
+        _init_git(tmp_path)
+        _write_state_full(tmp_path, "t", "understand", 2, sub_step=2)
+        st = eng.load_state(tmp_path, "t")
+        st["force_tacet"] = True
+        eng.save_state(tmp_path, "t", st)
+        rc = eng.main(["upgrade", "t", "understand:2#2", "--cwd", str(tmp_path)])
+        assert rc == 0
+        assert "✓" in capsys.readouterr().out
+        assert eng.load_state(tmp_path, "t")["tacet_upgraded"] == ["understand:2#2"]
+        rc2 = eng.main(["upgrade", "t", "--cwd", str(tmp_path)])
+        assert rc2 == 1  # 缺步 id
+
+    def test_handoff_pack_mentions_upgraded(self, tmp_path):
+        # 交接包 tacet 告知段补升级清单——「材料薄是设计内」不覆盖已升级步
+        _write_state_full(tmp_path, "t", "understand", 2, sub_step=2)
+        st = eng.load_state(tmp_path, "t")
+        st["force_tacet"] = True
+        st["problem_statement"] = "测试问题"
+        st["tacet_upgraded"] = ["understand:2#2"]
+        eng.save_state(tmp_path, "t", st)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None
+        assert "understand:2#2" in pack and "升级" in pack
+
+
 class TestForceFermate:
     """fermate（plan-only）维度（fermate-plan-only-design，2026-08-26）。
 

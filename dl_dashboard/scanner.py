@@ -51,6 +51,7 @@ class WorkflowInfo:
     gate_actionable: bool = False  # gate 按钮可作用（门栏扣留 / 闸门后置阶段 pending）
     force_tacet: bool = False
     force_fermate: bool = False
+    tacet_upgraded: tuple[str, ...] = ()  # 中途升级步清单（evolution-up P3）
     error: str | None = None
     # 在飞段（driver 起跑落盘、收工清除）：总执行时间 = Σ 完成段 + 本段实跑
     current_segment: dict | None = None
@@ -89,12 +90,15 @@ def iter_workflow_names(project: Path) -> list[str]:
 
 
 def _silent_steps(state: dict) -> set:
-    """该工作流的整步静默集：fermate 裁剪（深度）+ tacet 静默（密度），正交叠加。"""
+    """该工作流的整步静默集：fermate 裁剪（深度）+ tacet 静默（密度），正交叠加。
+    tacet 侧与 engine.tacet_silent_for 同口径——已升级步（tacet_upgraded，
+    evolution-up P3）移出静默集，时间轴渲为可见。"""
     silent: set = set()
     if state.get("force_fermate"):
         silent |= FERMATE_SILENT_STEPS
     if state.get("force_tacet"):
         silent |= tacet_silent_steps(fermate=bool(state.get("force_fermate")))
+        silent -= set(state.get("tacet_upgraded") or [])
     return silent
 
 
@@ -176,6 +180,7 @@ def scan_workflow(project: Path, name: str) -> WorkflowInfo:
         gate_actionable=gate_actionable_of(state),
         force_tacet=bool(state.get("force_tacet")),
         force_fermate=bool(state.get("force_fermate")),
+        tacet_upgraded=tuple(state.get("tacet_upgraded") or []),
         current_segment=state.get("current_segment"),
     )
 

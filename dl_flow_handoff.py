@@ -395,6 +395,14 @@ def handoff_pack(project_root: Path, name: str) -> str | None:
             "u:1#4 / 修法 plan:1#2 / 计划包 plan:4#4），其余步 TACET 静默--"
             "上游材料薄是设计内状态，非缺漏；禁自行补做已沉默的步骤。\n"
         )
+        upgraded = state.get("tacet_upgraded") or []
+        if upgraded:
+            # 中途升级（evolution-up P3）：已升级步移出静默集按全量执行——
+            # 「材料薄是设计内」不覆盖它们，缺材料=真缺漏
+            lines.append(
+                f"已升级步（移出静默集，按全量执行）：{', '.join(upgraded)}——"
+                "这些步及其下游材料应齐备，不适用上述「材料薄是设计内」。\n"
+            )
     if state.get("force_fermate"):
         # fermate（plan-only）：告知终点形态（fermate-plan-only-design §3 F1
         # + fermate-auto-complete-design 自动完结），防模型按全量记忆预期/预习
