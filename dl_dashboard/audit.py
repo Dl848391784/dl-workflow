@@ -12,6 +12,7 @@
 读回确认步（Step.gate is None，dl_flow_nodes 单源）无 judge 不计入通过率。
 坏行/缺文件一律降级（如实 None/空集），单点损坏不拖垮整页。
 """
+
 from __future__ import annotations
 
 import json
@@ -70,19 +71,23 @@ def gate_outcomes(project: Path, name: str) -> dict:
                 b["count"] += 1
                 b["last_reason"] = str(d.get("reason", ""))[:300]
             elif kind == "gate" and d.get("gate") == "passed":
-                node_gates.append({
-                    "node": str(d.get("node", "?")),
-                    "sub_step": d.get("sub_step"),
-                    "ts": str(d.get("ts", "")),
-                    "via": str(d.get("via", "")),
-                })
+                node_gates.append(
+                    {
+                        "node": str(d.get("node", "?")),
+                        "sub_step": d.get("sub_step"),
+                        "ts": str(d.get("ts", "")),
+                        "via": str(d.get("via", "")),
+                    }
+                )
             elif kind == "rubric-dispute":
-                disputes.append({
-                    "node": str(d.get("node", "?")),
-                    "sub_step": d.get("sub_step"),
-                    "ts": str(d.get("ts", "")),
-                    "reason": str(d.get("reason") or d.get("text") or ""),
-                })
+                disputes.append(
+                    {
+                        "node": str(d.get("node", "?")),
+                        "sub_step": d.get("sub_step"),
+                        "ts": str(d.get("ts", "")),
+                        "reason": str(d.get("reason") or d.get("text") or ""),
+                    }
+                )
     jmap = _step_judge_map()
     steps: list[dict] = []
     for (minor, sub), tc in traces.items():
@@ -98,16 +103,20 @@ def gate_outcomes(project: Path, name: str) -> dict:
             status = "passed"
         else:
             status = "blocked"  # 末次提交被判 block（未过 / 人工 step-pass）
-        steps.append({
-            "node": nid, "sub_step": sub, "traces": tc, "blocked": blocked,
-            "status": status,
-            "attempts_to_pass": tc if status == "passed" else None,
-            "last_reason": bl["last_reason"],
-        })
+        steps.append(
+            {
+                "node": nid,
+                "sub_step": sub,
+                "traces": tc,
+                "blocked": blocked,
+                "status": status,
+                "attempts_to_pass": tc if status == "passed" else None,
+                "last_reason": bl["last_reason"],
+            }
+        )
     steps.sort(key=lambda r: (r["node"], r["sub_step"]))
     judged = [s for s in steps if s["status"] in ("passed", "blocked")]
-    first_pass = sum(1 for s in judged
-                     if s["status"] == "passed" and s["traces"] == 1)
+    first_pass = sum(1 for s in judged if s["status"] == "passed" and s["traces"] == 1)
     return {
         "steps": steps,
         "judged": len(judged),
@@ -125,11 +134,19 @@ def node_costs(project: Path, name: str, cache_dir: Path) -> list[dict]:
     stats = metrics.collect_stats(project, name, cache_dir)
     by_node: dict[str, dict] = {}
     for s in stats:
-        n = by_node.setdefault(s.node, {
-            "node": s.node, "segments": 0, "turns": 0, "duration_s": 0,
-            "cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0,
-            "cache_read": 0,
-        })
+        n = by_node.setdefault(
+            s.node,
+            {
+                "node": s.node,
+                "segments": 0,
+                "turns": 0,
+                "duration_s": 0,
+                "cost_usd": 0.0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "cache_read": 0,
+            },
+        )
         n["segments"] += 1
         n["turns"] += s.num_turns or 0
         n["duration_s"] += s.duration_s or 0

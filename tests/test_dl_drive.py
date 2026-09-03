@@ -4028,6 +4028,7 @@ def test_steer_helpers_offset_and_list(wf_repo):
         steer_list,
         steer_pending,
     )
+
     assert steer_pending(wf_repo, "t") == []
     steer_append(wf_repo, "t", "第一条", ts="t1")
     steer_append(wf_repo, "t", "第二条", ts="t2")
@@ -4043,6 +4044,7 @@ def test_steer_helpers_offset_and_list(wf_repo):
 
 def test_steer_injected_into_segment_prompt_and_consumed(wf_repo):
     from dl_flow_common import steer_append, steer_pending
+
     drv = _load(DRIVER, "drv_steer")
     state = _write_state(wf_repo)
     node = engine.get_node("understand", 1)

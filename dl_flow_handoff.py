@@ -331,7 +331,7 @@ _ROOT_CAUSE_RE = re.compile(r"根因@[^@\"\\]{1,40}@[^\"\\\n]{4,}")
 def _text_bigrams(text: str) -> set[str]:
     """字符 bigram 集（小写化、去空白）——CJK 天然逐字切分，零依赖。"""
     t = re.sub(r"\s+", "", text.lower())
-    return {t[i:i + 2] for i in range(len(t) - 1)} if len(t) >= 2 else set()
+    return {t[i : i + 2] for i in range(len(t) - 1)} if len(t) >= 2 else set()
 
 
 def _text_similarity(a: str, b: str) -> float:
@@ -388,10 +388,14 @@ def similar_instances(
     problem = ((state or {}).get("problem_statement") or "").strip()
     if not problem:
         return []
-    pool = list(dict.fromkeys(
-        [Path(project_root), *(projects if projects is not None
-                               else _registered_projects())]
-    ))
+    pool = list(
+        dict.fromkeys(
+            [
+                Path(project_root),
+                *(projects if projects is not None else _registered_projects()),
+            ]
+        )
+    )
     scored: list[tuple[float, Path, str, dict]] = []
     for proj in pool:
         wf_root = proj / ".claude" / "workflows"

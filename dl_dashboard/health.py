@@ -8,6 +8,7 @@
 
 单实例损坏隔离（errors 如实暴露，不拖垮全局，scanner 同姿势）。
 """
+
 from __future__ import annotations
 
 import logging
@@ -42,17 +43,24 @@ def health_report(projects, cache_dir: Path) -> dict:
                 nc = audit.node_costs(project, name, cache_dir)
             except Exception as exc:  # noqa: BLE001 - 隔离边界，errors 即暴露面
                 log.warning("health 聚合跳过坏实例 %s/%s", project, name, exc_info=True)
-                errors.append({"project": str(project), "name": name,
-                               "error": str(exc)})
+                errors.append(
+                    {"project": str(project), "name": name, "error": str(exc)}
+                )
                 continue
             instances += 1
             for s in g["steps"]:
                 if s["status"] not in ("passed", "blocked"):
                     continue  # 免判/unknown 步不进 gate 榜（audit 口径单源）
                 key = f"{s['node']}#{s['sub_step']}"
-                row = gates.setdefault(key, {
-                    "step": key, "judged": 0, "blocked": 0, "verdicts": 0,
-                })
+                row = gates.setdefault(
+                    key,
+                    {
+                        "step": key,
+                        "judged": 0,
+                        "blocked": 0,
+                        "verdicts": 0,
+                    },
+                )
                 row["judged"] += 1
                 row["blocked"] += s["blocked"]
                 row["verdicts"] += s["traces"]
@@ -72,15 +80,17 @@ def health_report(projects, cache_dir: Path) -> dict:
     for node, vals in cost_vals.items():
         vals_s = sorted(vals)
         durs_s = sorted(dur_vals[node])
-        node_costs.append({
-            "node": node,
-            "instances": len(vals),
-            "total_cost": round(sum(vals), 4),
-            "p50_cost": _pct(vals_s, 0.5),
-            "p90_cost": _pct(vals_s, 0.9),
-            "p50_duration_s": _pct(durs_s, 0.5),
-            "p90_duration_s": _pct(durs_s, 0.9),
-        })
+        node_costs.append(
+            {
+                "node": node,
+                "instances": len(vals),
+                "total_cost": round(sum(vals), 4),
+                "p50_cost": _pct(vals_s, 0.5),
+                "p90_cost": _pct(vals_s, 0.9),
+                "p50_duration_s": _pct(durs_s, 0.5),
+                "p90_duration_s": _pct(durs_s, 0.9),
+            }
+        )
     node_costs.sort(key=lambda r: -r["total_cost"])
     dispute_board = sorted(
         ({"step": k, "count": v} for k, v in disputes.items()),

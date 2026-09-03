@@ -9717,19 +9717,32 @@ class TestSimilarInstances:
     def _mk_instance(self, proj, name, statement, evidence_text=""):
         meta = proj / ".claude" / "workflows" / name
         meta.mkdir(parents=True, exist_ok=True)
-        (meta / "state.json").write_text(json.dumps({
-            "name": name, "phase": "understand", "sub_index": 1,
-            "sub_step_index": 1, "node": "understand:1", "gate": "pending",
-            "problem_statement": statement, "history": [],
-            "created_at": "x", "updated_at": "x",
-        }), encoding="utf-8")
+        (meta / "state.json").write_text(
+            json.dumps(
+                {
+                    "name": name,
+                    "phase": "understand",
+                    "sub_index": 1,
+                    "sub_step_index": 1,
+                    "node": "understand:1",
+                    "gate": "pending",
+                    "problem_statement": statement,
+                    "history": [],
+                    "created_at": "x",
+                    "updated_at": "x",
+                }
+            ),
+            encoding="utf-8",
+        )
         if evidence_text:
             ev = proj / ".claude" / "evidence"
             ev.mkdir(parents=True, exist_ok=True)
             (ev / f"{name}.jsonl").write_text(evidence_text, encoding="utf-8")
 
     def test_bigram_similarity(self):
-        assert eng._text_similarity("年化收益显示异常偏大", "年化收益显示异常偏大") == 1.0
+        assert (
+            eng._text_similarity("年化收益显示异常偏大", "年化收益显示异常偏大") == 1.0
+        )
         assert eng._text_similarity("年化收益", "年化收益率") > 0.5
         assert eng._text_similarity("年化收益显示异常", "数据库连接超时重试") < 0.1
 
@@ -9759,12 +9772,20 @@ class TestSimilarInstances:
 
     def test_handoff_injects_section_in_understand(self, tmp_path):
         from unittest.mock import patch
+
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=2)
         st = eng.load_state(tmp_path, "t")
         st["problem_statement"] = "年化收益显示异常"
         eng.save_state(tmp_path, "t", st)
-        fake = [{"project": "/p", "name": "old_wf", "similarity": 0.31,
-                 "node": "plan:2", "root_causes": ["根因@A@x.py:f:L1-2：双重×100"]}]
+        fake = [
+            {
+                "project": "/p",
+                "name": "old_wf",
+                "similarity": 0.31,
+                "node": "plan:2",
+                "root_causes": ["根因@A@x.py:f:L1-2：双重×100"],
+            }
+        ]
         with patch("dl_flow_handoff.similar_instances", return_value=fake):
             pack = eng.handoff_pack(tmp_path, "t")
         assert "相似历史实例" in pack and "old_wf" in pack
@@ -9773,6 +9794,7 @@ class TestSimilarInstances:
 
     def test_handoff_no_section_when_no_hits(self, tmp_path):
         from unittest.mock import patch
+
         _write_state_full(tmp_path, "t", "understand", 1, sub_step=2)
         st = eng.load_state(tmp_path, "t")
         st["problem_statement"] = "年化收益显示异常"
@@ -9783,6 +9805,7 @@ class TestSimilarInstances:
 
     def test_handoff_no_section_in_plan_phase(self, tmp_path):
         from unittest.mock import patch
+
         _write_state_full(tmp_path, "t", "plan", 1, sub_step=2)
         st = eng.load_state(tmp_path, "t")
         st["problem_statement"] = "年化收益显示异常"
@@ -9794,9 +9817,16 @@ class TestSimilarInstances:
 
     def test_section_size_cap(self, tmp_path):
         # 体积护栏单测 _similar_section：5 实例 × 300 字符根因必触发截断
-        fake = [{"project": "/p", "name": f"w{i}", "similarity": 0.5,
-                 "node": "n", "root_causes": ["根因@A@x" + "长" * 300]}
-                for i in range(5)]
+        fake = [
+            {
+                "project": "/p",
+                "name": f"w{i}",
+                "similarity": 0.5,
+                "node": "n",
+                "root_causes": ["根因@A@x" + "长" * 300],
+            }
+            for i in range(5)
+        ]
         sec = eng._similar_section(fake)
         assert len(sec) <= 1300  # 1200 上限 + 截断标记容差
         assert "截断" in sec
