@@ -59,6 +59,8 @@
 
 **不做**：自动触发升级（阈值用真实分布标定是下一版的事，本次只给人工/模型申请通道）；跨节点批量升级（用 state-reset 既有能力组合即可）。
 
+**修订行（2026-09-04，commit 7b7bc1e）**：tacet×MERGED 交互面——升级步落在 MERGED_RUN_NODES 节点时，合并段续步循环原无逐步 tacet 判定，会横扫真跑后续仍静默步（真机 ann_pct_live_evoup 的 u:2#3/#4 实证被横扫；升级前不可达——MERGED 节点在 tacet 下全静默进不了合并段，P3 首次开通该路径）。修=`_run_merged_run` 的 can_continue 加 `step_tacet_forced` 判定，命中即收段交还主循环静默跳步。「新开通路径必 pinning」再次兑现。
+
 ## 5. P4：相似实例检索注入 understand（跨实例知识层 v1）
 
 **动机**：2026-09-02「同 bug class 两实例改动面 10/10 一致」是手工对照——实例间的知识复用应为系统行为。evolution 经验当前写完即躺平。
