@@ -169,6 +169,57 @@ def test_detail_missing_workflow_returns_404(client):
     assert r.status_code == 404
 
 
+def test_detail_includes_audit(client):
+    """审计数据随 detail 下发（evolution-up P1）：一次通过率/block 分布/节点成本。"""
+    c, project = client
+    ev = project / ".claude" / "evidence"
+    ev.mkdir(parents=True, exist_ok=True)
+    (ev / "demo.jsonl").write_text(
+        json.dumps({"kind": "skill-trace", "minor_stage": "TaskBreakdown",
+                    "sub_step": 4, "q": [], "a": []}) + "\n",
+        encoding="utf-8")
+    d = c.get("/api/workflow", params={"project": str(project), "name": "demo"}).json()
+    assert d["audit"]["gates"]["judged"] == 1
+    assert d["audit"]["gates"]["first_pass_rate"] == 1.0
+    assert d["audit"]["track"]["force_tacet"] is False
+    assert isinstance(d["audit"]["nodes"], list)
+
+
+def test_audit_endpoint_degrades_on_missing(client):
+    c, project = client
+    r = c.get("/api/audit", params={"project": str(project), "name": "demo"})
+    assert r.status_code == 200
+    d = r.json()
+    assert d["gates"]["judged"] == 0 and d["gates"]["first_pass_rate"] is None
+
+
+def test_health_endpoint(client):
+    """系统健康页端点（evolution-up P2）：跨实例 gate 榜/节点成本榜/dispute 榜。"""
+    c, project = client
+    ev = project / ".claude" / "evidence"
+    ev.mkdir(parents=True, exist_ok=True)
+    (ev / "demo.jsonl").write_text(
+        json.dumps({"kind": "skill-trace", "minor_stage": "TaskBreakdown",
+                    "sub_step": 3, "q": [], "a": []}) + "\n"
+        + json.dumps({"kind": "gate", "node": "plan:2", "sub_step": 3,
+                      "gate": "blocked", "ts": "t", "reason": "x"}) + "\n"
+        + json.dumps({"kind": "skill-trace", "minor_stage": "TaskBreakdown",
+                      "sub_step": 3, "q": [], "a": []}) + "\n",
+        encoding="utf-8")
+    r = c.get("/api/health")
+    assert r.status_code == 200
+    d = r.json()
+    assert d["instances"] == 1
+    row = next(b for b in d["gate_board"] if b["step"] == "plan:2#3")
+    assert row["blocked"] == 1 and row["judged"] == 1
+
+
+def test_health_page_served(client):
+    c, _ = client
+    r = c.get("/health")
+    assert r.status_code == 200 and "系统健康" in r.text
+
+
 def test_post_endpoints_reject_path_traversal_name(client):
     c, project = client
     payload = {"project": str(project), "name": "../../../etc"}

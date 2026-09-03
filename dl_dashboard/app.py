@@ -18,7 +18,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from dl_dashboard import actions, metrics, outputs, scanner
+from dl_dashboard import actions, audit, health, metrics, outputs, scanner
 from dl_dashboard.config import DashboardConfig, load_config
 from dl_dashboard.driver_mgr import DriverManager
 
@@ -130,7 +130,7 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
     def _serve_html(fname: str) -> HTMLResponse:
         """读 html 注入新鲜版本戳（?v= 死值/旧值一律替换）。"""
         html = re.sub(
-            r"((?:app\.js|style\.css|artifact\.html)\?v=)[A-Za-z0-9]+",
+            r"((?:app\.js|health\.js|style\.css|artifact\.html)\?v=)[A-Za-z0-9]+",
             lambda m: f"{m.group(1)}{_static_ver()}",
             (STATIC_DIR / fname).read_text(encoding="utf-8"),
         )
@@ -191,6 +191,12 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
                 size = fh.tell()
                 fh.seek(max(0, size - 8192))
                 log_tail = fh.read().decode("utf-8", errors="replace")[-4000:]
+        audit_data: dict = {}
+        try:
+            audit_data = audit.audit_report(proj, name, CACHE_DIR)
+        except Exception as exc:  # noqa: BLE001 - 审计降级不拖垮详情页，error 暴露
+            log.warning("audit_report 失败 %s/%s: %s", proj, name, exc)
+            audit_data = {"error": str(exc)}
         return {
             "info": asdict(info),
             "stats": [asdict(s) for s in stats],
@@ -201,7 +207,27 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
             "driver_pid": mgr.alive(proj, name),
             "log_tail": log_tail,
             "artifacts": outputs.artifact_status(proj, name),
+            "audit": audit_data,
         }
+
+    @app.get("/api/audit")
+    def audit_ep(project: str, name: str):
+        """实例自动审计（evolution-up P1）：一次通过率/block 分布/节点成本。"""
+        proj = _project(project)
+        name = _name(name)
+        try:
+            return audit.audit_report(proj, name, CACHE_DIR)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.get("/api/health")
+    def health_ep():
+        """系统健康页数据（evolution-up P2）：跨实例 gate/成本/dispute 三榜。"""
+        return health.health_report(cfg.projects, CACHE_DIR)
+
+    @app.get("/health")
+    def health_page():
+        return _serve_html("health.html")
 
     @app.post("/api/create")
     async def create(body: dict):

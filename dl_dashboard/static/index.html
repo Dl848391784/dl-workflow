@@ -15,7 +15,10 @@
       <p>5 阶段工作流 · 跨项目运维面</p>
     </div>
   </div>
-  <button id="create-toggle" type="button" class="btn primary">新建工作流</button>
+  <div class="topbar-actions">
+    <a class="btn ghost" href="/health" target="_blank">系统健康</a>
+    <button id="create-toggle" type="button" class="btn primary">新建工作流</button>
+  </div>
 </header>
 <div id="create-modal" class="modal-veil hidden">
   <div class="modal">
@@ -102,6 +105,10 @@
         <span id="tl-prog-label" class="num"></span>
       </div>
       <div id="timeline"></div>
+      <div class="section-head">
+        <h3>运行审计</h3><span id="audit-summary" class="hint"></span>
+      </div>
+      <div id="audit"></div>
       <div class="section-head">
         <h3>代码改动面</h3><span id="cp-count" class="hint"></span>
         <button id="outputs-refresh" class="btn ghost" type="button">刷新产物</button>
