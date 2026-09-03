@@ -8,8 +8,9 @@
 - statement 字段尾巴 -> dimmed meta 行（样式降级零内容删除）；
 - change_point= 字段 -> dashboard 同款改动面卡片（锚点+改前/改后对照+现状
   代码 ±4 行，解析单源=dl_flow_common.parse_change_points）；
-- interface= 字段 -> 单改动项小链（Consumes->本项改动->Produces 芯片流，
-  边只在本项字段内、跨项不连——v0.6 合并大图的全对全边是虚构，已退役）；
+- interface= 字段 -> 单改动项小链 SVG（Consumes->本项改动->Produces 三列
+  节点+组级箭头，边只在本项字段内、跨项不连——v0.6 合并大图的全对全边
+  是虚构，已退役）；
 - 重点标注（ref chip/关键词 badge/数值加粗）+ 长 bullet 按 。；边界拆分。
 
 入口：render_html(md_path, html_path, version="")——异常上抛，调用方
@@ -157,16 +158,9 @@ font-family:var(--mono);font-size:12.5px;overflow:hidden}
 .cp-ctx{margin:0;border-top:1px solid var(--line);border-radius:0;font-size:12px}
 .ctx-hl{background:rgba(250,204,21,.22)}
 /* 单改动项小链（Consumes->本项改动->Produces，边只在本项 interface= 内） */
-.flowline{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:10px 0 4px;
-padding:8px 10px;background:var(--bg-soft);border:1px solid var(--line);
-border-radius:8px;font-size:12.5px}
-.fl-chip{font-family:var(--mono);font-size:11.5px;padding:2px 8px;border-radius:10px;
-white-space:nowrap;max-width:320px;overflow:hidden;text-overflow:ellipsis}
-.fl-cons{background:#e8f0fe;color:#1a56db}
-.fl-mid{background:#fff7ed;color:#c2410c;font-weight:600}
-.fl-prod{background:#ecfdf5;color:#047857}
-.fl-arrow{color:var(--muted);font-weight:700}
-.fl-more{color:var(--muted);font-size:11px}
+.flowline{margin:10px 0 4px;padding:6px 10px;background:var(--bg-soft);
+border:1px solid var(--line);border-radius:8px;overflow-x:auto}
+.flowline svg{max-width:100%;height:auto;display:block}
 @media (max-width:900px){
 #toc{position:static;width:auto;border-right:none;border-bottom:1px solid var(--line)}
 main{margin-left:0;padding:24px 18px 60px}
@@ -285,37 +279,66 @@ def _iface_labels(chunk: str) -> list[str]:
     return labels
 
 
-def _chips(labels: list[str], cls: str, cap: int = 3) -> str:
-    """flowline 芯片组（超 cap 折 +n；title 留全文）。"""
-    out = []
-    for label in labels[:cap]:
-        text = label if len(label) <= 26 else label[:25] + "…"
-        out.append(
-            f'<span class="fl-chip {cls}" title="{_esc(label)}">{_esc(text)}</span>'
+def _flow_svg(consumes: list[str], middles: list[str], produces: list[str]) -> str:
+    """单改动项小链 SVG：Consumes -> 本项改动 -> Produces 三列节点 + 组级箭头。
+
+    边只画「组 -> 组」两条（消费组->改动组、改动组->产出组）——interface= 字段
+    语义即本项三方的组级关系；节点间不画全对全（那是无背书的虚构边，v0.6 教训）。
+    """
+    cols = [consumes, middles, produces]
+    col_x = [10, 320, 630]
+    node_w, node_h, row_gap = 220, 36, 50
+    rows = max(len(c) for c in cols)
+    height = rows * row_gap + 14
+    palette = [("#e8f0fe", "#1a56db"), ("#fff7ed", "#c2410c"), ("#ecfdf5", "#047857")]
+    parts = [
+        f'<svg viewBox="0 0 860 {height}" xmlns="http://www.w3.org/2000/svg" '
+        'font-family="ui-monospace,Menlo,Consolas,monospace" font-size="12">',
+        '<defs><marker id="fl-arr" viewBox="0 0 10 10" refX="9" refY="5" '
+        'markerWidth="8" markerHeight="8" orient="auto-start-reverse">'
+        '<path d="M 0 0 L 10 5 L 0 10 z" fill="#656d76"/></marker></defs>',
+    ]
+
+    def _stack_center(col: int) -> float:
+        n = len(cols[col])
+        return 8 + (n * row_gap - (row_gap - node_h)) / 2
+
+    # 组级箭头两条：列栈右缘中点 -> 下一列栈左缘中点
+    for src, dst in ((0, 1), (1, 2)):
+        y1, y2 = _stack_center(src), _stack_center(dst)
+        parts.append(
+            f'<line x1="{col_x[src] + node_w + 6}" y1="{y1}" '
+            f'x2="{col_x[dst] - 8}" y2="{y2}" stroke="#656d76" '
+            'stroke-width="1.5" marker-end="url(#fl-arr)"/>'
         )
-    if len(labels) > cap:
-        out.append(f'<span class="fl-more">+{len(labels) - cap}</span>')
-    return "".join(out)
+    for col, labels in enumerate(cols):
+        bg, fg = palette[col]
+        for row, label in enumerate(labels):
+            x, y = col_x[col], 8 + row * row_gap
+            text = _esc(label if len(label) <= 24 else label[:23] + "…")
+            weight = ' font-weight="bold"' if col == 1 else ""
+            parts.append(
+                f'<g><rect x="{x}" y="{y}" width="{node_w}" height="{node_h}" rx="7" '
+                f'fill="{bg}" stroke="{fg}" stroke-opacity=".35"/>'
+                f'<text x="{x + node_w / 2}" y="{y + node_h / 2 + 4}" '
+                f'text-anchor="middle" fill="{fg}"{weight}>'
+                f"{text}<title>{_esc(label)}</title></text></g>"
+            )
+    parts.append("</svg>")
+    return "".join(parts)
 
 
 def _mini_flow_html(
     consumes: list[str], middles: list[str], produces: list[str]
 ) -> str:
-    """单改动项小链：Consumes -> 本项改动 -> Produces（芯片流，非图）。
+    """单改动项小链（SVG 组级箭头）。
 
     边只存在于本项 interface= 字段内部——该字段语义即「本项 Consumes X、
     Produces Y」，跨项一律不连（v0.6 合并大图的全对全边是虚构，已退役）。
     """
-    parts = ['<div class="flowline">']
-    if consumes:
-        parts.append(_chips(consumes, "fl-cons"))
-        parts.append('<span class="fl-arrow">→</span>')
-    parts.append(_chips(middles or ["（本项无代码锚点）"], "fl-mid"))
-    if produces:
-        parts.append('<span class="fl-arrow">→</span>')
-        parts.append(_chips(produces, "fl-prod"))
-    parts.append("</div>")
-    return "".join(parts)
+    if not middles:
+        middles = ["（本项无代码锚点）"]
+    return f'<div class="flowline">{_flow_svg(consumes, middles, produces)}</div>'
 
 
 # ---------- 重点标注 + 长文拆分 ----------

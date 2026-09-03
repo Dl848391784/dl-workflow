@@ -98,10 +98,11 @@ def test_per_item_flowline(tmp_path):
     h = _render(tmp_path, text)
     body = h[h.find("<article>") :]
     assert 'class="flowline"' in body
-    assert "load_backtest_results" in body  # Consumes 芯片
-    assert "_render_report" in body or "app.py" in body  # 本项改动芯片
-    assert "fl-prod" in body
-    assert "<svg" not in body and 'id="调用流程"' not in body  # 合并大图不复活
+    assert "load_backtest_results" in body  # Consumes 节点
+    assert "app.py" in body  # 本项改动节点
+    assert "<svg" in body  # 每项一张小图（组级箭头）
+    assert body.count("marker-end") == 2  # 边只两条：消费组->改动组->产出组
+    assert 'id="调用流程"' not in body  # 合并大图节不复活
 
 
 def test_per_item_flowline_halfwidth_sep(tmp_path):
