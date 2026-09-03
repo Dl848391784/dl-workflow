@@ -14,7 +14,7 @@ import weakref
 from dataclasses import asdict
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -334,9 +334,14 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
         return {"ok": ok, "msg": msg}
 
     @app.get("/api/events")
-    async def events():
+    async def events(request: Request):
         async def gen():
             while True:
+                # 断连即退：旧版 while True 无出口——最后一个标签页关闭后
+                # server 仍每 2s 全量扫描空转；且 SSE 长连接不死是 SIGTERM
+                # 优雅退出被无限阻塞的温床（2026-09-02 两次 kill -9 实爆）
+                if await request.is_disconnected():
+                    return
                 snap = await asyncio.to_thread(_snapshot)
                 yield f"data: {json.dumps(snap, ensure_ascii=False)}\n\n"
                 await asyncio.sleep(2)
@@ -352,7 +357,10 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
     cfg = load_config()
-    uvicorn.run(create_app(cfg), host=cfg.host, port=cfg.port)
+    # timeout_graceful_shutdown：SSE 长连接在场时优雅退出会无限等连接关闭
+    # （kill SIGTERM 不死、被迫 kill -9 两轮实爆）——3s 兜底强制关闭
+    uvicorn.run(create_app(cfg), host=cfg.host, port=cfg.port,
+                timeout_graceful_shutdown=3)
 
 
 if __name__ == "__main__":

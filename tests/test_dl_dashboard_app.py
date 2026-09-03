@@ -197,20 +197,66 @@ def test_post_gate_calls_action_and_redrives(client):
     rd.assert_called_once()
 
 
+def _fake_request(disconnected_after: int = 0):
+    """SSE 测试用 Request 替身：is_disconnected 第 N+1 次调用起返回 True。"""
+    calls = {"n": 0}
+
+    class _Req:
+        async def is_disconnected(self):
+            calls["n"] += 1
+            return calls["n"] > disconnected_after
+
+    return _Req()
+
+
 def test_events_first_frame_via_generator(client):
     """StreamingResponse 在 TestClient 中会挂起；直接调用生成器取首帧。"""
     c, _ = client
     route = next(r for r in c.app.routes if getattr(r, "path", None) == "/api/events")
 
     async def _first():
-        resp = await route.endpoint()
+        resp = await route.endpoint(_fake_request(disconnected_after=999))
         chunk = await anext(resp.body_iterator)
+        await resp.body_iterator.aclose()
         return chunk
 
     chunk = asyncio.run(_first())
     assert chunk.startswith("data: ")
     payload = json.loads(chunk.removeprefix("data: "))
     assert "workflows" in payload
+
+
+def test_events_generator_exits_on_disconnect(client):
+    """客户端断连即退出生成器（evolution-up P0）——旧版 while True 无断连
+    检测：最后一个标签页关闭后 server 仍每 2s 全量扫描空转，且 SSE 长连接
+    不死是 SIGTERM 优雅退出被无限阻塞的温床。"""
+    c, _ = client
+    route = next(r for r in c.app.routes if getattr(r, "path", None) == "/api/events")
+
+    async def _drain():
+        resp = await route.endpoint(_fake_request(disconnected_after=1))
+        chunks = [c_ async for c_ in resp.body_iterator]
+        return chunks
+
+    # 首帧发出后第二次循环即检测到断连 -> 生成器自然终止（不挂起）
+    chunks = asyncio.run(asyncio.wait_for(_drain(), timeout=10))
+    assert len(chunks) <= 2
+
+
+def test_main_passes_graceful_shutdown_timeout(client):
+    """SIGTERM 不死修复 pin：uvicorn 优雅退出必须有超时兜底——SSE 长连接
+    在场时无 timeout = 无限等待（2026-09-02 两次 kill -9 实爆）。"""
+    import dl_dashboard.app as app_mod
+
+    captured = {}
+
+    def _fake_run(app, **kwargs):
+        captured.update(kwargs)
+
+    with patch("uvicorn.run", _fake_run):
+        app_mod.main()
+    assert captured.get("timeout_graceful_shutdown") is not None
+    assert captured["timeout_graceful_shutdown"] <= 5
 
 
 def test_post_delete_calls_action(client):
