@@ -190,6 +190,78 @@ def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
 
 
+# ---------- 插话通道（evolution-up P5，evolution-up-design §6）----------
+# 用户在段在跑期间给后续步骤的转向指令：dashboard 经 steer_append 落
+# steer.jsonl（只经脚本写，模型不可写——S14 同款纪律）；driver 段起跑读
+# offset 之后的未消费行注入段 prompt 并推进 offset。JSONL append-only
+# 留全史，offset 文件记消费位（文件截断/越界 = 重置重读，宁纵勿枉）。
+
+
+def steer_path(project_root: Path, name: str) -> Path:
+    return state_path(project_root, name).parent / "steer.jsonl"
+
+
+def _steer_offset_path(project_root: Path, name: str) -> Path:
+    return state_path(project_root, name).parent / "steer.offset"
+
+
+def _steer_offset(project_root: Path, name: str, size: int) -> int:
+    try:
+        off = int(_steer_offset_path(project_root, name).read_text(
+            encoding="utf-8").strip())
+    except (OSError, ValueError):
+        off = 0
+    return off if 0 <= off <= size else 0
+
+
+def steer_append(project_root: Path, name: str, text: str,
+                 ts: str | None = None) -> dict:
+    """写侧（dashboard actions 唯一调用方）：追加一条用户插话。"""
+    rec = {"ts": ts or _now(), "text": text}
+    p = steer_path(project_root, name)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with open(p, "a", encoding="utf-8") as f:
+        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    return rec
+
+
+def steer_list(project_root: Path, name: str) -> list[dict]:
+    """全部插话 + consumed 标记（dashboard 展示面；坏行跳过不拖垮）。"""
+    p = steer_path(project_root, name)
+    if not p.exists():
+        return []
+    raw = p.read_bytes()
+    off = _steer_offset(project_root, name, len(raw))
+    out: list[dict] = []
+    pos = 0
+    for line in raw.splitlines():
+        end = pos + len(line) + 1
+        pos = end
+        try:
+            d = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        d["consumed"] = end <= off
+        out.append(d)
+    return out
+
+
+def steer_pending(project_root: Path, name: str) -> list[dict]:
+    """未消费插话（driver 段起跑注入面）。"""
+    return [s for s in steer_list(project_root, name) if not s["consumed"]]
+
+
+def steer_consume(project_root: Path, name: str) -> list[dict]:
+    """读未消费插话并推进 offset（返回被消费行）。steer.jsonl 留全史——
+    注入后段异常只是「没生效」，内容不丢，dashboard 可见可重发。"""
+    pending = steer_pending(project_root, name)
+    if pending:
+        size = steer_path(project_root, name).stat().st_size
+        _steer_offset_path(project_root, name).write_text(
+            str(size), encoding="utf-8")
+    return pending
+
+
 def trace_payload_path(
     project_root: Path, name: str, state: dict | None = None
 ) -> Path:

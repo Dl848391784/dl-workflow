@@ -11,6 +11,8 @@ engine-core 依赖仅 _now（已下沉 dl_flow_common）。engine 经 re-export
 from __future__ import annotations
 
 import json
+import re
+import tomllib
 from pathlib import Path
 
 from dl_flow_common import (
@@ -314,6 +316,139 @@ def _slim_trace_for_pack(
     return json.dumps(out, ensure_ascii=False)
 
 
+# ---------- 相似实例检索（evolution-up P4，跨实例知识层 v1，evolution-up-design §5）----------
+#
+# 零 LLM 零嵌入：字符 bigram Jaccard 排相似度，top-K 附 根因@ 行（u/p 改动
+# 规格门落地的稳定格式）注入 understand 交接包——只作竞争假设候选
+# （参考非证据，对齐因果链证据规则：主链须本仓实际取证指针）。
+
+_SIMILAR_SECTION_MAX = 1200  # 整节体积护栏（字符）
+_SIMILAR_ROOT_CAUSE_MAX = 200  # 单条根因截断
+_SIMILAR_MIN_SCORE = 0.08  # 上榜阈值（低于=噪声，节缺席宁纵勿枉）
+_ROOT_CAUSE_RE = re.compile(r"根因@[^@\"\\]{1,40}@[^\"\\\n]{4,}")
+
+
+def _text_bigrams(text: str) -> set[str]:
+    """字符 bigram 集（小写化、去空白）——CJK 天然逐字切分，零依赖。"""
+    t = re.sub(r"\s+", "", text.lower())
+    return {t[i : i + 2] for i in range(len(t) - 1)} if len(t) >= 2 else set()
+
+
+def _text_similarity(a: str, b: str) -> float:
+    """bigram Jaccard 相似度（0~1）。"""
+    ta, tb = _text_bigrams(a), _text_bigrams(b)
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / len(ta | tb)
+
+
+def _registered_projects() -> list[Path]:
+    """相似实例检索的项目池：~/.dl-workflow/dashboard.toml 的 projects。
+
+    读不到/解析失败 = []（调用方叠加本项目，宁纵勿枉）——dashboard.toml
+    是 dashboard 配置文件，engine 侧只读借用其项目清单，缺它检索退化为
+    本项目内，不算故障。
+    """
+    p = Path.home() / ".dl-workflow" / "dashboard.toml"
+    try:
+        data = tomllib.loads(p.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return []
+    return [Path(x).expanduser() for x in data.get("projects", [])]
+
+
+def _root_cause_lines(project: Path, name: str) -> list[str]:
+    """实例 evidence 里的 根因@ 行（去重保序；scaffold 模板行含 < 占位符过滤）。"""
+    p = project / ".claude" / "evidence" / f"{name}.jsonl"
+    if not p.exists():
+        return []
+    out: list[str] = []
+    try:
+        text = p.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    for m in _ROOT_CAUSE_RE.finditer(text):
+        s = m.group(0)
+        if "<" in s:  # scaffold 骨架模板行（根因@<原子标签>@file:symbol:L<a>-<b>）
+            continue
+        s = s[:_SIMILAR_ROOT_CAUSE_MAX]
+        if s not in out:
+            out.append(s)
+    return out
+
+
+def similar_instances(
+    project_root: Path,
+    name: str,
+    limit: int = 3,
+    projects: list[Path] | None = None,
+) -> list[dict]:
+    """按问题陈述相似度检索历史实例（排除自身；projects=None 时读 dashboard.toml）。"""
+    state = load_state(project_root, name)
+    problem = ((state or {}).get("problem_statement") or "").strip()
+    if not problem:
+        return []
+    pool = list(
+        dict.fromkeys(
+            [
+                Path(project_root),
+                *(projects if projects is not None else _registered_projects()),
+            ]
+        )
+    )
+    scored: list[tuple[float, Path, str, dict]] = []
+    for proj in pool:
+        wf_root = proj / ".claude" / "workflows"
+        if not wf_root.is_dir():
+            continue
+        for d in wf_root.iterdir():
+            sp = d / "state.json"
+            if not sp.exists():
+                continue
+            try:
+                other = json.loads(sp.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue  # 坏实例隔离跳过（单实例不拖垮检索面）
+            if proj == Path(project_root) and d.name == name:
+                continue
+            stmt = (other.get("problem_statement") or "").strip()
+            if not stmt:
+                continue
+            sim = _text_similarity(problem, stmt)
+            if sim >= _SIMILAR_MIN_SCORE:
+                scored.append((sim, proj, d.name, other))
+    scored.sort(key=lambda x: -x[0])
+    return [
+        {
+            "project": str(proj),
+            "name": n,
+            "similarity": round(sim, 2),
+            "node": str(o.get("node", "?")),
+            "root_causes": _root_cause_lines(proj, n)[:3],
+        }
+        for sim, proj, n, o in scored[:limit]
+    ]
+
+
+def _similar_section(hits: list[dict]) -> str:
+    """相似历史实例节（体积护栏：超 _SIMILAR_SECTION_MAX 截断并明示）。"""
+    sec = [
+        "### 相似历史实例（机械检索，参考非证据）",
+        "以下来自历史实例的根因只作**竞争假设候选**——须本仓取证验证后才可进"
+        "因果主链，检索结果本身不是证据指针。",
+    ]
+    for h in hits:
+        sec.append(
+            f"- [{Path(h['project']).name}/{h['name']}] "
+            f"相似度 {h['similarity']}，到达 {h['node']}"
+        )
+        sec.extend(f"  {rc}" for rc in h["root_causes"])
+    text = "\n".join(sec)
+    if len(text) > _SIMILAR_SECTION_MAX:
+        text = text[:_SIMILAR_SECTION_MAX] + "\n……（截断）"
+    return text
+
+
 def handoff_pack(project_root: Path, name: str) -> str | None:
     """机械装配交接包（/clear 后新会话注入，context-handoff-design §3）。
 
@@ -386,6 +521,13 @@ def handoff_pack(project_root: Path, name: str) -> str | None:
     ]
     if problem:
         lines.append(f"### 用户问题陈述（开场采集原话）\n{problem}\n")
+    if problem and cur_phase == "understand":
+        # 相似实例检索（evolution-up P4）：只进 understand 交接包——历史
+        # 根因作竞争假设候选（参考非证据）；零命中节缺席（宁纵勿枉）。
+        # 范围铁律「只到 p」：plan 及以后不注入（plan 输入已拍板，检索=干扰）。
+        hits = similar_instances(project_root, name)
+        if hits:
+            lines.append(_similar_section(hits) + "\n")
     if state.get("force_tacet"):
         # force-tacet：告知下游材料薄是设计内状态（design §5），防模型把
         # 沉默当缺漏自行补做。
@@ -395,6 +537,14 @@ def handoff_pack(project_root: Path, name: str) -> str | None:
             "u:1#4 / 修法 plan:1#2 / 计划包 plan:4#4），其余步 TACET 静默--"
             "上游材料薄是设计内状态，非缺漏；禁自行补做已沉默的步骤。\n"
         )
+        upgraded = state.get("tacet_upgraded") or []
+        if upgraded:
+            # 中途升级（evolution-up P3）：已升级步移出静默集按全量执行——
+            # 「材料薄是设计内」不覆盖它们，缺材料=真缺漏
+            lines.append(
+                f"已升级步（移出静默集，按全量执行）：{', '.join(upgraded)}——"
+                "这些步及其下游材料应齐备，不适用上述「材料薄是设计内」。\n"
+            )
     if state.get("force_fermate"):
         # fermate（plan-only）：告知终点形态（fermate-plan-only-design §3 F1
         # + fermate-auto-complete-design 自动完结），防模型按全量记忆预期/预习

@@ -14,13 +14,14 @@ import weakref
 from dataclasses import asdict
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from dl_dashboard import actions, metrics, outputs, scanner
+from dl_dashboard import actions, audit, health, metrics, outputs, scanner
 from dl_dashboard.config import DashboardConfig, load_config
 from dl_dashboard.driver_mgr import DriverManager
+from dl_flow_common import steer_list
 
 log = logging.getLogger("dl_dashboard")
 
@@ -130,7 +131,7 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
     def _serve_html(fname: str) -> HTMLResponse:
         """读 html 注入新鲜版本戳（?v= 死值/旧值一律替换）。"""
         html = re.sub(
-            r"((?:app\.js|style\.css|artifact\.html)\?v=)[A-Za-z0-9]+",
+            r"((?:app\.js|health\.js|style\.css|artifact\.html)\?v=)[A-Za-z0-9]+",
             lambda m: f"{m.group(1)}{_static_ver()}",
             (STATIC_DIR / fname).read_text(encoding="utf-8"),
         )
@@ -191,6 +192,12 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
                 size = fh.tell()
                 fh.seek(max(0, size - 8192))
                 log_tail = fh.read().decode("utf-8", errors="replace")[-4000:]
+        audit_data: dict = {}
+        try:
+            audit_data = audit.audit_report(proj, name, CACHE_DIR)
+        except Exception as exc:  # noqa: BLE001 - 审计降级不拖垮详情页，error 暴露
+            log.warning("audit_report 失败 %s/%s: %s", proj, name, exc)
+            audit_data = {"error": str(exc)}
         return {
             "info": asdict(info),
             "stats": [asdict(s) for s in stats],
@@ -201,7 +208,38 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
             "driver_pid": mgr.alive(proj, name),
             "log_tail": log_tail,
             "artifacts": outputs.artifact_status(proj, name),
+            "audit": audit_data,
+            "steers": steer_list(proj, name),
         }
+
+    @app.post("/api/steer")
+    async def steer(body: dict):
+        """插话提交（evolution-up P5）：落 steer.jsonl，下一段起跑注入。"""
+        proj = _project(body["project"])
+        name = _name(body["name"])
+        async with _lock(proj, name):
+            ok, msg = await asyncio.to_thread(
+                actions.steer_submit, proj, name, body.get("text", ""))
+        return {"ok": ok, "msg": msg}
+
+    @app.get("/api/audit")
+    def audit_ep(project: str, name: str):
+        """实例自动审计（evolution-up P1）：一次通过率/block 分布/节点成本。"""
+        proj = _project(project)
+        name = _name(name)
+        try:
+            return audit.audit_report(proj, name, CACHE_DIR)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.get("/api/health")
+    def health_ep():
+        """系统健康页数据（evolution-up P2）：跨实例 gate/成本/dispute 三榜。"""
+        return health.health_report(cfg.projects, CACHE_DIR)
+
+    @app.get("/health")
+    def health_page():
+        return _serve_html("health.html")
 
     @app.post("/api/create")
     async def create(body: dict):
@@ -334,9 +372,14 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
         return {"ok": ok, "msg": msg}
 
     @app.get("/api/events")
-    async def events():
+    async def events(request: Request):
         async def gen():
             while True:
+                # 断连即退：旧版 while True 无出口——最后一个标签页关闭后
+                # server 仍每 2s 全量扫描空转；且 SSE 长连接不死是 SIGTERM
+                # 优雅退出被无限阻塞的温床（2026-09-02 两次 kill -9 实爆）
+                if await request.is_disconnected():
+                    return
                 snap = await asyncio.to_thread(_snapshot)
                 yield f"data: {json.dumps(snap, ensure_ascii=False)}\n\n"
                 await asyncio.sleep(2)
@@ -352,7 +395,10 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
     cfg = load_config()
-    uvicorn.run(create_app(cfg), host=cfg.host, port=cfg.port)
+    # timeout_graceful_shutdown：SSE 长连接在场时优雅退出会无限等连接关闭
+    # （kill SIGTERM 不死、被迫 kill -9 两轮实爆）——3s 兜底强制关闭
+    uvicorn.run(create_app(cfg), host=cfg.host, port=cfg.port,
+                timeout_graceful_shutdown=3)
 
 
 if __name__ == "__main__":

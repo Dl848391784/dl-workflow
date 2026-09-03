@@ -820,6 +820,12 @@ async function refreshDetail() {
     localStorage.getItem("dl_tl_skin"),
     d.artifacts && d.artifacts.understands && d.artifacts.understands.exists,
     d.artifacts && d.artifacts.plans && d.artifacts.plans.exists,
+    // 运行审计（evolution-up P1）：裁决/段账新增必须当场重渲审计区
+    d.audit && d.audit.gates
+      ? `${d.audit.gates.judged}:${d.audit.gates.blocked_total}` : "",
+    d.totals && d.totals.cost_usd,
+    // 插话（evolution-up P5）：新发/被消费翻面必须当场重渲列表
+    d.steers ? d.steers.length + ":" + d.steers.filter((s) => s.consumed).length : 0,
   ]);
   const changed = fp !== lastDetailFp;
   lastDetailFp = fp;
@@ -836,6 +842,90 @@ function renderDetailStatic(d) {
       (d.driver_pid ? `（driver #${d.driver_pid}）` : "（driver 已停）")) + modeTags;
   renderInteract(d);
   $("log-tail").textContent = d.log_tail;
+  renderAudit(d.audit);
+  renderSteer(d.steers || []);
+}
+
+/* 插话通道（evolution-up P5）：段在跑期间的转向指令——落 steer.jsonl，
+   下一个段起跑注入段 prompt（driver steer_consume）。不打断在跑段。 */
+function renderSteer(steers) {
+  const box = $("steer-list");
+  box.innerHTML = steers.length
+    ? "<ul class='steer-ul'>" + steers.map((s) =>
+        `<li class="${s.consumed ? "steer-done" : "steer-pending"}">` +
+        `<span class="num">${esc(s.ts)}</span> ${esc(s.text)}` +
+        `<span class="hint">${s.consumed ? "已注入" : "待注入"}</span></li>`
+      ).join("") + "</ul>"
+    : "";
+  const btn = $("steer-send");
+  btn.onclick = async () => {
+    const input = $("steer-text");
+    const text = input.value.trim();
+    if (!text) return;
+    const r = await post("/api/steer", { project: sel.project, name: sel.name, text });
+    toast(r.msg, r.ok);
+    if (r.ok) input.value = "";
+    refreshDetail();
+  };
+  $("steer-text").onkeydown = (e) => {
+    if (e.key === "Enter") btn.click();
+  };
+}
+
+/* 运行审计（evolution-up P1）：每轮运行的例行体检——一次通过率/block
+   分布/节点成本/dispute 清单。数据 = /api/workflow 的 audit 键（audit.py
+   纯读侧机械装配，零模型）。 */
+function renderAudit(a) {
+  const box = $("audit"), sum = $("audit-summary");
+  if (!a || a.error) {
+    sum.textContent = "";
+    box.innerHTML = a && a.error
+      ? `<div class="hint">审计数据暂缺：${esc(a.error)}</div>` : "";
+    return;
+  }
+  const g = a.gates || { judged: 0, steps: [], disputes: [] };
+  sum.textContent = g.judged
+    ? `一次通过率 ${(g.first_pass_rate * 100).toFixed(0)}%` +
+      `（${g.first_pass}/${g.judged} 步首判即过）· block ${g.blocked_total} 次`
+    : "尚无门控裁决";
+  let html = "";
+  if (g.judged) {
+    const STATUS = { passed: "过", blocked: "未过", confirm: "免判", unknown: "?" };
+    html += '<table class="audit-tbl"><thead><tr>' +
+      "<th>步骤</th><th>提交</th><th>block</th><th>状态</th><th>第几次过</th><th>末次判词</th>" +
+      "</tr></thead><tbody>";
+    for (const s of g.steps) {
+      const cls = s.blocked ? "audit-blocked" : "audit-pass";
+      html += `<tr class="${cls}"><td class="num">${esc(s.node)}#${s.sub_step}</td>` +
+        `<td class="num">${s.traces}</td><td class="num">${s.blocked}</td>` +
+        `<td>${STATUS[s.status] || esc(s.status)}</td>` +
+        `<td class="num">${s.attempts_to_pass ?? "—"}</td>` +
+        `<td class="audit-reason">${esc(s.last_reason || "")}</td></tr>`;
+    }
+    html += "</tbody></table>";
+  }
+  if (g.disputes && g.disputes.length) {
+    html += '<div class="audit-disputes"><b>判据申诉（rubric-dispute）：</b><ul>';
+    for (const d of g.disputes) {
+      html += `<li><span class="num">${esc(d.node)}#${d.sub_step}</span> ${esc(d.reason)}</li>`;
+    }
+    html += "</ul></div>";
+  }
+  if (a.nodes && a.nodes.length) {
+    html += '<table class="audit-tbl"><thead><tr>' +
+      "<th>节点</th><th>段</th><th>轮</th><th>墙钟</th><th>成本</th>" +
+      "<th>fresh in</th><th>cache read</th></tr></thead><tbody>";
+    for (const n of a.nodes) {
+      html += `<tr><td class="num">${esc(n.node)}</td>` +
+        `<td class="num">${n.segments}</td><td class="num">${n.turns}</td>` +
+        `<td class="num">${fmtHMS(n.duration_s)}</td>` +
+        `<td class="num">$${n.cost_usd}</td>` +
+        `<td class="num">${fmtTok(n.input_tokens)}</td>` +
+        `<td class="num">${fmtTok(n.cache_read)}</td></tr>`;
+    }
+    html += "</tbody></table>";
+  }
+  box.innerHTML = html;
 }
 
 function renderDetailLive(d) {

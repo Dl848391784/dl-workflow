@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>系统健康 · dl-workflow</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/static/style.css?v=be08209">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">dl</span>
+    <div class="brand-text">
+      <h1>系统健康</h1>
+      <p>跨实例聚合 · 改进队列数据化</p>
+    </div>
+  </div>
+  <a class="btn ghost" href="/">← 控制台</a>
+</header>
+<main class="health-main">
+  <p class="hint" id="health-meta">加载中…</p>
+  <div class="section-head">
+    <h2>gate thrash 榜</h2>
+    <span class="hint">block 数降序——榜首即下一个 framing 反转 / mech 下沉候选</span>
+  </div>
+  <div id="gate-board"></div>
+  <div class="section-head">
+    <h2>节点成本榜</h2>
+    <span class="hint">跨实例 p50/p90——成本离群节点 = 下一个成本优化立项候选</span>
+  </div>
+  <div id="node-costs"></div>
+  <div class="section-head">
+    <h2>判据申诉榜</h2>
+    <span class="hint">rubric-dispute 集中点（判据缺陷信号）</span>
+  </div>
+  <div id="dispute-board"></div>
+  <div id="health-errors"></div>
+</main>
+<script src="/static/health.js?v=be08209"></script>
+</body>
+</html>

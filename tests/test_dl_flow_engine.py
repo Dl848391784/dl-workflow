@@ -9707,6 +9707,131 @@ class TestUserDecisionRecorded:
         assert not ok and "空记录" in msg
 
 
+class TestSimilarInstances:
+    """相似实例检索注入 understand（evolution-up P4，evolution-up-design §5）。
+
+    跨实例知识层 v1：零 LLM 零嵌入——字符 bigram Jaccard 排相似度，
+    top-K 附根因@行（u/p 规格门稳定格式）作竞争假设候选（参考非证据）。
+    """
+
+    def _mk_instance(self, proj, name, statement, evidence_text=""):
+        meta = proj / ".claude" / "workflows" / name
+        meta.mkdir(parents=True, exist_ok=True)
+        (meta / "state.json").write_text(
+            json.dumps(
+                {
+                    "name": name,
+                    "phase": "understand",
+                    "sub_index": 1,
+                    "sub_step_index": 1,
+                    "node": "understand:1",
+                    "gate": "pending",
+                    "problem_statement": statement,
+                    "history": [],
+                    "created_at": "x",
+                    "updated_at": "x",
+                }
+            ),
+            encoding="utf-8",
+        )
+        if evidence_text:
+            ev = proj / ".claude" / "evidence"
+            ev.mkdir(parents=True, exist_ok=True)
+            (ev / f"{name}.jsonl").write_text(evidence_text, encoding="utf-8")
+
+    def test_bigram_similarity(self):
+        assert (
+            eng._text_similarity("年化收益显示异常偏大", "年化收益显示异常偏大") == 1.0
+        )
+        assert eng._text_similarity("年化收益", "年化收益率") > 0.5
+        assert eng._text_similarity("年化收益显示异常", "数据库连接超时重试") < 0.1
+
+    def test_ranks_by_similarity_and_excludes_self(self, tmp_path):
+        proj = tmp_path / "p"
+        self._mk_instance(proj, "self_wf", "年化收益显示 4920% 明显异常偏大")
+        self._mk_instance(proj, "close_wf", "年化收益显示量级异常，倍数偏大")
+        self._mk_instance(proj, "far_wf", "pipeline 没跑数据没落库")
+        hits = eng.similar_instances(proj, "self_wf", projects=[proj])
+        names = [h["name"] for h in hits]
+        assert "self_wf" not in names  # 排除自身
+        assert names and names[0] == "close_wf"  # 语义近的排前
+        assert "far_wf" not in names  # 低于阈值不上榜
+
+    def test_root_cause_extraction_filters_scaffold(self, tmp_path):
+        proj = tmp_path / "p"
+        ev = (
+            '{"kind":"skill-trace","q":["根因行"],"a":["根因@A@web_ui/x.py:f:L1-2：双重×100 伪影"]}\n'
+            '{"kind":"skill-trace","q":["骨架"],"a":["根因@<原子标签>@file:symbol:L<a>-<b>：机制"]}\n'
+        )
+        self._mk_instance(proj, "a_wf", "年化收益显示异常", ev)
+        self._mk_instance(proj, "self_wf", "年化收益显示异常偏大")
+        hits = eng.similar_instances(proj, "self_wf", projects=[proj])
+        target = next(h for h in hits if h["name"] == "a_wf")
+        assert any("双重×100" in rc for rc in target["root_causes"])
+        assert not any("<" in rc for rc in target["root_causes"])  # 模板行过滤
+
+    def test_handoff_injects_section_in_understand(self, tmp_path):
+        from unittest.mock import patch
+
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=2)
+        st = eng.load_state(tmp_path, "t")
+        st["problem_statement"] = "年化收益显示异常"
+        eng.save_state(tmp_path, "t", st)
+        fake = [
+            {
+                "project": "/p",
+                "name": "old_wf",
+                "similarity": 0.31,
+                "node": "plan:2",
+                "root_causes": ["根因@A@x.py:f:L1-2：双重×100"],
+            }
+        ]
+        with patch("dl_flow_handoff.similar_instances", return_value=fake):
+            pack = eng.handoff_pack(tmp_path, "t")
+        assert "相似历史实例" in pack and "old_wf" in pack
+        assert "竞争假设候选" in pack  # 参考非证据钉死文案
+        assert "根因@A@x.py" in pack
+
+    def test_handoff_no_section_when_no_hits(self, tmp_path):
+        from unittest.mock import patch
+
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=2)
+        st = eng.load_state(tmp_path, "t")
+        st["problem_statement"] = "年化收益显示异常"
+        eng.save_state(tmp_path, "t", st)
+        with patch("dl_flow_handoff.similar_instances", return_value=[]):
+            pack = eng.handoff_pack(tmp_path, "t")
+        assert "相似历史实例" not in pack  # 零命中节缺席（宁纵勿枉不注水）
+
+    def test_handoff_no_section_in_plan_phase(self, tmp_path):
+        from unittest.mock import patch
+
+        _write_state_full(tmp_path, "t", "plan", 1, sub_step=2)
+        st = eng.load_state(tmp_path, "t")
+        st["problem_statement"] = "年化收益显示异常"
+        eng.save_state(tmp_path, "t", st)
+        with patch("dl_flow_handoff.similar_instances") as si:
+            pack = eng.handoff_pack(tmp_path, "t")
+        si.assert_not_called()  # 范围限定 u 环节（只到 p 的注入面也不进 plan）
+        assert "相似历史实例" not in (pack or "")
+
+    def test_section_size_cap(self, tmp_path):
+        # 体积护栏单测 _similar_section：5 实例 × 300 字符根因必触发截断
+        fake = [
+            {
+                "project": "/p",
+                "name": f"w{i}",
+                "similarity": 0.5,
+                "node": "n",
+                "root_causes": ["根因@A@x" + "长" * 300],
+            }
+            for i in range(5)
+        ]
+        sec = eng._similar_section(fake)
+        assert len(sec) <= 1300  # 1200 上限 + 截断标记容差
+        assert "截断" in sec
+
+
 class TestHandoffPack:
     """v2.45 handoff_pack：/clear 交接包机械装配（context-handoff-design §3）。
 
@@ -13866,6 +13991,102 @@ class TestForceTacet:
         assert out is not None
         assert "align-check" in out
         assert "tacet" not in out
+
+
+class TestTacetUpgrade:
+    """tacet 中途升级（evolution-up P3，designs/evolution-up-design.md §4）。
+
+    单节点静默 -> 全量：state.tacet_upgraded 从本实例静默集剔除指定步，
+    对齐 fermate off + state-reset 的补救形态。模型无权自写（只经 engine CLI）。
+    """
+
+    def test_upgrade_removes_step_from_silent(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 2, sub_step=2)
+        st = eng.load_state(tmp_path, "t")
+        st["force_tacet"] = True
+        eng.save_state(tmp_path, "t", st)
+        node = eng._NODES["understand:2"]
+        assert eng.step_tacet_forced(st, node, 2) is True  # 升级前沉默
+        ok, msg = eng.upgrade_tacet_step(tmp_path, "t", "understand:2#2")
+        assert ok is True, msg
+        reread = eng.load_state(tmp_path, "t")
+        assert reread["tacet_upgraded"] == ["understand:2#2"]
+        assert eng.step_tacet_forced(reread, node, 2) is False  # 升级后全量
+        assert eng.step_tacet_forced(reread, node, 1) is True  # 兄弟步仍沉默
+        assert "state-reset" in msg  # 指引重跑路径
+
+    def test_upgrade_rejects_non_tacet_instance(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 2, sub_step=2)
+        ok, msg = eng.upgrade_tacet_step(tmp_path, "t", "understand:2#2")
+        assert ok is False and "tacet" in msg
+
+    def test_upgrade_rejects_spine_step(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=3)
+        st = eng.load_state(tmp_path, "t")
+        st["force_tacet"] = True
+        eng.save_state(tmp_path, "t", st)
+        ok, msg = eng.upgrade_tacet_step(tmp_path, "t", "understand:1#3")
+        assert ok is False and "静默" in msg  # 脊柱步本就全量，无需升级
+
+    def test_upgrade_idempotent(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 2, sub_step=2)
+        st = eng.load_state(tmp_path, "t")
+        st["force_tacet"] = True
+        eng.save_state(tmp_path, "t", st)
+        ok1, _ = eng.upgrade_tacet_step(tmp_path, "t", "understand:2#2")
+        ok2, msg2 = eng.upgrade_tacet_step(tmp_path, "t", "understand:2#2")
+        assert ok1 is True and ok2 is True and "幂等" in msg2
+        assert eng.load_state(tmp_path, "t")["tacet_upgraded"] == ["understand:2#2"]
+
+    def test_upgrade_rejects_bad_step_id(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 2, sub_step=2)
+        st = eng.load_state(tmp_path, "t")
+        st["force_tacet"] = True
+        eng.save_state(tmp_path, "t", st)
+        ok, msg = eng.upgrade_tacet_step(tmp_path, "t", "bogus:9#9")
+        assert ok is False and "形态" in msg
+
+    def test_upgrade_fermate_combo_uses_remapped_silent(self, tmp_path):
+        # tacet+fermate 组合：静默集 = fermate 脊柱重映射后的集合——
+        # plan:2#4 是重映射脊柱（不可升级），plan:2#3 可升级
+        _write_state_full(tmp_path, "t", "plan", 2, sub_step=3)
+        st = eng.load_state(tmp_path, "t")
+        st["force_tacet"] = True
+        st["force_fermate"] = True
+        eng.save_state(tmp_path, "t", st)
+        ok, msg = eng.upgrade_tacet_step(tmp_path, "t", "plan:2#3")
+        assert ok is True, msg
+        reread = eng.load_state(tmp_path, "t")
+        node = eng._NODES["plan:2"]
+        assert eng.step_tacet_forced(reread, node, 3) is False
+        assert eng.step_tacet_forced(reread, node, 4) is False  # 脊柱本就 False
+        ok2, _ = eng.upgrade_tacet_step(tmp_path, "t", "plan:2#4")
+        assert ok2 is False  # 重映射脊柱不可升级
+
+    def test_upgrade_cli(self, tmp_path, capsys):
+        _init_git(tmp_path)
+        _write_state_full(tmp_path, "t", "understand", 2, sub_step=2)
+        st = eng.load_state(tmp_path, "t")
+        st["force_tacet"] = True
+        eng.save_state(tmp_path, "t", st)
+        rc = eng.main(["upgrade", "t", "understand:2#2", "--cwd", str(tmp_path)])
+        assert rc == 0
+        assert "✓" in capsys.readouterr().out
+        assert eng.load_state(tmp_path, "t")["tacet_upgraded"] == ["understand:2#2"]
+        rc2 = eng.main(["upgrade", "t", "--cwd", str(tmp_path)])
+        assert rc2 == 1  # 缺步 id
+
+    def test_handoff_pack_mentions_upgraded(self, tmp_path):
+        # 交接包 tacet 告知段补升级清单——「材料薄是设计内」不覆盖已升级步
+        _write_state_full(tmp_path, "t", "understand", 2, sub_step=2)
+        st = eng.load_state(tmp_path, "t")
+        st["force_tacet"] = True
+        st["problem_statement"] = "测试问题"
+        st["tacet_upgraded"] = ["understand:2#2"]
+        eng.save_state(tmp_path, "t", st)
+        pack = eng.handoff_pack(tmp_path, "t")
+        assert pack is not None
+        assert "understand:2#2" in pack and "升级" in pack
 
 
 class TestForceFermate:

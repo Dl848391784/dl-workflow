@@ -4016,3 +4016,54 @@ def test_merged_session_spawn_overrides(wf_repo, monkeypatch):
     assert cmd[cmd.index("--tools") + 1] == "Bash,Read,Edit,Skill"
     assert captured["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
     sess.close()
+
+
+# ---------- 插话通道（evolution-up P5，evolution-up-design §6）----------
+
+
+def test_steer_helpers_offset_and_list(wf_repo):
+    from dl_flow_common import (
+        steer_append,
+        steer_consume,
+        steer_list,
+        steer_pending,
+    )
+
+    assert steer_pending(wf_repo, "t") == []
+    steer_append(wf_repo, "t", "第一条", ts="t1")
+    steer_append(wf_repo, "t", "第二条", ts="t2")
+    assert [s["text"] for s in steer_pending(wf_repo, "t")] == ["第一条", "第二条"]
+    consumed = steer_consume(wf_repo, "t")
+    assert [s["text"] for s in consumed] == ["第一条", "第二条"]
+    assert steer_pending(wf_repo, "t") == []  # offset 已推进
+    steer_append(wf_repo, "t", "第三条", ts="t3")
+    lst = steer_list(wf_repo, "t")
+    assert [s["text"] for s in lst] == ["第一条", "第二条", "第三条"]
+    assert [s["consumed"] for s in lst] == [True, True, False]
+
+
+def test_steer_injected_into_segment_prompt_and_consumed(wf_repo):
+    from dl_flow_common import steer_append, steer_pending
+
+    drv = _load(DRIVER, "drv_steer")
+    state = _write_state(wf_repo)
+    node = engine.get_node("understand", 1)
+    step = engine.sub_step_at(node, 2)
+    steer_append(wf_repo, "t", "优先考虑 loader 层")
+    steer_append(wf_repo, "t", "别动 web_ui")
+    prompt = drv.build_step_prompt(wf_repo, "t", state, node, 2, step, rework=None)
+    assert "用户插话" in prompt
+    assert "优先考虑 loader 层" in prompt and "别动 web_ui" in prompt
+    assert "不豁免门控" in prompt  # 文案钉死：建议通道不越机械门
+    assert steer_pending(wf_repo, "t") == []  # 注入即消费
+    prompt2 = drv.build_step_prompt(wf_repo, "t", state, node, 2, step, rework=None)
+    assert "用户插话" not in prompt2  # 不重复注入
+
+
+def test_steer_absent_when_no_notes(wf_repo):
+    drv = _load(DRIVER, "drv_steer_none")
+    state = _write_state(wf_repo)
+    node = engine.get_node("understand", 1)
+    step = engine.sub_step_at(node, 2)
+    prompt = drv.build_step_prompt(wf_repo, "t", state, node, 2, step, rework=None)
+    assert "用户插话" not in prompt

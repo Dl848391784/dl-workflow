@@ -37,6 +37,7 @@ from pathlib import Path
 _DLWF_ROOT = Path(__file__).resolve().parents[2]  # ~/.dl-workflow/
 sys.path.insert(0, str(_DLWF_ROOT))
 import dl_flow_engine as engine  # noqa: E402
+from dl_flow_common import steer_consume  # noqa: E402  # 插话通道（evolution-up P5）
 from scripts.workflow import project_tools  # noqa: E402
 
 try:  # 常驻进度区依赖（drive-tasklist-render-design §2.1）；缺失时降级事件打印
@@ -1750,6 +1751,15 @@ def build_step_prompt(
             f"   {_QUESTIONS_CONTRACT}\n"
             "5. 输出完即结束本轮——问答由前台会话执行，与你无关；\n"
             "   `### NEXT_PREP` 是备料标记，与 `### NEED_USER`（本步需要用户）严格不同，禁混用"
+        )
+    steers = steer_consume(project_root, name)
+    if steers:
+        # 插话通道（evolution-up P5）：段起跑注入用户转向指令——文案=建议，
+        # 不豁免任何机械门（门控读磁盘 state 天然免疫）；steer.jsonl 留全史
+        parts.append(
+            "\n## 用户插话（转向指令——优先级高于本步既有指引，"
+            "但不豁免门控/落库/格式纪律）\n"
+            + "\n".join(f"- {s['text']}" for s in steers)
         )
     if rework:
         parts.append(f"\n## 返工上下文\n{rework}")

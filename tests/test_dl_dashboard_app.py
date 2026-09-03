@@ -169,13 +169,86 @@ def test_detail_missing_workflow_returns_404(client):
     assert r.status_code == 404
 
 
+def test_detail_includes_audit(client):
+    """审计数据随 detail 下发（evolution-up P1）：一次通过率/block 分布/节点成本。"""
+    c, project = client
+    ev = project / ".claude" / "evidence"
+    ev.mkdir(parents=True, exist_ok=True)
+    (ev / "demo.jsonl").write_text(
+        json.dumps({"kind": "skill-trace", "minor_stage": "TaskBreakdown",
+                    "sub_step": 4, "q": [], "a": []}) + "\n",
+        encoding="utf-8")
+    d = c.get("/api/workflow", params={"project": str(project), "name": "demo"}).json()
+    assert d["audit"]["gates"]["judged"] == 1
+    assert d["audit"]["gates"]["first_pass_rate"] == 1.0
+    assert d["audit"]["track"]["force_tacet"] is False
+    assert isinstance(d["audit"]["nodes"], list)
+
+
+def test_audit_endpoint_degrades_on_missing(client):
+    c, project = client
+    r = c.get("/api/audit", params={"project": str(project), "name": "demo"})
+    assert r.status_code == 200
+    d = r.json()
+    assert d["gates"]["judged"] == 0 and d["gates"]["first_pass_rate"] is None
+
+
+def test_health_endpoint(client):
+    """系统健康页端点（evolution-up P2）：跨实例 gate 榜/节点成本榜/dispute 榜。"""
+    c, project = client
+    ev = project / ".claude" / "evidence"
+    ev.mkdir(parents=True, exist_ok=True)
+    (ev / "demo.jsonl").write_text(
+        json.dumps({"kind": "skill-trace", "minor_stage": "TaskBreakdown",
+                    "sub_step": 3, "q": [], "a": []}) + "\n"
+        + json.dumps({"kind": "gate", "node": "plan:2", "sub_step": 3,
+                      "gate": "blocked", "ts": "t", "reason": "x"}) + "\n"
+        + json.dumps({"kind": "skill-trace", "minor_stage": "TaskBreakdown",
+                      "sub_step": 3, "q": [], "a": []}) + "\n",
+        encoding="utf-8")
+    r = c.get("/api/health")
+    assert r.status_code == 200
+    d = r.json()
+    assert d["instances"] == 1
+    row = next(b for b in d["gate_board"] if b["step"] == "plan:2#3")
+    assert row["blocked"] == 1 and row["judged"] == 1
+
+
+def test_health_page_served(client):
+    c, _ = client
+    r = c.get("/health")
+    assert r.status_code == 200 and "系统健康" in r.text
+
+
+def test_steer_endpoint_and_detail(client):
+    """插话通道（evolution-up P5）：POST /api/steer 落 steer.jsonl，
+    detail 带 steers（consumed 标记）；空内容/超长拒绝。"""
+    c, project = client
+    r = c.post("/api/steer", json={
+        "project": str(project), "name": "demo", "text": "先看 loader 层"})
+    assert r.json()["ok"] is True
+    r2 = c.post("/api/steer", json={
+        "project": str(project), "name": "demo", "text": "  "})
+    assert r2.json()["ok"] is False
+    r3 = c.post("/api/steer", json={
+        "project": str(project), "name": "demo", "text": "长" * 2001})
+    assert r3.json()["ok"] is False
+    d = c.get("/api/workflow",
+              params={"project": str(project), "name": "demo"}).json()
+    assert len(d["steers"]) == 1  # 拒绝的两条未落盘
+    assert d["steers"][0]["text"] == "先看 loader 层"
+    assert d["steers"][0]["consumed"] is False
+
+
 def test_post_endpoints_reject_path_traversal_name(client):
     c, project = client
     payload = {"project": str(project), "name": "../../../etc"}
-    for path in ("/api/inject", "/api/gate", "/api/drive", "/api/dl"):
+    for path in ("/api/inject", "/api/gate", "/api/drive", "/api/dl", "/api/steer"):
         body = {**payload, "answer": "x"} if path == "/api/inject" else payload
         if path == "/api/dl":
             body["cmd"] = "advance"
+        if path == "/api/steer":
+            body["text"] = "x"
         r = c.post(path, json=body)
         assert r.status_code == 400, f"{path} should reject traversal name"
         assert "非法工作流名" in r.json()["detail"]
@@ -197,20 +270,66 @@ def test_post_gate_calls_action_and_redrives(client):
     rd.assert_called_once()
 
 
+def _fake_request(disconnected_after: int = 0):
+    """SSE 测试用 Request 替身：is_disconnected 第 N+1 次调用起返回 True。"""
+    calls = {"n": 0}
+
+    class _Req:
+        async def is_disconnected(self):
+            calls["n"] += 1
+            return calls["n"] > disconnected_after
+
+    return _Req()
+
+
 def test_events_first_frame_via_generator(client):
     """StreamingResponse 在 TestClient 中会挂起；直接调用生成器取首帧。"""
     c, _ = client
     route = next(r for r in c.app.routes if getattr(r, "path", None) == "/api/events")
 
     async def _first():
-        resp = await route.endpoint()
+        resp = await route.endpoint(_fake_request(disconnected_after=999))
         chunk = await anext(resp.body_iterator)
+        await resp.body_iterator.aclose()
         return chunk
 
     chunk = asyncio.run(_first())
     assert chunk.startswith("data: ")
     payload = json.loads(chunk.removeprefix("data: "))
     assert "workflows" in payload
+
+
+def test_events_generator_exits_on_disconnect(client):
+    """客户端断连即退出生成器（evolution-up P0）——旧版 while True 无断连
+    检测：最后一个标签页关闭后 server 仍每 2s 全量扫描空转，且 SSE 长连接
+    不死是 SIGTERM 优雅退出被无限阻塞的温床。"""
+    c, _ = client
+    route = next(r for r in c.app.routes if getattr(r, "path", None) == "/api/events")
+
+    async def _drain():
+        resp = await route.endpoint(_fake_request(disconnected_after=1))
+        chunks = [c_ async for c_ in resp.body_iterator]
+        return chunks
+
+    # 首帧发出后第二次循环即检测到断连 -> 生成器自然终止（不挂起）
+    chunks = asyncio.run(asyncio.wait_for(_drain(), timeout=10))
+    assert len(chunks) <= 2
+
+
+def test_main_passes_graceful_shutdown_timeout(client):
+    """SIGTERM 不死修复 pin：uvicorn 优雅退出必须有超时兜底——SSE 长连接
+    在场时无 timeout = 无限等待（2026-09-02 两次 kill -9 实爆）。"""
+    import dl_dashboard.app as app_mod
+
+    captured = {}
+
+    def _fake_run(app, **kwargs):
+        captured.update(kwargs)
+
+    with patch("uvicorn.run", _fake_run):
+        app_mod.main()
+    assert captured.get("timeout_graceful_shutdown") is not None
+    assert captured["timeout_graceful_shutdown"] <= 5
 
 
 def test_post_delete_calls_action(client):

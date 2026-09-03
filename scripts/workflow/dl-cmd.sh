@@ -11,6 +11,8 @@
 #   dl-cmd.sh step-pass              用户裁决：强制放行当前子步骤（连续 block 达阈值后的出口）
 #   dl-cmd.sh state-reset <target>   整体回滚（target = <n> 本节点子步骤 | <phase>:<minor>[:<step>] 跨节点；
 #                                    含目标 step 作废：删其及之后 evidence + 阶段产物 + 清游标/门栏）
+#   dl-cmd.sh upgrade <step-id>      tacet 中途升级（step-id = <phase>:<子阶段>#<步号>，如 understand:2#2；
+#                                    移出本实例静默集改全量执行，按指引 state-reset 重跑）
 #   dl-cmd.sh fence on|off           子步骤围栏(S10)开关（阶段写围栏 S11 是系统硬约束，无开关）
 #   dl-cmd.sh done                   归档工作流（删 worktree，保留元数据）
 
@@ -178,6 +180,13 @@ case "$SUB" in
     python3 "$WF_ENGINE" state-reset "$NAME" "$V" --cwd "$(pwd)"
     ;;
 
+  upgrade)
+    # tacet 中途升级：单步移出本实例静默集改全量执行（evolution-up P3；
+    # 升级后按指引 /dl state-reset 到该步重跑）
+    V="${1:-}"
+    python3 "$WF_ENGINE" upgrade "$NAME" "$V" --cwd "$(pwd)"
+    ;;
+
   fence)
     # 子步骤围栏开关（§substep-gate-at-stop S10；实时生效无需重启）
     V="${1:-}"
@@ -199,7 +208,7 @@ case "$SUB" in
     ;;
 
   *)
-    echo "✗ 未知子命令 '$SUB'。可用: status next back jump gate step-pass dispute state-reset fence done" >&2
+    echo "✗ 未知子命令 '$SUB'。可用: status next back jump gate step-pass dispute state-reset upgrade fence done" >&2
     exit 1
     ;;
 esac

@@ -15,7 +15,10 @@
       <p>5 阶段工作流 · 跨项目运维面</p>
     </div>
   </div>
-  <button id="create-toggle" type="button" class="btn primary">新建工作流</button>
+  <div class="topbar-actions">
+    <a class="btn ghost" href="/health" target="_blank">系统健康</a>
+    <button id="create-toggle" type="button" class="btn primary">新建工作流</button>
+  </div>
 </header>
 <div id="create-modal" class="modal-veil hidden">
   <div class="modal">
@@ -103,11 +106,24 @@
       </div>
       <div id="timeline"></div>
       <div class="section-head">
+        <h3>运行审计</h3><span id="audit-summary" class="hint"></span>
+      </div>
+      <div id="audit"></div>
+      <div class="section-head">
         <h3>代码改动面</h3><span id="cp-count" class="hint"></span>
         <button id="outputs-refresh" class="btn ghost" type="button">刷新产物</button>
       </div>
       <div id="change-points"></div>
       <div id="interact"></div>
+      <div class="section-head">
+        <h3>插话</h3><span class="hint">下一个段起跑时注入——转向指令，不打断在跑段</span>
+      </div>
+      <div class="steer-form">
+        <input id="steer-text" type="text" maxlength="2000"
+               placeholder="对后续步骤的转向指令，如「优先考虑 loader 层」…">
+        <button id="steer-send" class="btn primary" type="button">发送</button>
+      </div>
+      <div id="steer-list"></div>
       <div class="section-head"><h3>证据链</h3><span class="hint">q → a → 结论，每步产出有据可查</span></div>
       <div id="outputs"></div>
       <div class="section-head"><h3>driver 日志</h3><span class="hint">尾部 4KB</span></div>
