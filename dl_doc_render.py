@@ -8,7 +8,8 @@
 - statement 字段尾巴 -> dimmed meta 行（样式降级零内容删除）；
 - change_point= 字段 -> dashboard 同款改动面卡片（锚点+改前/改后对照+现状
   代码 ±4 行，解析单源=dl_flow_common.parse_change_points）；
-- interface= 字段 -> 调用流程 SVG（Consumes->改动点->Produces 三层）；
+- interface= 字段 -> 单改动项小链（Consumes->本项改动->Produces 芯片流，
+  边只在本项字段内、跨项不连——v0.6 合并大图的全对全边是虚构，已退役）；
 - 重点标注（ref chip/关键词 badge/数值加粗）+ 长 bullet 按 。；边界拆分。
 
 入口：render_html(md_path, html_path, version="")——异常上抛，调用方
@@ -77,8 +78,6 @@ _IFACE_RE = re.compile(
     r"(?:；(?:verify|acceptance_map|trace_anchor)=|\n|$)",
     re.S,
 )
-_FLOW_CAP = (4, 4, 3)  # 三层节点上限（Consumes/改动点/Produces），超出截断注明
-
 # change_point 剥除后的残行：空 bullet 或纯 interface 尾巴（已入流程图）。
 # re.S：多锚点块的 interface 尾巴跨行（slim proposal 的字段值自带换行）。
 _CP_RESIDUE_RE = re.compile(r"^-\s*(?:；\s*)?(?:interface=.*)?$", re.S)
@@ -157,10 +156,17 @@ font-family:var(--mono);font-size:12.5px;overflow:hidden}
 .cp-arrow{align-self:center;color:var(--muted);font-weight:700}
 .cp-ctx{margin:0;border-top:1px solid var(--line);border-radius:0;font-size:12px}
 .ctx-hl{background:rgba(250,204,21,.22)}
-/* 调用流程图 */
-.flow{overflow-x:auto;padding:8px 0}
-.flow svg{max-width:100%;height:auto}
-.flow-note{color:var(--muted);font-size:12.5px;margin:4px 0 0}
+/* 单改动项小链（Consumes->本项改动->Produces，边只在本项 interface= 内） */
+.flowline{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:10px 0 4px;
+padding:8px 10px;background:var(--bg-soft);border:1px solid var(--line);
+border-radius:8px;font-size:12.5px}
+.fl-chip{font-family:var(--mono);font-size:11.5px;padding:2px 8px;border-radius:10px;
+white-space:nowrap;max-width:320px;overflow:hidden;text-overflow:ellipsis}
+.fl-cons{background:#e8f0fe;color:#1a56db}
+.fl-mid{background:#fff7ed;color:#c2410c;font-weight:600}
+.fl-prod{background:#ecfdf5;color:#047857}
+.fl-arrow{color:var(--muted);font-weight:700}
+.fl-more{color:var(--muted);font-size:11px}
 @media (max-width:900px){
 #toc{position:static;width:auto;border-right:none;border-bottom:1px solid var(--line)}
 main{margin-left:0;padding:24px 18px 60px}
@@ -279,95 +285,37 @@ def _iface_labels(chunk: str) -> list[str]:
     return labels
 
 
-def _flow_svg(consumes: list[str], changes: list[str], produces: list[str]) -> str:
-    """三层左到右流动图（inline SVG，自绘零依赖）。层：Consumes->改动点->Produces。"""
-    cols = [consumes, changes, produces]
-    col_x = [10, 330, 650]
-    node_w, node_h, row_gap = 200, 42, 62
-    rows = max(len(c) for c in cols)
-    height = rows * row_gap + 10
-    palette = [("#e8f0fe", "#1a56db"), ("#fff7ed", "#c2410c"), ("#ecfdf5", "#047857")]
-    parts = [
-        f'<svg viewBox="0 0 860 {height}" xmlns="http://www.w3.org/2000/svg" '
-        'font-family="ui-monospace,Menlo,Consolas,monospace" font-size="12">',
-        '<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" '
-        'markerWidth="7" markerHeight="7" orient="auto-start-reverse">'
-        '<path d="M 0 0 L 10 5 L 0 10 z" fill="#9aa4b2"/></marker></defs>',
-    ]
-
-    def _edges(src: int, dst: int) -> None:
-        for i in range(len(cols[src])):
-            y1 = 6 + i * row_gap + node_h / 2
-            for j in range(len(cols[dst])):
-                y2 = 6 + j * row_gap + node_h / 2
-                parts.append(
-                    f'<line x1="{col_x[src] + node_w}" y1="{y1}" '
-                    f'x2="{col_x[dst]}" y2="{y2}" stroke="#9aa4b2" '
-                    'stroke-width="1" marker-end="url(#arr)"/>'
-                )
-
-    def _node(col: int, row: int, label: str) -> None:
-        x, y = col_x[col], 6 + row * row_gap
-        bg, fg = palette[col]
-        text = _esc(label if len(label) <= 22 else label[:21] + "…")
-        parts.append(
-            f'<g><rect x="{x}" y="{y}" width="{node_w}" height="{node_h}" rx="8" '
-            f'fill="{bg}" stroke="{fg}" stroke-opacity=".35"/>'
-            f'<text x="{x + node_w / 2}" y="{y + node_h / 2 + 4}" text-anchor="middle" '
-            f'fill="{fg}">{text}<title>{_esc(label)}</title></text></g>'
+def _chips(labels: list[str], cls: str, cap: int = 3) -> str:
+    """flowline 芯片组（超 cap 折 +n；title 留全文）。"""
+    out = []
+    for label in labels[:cap]:
+        text = label if len(label) <= 26 else label[:25] + "…"
+        out.append(
+            f'<span class="fl-chip {cls}" title="{_esc(label)}">{_esc(text)}</span>'
         )
-
-    _edges(0, 1)
-    _edges(1, 2)
-    for col, labels in enumerate(cols):
-        for row, label in enumerate(labels):
-            _node(col, row, label)
-    parts.append("</svg>")
-    return "".join(parts)
+    if len(labels) > cap:
+        out.append(f'<span class="fl-more">+{len(labels) - cap}</span>')
+    return "".join(out)
 
 
-def _flow_section(text: str) -> str:
-    """interface=/change_point 字段 -> 「调用流程」节（md 级插入 ## 改动面 前）。
+def _mini_flow_html(
+    consumes: list[str], middles: list[str], produces: list[str]
+) -> str:
+    """单改动项小链：Consumes -> 本项改动 -> Produces（芯片流，非图）。
 
-    无 interface 数据或无改动面节 -> 原文（诚实缺席）。
+    边只存在于本项 interface= 字段内部——该字段语义即「本项 Consumes X、
+    Produces Y」，跨项一律不连（v0.6 合并大图的全对全边是虚构，已退役）。
     """
-    if "## 改动面" not in text:
-        return text
-    consumes: list[str] = []
-    produces: list[str] = []
-    for m in _IFACE_RE.finditer(text):
-        for x in _iface_labels(m.group(1)):
-            if x not in consumes:
-                consumes.append(x)
-        for x in _iface_labels(m.group(2)):
-            if x not in produces:
-                produces.append(x)
-    changes: list[str] = []
-    for cp in parse_change_points(text, None):
-        f = cp["file"].split("/")[-1]
-        if f not in changes:
-            changes.append(f)
-    truncated = (
-        len(consumes) > _FLOW_CAP[0]
-        or len(changes) > _FLOW_CAP[1]
-        or len(produces) > _FLOW_CAP[2]
-    )
-    consumes = consumes[: _FLOW_CAP[0]]
-    changes = changes[: _FLOW_CAP[1]]
-    produces = produces[: _FLOW_CAP[2]]
-    if not (consumes and changes):
-        return text
-    if not produces:
-        produces = ["（Produces 未标注）"]
-    svg = _flow_svg(consumes, changes, produces)
-    note = "注：由 interface=/change_point 字段机械推导（左=数据与入口，中=改动点，右=产出）"
-    if truncated:
-        note += f"；节点超限截断（上限 {'/'.join(map(str, _FLOW_CAP))}）"
-    section = (
-        f'\n## 调用流程\n\n<div class="flow">{svg}</div>\n\n'
-        f'<p class="flow-note">{note}。</p>\n'
-    )
-    return text.replace("## 改动面", section + "\n## 改动面", 1)
+    parts = ['<div class="flowline">']
+    if consumes:
+        parts.append(_chips(consumes, "fl-cons"))
+        parts.append('<span class="fl-arrow">→</span>')
+    parts.append(_chips(middles or ["（本项无代码锚点）"], "fl-mid"))
+    if produces:
+        parts.append('<span class="fl-arrow">→</span>')
+        parts.append(_chips(produces, "fl-prod"))
+    parts.append("</div>")
+    return "".join(parts)
 
 
 # ---------- 重点标注 + 长文拆分 ----------
@@ -431,7 +379,6 @@ def _logical_lines(text: str) -> list[str]:
 
 
 def _preprocess(text: str, project_root: Path | None) -> str:
-    text = _flow_section(text)
     out: list[str] = []
     in_fence = False
     for line in _logical_lines(text):
@@ -442,17 +389,41 @@ def _preprocess(text: str, project_root: Path | None) -> str:
         if in_fence or line.lstrip().startswith("<"):
             out.append(line)
             continue
+        # slim bullet（字段即全部内容）：本项 interface= -> 小链（边只在本项
+        # 字段内，跨项不连）；full 文档的陈述 bullet 不走这条路（interface 留 meta）
+        flow_html = ""
+        if line.startswith(("- change_point=", "- interface=")):
+            consumes: list[str] = []
+            produces: list[str] = []
+            for im in _IFACE_RE.finditer(line):
+                for x in _iface_labels(im.group(1)):
+                    if x not in consumes:
+                        consumes.append(x)
+                for x in _iface_labels(im.group(2)):
+                    if x not in produces:
+                        produces.append(x)
+            if consumes or produces:
+                middles: list[str] = []
+                for cp in parse_change_points(line, None):
+                    f = cp["file"].split("/")[-1]
+                    if f not in middles:
+                        middles.append(f)
+                flow_html = _mini_flow_html(consumes, middles, produces)
         if "change_point=" in line:
             line, cards = _strip_cp_field(line, project_root)
         else:
             cards = ""
         if cards and _CP_RESIDUE_RE.match(line):
-            # 字段已全量升级（change_point->卡片 / interface->流程图），
+            # 字段已全量升级（change_point->卡片 / interface->小链），
             # 残行（空 bullet 或纯 interface 尾巴）不再占位（v0.7.0 slim proposal）。
+            if flow_html:
+                out.append(flow_html)
             out.append(cards)
             continue
         if not cards and "interface=" in line and _CP_RESIDUE_RE.match(line):
-            # 纯 interface bullet（无 change_point 伴随）——字段已入流程图，同样不落
+            # 纯 interface bullet（无 change_point 伴随）——字段已入小链，同样不落
+            if flow_html:
+                out.append(flow_html)
             continue
         m = _META_TAIL_RE.match(line)
         if (

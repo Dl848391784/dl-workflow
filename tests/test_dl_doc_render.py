@@ -84,34 +84,54 @@ _CP_BULLET = (
 
 
 def _iface_text(sep="："):
+    # slim proposal 形态（v0.7 fields_only 装配）：字段即 bullet 全部内容
     return (
-        f"- 步骤（out；change_point=web_ui/app.py:_render_report:L10-12（改）：改前=旧 → 改后=新"
+        f"- change_point=web_ui/app.py:_render_report:L10-12（改）：改前=旧 → 改后=新"
         f"；interface=Consumes{sep}load_backtest_results(logger)（web_ui/app.py:267）。"
-        f"Produces{sep}分层回测页显示=单次百分比文本。）"
+        f"Produces{sep}分层回测页显示=单次百分比文本。"
     )
 
 
-def test_flow_section_svg(tmp_path):
-    text = "# t\n\n## 背景与根因\n\nx\n\n## 改动面\n\n" + _iface_text() + "\n"
+def test_per_item_flowline(tmp_path):
+    # v0.7.1：单改动项小链——边只在本项 interface= 字段内（合并大图已退役）
+    text = "# t\n\n## 改动面\n\n" + _iface_text() + "\n"
     h = _render(tmp_path, text)
-    assert '<h2 id="调用流程">' in h and "<svg" in h
-    assert 'href="#调用流程"' in h  # TOC 收录
-    assert "load_backtest_results" in h  # Consumes 节点
-    assert "机械推导" in h
+    body = h[h.find("<article>") :]
+    assert 'class="flowline"' in body
+    assert "load_backtest_results" in body  # Consumes 芯片
+    assert "_render_report" in body or "app.py" in body  # 本项改动芯片
+    assert "fl-prod" in body
+    assert "<svg" not in body and 'id="调用流程"' not in body  # 合并大图不复活
 
 
-def test_flow_section_halfwidth_sep(tmp_path):
-    # 回归钉：老实例 interface=Consumes= 半角分隔符（amplitude 实证两变体并存）
+def test_per_item_flowline_halfwidth_sep(tmp_path):
+    # 半角分隔符变体（老实例 interface=Consumes=）小链照常
     text = "# t\n\n## 改动面\n\n" + _iface_text(sep="=") + "\n"
     h = _render(tmp_path, text)
-    assert "<svg" in h and '<h2 id="调用流程">' in h
+    body = h[h.find("<article>") :]
+    assert 'class="flowline"' in body and "load_backtest_results" in body
 
 
-def test_flow_section_absent_without_interface(tmp_path):
-    # 无 interface 数据 -> 节诚实缺席（不是空壳节）
-    text = "# t\n\n## 改动面\n\n- 普通步骤无字段\n"
+def test_flowline_absent_without_interface(tmp_path):
+    # 无 interface 字段 -> 该项无小链（诚实缺席），卡片照常
+    text = "# t\n\n## 改动面\n\n" + _CP_BULLET + "\n"
     h = _render(tmp_path, text)
-    assert '<h2 id="调用流程">' not in h
+    body = h[h.find("<article>") :]
+    assert 'class="flowline"' not in body
+    assert '<div class="cp-card">' in body
+
+
+def test_interface_only_bullet_flowline_no_anchor(tmp_path):
+    # 纯 interface bullet：小链无锚点中节点 -> 显式占位（不虚构中间物）
+    text = (
+        "# t\n\n## 改动面\n\n"
+        "- interface=Consumes：模板上下文 _ann。Produces：渲染文本正确\n"
+    )
+    h = _render(tmp_path, text)
+    body = h[h.find("<article>") :]
+    assert 'class="flowline"' in body
+    assert "（本项无代码锚点）" in body
+    assert "interface=Consumes" not in body
 
 
 def test_cp_card_rendered_with_context(tmp_path):
@@ -171,19 +191,6 @@ def test_multi_anchor_block_all_carded(tmp_path):
     assert "change_point=" not in body  # 全字段升卡片，零裸文本
 
 
-def test_interface_only_bullet_dropped(tmp_path):
-    # 纯 interface bullet（无 change_point 伴随）：字段入流程图后不落正文
-    text = (
-        "# t\n\n## 改动面\n\n"
-        "- change_point=web_ui/a.py:-:L1（改）：改前=x → 改后=y；interface=Consumes：load()。Produces：显示\n"
-        "- interface=Consumes：模板上下文 _ann。Produces：渲染文本正确\n"
-    )
-    h = _render(tmp_path, text)
-    body = h[h.find("<article>") :]
-    assert "interface=Consumes" not in body
-    assert "<svg" in body  # 流程图仍在（interface 已入图）
-
-
 def test_interface_last_field_not_swallowing_doc(tmp_path):
     # interface 为末字段（无 ；verify= 续接）：Produces 抽取须止于换行，
     # 不得吞到文尾把后续 bullet 吸成节点标签（slim proposal 实证）
@@ -194,5 +201,5 @@ def test_interface_last_field_not_swallowing_doc(tmp_path):
     )
     h = _render(tmp_path, text)
     body = h[h.find("<article>") :]
-    assert "- change_point" not in body  # 后续 bullet 未被吸进 SVG 节点
+    assert "- change_point" not in body  # 后续 bullet 未被吸进节点标签
     assert body.count('<div class="cp-card">') == 2
