@@ -10840,112 +10840,88 @@ class TestProposalArtifact:
             ensure_ascii=False,
         )
 
-    def _full_evidence(self, tmp_path):
+    def _stmt_fields(self, minor, step, items):
+        return json.dumps(
+            {
+                "kind": "skill-trace",
+                "minor_stage": minor,
+                "sub_step": step,
+                "statements": [{"text": t, "fields": f} for t, f in items],
+            },
+            ensure_ascii=False,
+        )
+
+    def test_slim_assembly_fields_only(self, tmp_path):
+        # v0.7.0 收敛（用户裁决）：人读文档=调用流程+改动面——装配只出 改动面 一节
+        # 且只含 change_point/interface 字段（陈述正文与其他字段不进，留机器真源）
         _write_evidence(
             tmp_path,
             "t",
             [
-                self._stmt("ProblemContext", 6, ["年化显示 4856.4% 异常"]),
-                self._qa(
-                    "ProblemContext",
-                    3,
+                self._stmt("ProblemContext", 6, ["背景陈述不进 proposal"]),
+                self._stmt_fields(
+                    "TaskBreakdown",
+                    4,
                     [
                         (
-                            "链 A 收口",
-                            "根因@A@web_ui/_macros.html:-:L56-57：模板二次×100",
-                        )
+                            "S1 修模板（正文不进 proposal）",
+                            {
+                                "change_point": "web_ui/app.py:_render_report:L10-12（改）：改前=旧 → 改后=新",
+                                "interface": "Consumes：load_backtest_results（app.py:267）。Produces：页面显示",
+                                "verify": "verify 字段不进（只收 change_point/interface）",
+                            },
+                        ),
                     ],
                 ),
-                self._stmt("GoalsAndValue", 4, ["修正显示防误决策"]),
-                self._stmt("SuccessCriteria", 4, ["显示=48.56%"]),
-                self._stmt("ScopeAndConstraints", 4, ["允许改模板层"]),
-                self._qa(
-                    "ScopeAndConstraints", 3, [("双向矩阵", "loader 契约改动显式搁置")]
-                ),
-                self._stmt("DesignSolution", 5, ["取 C1 族显示层去二次×100"]),
-                self._qa("DesignSolution", 4, [("Pugh 矩阵", "C1 + / C2 S / C3 −")]),
-                self._qa("DesignSolution", 2, [("候选处置", "C4 剔除：重复造轮子")]),
-                self._stmt("TaskBreakdown", 4, ["S1 修模板"]),
-                self._stmt("CapabilityToolSelection", 5, ["能力包 模板编辑"]),
-                self._qa(
-                    "ExecutionPlanCheckpoints",
-                    1,
-                    [("五类清单", "不可逆操作候选：无；假设：loader 契约")],
-                ),
-                self._stmt("ExecutionPlanCheckpoints", 4, ["CP1 提交后自动核验"]),
-                self._qa("ProblemContext", 7, [("裁决：who 与目标", "用户认可")]),
-                self._qa("ProblemContext", 5, [("处置后问题集", "H3 剔除：无证据")]),
             ],
         )
-
-    def test_full_assembly_all_sections(self, tmp_path):
-        self._full_evidence(tmp_path)
         ok, msg = eng.render_artifact(tmp_path, "t", "proposal.md")
         assert ok, msg
-        assert "跳过缺源节" not in msg
         text = (tmp_path / ".claude" / "proposals" / "t.md").read_text(encoding="utf-8")
+        assert "## 改动面" in text
+        assert "change_point=web_ui/app.py:_render_report:L10-12" in text
+        assert "interface=Consumes：load_backtest_results" in text
+        assert "正文不进 proposal" not in text
+        assert "verify 字段不进" not in text
+        assert "背景陈述不进 proposal" not in text
         for sec in (
             "背景与根因",
             "目标与成功标准",
-            "范围与非目标",
             "方案概述",
             "方案对比与取舍",
-            "改动面",
             "风险与不可逆操作",
             "实施计划与检查点",
             "裁决记录",
             "开放问题与接续",
         ):
-            assert f"## {sec}" in text, sec
-        assert "根因@A@web_ui/_macros.html:-:L56-57" in text
-        assert "Pugh 矩阵" in text
-        assert "不可逆操作候选" in text
-        assert "loader 契约改动显式搁置" in text
-        assert "H3 剔除" in text
-        # 收录去重（design §2）：DesignSolution 剔除项只进方案对比、不进开放问题
-        assert text.count("C4 剔除") == 1
-        # 节序：方案对比在改动面前，风险在检查点前
-        assert text.index("## 方案对比与取舍") < text.index("## 改动面")
-        assert text.index("## 风险与不可逆操作") < text.index("## 实施计划与检查点")
+            assert f"## {sec}" not in text
 
-    def test_partial_sources_skipped_and_named(self, tmp_path):
-        # understand 侧源就绪、plan 侧零 trace -> plan 侧节缺省 + 消息点名
-        _write_evidence(
-            tmp_path,
-            "t",
-            [
-                self._stmt("ProblemContext", 6, ["问题重述"]),
-                self._qa("ProblemContext", 3, [("链 A", "根因@A@x.py:-:L1：机制")]),
-                self._stmt("GoalsAndValue", 4, ["目标"]),
-                self._stmt("SuccessCriteria", 4, ["标准"]),
-                self._stmt("ScopeAndConstraints", 4, ["范围"]),
-            ],
-        )
+    def test_missing_taskbreakdown_named(self, tmp_path):
+        # TaskBreakdown 子4 零 trace -> 改动面缺省点名（require_all=False 不拒）
+        _write_evidence(tmp_path, "t", [self._stmt("ProblemContext", 6, ["问题重述"])])
         ok, msg = eng.render_artifact(tmp_path, "t", "proposal.md")
         assert ok, msg
-        assert "跳过缺源节" in msg and "方案概述" in msg and "改动面" in msg
-        text = (tmp_path / ".claude" / "proposals" / "t.md").read_text(encoding="utf-8")
-        assert "## 背景与根因" in text and "## 目标与成功标准" in text
-        assert "## 方案概述" not in text
+        assert "跳过缺源节" in msg and "改动面" in msg
 
     def test_tacet_silent_placeholders(self, tmp_path):
-        _write_evidence(
-            tmp_path,
-            "t",
-            [
-                self._tacet("ProblemContext", 6),
-                self._tacet("DesignSolution", 5),
-                self._stmt("TaskBreakdown", 4, ["S1 修模板"]),
-            ],
-        )
+        _write_evidence(tmp_path, "t", [self._tacet("TaskBreakdown", 4)])
         ok, _ = eng.render_artifact(tmp_path, "t", "proposal.md")
         assert ok
         text = (tmp_path / ".claude" / "proposals" / "t.md").read_text(encoding="utf-8")
-        assert "## 背景与根因" in text and "TACET 沉默" in text
-        assert "## 方案概述" in text and "## 改动面" in text
+        assert "## 改动面" in text and "TACET 沉默" in text
 
     def test_piggyback_on_plan_render(self, tmp_path):
-        self._full_evidence(tmp_path)
+        _write_evidence(
+            tmp_path,
+            "t",
+            [
+                self._stmt_fields(
+                    "TaskBreakdown",
+                    4,
+                    [("S1", {"change_point": "x.py:-:L1（改）：改前=a → 改后=b"})],
+                )
+            ],
+        )
         ok, msg = eng.render_artifact(tmp_path, "t", "plan.md")
         assert ok, msg
         assert "proposal ✓" in msg

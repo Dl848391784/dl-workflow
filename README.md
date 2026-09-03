@@ -11,8 +11,8 @@ Claude Code 5 阶段工作流 + codegraph H15 查证门禁的独立仓库。**�
    - 每个工作流独立 git worktree + 分支 + session，可恢复
    - 阶段自动推进 + 闸门（`/dl gate`），原生 TaskList 常驻进度清单
    - 产物三线：`understands|plans/<name>.md` 给模型（trace 机械装配真源），
-     `proposals/<name>.md` 给人（标准技术方案骨架：背景根因/目标验收/方案取舍/
-     改动面/风险/检查点……render-artifact 装配 understand/plan 时顺带重渲），
+     `proposals/<name>.md` 给人（只含两部分：调用流程 SVG + dashboard 同款
+     改动面卡片；render-artifact 装配 understand/plan 时顺带重渲），
      三者同目录 `<name>.html` 人读渲染版（装了 HTML 导出依赖时自动伴随）
 
 2. **codegraph H15 查证门禁**

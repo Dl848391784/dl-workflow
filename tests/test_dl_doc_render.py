@@ -155,3 +155,44 @@ def test_long_bullet_split(tmp_path):
     h = _render(tmp_path, text)
     assert "<br>" in h
     assert seg in h  # 零内容变化
+
+
+def test_multi_anchor_block_all_carded(tmp_path):
+    # 多锚点块跨行（slim proposal 字段值自带换行）——逐行处理只卡首锚点的回归钉
+    text = (
+        "# t\n\n## 改动面\n\n"
+        "- change_point=web_ui/a.py:-:L1（改）：改前=x → 改后=y\n"
+        "web_ui/b.py:-:L2（改）：改前=m → 改后=n\n"
+        "web_ui/c.py:-:L3（改）：改前=p → 改后=q；interface=Consumes：load()。Produces：显示\n"
+    )
+    h = _render(tmp_path, text)
+    body = h[h.find("<article>") :]
+    assert body.count('<div class="cp-card">') == 3
+    assert "change_point=" not in body  # 全字段升卡片，零裸文本
+
+
+def test_interface_only_bullet_dropped(tmp_path):
+    # 纯 interface bullet（无 change_point 伴随）：字段入流程图后不落正文
+    text = (
+        "# t\n\n## 改动面\n\n"
+        "- change_point=web_ui/a.py:-:L1（改）：改前=x → 改后=y；interface=Consumes：load()。Produces：显示\n"
+        "- interface=Consumes：模板上下文 _ann。Produces：渲染文本正确\n"
+    )
+    h = _render(tmp_path, text)
+    body = h[h.find("<article>") :]
+    assert "interface=Consumes" not in body
+    assert "<svg" in body  # 流程图仍在（interface 已入图）
+
+
+def test_interface_last_field_not_swallowing_doc(tmp_path):
+    # interface 为末字段（无 ；verify= 续接）：Produces 抽取须止于换行，
+    # 不得吞到文尾把后续 bullet 吸成节点标签（slim proposal 实证）
+    text = (
+        "# t\n\n## 改动面\n\n"
+        "- change_point=web_ui/a.py:-:L1（改）：改前=x → 改后=y；interface=Consumes：load()。Produces：显示正确\n"
+        "- change_point=web_ui/b.py:-:L2（改）：改前=m → 改后=n；interface=Consumes：read()。Produces：文本正确\n"
+    )
+    h = _render(tmp_path, text)
+    body = h[h.find("<article>") :]
+    assert "- change_point" not in body  # 后续 bullet 未被吸进 SVG 节点
+    assert body.count('<div class="cp-card">') == 2

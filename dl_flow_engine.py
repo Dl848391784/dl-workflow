@@ -1132,74 +1132,22 @@ _ARTIFACT_RENDER_SOURCES: dict[str, dict] = {
     # plan.md 是机器执行 spec（密文=门检优点），proposal 是同源 trace 按标准
     # 技术方案骨架的第二次装配——零门检（不进 ARTIFACT_SECTIONS）零节点改动，
     # piggyback 随 understand.md/plan.md 装配顺带重渲，幂等长全。
-    # blocks 有序节：t=s statements 节（可附 qa_srcs/qa_kw 补录）、t=qa 收录节
-    # （full_srcs 全收 / qa_srcs+qa_kw 定点筛选 / kw_minors+qa_kw 跨步筛选）、
-    # t=decisions 裁决记录锚点。收录去重：DesignSolution 剔除项只进方案对比、
-    # ScopeAndConstraints 搁置项只进范围节（design §2）。
+    # proposal.md：人读技术方案（designs/proposal-artifact-design.md，v0.7.0 收敛）。
+    # 2026-09-03 用户裁决：人读文档只含两部分——调用流程（渲染层自 interface=
+    # 字段推导 SVG）+ 代码改动面（渲染层把 change_point= 字段升 dashboard 同款
+    # 卡片），其余节全裁。装配侧随之瘦身：改动面节从 TaskBreakdown 子4 statements
+    # 只提取 change_point/interface 字段（fields_only），陈述正文不进人读文档
+    # （仍留 evidence/plan.md 机器真源，零信息丢失）。
     "proposal.md": {
         "blocks": [
             {
                 "t": "s",
-                "title": "背景与根因",
-                "srcs": (("ProblemContext", 6),),
-                "qa_srcs": (("ProblemContext", 3),),
-                "qa_kw": ("根因@",),
-            },
-            {
-                "t": "s",
-                "title": "目标与成功标准",
-                "srcs": (("GoalsAndValue", 4), ("SuccessCriteria", 4)),
-            },
-            {
-                "t": "s",
-                "title": "范围与非目标",
-                "srcs": (("ScopeAndConstraints", 4),),
-                "qa_srcs": (("ScopeAndConstraints", 2), ("ScopeAndConstraints", 3)),
-                "qa_kw": ("搁置",),
-            },
-            {"t": "s", "title": "方案概述", "srcs": (("DesignSolution", 5),)},
-            {
-                "t": "qa",
-                "title": "方案对比与取舍",
-                "full_srcs": (("DesignSolution", 4),),
-                "kw_minors": ("DesignSolution",),
-                "qa_kw": ("剔除", "证伪", "未选定"),
-            },
-            {"t": "s", "title": "改动面", "srcs": (("TaskBreakdown", 4),)},
-            {
-                "t": "qa",
-                "title": "风险与不可逆操作",
-                "kw_minors": ("ExecutionPlanCheckpoints",),
-                "qa_kw": ("假设", "不可逆", "回滚", "风险"),
-            },
-            {
-                "t": "s",
-                "title": "实施计划与检查点",
-                "srcs": (("ExecutionPlanCheckpoints", 4),),
-            },
-            {"t": "decisions"},
-            {
-                "t": "qa",
-                "title": "开放问题与接续",
-                "kw_minors": (
-                    "ProblemContext",
-                    "GoalsAndValue",
-                    "ScopeAndConstraints",
-                    "SuccessCriteria",
-                ),
-                "qa_kw": ("剔除", "未选定", "开放"),
+                "title": "改动面",
+                "srcs": (("TaskBreakdown", 4),),
+                "fields_only": ("change_point", "interface"),
             },
         ],
-        "decision_steps": (
-            ("ProblemContext", 7),
-            ("GoalsAndValue", 5),
-            ("ScopeAndConstraints", 5),
-            ("SuccessCriteria", 5),
-            ("DesignSolution", 6),
-            ("TaskBreakdown", 5),
-            ("CapabilityToolSelection", 6),
-            ("ExecutionPlanCheckpoints", 5),
-        ),
+        "decision_steps": (),
         "unselected_minors": (),
         "require_all": False,
         "out_dir": "proposals",
@@ -1264,8 +1212,14 @@ def render_artifact(
         srcs: tuple,
         qa_srcs: tuple = (),
         qa_kw: tuple = (),
+        fields_only: tuple = (),
     ) -> None:
-        """statements 节：逐源渲染（TACET 沉默占位/缺源点名）；qa_srcs+qa_kw 补录项。"""
+        """statements 节：逐源渲染（TACET 沉默占位/缺源点名）；qa_srcs+qa_kw 补录项。
+
+        fields_only 非空时只提取 statements 的指定 fields（如 change_point/
+        interface），陈述正文不进产物（v0.7.0 proposal 收敛：字段是人读文档的
+        全部内容，正文仍留 evidence/plan.md 机器真源）。
+        """
         body: list[str] = []
         for minor, stp in srcs:
             rec = latest.get((minor, stp))
@@ -1282,6 +1236,15 @@ def render_artifact(
                 missing.append(f"{title}（{minor} 子{stp} 无 statements trace）")
                 continue
             for it in stmts:
+                if fields_only:
+                    chunks = [
+                        f"{k}={v}"
+                        for k, v in (it.get("fields") or {}).items()
+                        if k in fields_only and str(v).strip()
+                    ]
+                    if chunks:
+                        body.append("- " + "；".join(chunks))
+                    continue
                 extras = [
                     str(it.get("type_label") or ""),
                     str(it.get("boundary") or ""),
@@ -1389,6 +1352,7 @@ def render_artifact(
                     blk["srcs"],
                     blk.get("qa_srcs", ()),
                     blk.get("qa_kw", ()),
+                    blk.get("fields_only", ()),
                 )
             else:
                 _emit_qa(

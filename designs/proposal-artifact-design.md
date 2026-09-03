@@ -106,3 +106,14 @@ CLI 用法文案与不支持报错名单同步加 proposal.md。
   单源、Pugh 是子4 形式要件）锚定；v1 宁纵（多收强于漏收，人可读时跳过）。
 - piggyback 让 render-artifact 变慢（多一次装配+一次 bun）→ 节点边界频率低，
   可接受；proposal 渲染自身失败独立降级不影响主产物墙钟。
+
+---
+
+## 修订（v0.7.0，2026-09-03 用户裁决）：收敛为两部分
+
+人读技术方案文档**只含两部分**：①调用流程（渲染层自 interface= 字段推导 SVG）
+②代码改动面（渲染层把 change_point= 字段升 dashboard 同款卡片）。§2 的 10 节
+骨架全部裁撤——陈述正文不进人读文档（仍留 evidence/plan.md 机器真源，零信息
+丢失）。装配侧：改动面节从 TaskBreakdown 子4 statements 只提取
+change_point/interface 字段（`_emit_stmts` fields_only）；piggyback/TACET 占位/
+缺源点名机制不变。§2 表格保留作历史记录。

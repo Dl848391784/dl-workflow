@@ -70,12 +70,18 @@ _SENT_SPLIT_RE = re.compile(r"(?<=[。；])")
 # 调用流程图源：interface=Consumes：...Produces：...（change_spec 门钉死字段）。
 # 分隔符两变体兼容：Consumes：/Consumes=（全量轨老实例用半角=，实证
 # amplitude_annualized vs web_interaction 两形态并存）。
+# 终止符含 \n：slim proposal 里 interface 是末字段（无 ；verify= 续接），
+# 只靠 $ 会吞到文尾把后续 bullet 全吸进 Produces 标签（v0.7 实证）。
 _IFACE_RE = re.compile(
     r"interface=Consumes[=：](.+?)Produces[=：](.+?)"
-    r"(?:；(?:verify|acceptance_map|trace_anchor)=|$)",
+    r"(?:；(?:verify|acceptance_map|trace_anchor)=|\n|$)",
     re.S,
 )
 _FLOW_CAP = (4, 4, 3)  # 三层节点上限（Consumes/改动点/Produces），超出截断注明
+
+# change_point 剥除后的残行：空 bullet 或纯 interface 尾巴（已入流程图）。
+# re.S：多锚点块的 interface 尾巴跨行（slim proposal 的字段值自带换行）。
+_CP_RESIDUE_RE = re.compile(r"^-\s*(?:；\s*)?(?:interface=.*)?$", re.S)
 
 _CSS = """
 :root{--fg:#1f2328;--muted:#656d76;--line:#d1d9e0;--accent:#2557a7;
@@ -393,11 +399,42 @@ def _split_long_bullet(line: str) -> str:
 
 
 # ---------- 预处理主管线 ----------
+def _logical_lines(text: str) -> list[str]:
+    """lazy continuation 并入上一条 bullet（md 语义=同一 li）。
+
+    change_point 多锚点块的后续锚点各占一行（非 `- ` 开头）——逐行处理只会
+    卡片化首个锚点、后续锚点裸文本残留（v0.6 实证漏网）。规则：非空行且不以
+    `- `/`#`/`<`/`|`|`>`/空白缩进 开头 -> 并入上一条 bullet 行。
+    """
+    out: list[str] = []
+    in_fence = False
+    for line in text.splitlines():
+        if line.strip().startswith("```"):
+            in_fence = not in_fence
+            out.append(line)
+            continue
+        if in_fence:
+            out.append(line)
+            continue
+        if (
+            not line.strip()
+            or line.startswith(("- ", "#", "<", "|", ">"))
+            or line[0:1].isspace()
+        ):
+            out.append(line)
+            continue
+        if out and out[-1].startswith("- "):
+            out[-1] = out[-1] + "\n" + line
+        else:
+            out.append(line)
+    return out
+
+
 def _preprocess(text: str, project_root: Path | None) -> str:
     text = _flow_section(text)
     out: list[str] = []
     in_fence = False
-    for line in text.splitlines():
+    for line in _logical_lines(text):
         if line.strip().startswith("```"):
             in_fence = not in_fence
             out.append(line)
@@ -409,6 +446,14 @@ def _preprocess(text: str, project_root: Path | None) -> str:
             line, cards = _strip_cp_field(line, project_root)
         else:
             cards = ""
+        if cards and _CP_RESIDUE_RE.match(line):
+            # 字段已全量升级（change_point->卡片 / interface->流程图），
+            # 残行（空 bullet 或纯 interface 尾巴）不再占位（v0.7.0 slim proposal）。
+            out.append(cards)
+            continue
+        if not cards and "interface=" in line and _CP_RESIDUE_RE.match(line):
+            # 纯 interface bullet（无 change_point 伴随）——字段已入流程图，同样不落
+            continue
         m = _META_TAIL_RE.match(line)
         if (
             m
