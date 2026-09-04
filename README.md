@@ -41,7 +41,7 @@ install.sh 做什么：
 - 追写 `~/.bashrc`：`export DL_WF_HOME` + `dl` 函数（工作流入口，独立于 ac-ark/claude）
 - dashboard 依赖：`pip3 install --user fastapi uvicorn`（可选层，失败只警告）
 - codegraph CLI：`npm i -g @colbymchenry/codegraph`（可选层，失败只警告；npm 全局目录不可写时自动改 `~/.npm-global` 免 sudo；走 npmmirror 一次性参数，不改用户全局 registry）
-- HTML 导出依赖：`pip install --user markdown`（可选层 `--skip-html`，失败只警告）。装了它，render-artifact 装配 `understands|plans|proposals/<name>.md` 时自研渲染器（`dl_doc_render.py`：左侧目录/CJK 锚点/技术排版/字段尾巴 dimmed/调用流程 SVG/dashboard 同款改动面卡片/重点标注）自动附带同目录 `<name>.html`——md 是给模型的真源，HTML 是给人的赠品，渲染失败只降级不阻断
+- HTML 导出依赖：`pip install --user markdown`（可选层 `--skip-html`，失败只警告）。装了它，render-artifact 装配 `understands|plans|proposals/<name>.md` 时自研渲染器（`dl_doc_render.py`：左侧目录/CJK 锚点/技术排版/字段尾巴 dimmed/mermaid 调用流程（CDN view-time 渲染，无外网降级源码块）/dashboard 同款改动面卡片/重点标注）自动附带同目录 `<name>.html`——md 是给模型的真源，HTML 是给人的赠品，渲染失败只降级不阻断
 - 自检报告：逐项 ✓/✗ + 警告汇总，失败项非零退出
 
 > 为什么 hooks 不 copy 而 skills 要 copy？`settings.json` 的 hook command 是自由字符串（任意路径）；但 skills/output-styles/commands 的加载路径是 Claude Code 硬编码的 `~/.claude/{skills,output-styles,commands}/`，必须物理在那。

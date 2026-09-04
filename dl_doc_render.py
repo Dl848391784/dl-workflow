@@ -158,9 +158,12 @@ font-family:var(--mono);font-size:12.5px;overflow:hidden}
 .cp-ctx{margin:0;border-top:1px solid var(--line);border-radius:0;font-size:12px}
 .ctx-hl{background:rgba(250,204,21,.22)}
 /* 单改动项小链（Consumes->本项改动->Produces，边只在本项 interface= 内） */
-.flowline{margin:10px 0 4px;padding:6px 10px;background:var(--bg-soft);
-border:1px solid var(--line);border-radius:8px;overflow-x:auto}
-.flowline svg{max-width:100%;height:auto;display:block}
+pre.mermaid{margin:10px 0 4px;padding:10px;background:var(--bg-soft);
+border:1px solid var(--line);border-radius:8px;overflow-x:auto;text-align:center}
+pre.mermaid-off{text-align:left;color:var(--muted);font-size:12px;
+white-space:pre-wrap;word-break:break-all}
+.mermaid-off-bar{margin:0 0 14px;padding:8px 12px;background:#fdf6b2;color:#8e4b10;
+border:1px solid #f5e08a;border-radius:8px;font-size:12.5px}
 @media (max-width:900px){
 #toc{position:static;width:auto;border-right:none;border-bottom:1px solid var(--line)}
 main{margin-left:0;padding:24px 18px 60px}
@@ -185,6 +188,27 @@ onScroll();
 })();
 """
 
+
+_MERMAID_CDN = (
+    "https://registry.npmmirror.com/mermaid/11.17.2/files/dist/mermaid.min.js"
+)
+_MERMAID_BLOCK = f"""
+<script src="{_MERMAID_CDN}"></script>
+<script>
+(function(){{
+if (window.mermaid) {{
+mermaid.initialize({{startOnLoad: true, theme: "default", flowchart: {{curve: "linear"}}}});
+}} else {{
+document.querySelectorAll("pre.mermaid").forEach(function(p){{ p.classList.add("mermaid-off"); }});
+var bar = document.createElement("div");
+bar.className = "mermaid-off-bar";
+bar.textContent = "mermaid.js 加载失败（查看环境无外网）——图以源码显示，内容未丢";
+document.body.insertBefore(bar, document.body.firstChild);
+}}
+}})();
+</script>
+"""
+
 _TEMPLATE = """<!DOCTYPE html>
 <html lang="zh">
 <head>
@@ -201,7 +225,7 @@ __BODY__
 </article>
 <footer>dl-workflow__VERSION__ · render-artifact 机械装配 · 真源 = evidence trace（改内容改 trace 后重渲染）</footer>
 </main>
-<script>__JS__</script>
+__MERMAID__<script>__JS__</script>
 </body>
 </html>
 """
@@ -279,53 +303,61 @@ def _iface_labels(chunk: str) -> list[str]:
     return labels
 
 
-def _flow_svg(consumes: list[str], middles: list[str], produces: list[str]) -> str:
-    """单改动项小链 SVG：Consumes -> 本项改动 -> Produces 三列节点 + 组级箭头。
+def _flow_mermaid_src(
+    consumes: list[str], middles: list[str], produces: list[str]
+) -> str:
+    """单改动项小链 mermaid 源（flowchart LR + 三层 subgraph + 组级 ==>）。
 
-    边只画「组 -> 组」两条（消费组->改动组、改动组->产出组）——interface= 字段
-    语义即本项三方的组级关系；节点间不画全对全（那是无背书的虚构边，v0.6 教训）。
+    边只画组级两条（消费组->改动组、改动组->产出组）——与自绘 SVG 同一条
+    诚实纪律（无字段背书不画）。呈现规范借 design-doc-mermaid skill：
+    unicode 语义符号 + 高对比 classDef（浅底深字 color: 必填）。
     """
-    cols = [consumes, middles, produces]
-    col_x = [10, 320, 630]
-    node_w, node_h, row_gap = 220, 36, 50
-    rows = max(len(c) for c in cols)
-    height = rows * row_gap + 14
-    palette = [("#e8f0fe", "#1a56db"), ("#fff7ed", "#c2410c"), ("#ecfdf5", "#047857")]
-    parts = [
-        f'<svg viewBox="0 0 860 {height}" xmlns="http://www.w3.org/2000/svg" '
-        'font-family="ui-monospace,Menlo,Consolas,monospace" font-size="12">',
-        '<defs><marker id="fl-arr" viewBox="0 0 10 10" refX="9" refY="5" '
-        'markerWidth="8" markerHeight="8" orient="auto-start-reverse">'
-        '<path d="M 0 0 L 10 5 L 0 10 z" fill="#656d76"/></marker></defs>',
-    ]
 
-    def _stack_center(col: int) -> float:
-        n = len(cols[col])
-        return 8 + (n * row_gap - (row_gap - node_h)) / 2
+    def _e(s: str) -> str:
+        return s.replace('"', "'")
 
-    # 组级箭头两条：列栈右缘中点 -> 下一列栈左缘中点
-    for src, dst in ((0, 1), (1, 2)):
-        y1, y2 = _stack_center(src), _stack_center(dst)
-        parts.append(
-            f'<line x1="{col_x[src] + node_w + 6}" y1="{y1}" '
-            f'x2="{col_x[dst] - 8}" y2="{y2}" stroke="#656d76" '
-            'stroke-width="1.5" marker-end="url(#fl-arr)"/>'
+    def _sym_cons(label: str) -> str:
+        return (
+            "💾"
+            if any(k in label for k in ("load", "数据", "JSON", "模板上下文"))
+            else "📥"
         )
-    for col, labels in enumerate(cols):
-        bg, fg = palette[col]
-        for row, label in enumerate(labels):
-            x, y = col_x[col], 8 + row * row_gap
-            text = _esc(label if len(label) <= 24 else label[:23] + "…")
-            weight = ' font-weight="bold"' if col == 1 else ""
-            parts.append(
-                f'<g><rect x="{x}" y="{y}" width="{node_w}" height="{node_h}" rx="7" '
-                f'fill="{bg}" stroke="{fg}" stroke-opacity=".35"/>'
-                f'<text x="{x + node_w / 2}" y="{y + node_h / 2 + 4}" '
-                f'text-anchor="middle" fill="{fg}"{weight}>'
-                f"{text}<title>{_esc(label)}</title></text></g>"
-            )
-    parts.append("</svg>")
-    return "".join(parts)
+
+    def _sym_prod(label: str) -> str:
+        return "✅" if any(k in label for k in ("正确", "绿", "断言")) else "📤"
+
+    lines = ["flowchart LR"]
+    lines.append('    subgraph C["📥 Consumes（数据与入口）"]')
+    for j, c in enumerate(consumes):
+        lines.append(f'        C{j}["{_sym_cons(c)} {_e(c)}"]')
+    lines.append("    end")
+    lines.append('    subgraph M["🔧 本项改动"]')
+    for j, m in enumerate(middles):
+        lines.append(f'        M{j}["⚙️ {_e(m)}"]')
+    lines.append("    end")
+    lines.append('    subgraph P["📤 Produces（产出）"]')
+    for j, pr in enumerate(produces):
+        lines.append(f'        P{j}["{_sym_prod(pr)} {_e(pr)}"]')
+    lines.append("    end")
+    lines.append("    C ==> M")
+    lines.append("    M ==> P")
+    lines.append(
+        "    classDef cons fill:#e8f0fe,stroke:#1a56db,stroke-width:2px,color:#1a56db"
+    )
+    lines.append(
+        "    classDef mid fill:#fff7ed,stroke:#c2410c,stroke-width:2px,color:#c2410c"
+    )
+    lines.append(
+        "    classDef prod fill:#ecfdf5,stroke:#047857,stroke-width:2px,color:#047857"
+    )
+    lines.append(
+        "    class " + ",".join(f"C{j}" for j in range(len(consumes))) + " cons"
+    )
+    lines.append("    class " + ",".join(f"M{j}" for j in range(len(middles))) + " mid")
+    lines.append(
+        "    class " + ",".join(f"P{j}" for j in range(len(produces))) + " prod"
+    )
+    return "\n".join(lines)
 
 
 def _mini_flow_html(
@@ -338,7 +370,8 @@ def _mini_flow_html(
     """
     if not middles:
         middles = ["（本项无代码锚点）"]
-    return f'<div class="flowline">{_flow_svg(consumes, middles, produces)}</div>'
+    src = _flow_mermaid_src(consumes, middles, produces)
+    return f'<pre class="mermaid">\n{_esc(src)}\n</pre>'
 
 
 # ---------- 重点标注 + 长文拆分 ----------
@@ -488,6 +521,7 @@ def render_html(md_path: Path, html_path: Path, version: str = "") -> None:
         .replace("__TOC__", conv.toc)
         .replace("__BODY__", body)
         .replace("__VERSION__", f" v{version}" if version else "")
+        .replace("__MERMAID__", _MERMAID_BLOCK if 'class="mermaid"' in body else "")
         .replace("__JS__", _JS)
     )
     Path(html_path).write_text(html, encoding="utf-8")
