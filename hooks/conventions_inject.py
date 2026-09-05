@@ -5,8 +5,8 @@ UserPromptSubmit hook：注入项目约定蒸馏瘦档（designs/setup-installer
 集中化版本：本文件由项目 settings.json 以绝对路径引用，一份服务任意项目；
 项目根从 hook payload 解析（payload.cwd → CLAUDE_PROJECT_DIR → 进程 cwd）。
 
-注入策略：仅在有活跃漂移点或索引过期（>5 commit）时注入——无漂移无仲裁需求，
-完整约定深查走 ~/.dl-workflow/bin/cvx.py（避免每次 prompt 静态噪音）。
+注入策略：仅在有活跃漂移点、inferred 候选规范或索引过期（>5 commit）时注入——
+三者皆无则无仲裁需求，完整约定深查走 ~/.dl-workflow/bin/cvx.py（避免每次 prompt 静态噪音）。
 容错：db 缺失/查询失败/stdin 异常 -> exit 0 静默不注入，UserPromptSubmit 永不阻断。
 """
 
@@ -21,6 +21,7 @@ from pathlib import Path
 
 MAX_DRIFT = 5
 STALE_COMMITS = 5
+CANDIDATE_CAP = 3
 
 # worktree → 主仓映射标记：主仓存在本 hook 的 db 才替换 root
 MARKER = Path(".conventions") / "conventions.db"
@@ -93,15 +94,23 @@ def _log(log_path: Path, status: str) -> None:
         pass
 
 
-def _load(conn: sqlite3.Connection) -> tuple[list[tuple], int]:
-    """返回 (漂移记录 ≤MAX_DRIFT, 约定总数)。"""
+def _load(conn: sqlite3.Connection) -> tuple[list[tuple], int, list[tuple]]:
+    """返回 (漂移记录 ≤MAX_DRIFT, 约定总数, inferred 候选 ≤CANDIDATE_CAP)。
+
+    候选 = source='inferred' 且非 drift（inferred 候选为分析产出不裁决，drift=1 走漂移区）。
+    """
     total = conn.execute("SELECT COUNT(*) FROM conventions").fetchone()[0]
     drifts = conn.execute(
         "SELECT dimension, subject, statement, sample_size, compliance FROM conventions"
         " WHERE drift = 1 ORDER BY dimension, id LIMIT ?",
         (MAX_DRIFT,),
     ).fetchall()
-    return drifts, total
+    candidates = conn.execute(
+        "SELECT dimension, subject, statement FROM conventions"
+        " WHERE source = 'inferred' AND drift = 0 ORDER BY sample_size DESC LIMIT ?",
+        (CANDIDATE_CAP,),
+    ).fetchall()
+    return drifts, total, candidates
 
 
 def _commit_gap(root: Path, base_hash: str) -> int | None:
@@ -127,10 +136,11 @@ def _commit_gap(root: Path, base_hash: str) -> int | None:
         return None
 
 
-def _format(drifts: list[tuple], total: int, gap: int | None) -> str | None:
-    """无漂移且未过期 -> None（不注入）；否则生成瘦档文本。"""
+def _format(drifts: list[tuple], total: int, gap: int | None,
+            candidates: list[tuple]) -> str | None:
+    """无漂移且无过期且无候选 -> None（不注入）；否则生成瘦档文本。"""
     stale = gap is not None and gap > STALE_COMMITS
-    if not drifts and not stale:
+    if not drifts and not stale and not candidates:
         return None
     lines = [
         "## 项目约定蒸馏（瘦档；文档与实证漂移并列呈证，动手前确认权威，不擅自站队）"
@@ -138,6 +148,10 @@ def _format(drifts: list[tuple], total: int, gap: int | None) -> str | None:
     for dim, subject, statement, n, comp in drifts:
         comp_s = "?" if comp is None else f"{comp:.2f}"
         lines.append(f"- ⚠️ [{dim}] {subject} :: {statement}（n={n}, 合规率={comp_s}）")
+    if candidates:
+        lines.append("🔍 候选规范（待人确认，认可后写入 conventions.yaml 转正）：")
+        for _dim, subject, statement in candidates:
+            lines.append(f"- 🔍 {subject} :: {statement}")
     if stale:
         lines.append(
             f"[conventions] 索引落后 {gap} 个 commit（>{STALE_COMMITS}），约定可能过期。"
@@ -165,7 +179,7 @@ def main() -> int:
         return 0
     try:
         conn = sqlite3.connect(f"file:{conv_db}?mode=ro", uri=True)
-        drifts, total = _load(conn)
+        drifts, total, candidates = _load(conn)
         row = conn.execute(
             "SELECT value FROM meta WHERE key = 'commit_hash'"
         ).fetchone()
@@ -174,7 +188,7 @@ def main() -> int:
         _log(inject_log, "query_error")
         return 0
     gap = _commit_gap(root, row[0] if row else "")
-    context = _format(drifts, total, gap)
+    context = _format(drifts, total, gap, candidates)
     if context is None:
         _log(inject_log, "no_drift")
         return 0
@@ -188,7 +202,7 @@ def main() -> int:
         ensure_ascii=False,
     )
     sys.stdout.write(out)
-    _log(inject_log, f"injected drifts={len(drifts)} gap={gap}")
+    _log(inject_log, f"injected drifts={len(drifts)} cands={len(candidates)} gap={gap}")
     return 0
 
 

@@ -326,7 +326,7 @@ _AGE_BATCH = 25
 
 
 def _file_ages(root: Path, files: list[str]) -> dict[str, int | None]:
-    """证据文件→最后提交 epoch（git log -1）；失败/缺失→None。批量上限防大仓拖慢。"""
+    """证据文件→最后作者提交时间（author date, %at）（git log -1）；失败/缺失→None。批量上限防大仓拖慢。"""
     ages: dict[str, int | None] = {}
     for rel in files[:_AGE_BATCH]:
         try:
@@ -357,8 +357,8 @@ def _recency_note(root: Path, evidence: list[dict], now: int | None = None) -> s
     return f"违反案例新近度：近 {LEGACY_AGE_DAYS // 30} 个月 {fresh} 处 / 更早 {legacy} 处 / 未知 {unknown} 处"
 
 
-def _g1_logging_majority(files: list[str], root: Path) -> list[dict]:
-    """G1 写法主流归纳：全库日志风格统计（参数无关）。多数派≥MIN_SAMPLE 即产候选。"""
+def _g1_logging_majority(files: list[str], root: Path, cg=None) -> list[dict]:
+    """G1 写法主流归纳：全库日志风格统计（参数无关）。多数派≥MIN_SAMPLE 即产候选。cg 形参占位（统一生成器签名，本维度不用 db）。"""
     f_hits: list[dict] = []
     lazy = 0
     for rel in files:
@@ -386,7 +386,55 @@ def _g1_logging_majority(files: list[str], root: Path) -> list[dict]:
     }]
 
 
-_GENERATORS = {"logging_style": _g1_logging_majority}  # Task 2 追加 util_graph 的 G2
+_IMPORT_EDGE_KINDS = ("imports", "references")
+
+
+def _g2_util_concentration(cg, files) -> list[dict]:
+    """G2 工具引用集中度：被 ≥MIN_SAMPLE 个不同模块引用的 import 目标 → 候选「公共工具应走 X」。
+
+    候选资格：目标文件自身出边少（工具特征：被多引少引别）且集中度=引用方文件数（按文件去重）。
+    files 形参占位（统一生成器签名，本维度以 db 为准）。
+    """
+    if cg is None:
+        return []
+    rows = cg.execute(
+        "SELECT n2.file_path, n1.file_path FROM edges e"
+        " JOIN nodes n1 ON n1.id = e.source JOIN nodes n2 ON n2.id = e.target"
+        f" WHERE e.kind IN ({','.join('?' * len(_IMPORT_EDGE_KINDS))})",
+        _IMPORT_EDGE_KINDS).fetchall()
+    importers: dict[str, set[str]] = {}
+    for dst_fp, src_fp in rows:
+        if dst_fp != src_fp:
+            importers.setdefault(dst_fp, set()).add(src_fp)
+    cands = []
+    for target, mods in sorted(importers.items(), key=lambda kv: -len(kv[1])):
+        if len(mods) < MIN_SAMPLE:
+            continue
+        try:
+            out_degree = cg.execute(
+                "SELECT COUNT(DISTINCT e.target) FROM edges e JOIN nodes n ON n.id = e.source"
+                " WHERE n.file_path = ?", (target,)).fetchone()[0]
+        except sqlite3.Error:
+            out_degree = 0
+        if out_degree > len(mods):
+            continue  # 不是工具特征（它自己还重度依赖别人）
+        stem = Path(target).with_suffix("").as_posix().replace("/", ".")
+        cands.append({
+            "dimension": "inferred", "subject": f"inferred:util_graph:{stem}",
+            "statement": (f"候选规范：公共工具引用集中于 {stem}（{len(mods)} 个模块引用）"
+                          f"——新代码应优先复用而非新造"),
+            "source": "inferred", "sample_size": len(mods),
+            "compliance": None, "drift": 0, "evidence": [],
+        })
+    return cands
+
+
+def _g2_from_files(files: list[str], root: Path, cg) -> list[dict]:
+    """统一生成器签名 (files, root, cg) 适配层：G2 以 db 为准，参数换序调用核心实现。"""
+    return _g2_util_concentration(cg, files)
+
+
+_GENERATORS = {"logging_style": _g1_logging_majority, "util_graph": _g2_from_files}
 
 
 def load_dismissed(root: Path) -> list[str]:
@@ -414,7 +462,7 @@ def mine_candidates(cg, root: Path, files: list[str], rules: list[dict], dismiss
     for rtype, gen in _GENERATORS.items():
         if rtype in manual_types:
             continue
-        for c in gen(files, root):
+        for c in gen(files, root, cg):
             if c["subject"] not in dismissed:
                 cands.append(c)
     return cands

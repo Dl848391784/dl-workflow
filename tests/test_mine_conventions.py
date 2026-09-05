@@ -354,6 +354,27 @@ def test_mine_candidates_suppressed_by_manual_rule_and_dismissed(tmp_path, monke
     assert mc.mine_candidates(None, repo, files, [], [cands[0]["subject"]]) == []
 
 
+def test_g2_util_concentration(tmp_path, monkeypatch):
+    monkeypatch.setattr(mc, "MIN_SAMPLE", 2)  # fixture 样本量 4 < 默认 20
+    conn = sqlite3.connect(tmp_path / "cg.db")
+    conn.executescript(CG_SCHEMA)
+    nodes = [("u1", "function", "load", "common/loader.py", 1),
+             ("m1", "function", "a", "web/app.py", 1), ("m2", "function", "b", "svc/b.py", 1),
+             ("m3", "function", "c", "svc/c.py", 1), ("m4", "function", "d", "dao/d.py", 1)]
+    conn.executemany("INSERT INTO nodes VALUES (?,?,?,?,?)", nodes)
+    edges = [("m1", "u1", "references", 2), ("m2", "u1", "references", 3),
+             ("m3", "u1", "references", 4), ("m4", "u1", "references", 5),
+             ("m1", "m2", "references", 6)]  # 干扰边：非 common 目标
+    conn.executemany("INSERT INTO edges (source, target, kind, line) VALUES (?,?,?,?)", edges)
+    conn.commit()
+    cands = mc._g2_util_concentration(conn, ["web/app.py", "svc/b.py", "svc/c.py", "dao/d.py"])
+    assert len(cands) == 1
+    c = cands[0]
+    assert c["subject"].startswith("inferred:util_graph:")
+    assert "common.loader" in c["subject"] and c["sample_size"] == 4
+    assert c["source"] == "inferred" and c["drift"] == 0
+
+
 def test_load_dismissed(tmp_path):
     (tmp_path / "conventions.yaml").write_text("dismissed:\n  - inferred:logging:lazy_percent\n", encoding="utf-8")
     assert mc.load_dismissed(tmp_path) == ["inferred:logging:lazy_percent"]

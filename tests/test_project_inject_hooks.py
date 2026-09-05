@@ -95,6 +95,22 @@ def _mk_conventions_db(repo, drift=1):
             "abc",
         ),
     )
+    conn.execute(
+        "INSERT INTO conventions (dimension, subject, statement, source, sample_size,"
+        " compliance, drift, evidence, generated_at, commit_hash) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (
+            "inferred",
+            "inferred:util_graph:common.loader",
+            "候选规范：公共工具引用集中于 common.loader（4 个模块引用）——新代码应优先复用而非新造",
+            "inferred",
+            4,
+            None,
+            0,
+            "[]",
+            "2026-09-05T00:00:00",
+            "abc",
+        ),
+    )
     conn.execute("INSERT INTO meta VALUES ('commit_hash', 'abc')")
     conn.commit()
     conn.close()
@@ -123,6 +139,19 @@ def test_conventions_inject_drifts_and_never_blocks(tmp_path):
     assert proc.returncode == 0
     ctx = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
     assert "H11 日志风格" in ctx
+    assert "inferred:util_graph:common.loader" in ctx  # inferred 候选出 🔍 区
+    assert "候选规范" in ctx
+
+
+def test_conventions_inject_candidates_trigger_without_drift(tmp_path):
+    """无漂移且无 stale（commit_hash 'abc' 无法 rev-list）时，inferred 候选单独触发注入。"""
+    repo = _git_repo(tmp_path)
+    _mk_conventions_db(repo, drift=0)
+    proc = _run_hook("conventions_inject.py", repo, _payload(repo))
+    assert proc.returncode == 0
+    ctx = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "🔍" in ctx and "inferred:util_graph:common.loader" in ctx
+    assert "H11 日志风格" not in ctx  # drift=0 不进漂移区
 
 
 def test_conventions_inject_silent_without_db(tmp_path):
