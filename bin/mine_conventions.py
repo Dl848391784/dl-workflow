@@ -10,7 +10,12 @@
 仲裁原则：不裁决只呈证。doc_declared 规则有实证违反 → drift=1，由人决断。
 
 用法：python3 ~/.dl-workflow/bin/mine_conventions.py [--codegraph-db PATH] [--out PATH] [--root DIR]
-退出码（H12）：0=正常；1=未预期错误（codegraph db 缺失/查询失败）。
+退出码（H12）：0=正常；1=蒸馏/写库失败。
+
+P2 软降级语义（通用化）：codegraph db 缺失 → cg=None 警告继续（需 db 的 checker 跳过）；
+非 git 仓库 → files/commit_hash 置空继续（纯 db 维度仍运行）。无 conventions.yaml/rules →
+降级 import 图纯事实。唯二硬失败：PyYAML 缺失、conventions.yaml 解析失败（均 SystemExit/exit 1，
+不静默兜底）。
 """
 
 import argparse
@@ -328,6 +333,68 @@ DIMENSIONS: tuple = (
 )
 
 
+# ---------- 规则驱动（P2 通用化，designs/setup-installer-design.md §conventions.yaml） ----------
+RULES_FILE = "conventions.yaml"
+
+# 规则类型注册表：fn(rule, ctx) -> list[dict]；ctx = {"cg", "root", "files"}
+CHECKERS: dict = {}
+
+
+# Task 1 过渡注册：layering 先挂旧 mine_d2_layering（import 图纯事实 = 无 yaml 兜底语义），
+# 使 load_rules 校验认得内置类型 layering；Task 2 以参数化 check_layering 替换本注册。
+def _legacy_layering(rule, ctx):
+    if ctx["cg"] is None:
+        print("mine_conventions: layering 需 codegraph db，跳过", file=sys.stderr)
+        return []
+    return mine_d2_layering(ctx["cg"], ctx["root"], ctx["files"])
+
+
+CHECKERS["layering"] = _legacy_layering
+
+
+def load_rules(root: Path) -> list[dict]:
+    """读 <root>/conventions.yaml；无文件/空 rules → []（调用方降级纯事实）。
+
+    未知 type / 缺 type 的 rule → stderr 警告并跳过（不静默不阻断）。
+    PyYAML 缺失或文件解析失败 → SystemExit（硬依赖/硬失败，不静默兜底）。
+    """
+    try:
+        import yaml
+    except ImportError:
+        print("mine_conventions: 缺 PyYAML（pip install --user pyyaml）", file=sys.stderr)
+        sys.exit(1)
+    path = root / RULES_FILE
+    if not path.exists():
+        return []
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as e:
+        print(f"mine_conventions: {RULES_FILE} 解析失败: {e}", file=sys.stderr)
+        sys.exit(1)
+    rules = (data or {}).get("rules") or []
+    valid = []
+    for r in rules:
+        rtype = r.get("type") if isinstance(r, dict) else None
+        if not rtype or rtype not in CHECKERS:
+            print(f"mine_conventions: 跳过未知/缺 type 的 rule: {r!r:.120}", file=sys.stderr)
+            continue
+        valid.append(r)
+    return valid
+
+
+def _run_rules(cg, root, files) -> list[dict]:
+    rules = load_rules(root)
+    if not rules:
+        print("mine_conventions: 无 conventions.yaml/rules，降级为 import 图纯事实", file=sys.stderr)
+        rules = [{"id": "import_graph", "type": "layering", "statement": "模块 import 方向（纯事实）",
+                  "params": {"forbidden": []}}]
+    ctx = {"cg": cg, "root": root, "files": files}
+    records = []
+    for rule in rules:
+        records.extend(CHECKERS[rule["type"]](rule, ctx))
+    return records
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="项目约定蒸馏器（designs/convention_mining_design.md）")
     parser.add_argument("--codegraph-db", type=Path, default=DEFAULT_CG_DB)
@@ -335,23 +402,28 @@ def main(argv=None) -> int:
     parser.add_argument("--root", type=Path, default=Path.cwd())
     args = parser.parse_args(argv)
 
+    # 软降级（P2 通用化）：codegraph db 缺失不再 exit 1，cg=None 交给需 db 的 checker 自行处理
     try:
         cg = _open_codegraph(args.codegraph_db)
-    except (FileNotFoundError, sqlite3.OperationalError) as e:
-        print(f"mine_conventions: {e}", file=sys.stderr)
-        return 1
+    except (FileNotFoundError, sqlite3.OperationalError):
+        print("mine_conventions: codegraph db 缺失，需 db 的 checker 将跳过（stderr 注明）", file=sys.stderr)
+        cg = None
+    # 非 git 仓库：files 为空、commit_hash 为空串（纯 db 维度仍运行）
     try:
         files = _git_tracked_py(args.root)
         commit_hash = _git(args.root, "rev-parse", "HEAD")
-        records: list[dict] = []
-        for fn in DIMENSIONS:
-            records.extend(fn(cg, args.root, files))
+    except subprocess.CalledProcessError:
+        print("mine_conventions: 非 git 仓库，files 为空（纯 db 维度仍运行）", file=sys.stderr)
+        files, commit_hash = [], ""
+    try:
+        records = _run_rules(cg, args.root, files)
         _write_db(args.out, records, time.strftime("%Y-%m-%dT%H:%M:%S"), commit_hash)
-    except (sqlite3.Error, subprocess.CalledProcessError, OSError) as e:
+    except (sqlite3.Error, OSError) as e:
         print(f"mine_conventions: 蒸馏失败: {e}", file=sys.stderr)
         return 1
     finally:
-        cg.close()
+        if cg:
+            cg.close()
 
     n_drift = sum(r["drift"] for r in records)
     print(f"conventions: {len(records)} 条（drift {n_drift}）-> {args.out}")

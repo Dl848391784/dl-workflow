@@ -8,10 +8,11 @@
 # 4. dashboard python 依赖（pip --user fastapi uvicorn；--skip-dashboard 跳过）
 # 5. codegraph CLI（npm 全局装 @colbymchenry/codegraph；--skip-codegraph 跳过）
 # 6. HTML 导出依赖（dl_doc_render 渲染器的 Python-Markdown；--skip-html 跳过）
-# 7. 自检报告（逐项 ✓/✗ + 警告汇总）
+# 7. 蒸馏器依赖（mine_conventions 约定蒸馏的 PyYAML；--skip-distiller 跳过）
+# 8. 自检报告（逐项 ✓/✗ + 警告汇总）
 #
 # 幂等：连续跑两次结果一致。冲突文件备份到 ~/.claude/.dl-workflow-backup/<ts>/。
-# 可选层（4/5/6）失败只警告不阻断——核心工作流不依赖它们。
+# 可选层（4/5/6/7）失败只警告不阻断——核心工作流不依赖它们。
 
 set -euo pipefail
 
@@ -25,17 +26,19 @@ BASHRC="$HOME/.bashrc"
 SKIP_DASHBOARD=0
 SKIP_CODEGRAPH=0
 SKIP_HTML=0
+SKIP_DISTILLER=0
 PROJECT_MODE=0
 PROJECT_DIR=""
 WARNINGS=()
 
 usage() {
   cat <<'EOF'
-用法: ./install.sh [--skip-dashboard] [--skip-codegraph] [--skip-html]
-  默认全装：核心（hooks/skill/command/bashrc）+ dashboard 依赖 + codegraph CLI + HTML 导出依赖
+用法: ./install.sh [--skip-dashboard] [--skip-codegraph] [--skip-html] [--skip-distiller]
+  默认全装：核心（hooks/skill/command/bashrc）+ dashboard 依赖 + codegraph CLI + HTML 导出依赖 + 蒸馏器依赖
   --skip-dashboard  不装 fastapi/uvicorn（管理后台不可用，核心工作流不受影响）
   --skip-codegraph  不装 codegraph CLI（H15 门禁不生效，核心工作流不受影响）
   --skip-html       不装 vendor bun 依赖（产物 HTML 伴随导出降级，md 产物不受影响）
+  --skip-distiller  不装 pyyaml（约定蒸馏不可用，核心工作流不受影响）
   --project[=DIR]   项目级接线：codegraph index + post-commit + settings 合并 + 首蒸
                     （在 DIR 或当前目录执行；机器级安装照常先跑）
 EOF
@@ -389,6 +392,27 @@ install_html_deps() {
   fi
 }
 
+# ---------- 蒸馏器依赖（可选层，mine_conventions 约定蒸馏 -> PyYAML） ----------
+install_distiller_deps() {
+  if [ "$SKIP_DISTILLER" = "1" ]; then
+    echo "▸ 跳过蒸馏器依赖（--skip-distiller）"
+    return 0
+  fi
+  echo "▸ 检查蒸馏器依赖（pyyaml）"
+  if python3 -c "import yaml" 2>/dev/null; then
+    echo "  ↺ pyyaml 已可 import，跳过"
+    return 0
+  fi
+  local rc=0
+  _pip_install_user pyyaml || rc=$?
+  if [ "$rc" = 0 ]; then
+    echo "✓ pip --user 安装 pyyaml 完成"
+  else
+    echo "  ⚠ pyyaml 未装——约定蒸馏不可用，核心工作流不受影响" >&2
+    WARNINGS+=("distiller: pyyaml 未装")
+  fi
+}
+
 # ---------- 自检报告 ----------
 self_check() {
   echo "▸ 自检报告"
@@ -425,6 +449,9 @@ self_check() {
   if [ "$SKIP_HTML" != "1" ]; then
     _ck "HTML 导出依赖（python markdown + dl_doc_render）" bash -c "python3 -c 'import markdown' && test -f '$DL_HOME/dl_doc_render.py'"
   fi
+  if [ "$SKIP_DISTILLER" != "1" ]; then
+    _ck "蒸馏器依赖（pyyaml）" python3 -c "import yaml"
+  fi
   # 顾问项（不计 fail）：understand:1 子3 双向取证的 GitHub 层提额
   if [ -n "${GITHUB_TOKEN:-}" ] || grep -q "GITHUB_TOKEN" "$BASHRC" 2>/dev/null; then
     echo "  ✓ GITHUB_TOKEN 已配置"
@@ -455,6 +482,7 @@ main() {
       --skip-dashboard) SKIP_DASHBOARD=1 ;;
       --skip-codegraph) SKIP_CODEGRAPH=1 ;;
       --skip-html) SKIP_HTML=1 ;;
+      --skip-distiller) SKIP_DISTILLER=1 ;;
       --project) PROJECT_MODE=1 ;;
       --project=*) PROJECT_MODE=1; PROJECT_DIR="${arg#--project=}" ;;
       -h|--help) usage; exit 0 ;;
@@ -468,6 +496,7 @@ main() {
   install_dashboard_deps
   install_codegraph
   install_html_deps
+  install_distiller_deps
   echo
   self_check
   if [ "$PROJECT_MODE" = "1" ]; then

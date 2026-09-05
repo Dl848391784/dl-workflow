@@ -192,3 +192,63 @@ def test_d4_skeleton(tmp_path):
     assert by["scripts/ 骨架：paths 导入"]["compliance"] == pytest.approx(0.5)
     assert by["scripts/ 骨架：__main__ 守卫"]["compliance"] == pytest.approx(0.5)
     assert all(r["drift"] == 0 and r["source"] == "code_evidence" for r in recs)
+
+
+def test_load_rules_parses_and_validates(tmp_path, capsys):
+    import yaml as _yaml
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    rules = [{"id": "r1", "type": "layering", "statement": "s", "params": {"forbidden": []}},
+             {"id": "r2", "type": "unknown_type", "params": {}},
+             {"id": "r3"}]  # 缺 type
+    (root / "conventions.yaml").write_text(_yaml.safe_dump({"rules": rules}), encoding="utf-8")
+    got = mc.load_rules(root)
+    assert [r["id"] for r in got] == ["r1"]
+    err = capsys.readouterr().err
+    assert "unknown_type" in err and "r3" in err
+
+
+def test_load_rules_empty_and_missing(tmp_path):
+    assert mc.load_rules(tmp_path / "nope") == []
+    root = tmp_path / "p2"
+    root.mkdir()
+    (root / "conventions.yaml").write_text("rules: []\n", encoding="utf-8")
+    assert mc.load_rules(root) == []
+
+
+def test_load_rules_bad_yaml_aborts(tmp_path):
+    root = tmp_path / "p3"
+    root.mkdir()
+    (root / "conventions.yaml").write_text("rules: [unclosed", encoding="utf-8")
+    with pytest.raises(SystemExit):
+        mc.load_rules(root)
+
+
+def _git_repo(tmp_path):
+    import subprocess
+
+    repo = tmp_path / "p4"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    (repo / "a.py").write_text("x = 1\n")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "i"], cwd=repo, check=True)
+    return repo
+
+
+def test_main_dispatches_registered_checker(tmp_path, monkeypatch):
+    repo = _git_repo(tmp_path)
+    (repo / "conventions.yaml").write_text(
+        "rules:\n  - id: stub\n    type: stub_type\n    params: {}\n", encoding="utf-8")
+
+    def stub_check(rule, ctx):
+        return [_record(subject=rule["id"])]
+
+    monkeypatch.setitem(mc.CHECKERS, "stub_type", stub_check)
+    out = tmp_path / "out.db"
+    # 无 codegraph db → 软降级 cg=None（P2 行为），stub checker 不依赖 cg
+    assert mc.main(["--root", str(repo), "--out", str(out)]) == 0
+    rows = sqlite3.connect(f"file:{out}?mode=ro", uri=True).execute(
+        "SELECT subject FROM conventions").fetchall()
+    assert rows == [("stub",)]
