@@ -418,3 +418,16 @@ def test_post_pause_calls_action(client):
         r = c.post("/api/pause", json={"project": str(project), "name": "demo"})
     assert r.json()["ok"] is True
     pw.assert_called_once()
+
+
+def test_download_endpoint_serves_attachment(client, tmp_path, monkeypatch):
+    c, _project = client
+    tb = tmp_path / "dl-workflow-0.0.0.tar.gz"
+    tb.write_bytes(b"\x1f\x8b fake-tarball")
+    monkeypatch.setattr("dl_dashboard.app._latest_tarball", lambda: tb)
+    for path in ("/download", "/dl-workflow-latest.tar.gz"):
+        r = c.get(path)
+        assert r.status_code == 200
+        assert "attachment" in r.headers["content-disposition"]
+        assert "dl-workflow-0.0.0.tar.gz" in r.headers["content-disposition"]
+        assert r.content == b"\x1f\x8b fake-tarball"

@@ -33,6 +33,39 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
 
+def _latest_tarball() -> Path:
+    """pack.sh 产物（dist/dl-workflow-<VERSION>.tar.gz），按 git HEAD 缓存 freshness。
+
+    HEAD 变化（merge/pull）→ 重打；pack.sh 失败（如工作树脏）→ 回退 dist/ 里
+    最新的 last-good 包（下载可用性优先于新鲜度，日志注明）；无历史包 → 503 带原因。
+    """
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=DLWF, capture_output=True, text=True
+    ).stdout.strip()
+    if not head:
+        raise HTTPException(503, "git HEAD 不可解析")
+    dist = DLWF / "dist"
+    version = (DLWF / "VERSION").read_text(encoding="utf-8").strip()
+    out = dist / f"dl-workflow-{version}.tar.gz"
+    marker = dist / ".head"
+    if out.exists() and marker.exists() and marker.read_text().strip() == head:
+        return out
+    pack = subprocess.run(
+        ["bash", "pack.sh"], cwd=DLWF, capture_output=True, text=True
+    )
+    if pack.returncode != 0 or not out.exists():
+        candidates = sorted(dist.glob("dl-workflow-*.tar.gz"))
+        if candidates:
+            log.warning(
+                "pack.sh 失败(%s)，回退 last-good %s",
+                pack.stderr.strip()[:200], candidates[-1].name,
+            )
+            return candidates[-1]
+        raise HTTPException(503, f"打包失败且无历史包: {pack.stderr.strip()[:200]}")
+    marker.write_text(head, encoding="utf-8")
+    return out
+
+
 def _name(raw: str) -> str:
     if not _NAME_RE.match(raw):
         raise HTTPException(400, f"非法工作流名: {raw!r}")
@@ -384,6 +417,18 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
                 yield f"data: {json.dumps(snap, ensure_ascii=False)}\n\n"
                 await asyncio.sleep(2)
         return StreamingResponse(gen(), media_type="text/event-stream")
+
+    @app.get("/download")
+    @app.get("/dl-workflow-latest.tar.gz")
+    def download():
+        """访问即下载最新版 tarball（attachment 响应头，浏览器/wget 均触发保存）。"""
+        tb = _latest_tarball()
+        return FileResponse(
+            tb,
+            media_type="application/gzip",
+            filename=tb.name,
+            headers={"Cache-Control": "no-cache, must-revalidate"},
+        )
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     return app
