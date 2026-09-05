@@ -371,3 +371,24 @@ git commit -m "docs(readme): 归纳层使用说明——候选三态校准（转
 2. 槽位校准：yaml 加同 type 手动规则 → 该 type 候选消失；dismissed 清单 → 指定候选消失。
 3. 新近度叙事：违反案例文件 last-commit > 365 天时 statement 标注「更早 N 处」。
 4. 全量 `pytest tests/ -q` 绿；factor 端到端验证记录回本计划「验收」节。
+
+### 验收记录（2026-09-05，Task 3 e2e 实测）
+
+`pytest tests/ -q`：1524 passed, 2 skipped。e2e 分两面：
+
+**factor 端到端（真实仓，BASE 829afc1 蒸馏器）**：`--root . --out .conventions/conventions.db`
+→ 8 条（drift 1），全部 doc_declared/code_evidence，inferred 候选 **0 条**——factor yaml 已有
+logging_style（H11）+ util_graph 手动规则，G1/G2 均被槽位抑制（=校准在真实仓的预期行为，
+非缺陷）；cvx query 候选 → (no conventions matched)；inject 瘦档无 🔍 区。
+
+**负面对照（/tmp/infer-e2e，临时 git 仓 3 个 .py 共 22 行 %-惰性日志，无 rules yaml）**：
+1. 无 yaml → db 出 `inferred:logging:lazy_percent`（支持度 1.00, n=22）；cvx query 候选 命中；
+   inject 含 🔍 候选区。
+2. `dismissed: [inferred:logging:lazy_percent]` → 重跑 db 0 条，inject 无输出。
+3. 加合法手动 `type: logging_style` 规则（params 同 factor H11）→ 候选消失，手动规则接管
+   （db 1 条 doc_declared H11_log_style）。
+4. 新近度叙事：a.py 追加 1 行 f-string 并以 `--date 2024-01-01` 提交 → statement 标注
+   「违反案例新近度：近 12 个月 0 处 / 更早 1 处 / 未知 0 处」（>365 天进更早桶，验收 #3 实证）。
+5. 附带修正：`_g2_util_concentration` statement「N 个模块引用」→「N 个文件引用」
+   （sample_size 按 distinct 文件计，非模块；含 docstring + inject fixture 同步）。
+

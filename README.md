@@ -62,6 +62,13 @@ install.sh 做什么：
 （codegraph sync + 约定蒸馏重挖）、项目 `.claude/settings.json` 注册两条
 UserPromptSubmit 注入 hook（直引 `~/.dl-workflow/hooks/`，换机重跑本命令即重建）。
 
+#### 归纳层（inferred 候选规范）
+
+无手动规则时，蒸馏器自动从代码归纳**候选规范**（source=inferred，注入文本 🔍 标记）——
+支持度/新近度证据随候选一并给出（「用得最多」「最新的写法」由 git 历史判定）。
+**校准三态**：认可 → 把候选 params 抄进 `rules:` 转正（该类型候选此后抑制）；
+否决 → subject 加进顶层 `dismissed:` 清单不再产出；不处理 → 每次注入继续呈证，不裁决。
+
 ### 支持矩阵
 
 | 平台 | 级别 | 说明 |

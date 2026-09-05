@@ -390,7 +390,7 @@ _IMPORT_EDGE_KINDS = ("imports", "references")
 
 
 def _g2_util_concentration(cg, files) -> list[dict]:
-    """G2 工具引用集中度：被 ≥MIN_SAMPLE 个不同模块引用的 import 目标 → 候选「公共工具应走 X」。
+    """G2 工具引用集中度：被 ≥MIN_SAMPLE 个不同文件引用的 import 目标 → 候选「公共工具应走 X」。
 
     候选资格：目标文件自身出边少（工具特征：被多引少引别）且集中度=引用方文件数（按文件去重）。
     files 形参占位（统一生成器签名，本维度以 db 为准）。
@@ -421,7 +421,7 @@ def _g2_util_concentration(cg, files) -> list[dict]:
         stem = Path(target).with_suffix("").as_posix().replace("/", ".")
         cands.append({
             "dimension": "inferred", "subject": f"inferred:util_graph:{stem}",
-            "statement": (f"候选规范：公共工具引用集中于 {stem}（{len(mods)} 个模块引用）"
+            "statement": (f"候选规范：公共工具引用集中于 {stem}（{len(mods)} 个文件引用）"
                           f"——新代码应优先复用而非新造"),
             "source": "inferred", "sample_size": len(mods),
             "compliance": None, "drift": 0, "evidence": [],

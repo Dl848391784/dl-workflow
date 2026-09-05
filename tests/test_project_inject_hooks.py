@@ -101,7 +101,7 @@ def _mk_conventions_db(repo, drift=1):
         (
             "inferred",
             "inferred:util_graph:common.loader",
-            "候选规范：公共工具引用集中于 common.loader（4 个模块引用）——新代码应优先复用而非新造",
+            "候选规范：公共工具引用集中于 common.loader（4 个文件引用）——新代码应优先复用而非新造",
             "inferred",
             4,
             None,
