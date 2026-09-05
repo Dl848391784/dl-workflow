@@ -25,6 +25,8 @@ BASHRC="$HOME/.bashrc"
 SKIP_DASHBOARD=0
 SKIP_CODEGRAPH=0
 SKIP_HTML=0
+PROJECT_MODE=0
+PROJECT_DIR=""
 WARNINGS=()
 
 usage() {
@@ -34,6 +36,8 @@ usage() {
   --skip-dashboard  不装 fastapi/uvicorn（管理后台不可用，核心工作流不受影响）
   --skip-codegraph  不装 codegraph CLI（H15 门禁不生效，核心工作流不受影响）
   --skip-html       不装 vendor bun 依赖（产物 HTML 伴随导出降级，md 产物不受影响）
+  --project[=DIR]   项目级接线：codegraph index + post-commit + settings 合并 + 首蒸
+                    （在 DIR 或当前目录执行；机器级安装照常先跑）
 EOF
 }
 
@@ -449,6 +453,8 @@ main() {
       --skip-dashboard) SKIP_DASHBOARD=1 ;;
       --skip-codegraph) SKIP_CODEGRAPH=1 ;;
       --skip-html) SKIP_HTML=1 ;;
+      --project) PROJECT_MODE=1 ;;
+      --project=*) PROJECT_MODE=1; PROJECT_DIR="${arg#--project=}" ;;
       -h|--help) usage; exit 0 ;;
       *) echo "✗ 未知参数: $arg" >&2; usage >&2; exit 1 ;;
     esac
@@ -462,6 +468,13 @@ main() {
   install_html_deps
   echo
   self_check
+  if [ "$PROJECT_MODE" = "1" ]; then
+    local pdir="${PROJECT_DIR:-$PWD}"
+    echo
+    echo "▸ 项目级接线: $pdir"
+    python3 "$DL_HOME/scripts/setup/setup_project.py" --project "$pdir" || \
+      echo "  ⚠ 项目接线有硬失败（见上方），机器级安装不受影响"
+  fi
   echo
   echo "═══ 完成 ═══"
   if [ -d "$BACKUP_DIR" ]; then

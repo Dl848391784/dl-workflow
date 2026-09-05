@@ -48,6 +48,16 @@ install.sh 做什么：
 
 冲突文件会备份到 `~/.claude/.dl-workflow-backup/<timestamp>/`。
 
+### 项目级接线（可选）
+
+```bash
+~/.dl-workflow/install.sh --project [项目目录]   # 缺省当前目录
+```
+
+装齐项目侧 dl-workflow 依赖：codegraph 首次 index、post-commit 双后台任务
+（codegraph sync + 约定蒸馏重挖）、项目 `.claude/settings.json` 注册两条
+UserPromptSubmit 注入 hook（直引 `~/.dl-workflow/hooks/`，换机重跑本命令即重建）。
+
 ### 打包（维护机用，目标机器不需要）
 
 ```bash
