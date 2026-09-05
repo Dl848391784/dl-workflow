@@ -25,14 +25,23 @@ exit 0
 
 
 def patch_post_commit(project: Path, home: Path) -> str:
-    """post-commit 补丁：无则建、缺 mine_conventions 行则整块替换、齐则跳过。返回三态。
+    """post-commit 补丁：无则建、缺 mine_conventions 行则整块替换、齐则跳过。
+
+    home 变化（如 worktree -> ~/.dl-workflow 收口）时：mark 在但内嵌路径已死
+    -> 原地重写返回 "upgraded"，不留死注册。
 
     写绝对路径（home 由 CLI 参数解析而来）——git 调 post-commit 时不继承
     $DLWF_HOME，相对/变量引用会静默失效，故禁环境变量引用。
     """
     hook = project / ".git" / "hooks" / "post-commit"
-    if hook.exists() and POST_COMMIT_MARK in hook.read_text(encoding="utf-8", errors="replace"):
-        return "already-ok"
+    if hook.exists():
+        text = hook.read_text(encoding="utf-8", errors="replace")
+        if POST_COMMIT_MARK in text:
+            if f'"{home}/bin/mine_conventions.py"' in text:
+                return "already-ok"
+            hook.write_text(POST_COMMIT_BLOCK.format(home=home))
+            hook.chmod(0o755)
+            return "upgraded"
     existed = hook.exists()
     hook.write_text(POST_COMMIT_BLOCK.format(home=home))
     hook.chmod(0o755)
@@ -40,8 +49,10 @@ def patch_post_commit(project: Path, home: Path) -> str:
 
 
 def merge_project_settings(project: Path, home: Path) -> dict:
-    """项目 .claude/settings.json 幂等合并两条 inject hook（只增不删，按 command 判重）。
+    """项目 .claude/settings.json 幂等合并两条 inject hook（按 hook 脚本 basename 判重）。
 
+    basename 判重：--home 变化（worktree -> ~/.dl-workflow 收口）时旧 command 串
+    永不匹配精确判重，会无限累积死 hook——按 basename 命中且串不同则原地替换（upgraded）。
     JSON 损坏 -> SystemExit（硬失败，不擅自覆盖用户配置）。
     """
     settings_path = project / ".claude" / "settings.json"
@@ -53,9 +64,9 @@ def merge_project_settings(project: Path, home: Path) -> dict:
             sys.exit(1)
     else:
         settings = {}
-    cmds = [
-        f'python3 "{home}/hooks/codegraph_inject.py"',
-        f'python3 "{home}/hooks/conventions_inject.py"',
+    canonical = [
+        ("codegraph_inject.py", f'python3 "{home}/hooks/codegraph_inject.py"'),
+        ("conventions_inject.py", f'python3 "{home}/hooks/conventions_inject.py"'),
     ]
     hooks = settings.setdefault("hooks", {})
     groups = hooks.setdefault("UserPromptSubmit", [{"hooks": []}])
@@ -63,15 +74,31 @@ def merge_project_settings(project: Path, home: Path) -> dict:
         # 键在但组摘空（strip 手工接线后的典型状态）——setdefault 默认值只对
         # 缺键生效，空列表需自建承载组（factor 仓自举实爆 IndexError）
         groups.append({"hooks": []})
-    existing = {h.get("command") for g in groups for h in g.get("hooks", [])}
-    added = 0
-    for cmd in cmds:
-        if cmd not in existing:
+    added = upgraded = kept = 0
+    for basename, cmd in canonical:
+        matches = [
+            h
+            for g in groups
+            for h in g.get("hooks", [])
+            if str(h.get("command", "")).strip('"').endswith(basename)
+        ]
+        if matches:
+            if matches[0].get("command") == cmd:
+                kept += 1
+            else:
+                # 原地升级：旧 home 的注册替换为 canonical，同 basename 死重复一并摘除
+                matches[0]["command"] = cmd
+                upgraded += 1
+            for dup in matches[1:]:
+                for g in groups:
+                    if dup in g.get("hooks", []):
+                        g["hooks"].remove(dup)
+        else:
             groups[0]["hooks"].append({"type": "command", "command": cmd})
             added += 1
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     settings_path.write_text(json.dumps(settings, ensure_ascii=False, indent=2), encoding="utf-8")
-    return {"added": added, "kept": len(cmds) - added}
+    return {"added": added, "upgraded": upgraded, "kept": kept}
 
 
 def ensure_codegraph_index(project: Path) -> int:
@@ -130,7 +157,10 @@ def main(argv=None) -> int:
     status = patch_post_commit(project, args.home)
     print(f"{'✓' if status != 'failed' else '✗'} post-commit: {status}")
     merged = merge_project_settings(project, args.home)
-    print(f"✓ settings.json 合并: added={merged['added']} kept={merged['kept']}")
+    print(
+        f"✓ settings.json 合并: added={merged['added']} "
+        f"upgraded={merged['upgraded']} kept={merged['kept']}"
+    )
     if not args.skip_distill:
         first_distill(project, args.home)  # best-effort，不计 fails
     print("═══ 完成（⚠ 项不阻断，详见上方输出）═══")

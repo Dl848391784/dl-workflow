@@ -51,6 +51,21 @@ def test_patch_post_commit_creates_missing(tmp_path):
     assert "mine_conventions.py" in hook.read_text()
 
 
+def test_patch_post_commit_upgrades_stale_home(tmp_path):
+    """home 变化（worktree -> ~/.dl-workflow 收口）时 mark 在但内嵌路径已死 -> 原地升级。"""
+    sp = _load()
+    repo = _git_repo(tmp_path)
+    hook = repo / ".git" / "hooks" / "post-commit"
+    hook.write_text(
+        '#!/bin/sh\ncodegraph sync >/dev/null 2>&1 &\n'
+        'python3 "/old/home/bin/mine_conventions.py" >/dev/null 2>&1 &\nexit 0\n'
+    )
+    status = sp.patch_post_commit(repo, tmp_path / "home")
+    text = hook.read_text()
+    assert status == "upgraded"
+    assert "/old/home" not in text and str(tmp_path / "home") in text
+
+
 def test_merge_project_settings_appends_and_idempotent(tmp_path):
     sp = _load()
     repo = _git_repo(tmp_path)
@@ -66,6 +81,28 @@ def test_merge_project_settings_appends_and_idempotent(tmp_path):
     assert all(str(home) in c for c in cmds)
     after = sp.merge_project_settings(repo, home)
     assert before["added"] == 2 and after["added"] == 0 and after["kept"] == 2
+
+
+def test_merge_project_settings_upgrades_stale_home(tmp_path):
+    """旧 home 注册（精确串判重永不匹配）按 basename 命中 -> 原地替换为 canonical。"""
+    sp = _load()
+    repo = _git_repo(tmp_path)
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "settings.json").write_text(
+        json.dumps({"hooks": {"UserPromptSubmit": [{"hooks": [
+            {"type": "command", "command": 'python3 "/old/home/hooks/codegraph_inject.py"'}]}]}})
+    )
+    home = tmp_path / "dlwf"
+    (home / "hooks").mkdir(parents=True)
+    for name in ("codegraph_inject.py", "conventions_inject.py"):
+        (home / "hooks" / name).write_text("# stub\n")
+    result = sp.merge_project_settings(repo, home)
+    settings = json.loads((repo / ".claude" / "settings.json").read_text())
+    cmds = [h["command"] for g in settings["hooks"]["UserPromptSubmit"] for h in g["hooks"]]
+    assert not any("/old/home" in c for c in cmds)
+    assert f'python3 "{home}/hooks/codegraph_inject.py"' in cmds
+    assert f'python3 "{home}/hooks/conventions_inject.py"' in cmds
+    assert result["upgraded"] >= 1
 
 
 def test_merge_project_settings_preserves_existing(tmp_path):
