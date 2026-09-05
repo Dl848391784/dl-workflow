@@ -1,6 +1,6 @@
 """scripts/mine_conventions.py 单元测试（fixture db + 临时文件，不依赖真实仓）。
 
-覆盖：schema 建表 / 原子写 / _top_module 映射 / 各维度 miner。对应 designs/convention_mining_design.md。
+覆盖：schema 建表 / 原子写 / _top_module 映射 / 各规则 checker。对应 designs/convention_mining_design.md。
 """
 
 import importlib.util
@@ -97,101 +97,96 @@ def _fixture_cg(tmp_path):
     return conn
 
 
-def test_d1_shared_utils(tmp_path):
+def _ctx(cg, root, files):
+    return {"cg": cg, "root": root, "files": files}
+
+
+def test_util_graph_checker(tmp_path):
     cg = _fixture_cg(tmp_path)
-    recs = mc.mine_d1_shared_utils(cg, tmp_path, [])
+    rule = {"id": "util_graph", "type": "util_graph", "params": {"target_files": ["paths.py"]}}
+    recs = mc.CHECKERS["util_graph"](rule, _ctx(cg, tmp_path, []))
     by_subject = {r["subject"]: r for r in recs}
     assert set(by_subject) == {"paths.DATA_DIR", "paths.PROJECT_ROOT"}
-    d = by_subject["paths.DATA_DIR"]
-    assert d["dimension"] == "d1_shared_util" and d["source"] == "code_evidence"
-    assert d["sample_size"] == 3  # web_ui 1 处 + scripts 2 处（n_imp import 节点被排除）
-    assert d["compliance"] is None and d["drift"] == 0
-    assert "web_ui" in d["statement"] and "scripts" in d["statement"]
-    p = by_subject["paths.PROJECT_ROOT"]
-    assert p["sample_size"] == 1
+    assert by_subject["paths.DATA_DIR"]["sample_size"] == 3
+    assert by_subject["paths.DATA_DIR"]["source"] == "code_evidence" and by_subject["paths.DATA_DIR"]["drift"] == 0
 
 
-def test_d1_path_literals(tmp_path):
-    (tmp_path / "a.py").write_text("from paths import DATA_DIR\nx = DATA_DIR / 'f'\n")
-    (tmp_path / "b.py").write_text("LOG = '/home/admin/logs/x.log'\n")
-    (tmp_path / "paths.py").write_text("ROOT = '/home/admin/projects'\n")  # paths.py 豁免
-    recs = mc.mine_d1_path_literals(None, tmp_path, ["a.py", "b.py", "paths.py"])
-    assert len(recs) == 1
-    r = recs[0]
-    assert r["source"] == "doc_declared" and r["dimension"] == "d1_path_literal"
-    assert r["sample_size"] == 3 and r["compliance"] == pytest.approx(2 / 3)
-    assert r["drift"] == 1 and r["evidence"] == [{"file": "b.py", "line": 1}]
-    assert "H7" in r["subject"]
-
-
-def test_d1_path_literals_clean(tmp_path):
+def test_path_literal_checker(tmp_path):
     (tmp_path / "a.py").write_text("from paths import DATA_DIR\n")
-    recs = mc.mine_d1_path_literals(None, tmp_path, ["a.py"])
-    assert recs[0]["drift"] == 0 and recs[0]["compliance"] == 1.0
-    assert recs[0]["evidence"] == []
+    (tmp_path / "b.py").write_text("LOG = '/home/admin/logs/x.log'\n")
+    (tmp_path / "paths.py").write_text("ROOT = '/home/admin/projects'\n")
+    rule = {"id": "H7", "type": "path_literal_scan", "statement": "路径只能 from paths import",
+            "params": {"exempt_files": ["paths.py"], "preset": "abs_unix_path"}}
+    recs = mc.CHECKERS["path_literal_scan"](rule, _ctx(None, tmp_path, ["a.py", "b.py", "paths.py"]))
+    assert len(recs) == 1 and recs[0]["drift"] == 1 and recs[0]["source"] == "doc_declared"
+    assert recs[0]["evidence"] == [{"file": "b.py", "line": 1}] and recs[0]["sample_size"] == 3
+    rule2 = dict(rule, params={"exempt_files": [], "preset": "abs_unix_path"})
+    recs2 = mc.CHECKERS["path_literal_scan"](rule2, _ctx(None, tmp_path, ["paths.py"]))
+    assert recs2[0]["drift"] == 1  # 不豁免 paths.py
 
 
-def test_d2_layering(tmp_path):
+def test_logging_style_checker(tmp_path):
+    (tmp_path / "x.py").write_text(
+        'logger.info("loaded %s rows", n)\nlogger.info(f"done {n}")\nlogger.error("fail %s", e)\n')
+    rule = {"id": "H11", "type": "logging_style", "statement": "日志 % 惰性禁 f-string",
+            "params": {"fstring_regex": mc.FSTRING_LOG_RE.pattern, "lazy_regex": mc.LAZY_LOG_RE.pattern}}
+    recs = mc.CHECKERS["logging_style"](rule, _ctx(None, tmp_path, ["x.py"]))
+    assert len(recs) == 1 and recs[0]["drift"] == 1 and recs[0]["source"] == "doc_declared"
+    assert recs[0]["sample_size"] == 3 and recs[0]["compliance"] == pytest.approx(2 / 3)
+    assert recs[0]["evidence"] == [{"file": "x.py", "line": 2}]
+
+
+def test_layering_checker_facts_and_doc(tmp_path):
     conn = sqlite3.connect(tmp_path / "cg.db")
     conn.executescript(CG_SCHEMA)
-    nodes = [
+    conn.executemany("INSERT INTO nodes VALUES (?,?,?,?,?)", [
         ("a", "function", "f1", "web_ui/app.py", 1),
         ("b", "function", "f2", "factor_ic/calc.py", 1),
         ("c", "function", "f3", "web_ui/page.py", 1),
         ("d", "function", "f4", "web_ui/helper.py", 1),
         ("e", "function", "f5", "backtest/engine.py", 1),
-    ]
-    conn.executemany("INSERT INTO nodes VALUES (?,?,?,?,?)", nodes)
-    edges = [
-        ("a", "b", "imports", 2),  # web_ui -> factor_ui 正常方向
-        ("c", "b", "imports", 2),  # web_ui -> factor_ic 第二处
-        ("e", "d", "imports", 2),  # backtest -> web_ui：H1 子集违规（后端 import UI）
-    ]
-    conn.executemany("INSERT INTO edges (source, target, kind, line) VALUES (?,?,?,?)", edges)
+    ])
+    conn.executemany("INSERT INTO edges (source, target, kind, line) VALUES (?,?,?,?)", [
+        ("a", "b", "imports", 2), ("c", "b", "imports", 2), ("e", "d", "imports", 2)])
     conn.commit()
-    recs = mc.mine_d2_layering(conn, tmp_path, [])
+    rule = {"id": "H1", "type": "layering", "statement": "模块边界：web_ui 只读后端",
+            "params": {"forbidden": [{"from": "*", "to": "web_ui"}]}}
+    recs = mc.CHECKERS["layering"](rule, _ctx(conn, tmp_path, []))
     facts = [r for r in recs if r["source"] == "code_evidence"]
-    h1 = [r for r in recs if r["source"] == "doc_declared"]
-    pair = {(r["subject"]): r for r in facts}
+    doc = [r for r in recs if r["source"] == "doc_declared"]
+    pair = {r["subject"]: r for r in facts}
     assert pair["web_ui->factor_ic"]["sample_size"] == 2
-    assert len(h1) == 1 and h1[0]["drift"] == 1
-    assert h1[0]["evidence"] == [{"file": "backtest/engine.py", "line": 2}]
-    assert "H1" in h1[0]["subject"]
+    assert len(doc) == 1 and doc[0]["drift"] == 1
+    assert doc[0]["evidence"] == [{"file": "backtest/engine.py", "line": 2}]
+    # 空 forbidden → 纯事实，无 doc 记录
+    rule2 = {"id": "import_graph", "type": "layering", "params": {"forbidden": []}}
+    recs2 = mc.CHECKERS["layering"](rule2, _ctx(conn, tmp_path, []))
+    assert all(r["source"] == "code_evidence" for r in recs2)
 
 
-def test_d3_style(tmp_path):
-    (tmp_path / "x.py").write_text(
-        'logger.info("loaded %s rows", n)\nlogger.info(f"done {n}")\nlogger.error("fail %s", e)\n'
-    )
+def test_skeleton_and_exit_codes_checkers(tmp_path):
     (tmp_path / "scripts").mkdir()
-    (tmp_path / "scripts" / "s1.py").write_text("import sys\nsys.exit(0)\n")
-    (tmp_path / "scripts" / "s2.py").write_text("def main():\n    return 1\n    return 3\n")
-    recs = mc.mine_d3_style(None, tmp_path, ["x.py", "scripts/s1.py", "scripts/s2.py"])
-    by = {r["subject"]: r for r in recs}
-    h11 = by["H11 日志风格"]
-    assert h11["source"] == "doc_declared" and h11["drift"] == 1
-    assert h11["sample_size"] == 3 and h11["compliance"] == pytest.approx(2 / 3)
-    assert h11["evidence"] == [{"file": "x.py", "line": 2}]
-    ec = by["scripts/ 退出码分布"]
-    assert ec["source"] == "code_evidence" and ec["drift"] == 0
-    assert "0" in ec["statement"] and "1" in ec["statement"] and "3" in ec["statement"]
-
-
-def test_d4_skeleton(tmp_path):
-    (tmp_path / "scripts").mkdir(exist_ok=True)
     (tmp_path / "scripts" / "a.py").write_text(
-        'import argparse\nfrom paths import DATA_DIR\ndef main():\n    pass\nif __name__ == "__main__":\n    main()\n'
-    )
+        'import argparse\nfrom paths import DATA_DIR\ndef main():\n    pass\n'
+        'if __name__ == "__main__":\n    main()\n')
     (tmp_path / "scripts" / "b.py").write_text("print('hi')\n")
-    (tmp_path / "scripts" / "test_z.py").write_text("def test_z():\n    pass\n")  # 排除
-    recs = mc.mine_d4_skeleton(None, tmp_path, ["scripts/a.py", "scripts/b.py", "scripts/test_z.py"])
+    (tmp_path / "scripts" / "s1.py").write_text("import sys\nsys.exit(0)\n")
+    files = ["scripts/a.py", "scripts/b.py", "scripts/s1.py"]
+    sk = {"id": "skel", "type": "skeleton",
+          "params": {"glob": "scripts/*.py", "exclude_name_prefix": ["test_"],
+                     "traits": {"argparse": "import argparse", "main": "def main("}}}
+    recs = mc.CHECKERS["skeleton"](sk, _ctx(None, tmp_path, files))
     by = {r["subject"]: r for r in recs}
-    assert by["scripts/ 骨架：argparse"]["compliance"] == pytest.approx(0.5)
-    assert by["scripts/ 骨架：argparse"]["sample_size"] == 2
-    assert by["scripts/ 骨架：main 函数"]["compliance"] == pytest.approx(0.5)
-    assert by["scripts/ 骨架：paths 导入"]["compliance"] == pytest.approx(0.5)
-    assert by["scripts/ 骨架：__main__ 守卫"]["compliance"] == pytest.approx(0.5)
-    assert all(r["drift"] == 0 and r["source"] == "code_evidence" for r in recs)
+    # 样本=a.py+b.py+s1.py 共 3 个；仅 a.py 含 argparse/main
+    assert by["skel:argparse"]["sample_size"] == 3 and by["skel:argparse"]["compliance"] == pytest.approx(1 / 3)
+    assert by["skel:main"]["compliance"] == pytest.approx(1 / 3)
+    ec = {"id": "ec", "type": "exit_codes", "params": {"glob": "scripts/*.py"}}
+    recs2 = mc.CHECKERS["exit_codes"](ec, _ctx(None, tmp_path, files))
+    assert recs2[0]["source"] == "code_evidence" and "0×1" in recs2[0]["statement"]
+
+
+def test_all_six_checkers_registered():
+    assert set(mc.CHECKERS) == {"path_literal_scan", "logging_style", "layering", "skeleton", "util_graph", "exit_codes"}
 
 
 def test_load_rules_parses_and_validates(tmp_path, capsys):

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """mine_conventions - 项目约定蒸馏器（designs/convention_mining_design.md）。
 
-从代码实证蒸馏隐性约定（隐性约定 = 代码中统计上稳定重复的模式）：
-- D1 共享工具使用图谱（codegraph db 反查 paths.py 符号）+ H7 路径字面量违规扫描
-- D2 分层依赖方向（import 边聚合成模块对）+ H1 子集（后端禁 import web_ui）
-- D3 写法模式（日志 f-string vs %-惰性；退出码分布）
-- D4 骨架模式（scripts/ 族的 argparse/main/paths 导入率）
+从代码实证蒸馏隐性约定（隐性约定 = 代码中统计上稳定重复的模式）。
+checker 全部由 <root>/conventions.yaml 规则驱动（load_rules 校验 type ∈ CHECKERS 六类型）：
+
+- util_graph：共享工具使用图谱（codegraph db 反查目标文件符号）
+- path_literal_scan / logging_style / layering：doc_declared 声明类，实证违反 → drift=1
+- skeleton / exit_codes：code_evidence 纯事实分布
 
 仲裁原则：不裁决只呈证。doc_declared 规则有实证违反 → drift=1，由人决断。
 
@@ -110,124 +111,8 @@ def _write_db(out_path: Path, records: list[dict], generated_at: str, commit_has
     os.replace(tmp, out_path)
 
 
-def mine_d1_shared_utils(cg: sqlite3.Connection, root: Path, files: list[str]) -> list[dict]:
-    """D1a：paths.py 公共符号的外部使用统计（调用方按顶层模块分布）。"""
-    symbols = cg.execute(
-        "SELECT id, name FROM nodes WHERE file_path = 'paths.py' AND kind != 'import'"
-    ).fetchall()
-    records = []
-    for sid, name in symbols:
-        rows = cg.execute(
-            "SELECT n.file_path, e.line, n.kind FROM edges e JOIN nodes n ON n.id = e.source"
-            " WHERE e.target = ? AND e.kind IN ('calls','references','imports')",
-            (sid,),
-        ).fetchall()
-        # 排除 paths.py 自引用与 import 节点噪音
-        uses = [(fp, ln) for fp, ln, kind in rows if fp != "paths.py" and kind != "import"]
-        if not uses:
-            continue
-        dist: dict[str, int] = {}
-        for fp, _ln in uses:
-            dist[_top_module(fp)] = dist.get(_top_module(fp), 0) + 1
-        dist_s = ", ".join(f"{m}({c})" for m, c in sorted(dist.items(), key=lambda kv: -kv[1]))
-        records.append(
-            {
-                "dimension": "d1_shared_util",
-                "subject": f"paths.{name}",
-                "statement": f"paths.{name} 被 {len(uses)} 处外部引用，分布：{dist_s}",
-                "source": "code_evidence",
-                "sample_size": len(uses),
-                "compliance": None,
-                "drift": 0,
-                "evidence": [{"file": fp, "line": ln} for fp, ln in uses[:EVIDENCE_CAP]],
-            }
-        )
-    return records
-
-
 # 绝对路径字面量（H7 违规候选）：字符串以常见挂载根开头
 ABS_PATH_RE = re.compile(r"""["'](/(?:home|data|mnt|opt|srv)/)""")
-
-
-def mine_d1_path_literals(cg, root: Path, files: list[str]) -> list[dict]:
-    """D1b：H7「路径只能 from paths import」实证——paths.py 之外的绝对路径字面量扫描。"""
-    violations: list[dict] = []
-    scanned = 0
-    for rel in files:
-        scanned += 1
-        if rel == "paths.py":
-            continue  # paths.py 豁免扫描，但仍计入分母（合规率口径含它自身）
-        try:
-            text = (root / rel).read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        for i, line in enumerate(text.splitlines(), 1):
-            if ABS_PATH_RE.search(line):
-                violations.append({"file": rel, "line": i})
-                break  # 每文件记一次（统计口径=文件级合规率）
-    total = max(scanned, 1)
-    clean = scanned - len(violations)
-    drift = 1 if violations else 0
-    return [
-        {
-            "dimension": "d1_path_literal",
-            "subject": "H7 路径字面量",
-            "statement": (
-                f"H7 声明路径只能 from paths import；实证 {scanned} 个 .py 中"
-                f" {len(violations)} 个含绝对路径字面量（合规率 {clean / total:.2f}）"
-            ),
-            "source": "doc_declared",
-            "sample_size": scanned,
-            "compliance": clean / total,
-            "drift": drift,
-            "evidence": violations[:EVIDENCE_CAP],
-        }
-    ]
-
-
-def mine_d2_layering(cg: sqlite3.Connection, root: Path, files: list[str]) -> list[dict]:
-    """D2：模块间实际 import 方向聚合；H1 子集实证——后端模块禁 import web_ui。"""
-    rows = cg.execute(
-        "SELECT n1.file_path, n2.file_path, e.line FROM edges e"
-        " JOIN nodes n1 ON n1.id = e.source JOIN nodes n2 ON n2.id = e.target"
-        " WHERE e.kind = 'imports'"
-    ).fetchall()
-    pairs: dict[tuple[str, str], int] = {}
-    violations: list[dict] = []
-    for src_fp, dst_fp, line in rows:
-        src_mod, dst_mod = _top_module(src_fp), _top_module(dst_fp)
-        if src_mod == dst_mod:
-            continue
-        pairs[(src_mod, dst_mod)] = pairs.get((src_mod, dst_mod), 0) + 1
-        if dst_mod == "web_ui" and src_mod != "web_ui":
-            violations.append({"file": src_fp, "line": line})
-    records = [
-        {
-            "dimension": "d2_layering",
-            "subject": f"{s}->{d}",
-            "statement": f"{s} import {d}：{c} 处",
-            "source": "code_evidence",
-            "sample_size": c,
-            "compliance": None,
-            "drift": 0,
-            "evidence": [],
-        }
-        for (s, d), c in sorted(pairs.items(), key=lambda kv: -kv[1])
-    ]
-    total_viol = len(violations)
-    records.append(
-        {
-            "dimension": "d2_layering",
-            "subject": "H1 模块边界（后端禁 import web_ui）",
-            "statement": (f"H1 声明模块边界（web_ui 只读后端）；实证后端 import web_ui {total_viol} 处"),
-            "source": "doc_declared",
-            "sample_size": sum(pairs.values()),
-            "compliance": 1.0 if total_viol == 0 else None,
-            "drift": 1 if total_viol else 0,
-            "evidence": violations[:EVIDENCE_CAP],
-        }
-    )
-    return records
 
 
 # D3 正则：H11 日志风格 + 退出码字面量
@@ -238,118 +123,190 @@ SYS_EXIT_RE = re.compile(r"\bsys\.exit\((\d+)\)")
 RETURN_CODE_RE = re.compile(r"^\s*return (\d)\s*(?:#.*)?$")
 
 
-def mine_d3_style(cg, root: Path, files: list[str]) -> list[dict]:
-    """D3：H11 日志风格实证（f-string vs %-惰性）+ scripts/ 退出码使用分布。"""
-    fstring_hits: list[dict] = []
-    lazy_count = 0
-    exit_codes: dict[str, int] = {}
-    for rel in files:
-        try:
-            lines = (root / rel).read_text(encoding="utf-8", errors="replace").splitlines()
-        except OSError:
-            continue
-        for i, line in enumerate(lines, 1):
-            if FSTRING_LOG_RE.search(line):
-                fstring_hits.append({"file": rel, "line": i})
-            elif LAZY_LOG_RE.search(line):
-                lazy_count += 1
-            if rel.startswith("scripts/"):
-                m = SYS_EXIT_RE.search(line) or RETURN_CODE_RE.match(line)
-                if m:
-                    exit_codes[m.group(1)] = exit_codes.get(m.group(1), 0) + 1
-    n_f, n_l = len(fstring_hits), lazy_count
-    denom = n_f + n_l
-    records = [
-        {
-            "dimension": "d3_style",
-            "subject": "H11 日志风格",
-            "statement": (f"H11 声明日志 % 惰性禁 f-string；实证 f-string {n_f} 处、%-惰性 {n_l} 处"),
-            "source": "doc_declared",
-            "sample_size": denom,
-            "compliance": (n_l / denom) if denom else None,
-            "drift": 1 if n_f else 0,
-            "evidence": fstring_hits[:EVIDENCE_CAP],
-        }
-    ]
-    hist = ", ".join(f"{code}×{c}" for code, c in sorted(exit_codes.items())) or "(无)"
-    records.append(
-        {
-            "dimension": "d3_style",
-            "subject": "scripts/ 退出码分布",
-            "statement": f"scripts/ 退出码字面量分布：{hist}（H12 语义 0/1/3/4/5）",
-            "source": "code_evidence",
-            "sample_size": sum(exit_codes.values()),
-            "compliance": None,
-            "drift": 0,
-            "evidence": [],
-        }
-    )
-    return records
-
-
-SKELETON_TRAITS = (
-    ("argparse", lambda t: "import argparse" in t),
-    ("main 函数", lambda t: "def main(" in t),
-    ("__main__ 守卫", lambda t: '__name__ == "__main__"' in t or "__name__ == '__main__'" in t),
-    ("paths 导入", lambda t: "from paths import" in t or "import paths" in t),
-)
-
-
-def mine_d4_skeleton(cg, root: Path, files: list[str]) -> list[dict]:
-    """D4：scripts/ 非测试脚本的结构共性统计（argparse/main/守卫/paths 导入率）。"""
-    scripts = [rel for rel in files if rel.startswith("scripts/") and not Path(rel).name.startswith("test_")]
-    texts: dict[str, str] = {}
-    for rel in scripts:
-        try:
-            texts[rel] = (root / rel).read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-    records = []
-    for trait, pred in SKELETON_TRAITS:
-        hits = [rel for rel, t in texts.items() if pred(t)]
-        n = len(texts)
-        records.append(
-            {
-                "dimension": "d4_skeleton",
-                "subject": f"scripts/ 骨架：{trait}",
-                "statement": f"scripts/ 非测试脚本 {n} 个中 {len(hits)} 个含{trait}",
-                "source": "code_evidence",
-                "sample_size": n,
-                "compliance": (len(hits) / n) if n else None,
-                "drift": 0,
-                "evidence": [{"file": rel, "line": 1} for rel in hits[:EVIDENCE_CAP]],
-            }
-        )
-    return records
-
-
-# 维度 miner 注册表：统一签名 fn(cg, root, files) -> list[dict]，逐 task 追加
-DIMENSIONS: tuple = (
-    mine_d1_shared_utils,
-    mine_d1_path_literals,
-    mine_d2_layering,
-    mine_d3_style,
-    mine_d4_skeleton,
-)
-
-
 # ---------- 规则驱动（P2 通用化，designs/setup-installer-design.md §conventions.yaml） ----------
 RULES_FILE = "conventions.yaml"
 
 # 规则类型注册表：fn(rule, ctx) -> list[dict]；ctx = {"cg", "root", "files"}
 CHECKERS: dict = {}
 
+# 路径字面量预设（params.regex 优先，否则按 preset 取）
+_PRESET_PATH_RES = {"abs_unix_path": re.compile(r"""["'](/(?:home|data|mnt|opt|srv)/)"""),
+                    "abs_win_path": re.compile(r"""[A-Za-z]:\\\\""")}
 
-# Task 1 过渡注册：layering 先挂旧 mine_d2_layering（import 图纯事实 = 无 yaml 兜底语义），
-# 使 load_rules 校验认得内置类型 layering；Task 2 以参数化 check_layering 替换本注册。
-def _legacy_layering(rule, ctx):
-    if ctx["cg"] is None:
-        print("mine_conventions: layering 需 codegraph db，跳过", file=sys.stderr)
+
+def _glob_match(files, glob, exclude_prefix=()):
+    from pathlib import PurePath
+
+    return [f for f in files
+            if PurePath(f).match(glob) and not PurePath(f).name.startswith(exclude_prefix)]
+
+
+def check_path_literal(rule, ctx):
+    params = rule.get("params") or {}
+    pat = params.get("regex") and re.compile(params["regex"]) or _PRESET_PATH_RES[params.get("preset", "abs_unix_path")]
+    exempt = set(params.get("exempt_files") or [])
+    violations, scanned = [], 0
+    for rel in ctx["files"]:
+        scanned += 1
+        if rel in exempt:
+            continue  # 豁免文件仍计分母（合规率口径含它自身），只跳过扫描
+        try:
+            text = (ctx["root"] / rel).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for i, line in enumerate(text.splitlines(), 1):
+            if pat.search(line):
+                violations.append({"file": rel, "line": i})
+                break
+    clean = scanned - len(violations)
+    return [{
+        "dimension": "path_literal_scan", "subject": rule["id"],
+        "statement": f"{rule.get('statement', '')}；实证 {scanned} 个 .py 中 {len(violations)} 个违规（合规率 {clean / max(scanned, 1):.2f}）",
+        "source": "doc_declared", "sample_size": scanned,
+        "compliance": clean / max(scanned, 1), "drift": 1 if violations else 0,
+        "evidence": violations[:EVIDENCE_CAP],
+    }]
+
+
+def check_logging_style(rule, ctx):
+    params = rule.get("params") or {}
+    f_re = re.compile(params["fstring_regex"])
+    l_re = re.compile(params["lazy_regex"])
+    hits, lazy = [], 0
+    for rel in ctx["files"]:
+        try:
+            lines = (ctx["root"] / rel).read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for i, line in enumerate(lines, 1):
+            if f_re.search(line):
+                hits.append({"file": rel, "line": i})
+            elif l_re.search(line):
+                lazy += 1
+    denom = len(hits) + lazy
+    return [{
+        "dimension": "logging_style", "subject": rule["id"],
+        "statement": f"{rule.get('statement', '')}；实证 f-string {len(hits)} 处、惰性 {lazy} 处",
+        "source": "doc_declared", "sample_size": denom,
+        "compliance": (lazy / denom) if denom else None, "drift": 1 if hits else 0,
+        "evidence": hits[:EVIDENCE_CAP],
+    }]
+
+
+def check_layering(rule, ctx):
+    cg = ctx["cg"]
+    if cg is None:
+        print("mine_conventions: layering/util_graph 需 codegraph db，跳过", file=sys.stderr)
         return []
-    return mine_d2_layering(ctx["cg"], ctx["root"], ctx["files"])
+    forbidden = (rule.get("params") or {}).get("forbidden") or []
+    rows = cg.execute(
+        "SELECT n1.file_path, n2.file_path, e.line FROM edges e"
+        " JOIN nodes n1 ON n1.id = e.source JOIN nodes n2 ON n2.id = e.target"
+        " WHERE e.kind = 'imports'").fetchall()
+    pairs, violations = {}, []
+    for src_fp, dst_fp, line in rows:
+        s, d = _top_module(src_fp), _top_module(dst_fp)
+        if s == d:
+            continue
+        pairs[(s, d)] = pairs.get((s, d), 0) + 1
+        for f in forbidden:
+            if d == f.get("to") and (f.get("from") in ("*", s)):
+                violations.append({"file": src_fp, "line": line})
+    records = [{
+        "dimension": "layering", "subject": f"{s}->{d}", "statement": f"{s} import {d}：{c} 处",
+        "source": "code_evidence", "sample_size": c, "compliance": None, "drift": 0, "evidence": [],
+    } for (s, d), c in sorted(pairs.items(), key=lambda kv: -kv[1])]
+    if forbidden:
+        records.append({
+            "dimension": "layering", "subject": rule["id"],
+            "statement": f"{rule.get('statement', '')}；实证违规 {len(violations)} 处",
+            "source": "doc_declared", "sample_size": sum(pairs.values()),
+            "compliance": 1.0 if not violations else None,
+            "drift": 1 if violations else 0, "evidence": violations[:EVIDENCE_CAP],
+        })
+    return records
 
 
-CHECKERS["layering"] = _legacy_layering
+def check_util_graph(rule, ctx):
+    cg = ctx["cg"]
+    if cg is None:
+        print("mine_conventions: util_graph 需 codegraph db，跳过", file=sys.stderr)
+        return []
+    records = []
+    for target in (rule.get("params") or {}).get("target_files") or []:
+        symbols = cg.execute(
+            "SELECT id, name FROM nodes WHERE file_path = ? AND kind != 'import'", (target,)).fetchall()
+        for sid, name in symbols:
+            rows = cg.execute(
+                "SELECT n.file_path, e.line, n.kind FROM edges e JOIN nodes n ON n.id = e.source"
+                " WHERE e.target = ? AND e.kind IN ('calls','references','imports')", (sid,)).fetchall()
+            uses = [(fp, ln) for fp, ln, kind in rows if fp != target and kind != "import"]
+            if not uses:
+                continue
+            dist: dict[str, int] = {}
+            for fp, _ln in uses:
+                dist[_top_module(fp)] = dist.get(_top_module(fp), 0) + 1
+            dist_s = ", ".join(f"{m}({c})" for m, c in sorted(dist.items(), key=lambda kv: -kv[1]))
+            records.append({
+                "dimension": "util_graph", "subject": f"{Path(target).stem}.{name}",
+                "statement": f"{Path(target).stem}.{name} 被 {len(uses)} 处外部引用，分布：{dist_s}",
+                "source": "code_evidence", "sample_size": len(uses), "compliance": None,
+                "drift": 0, "evidence": [{"file": fp, "line": ln} for fp, ln in uses[:EVIDENCE_CAP]],
+            })
+    return records
+
+
+def check_skeleton(rule, ctx):
+    params = rule.get("params") or {}
+    files = _glob_match(ctx["files"], params["glob"], tuple(params.get("exclude_name_prefix") or ()))
+    texts = {}
+    for rel in files:
+        try:
+            texts[rel] = (ctx["root"] / rel).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+    records = []
+    for trait, pat in (params.get("traits") or {}).items():
+        hits = [rel for rel, t in texts.items() if pat in t]
+        n = len(texts)
+        records.append({
+            "dimension": "skeleton", "subject": f"{rule['id']}:{trait}",
+            "statement": f"{rule.get('statement', rule['id'])}：{n} 个中 {len(hits)} 个含{trait}",
+            "source": "code_evidence", "sample_size": n,
+            "compliance": (len(hits) / n) if n else None, "drift": 0,
+            "evidence": [{"file": rel, "line": 1} for rel in hits[:EVIDENCE_CAP]],
+        })
+    return records
+
+
+def check_exit_codes(rule, ctx):
+    files = _glob_match(ctx["files"], (rule.get("params") or {}).get("glob", "scripts/*.py"))
+    hist: dict[str, int] = {}
+    for rel in files:
+        try:
+            lines = (ctx["root"] / rel).read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            m = SYS_EXIT_RE.search(line) or RETURN_CODE_RE.match(line)
+            if m:
+                hist[m.group(1)] = hist.get(m.group(1), 0) + 1
+    h = ", ".join(f"{k}×{c}" for k, c in sorted(hist.items())) or "(无)"
+    return [{
+        "dimension": "exit_codes", "subject": rule["id"],
+        "statement": f"退出码字面量分布：{h}", "source": "code_evidence",
+        "sample_size": sum(hist.values()), "compliance": None, "drift": 0, "evidence": [],
+    }]
+
+
+CHECKERS.update({
+    "path_literal_scan": check_path_literal,
+    "logging_style": check_logging_style,
+    "layering": check_layering,
+    "skeleton": check_skeleton,
+    "util_graph": check_util_graph,
+    "exit_codes": check_exit_codes,
+})
 
 
 def load_rules(root: Path) -> list[dict]:
@@ -412,8 +369,8 @@ def main(argv=None) -> int:
     try:
         files = _git_tracked_py(args.root)
         commit_hash = _git(args.root, "rev-parse", "HEAD")
-    except subprocess.CalledProcessError:
-        print("mine_conventions: 非 git 仓库，files 为空（纯 db 维度仍运行）", file=sys.stderr)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        print("mine_conventions: 非 git 仓库或缺 git 命令，files 为空（纯 db 维度仍运行）", file=sys.stderr)
         files, commit_hash = [], ""
     try:
         records = _run_rules(cg, args.root, files)
