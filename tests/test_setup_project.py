@@ -86,6 +86,24 @@ def test_merge_project_settings_preserves_existing(tmp_path):
     assert "echo existing" in cmds
 
 
+def test_merge_project_settings_empty_event_list(tmp_path):
+    """strip 后 UserPromptSubmit=[]（键在但组摘空，factor 仓自举实爆 IndexError）。"""
+    sp = _load()
+    repo = _git_repo(tmp_path)
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "settings.json").write_text(
+        json.dumps({"hooks": {"UserPromptSubmit": []}})
+    )
+    home = tmp_path / "dlwf"
+    (home / "hooks").mkdir(parents=True)
+    for name in ("codegraph_inject.py", "conventions_inject.py"):
+        (home / "hooks" / name).write_text("# stub\n")
+    merged = sp.merge_project_settings(repo, home)
+    settings = json.loads((repo / ".claude" / "settings.json").read_text())
+    cmds = [h["command"] for g in settings["hooks"]["UserPromptSubmit"] for h in g["hooks"]]
+    assert len(cmds) == 2 and merged["added"] == 2
+
+
 def test_merge_project_settings_aborts_on_bad_json(tmp_path):
     sp = _load()
     repo = _git_repo(tmp_path)

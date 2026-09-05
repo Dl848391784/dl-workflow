@@ -59,6 +59,10 @@ def merge_project_settings(project: Path, home: Path) -> dict:
     ]
     hooks = settings.setdefault("hooks", {})
     groups = hooks.setdefault("UserPromptSubmit", [{"hooks": []}])
+    if not groups:
+        # 键在但组摘空（strip 手工接线后的典型状态）——setdefault 默认值只对
+        # 缺键生效，空列表需自建承载组（factor 仓自举实爆 IndexError）
+        groups.append({"hooks": []})
     existing = {h.get("command") for g in groups for h in g.get("hooks", [])}
     added = 0
     for cmd in cmds:
