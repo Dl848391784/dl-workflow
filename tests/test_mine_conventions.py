@@ -297,3 +297,64 @@ def test_main_dispatches_registered_checker(tmp_path, monkeypatch):
     rows = sqlite3.connect(f"file:{out}?mode=ro", uri=True).execute(
         "SELECT subject FROM conventions").fetchall()
     assert rows == [("stub",)]
+
+
+def _repo_with_commits(tmp_path, files_with_dates):
+    """files_with_dates: {relpath: (content, days_ago)}——按日期倒序提交（git 允许 --date 历史）。"""
+    import subprocess
+
+    repo = tmp_path / "proj"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    import time
+
+    for rel, (content, days_ago) in sorted(files_with_dates.items(), key=lambda kv: kv[1][1]):
+        p = repo / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content)
+        subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+        date = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(time.time() - days_ago * 86400))
+        subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", rel,
+                        "--date", date], cwd=repo, check=True)
+    return repo
+
+
+def test_file_ages_and_none_on_missing_git(tmp_path):
+    repo = _repo_with_commits(tmp_path, {"a.py": ("x=1\n", 10), "sub/b.py": ("y=2\n", 400)})
+    ages = mc._file_ages(repo, ["a.py", "sub/b.py", "gone.py"])
+    assert ages["a.py"] is not None and ages["a.py"] > ages["sub/b.py"]
+    assert ages["gone.py"] is None
+
+
+def test_g1_logging_majority_candidate(tmp_path, monkeypatch):
+    monkeypatch.setattr(mc, "MIN_SAMPLE", 2)  # fixture 样本量 3 < 默认 20
+    repo = _repo_with_commits(tmp_path, {
+        "new1.py": ('logger.info("a %s", x)\n', 10),
+        "new2.py": ('logger.info("b %s", y)\n', 20),
+        "old.py": ('logger.info(f"c {z}")\n', 800),
+    })
+    cands = mc._g1_logging_majority(["new1.py", "new2.py", "old.py"], repo)
+    assert len(cands) == 1
+    c = cands[0]
+    assert c["source"] == "inferred" and c["drift"] == 0
+    assert c["subject"] == "inferred:logging:lazy_percent"
+    assert c["compliance"] == pytest.approx(2 / 3)
+    assert "新近" in c["statement"] or "遗留" in c["statement"]
+
+
+def test_mine_candidates_suppressed_by_manual_rule_and_dismissed(tmp_path, monkeypatch):
+    monkeypatch.setattr(mc, "MIN_SAMPLE", 1)  # fixture 样本量 1 < 默认 20（同 G1 测试口径）
+    repo = _repo_with_commits(tmp_path, {"a.py": ('logger.info("x %s", v)\n', 5)})
+    files = ["a.py"]
+    manual = [{"id": "H11", "type": "logging_style",
+               "params": {"fstring_regex": mc.FSTRING_LOG_RE.pattern, "lazy_regex": mc.LAZY_LOG_RE.pattern}}]
+    assert mc.mine_candidates(None, repo, files, manual, []) == []
+    cands = mc.mine_candidates(None, repo, files, [], [])
+    assert cands and cands[0]["source"] == "inferred"
+    assert mc.mine_candidates(None, repo, files, [], [cands[0]["subject"]]) == []
+
+
+def test_load_dismissed(tmp_path):
+    (tmp_path / "conventions.yaml").write_text("dismissed:\n  - inferred:logging:lazy_percent\n", encoding="utf-8")
+    assert mc.load_dismissed(tmp_path) == ["inferred:logging:lazy_percent"]
+    assert mc.load_dismissed(tmp_path / "nope") == []

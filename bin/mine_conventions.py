@@ -317,6 +317,109 @@ CHECKERS.update({
 })
 
 
+# ---------- 归纳层（inferred 候选规范：分析得出为主，手动 yaml 校准） ----------
+SUPPORT_MIN = 0.90
+MIN_SAMPLE = 20
+LEGACY_AGE_DAYS = 365
+CANDIDATE_CAP = 3
+_AGE_BATCH = 25
+
+
+def _file_ages(root: Path, files: list[str]) -> dict[str, int | None]:
+    """证据文件→最后提交 epoch（git log -1）；失败/缺失→None。批量上限防大仓拖慢。"""
+    ages: dict[str, int | None] = {}
+    for rel in files[:_AGE_BATCH]:
+        try:
+            proc = subprocess.run(
+                ["git", "log", "-1", "--format=%at", "--", rel],
+                cwd=root, capture_output=True, text=True, timeout=15)
+            ages[rel] = int(proc.stdout.strip()) if proc.returncode == 0 and proc.stdout.strip() else None
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            ages[rel] = None
+    return ages
+
+
+def _recency_note(root: Path, evidence: list[dict], now: int | None = None) -> str:
+    """新近度叙事：违反/证据文件按最后提交分新老桶（LEGACY_AGE_DAYS）。"""
+    import time
+
+    now = now or int(time.time())
+    ages = _file_ages(root, [e["file"] for e in evidence])
+    fresh = legacy = unknown = 0
+    for e in evidence:
+        age = ages.get(e["file"])
+        if age is None:
+            unknown += 1
+        elif now - age > LEGACY_AGE_DAYS * 86400:
+            legacy += 1
+        else:
+            fresh += 1
+    return f"违反案例新近度：近 {LEGACY_AGE_DAYS // 30} 个月 {fresh} 处 / 更早 {legacy} 处 / 未知 {unknown} 处"
+
+
+def _g1_logging_majority(files: list[str], root: Path) -> list[dict]:
+    """G1 写法主流归纳：全库日志风格统计（参数无关）。多数派≥MIN_SAMPLE 即产候选。"""
+    f_hits: list[dict] = []
+    lazy = 0
+    for rel in files:
+        try:
+            lines = (root / rel).read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for i, line in enumerate(lines, 1):
+            if FSTRING_LOG_RE.search(line):
+                f_hits.append({"file": rel, "line": i})
+            elif LAZY_LOG_RE.search(line):
+                lazy += 1
+    denom = len(f_hits) + lazy
+    if denom < MIN_SAMPLE:
+        return []
+    majority, support, minority_hits = (
+        ("%-惰性", lazy / denom, f_hits) if lazy >= len(f_hits) else ("f-string", len(f_hits) / denom, [])
+    )
+    return [{
+        "dimension": "inferred", "subject": "inferred:logging:lazy_percent",
+        "statement": (f"候选规范：日志主流写法={majority}（支持度 {support:.2f}, n={denom}）；"
+                      f"{_recency_note(root, minority_hits)}——确认后写入 conventions.yaml 转正"),
+        "source": "inferred", "sample_size": denom, "compliance": support,
+        "drift": 0, "evidence": minority_hits[:EVIDENCE_CAP],
+    }]
+
+
+_GENERATORS = {"logging_style": _g1_logging_majority}  # Task 2 追加 util_graph 的 G2
+
+
+def load_dismissed(root: Path) -> list[str]:
+    """conventions.yaml 顶层 dismissed 清单（否决的候选 subject，不再产出）。"""
+    try:
+        import yaml
+    except ImportError:
+        return []
+    path = root / RULES_FILE
+    if not path.exists():
+        return []
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError:
+        return []
+    if not isinstance(data, dict):
+        return []
+    return list(data.get("dismissed") or [])
+
+
+def mine_candidates(cg, root: Path, files: list[str], rules: list[dict], dismissed: list[str]) -> list[dict]:
+    """槽位校准：每 type 一个槽——yaml 有同 type 手动规则则抑制该 type 候选；dismissed 跳过。"""
+    manual_types = {r["type"] for r in rules}
+    cands = []
+    for rtype, gen in _GENERATORS.items():
+        if rtype in manual_types:
+            continue
+        for c in gen(files, root):
+            if c["subject"] not in dismissed:
+                cands.append(c)
+    return cands
+
+
 def load_rules(root: Path) -> list[dict]:
     """读 <root>/conventions.yaml；无文件/空 rules → []（调用方降级纯事实）。
 
@@ -403,6 +506,9 @@ def main(argv=None) -> int:
         files, commit_hash = [], ""
     try:
         records = _run_rules(cg, args.root, files)
+        # rules 重复 load_rules 一次（幂等纯读，避免改 _run_rules 签名）：槽位校准需手动规则 type 集合
+        records += mine_candidates(cg, args.root, files, load_rules(args.root),
+                                   load_dismissed(args.root))
         _write_db(args.out, records, time.strftime("%Y-%m-%dT%H:%M:%S"), commit_hash)
     except (sqlite3.Error, OSError) as e:
         print(f"mine_conventions: 蒸馏失败: {e}", file=sys.stderr)
