@@ -21,7 +21,7 @@ INJECT_HOOKS = ("codegraph_inject.py", "conventions_inject.py")
 POST_COMMIT_BLOCK = """#!/bin/sh
 # Auto-sync codegraph + re-mine conventions after each commit (background, non-blocking)
 codegraph sync >/dev/null 2>&1 &
-python3 "{home}/bin/mine_conventions.py" >/dev/null 2>&1 &
+$(command -v python3 || command -v python) "{home}/bin/mine_conventions.py" >/dev/null 2>&1 &
 exit 0
 """
 
@@ -67,8 +67,8 @@ def merge_project_settings(project: Path, home: Path) -> dict:
     else:
         settings = {}
     canonical = [
-        ("codegraph_inject.py", f'python3 "{home}/hooks/codegraph_inject.py"'),
-        ("conventions_inject.py", f'python3 "{home}/hooks/conventions_inject.py"'),
+        ("codegraph_inject.py", f'$(command -v python3 || command -v python) "{home}/hooks/codegraph_inject.py"'),
+        ("conventions_inject.py", f'$(command -v python3 || command -v python) "{home}/hooks/conventions_inject.py"'),
     ]
     hooks = settings.setdefault("hooks", {})
     groups = hooks.setdefault("UserPromptSubmit", [{"hooks": []}])
@@ -186,7 +186,7 @@ def first_distill(project: Path, home: Path) -> int:
         print("  ⚠ 蒸馏器缺失，跳过")
         return 1
     proc = subprocess.run(
-        ["python3", str(script), "--root", str(project), "--out", str(project / ".conventions" / "conventions.db")],
+        [sys.executable, str(script), "--root", str(project), "--out", str(project / ".conventions" / "conventions.db")],
         cwd=project, capture_output=True, text=True,
     )
     if proc.returncode != 0:
@@ -231,7 +231,7 @@ def verify_project(project: Path, home: Path) -> list[tuple[str, bool, str]]:
             continue
         try:
             proc = subprocess.run(
-                ["python3", str(home / "hooks" / name)], input=payload,
+                [sys.executable, str(home / "hooks" / name)], input=payload,
                 capture_output=True, text=True, cwd=project, timeout=15)
         except (subprocess.TimeoutExpired, OSError) as e:
             checks.append((f"inject 冒烟 {name}", False, f"无法执行: {e.__class__.__name__}"))

@@ -6,7 +6,7 @@ UserPromptSubmit hook：注入项目约定蒸馏瘦档（designs/setup-installer
 项目根从 hook payload 解析（payload.cwd → CLAUDE_PROJECT_DIR → 进程 cwd）。
 
 注入策略：仅在有活跃漂移点或索引过期（>5 commit）时注入——无漂移无仲裁需求，
-完整约定深查走 scripts/cvx.py（避免每次 prompt 静态噪音）。
+完整约定深查走 ~/.dl-workflow/bin/cvx.py（避免每次 prompt 静态噪音）。
 容错：db 缺失/查询失败/stdin 异常 -> exit 0 静默不注入，UserPromptSubmit 永不阻断。
 """
 
@@ -143,7 +143,7 @@ def _format(drifts: list[tuple], total: int, gap: int | None) -> str | None:
             f"[conventions] 索引落后 {gap} 个 commit（>{STALE_COMMITS}），约定可能过期。"
         )
     lines.append(
-        f"[conventions] 共 {total} 条约定；深查：python3 scripts/cvx.py query <主题> | drift"
+        f"[conventions] 共 {total} 条约定；深查：python3 ~/.dl-workflow/bin/cvx.py query <主题> | drift"
     )
     return "\n".join(lines) + "\n"
 

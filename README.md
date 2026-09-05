@@ -58,6 +58,15 @@ install.sh 做什么：
 （codegraph sync + 约定蒸馏重挖）、项目 `.claude/settings.json` 注册两条
 UserPromptSubmit 注入 hook（直引 `~/.dl-workflow/hooks/`，换机重跑本命令即重建）。
 
+### 支持矩阵
+
+| 平台 | 级别 | 说明 |
+|---|---|---|
+| Linux | 一级 | 主部署面；bash ≥ 4 + python ≥ 3.11（check_deps 探测，缺失给指引） |
+| macOS | 一级 | 默认 bash 3.2 不满足——装 homebrew bash 后重跑 install.sh |
+| Windows (WSL) | 一级 | WSL 内等同 Linux |
+| Windows (原生) | 不承诺 | 走 WSL；hook 命令已做 python3/python 探测，原生 Git Bash 可试但不保证 |
+
 ### 打包（维护机用，目标机器不需要）
 
 ```bash

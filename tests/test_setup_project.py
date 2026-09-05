@@ -66,6 +66,18 @@ def test_patch_post_commit_upgrades_stale_home(tmp_path):
     assert "/old/home" not in text and str(tmp_path / "home") in text
 
 
+def test_post_commit_uses_python_probe(tmp_path):
+    """空仓库首装：post-commit 用 command -v 探测式（原生 Windows 无 python3）。"""
+    sp = _load()
+    repo = _git_repo(tmp_path)
+    hook = repo / ".git" / "hooks" / "post-commit"
+    if hook.exists():
+        hook.unlink()
+    sp.patch_post_commit(repo, tmp_path / "home")
+    text = hook.read_text()
+    assert "command -v python3 || command -v python" in text
+
+
 def test_merge_project_settings_appends_and_idempotent(tmp_path):
     sp = _load()
     repo = _git_repo(tmp_path)
@@ -100,8 +112,8 @@ def test_merge_project_settings_upgrades_stale_home(tmp_path):
     settings = json.loads((repo / ".claude" / "settings.json").read_text())
     cmds = [h["command"] for g in settings["hooks"]["UserPromptSubmit"] for h in g["hooks"]]
     assert not any("/old/home" in c for c in cmds)
-    assert f'python3 "{home}/hooks/codegraph_inject.py"' in cmds
-    assert f'python3 "{home}/hooks/conventions_inject.py"' in cmds
+    assert f'$(command -v python3 || command -v python) "{home}/hooks/codegraph_inject.py"' in cmds
+    assert f'$(command -v python3 || command -v python) "{home}/hooks/conventions_inject.py"' in cmds
     assert result["upgraded"] >= 1
 
 
