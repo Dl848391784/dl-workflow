@@ -34,6 +34,9 @@ NOISE_KINDS = {"import"}
 # 模糊匹配时过滤掉的噪音 name 前缀
 NOISE_NAME_PREFIXES = ("test_", "_test")
 
+# worktree → 主仓映射标记：主仓存在本 hook 的 db 才替换 root
+MARKER = Path(".codegraph") / "codegraph.db"
+
 # 常见英文/语法噪音词；db 查不到的自然无命中，此过滤只为省查询。≥3 字符标识符
 # （foo/bar 等）必须能通过——标识符是否真实存在以 db 查询为唯一裁决，不靠长度启发式。
 STOPWORDS = frozenset(
@@ -108,8 +111,42 @@ def _project_root(payload: dict) -> Path:
         except OSError:
             continue
         if proc.returncode == 0 and proc.stdout.strip():
-            return Path(proc.stdout.strip())
-    return Path.cwd()
+            return _resolve(Path(proc.stdout.strip()))
+    return _resolve(Path.cwd())
+
+
+def _map_worktree_to_main(root: Path, marker: Path) -> Path | None:
+    """linked worktree → 主仓根：仅当主仓存在本 hook 的 db 标记时替换，否则 None（维持原 root）。
+
+    判定：git-dir ≠ git-common-dir 即 linked worktree；主仓根 = common-dir 的 parent。
+    任何失败（非 git/裸仓/命令缺失）返回 None——映射是增强，永不阻断。
+    """
+    try:
+        run = subprocess.run(["git", "rev-parse", "--git-dir", "--git-common-dir"],
+                             cwd=root, capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if run.returncode != 0:
+        return None
+    lines = run.stdout.split()
+    if len(lines) < 2:
+        return None
+    git_dir, common = Path(lines[0]), Path(lines[1])
+    if not git_dir.is_absolute():
+        git_dir = (root / git_dir).resolve()
+    if not common.is_absolute():
+        common = (root / common).resolve()
+    if git_dir == common:
+        return None  # 主工作树
+    main_root = common.parent
+    if (main_root / marker).exists():
+        return main_root
+    return None
+
+
+def _resolve(r: Path) -> Path:
+    """候选 root 统一收口：worktree 场景映射为主仓根（有 db 才替换），否则原样。"""
+    return _map_worktree_to_main(r, MARKER) or r
 
 
 def _extract_prompt(payload: dict) -> str:

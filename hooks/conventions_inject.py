@@ -22,6 +22,9 @@ from pathlib import Path
 MAX_DRIFT = 5
 STALE_COMMITS = 5
 
+# worktree → 主仓映射标记：主仓存在本 hook 的 db 才替换 root
+MARKER = Path(".conventions") / "conventions.db"
+
 
 def _project_root(payload: dict) -> Path:
     """项目根解析：payload.cwd → CLAUDE_PROJECT_DIR → 进程 cwd，各自经 git rev-parse 反查。"""
@@ -43,8 +46,42 @@ def _project_root(payload: dict) -> Path:
         except OSError:
             continue
         if proc.returncode == 0 and proc.stdout.strip():
-            return Path(proc.stdout.strip())
-    return Path.cwd()
+            return _resolve(Path(proc.stdout.strip()))
+    return _resolve(Path.cwd())
+
+
+def _map_worktree_to_main(root: Path, marker: Path) -> Path | None:
+    """linked worktree → 主仓根：仅当主仓存在本 hook 的 db 标记时替换，否则 None（维持原 root）。
+
+    判定：git-dir ≠ git-common-dir 即 linked worktree；主仓根 = common-dir 的 parent。
+    任何失败（非 git/裸仓/命令缺失）返回 None——映射是增强，永不阻断。
+    """
+    try:
+        run = subprocess.run(["git", "rev-parse", "--git-dir", "--git-common-dir"],
+                             cwd=root, capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if run.returncode != 0:
+        return None
+    lines = run.stdout.split()
+    if len(lines) < 2:
+        return None
+    git_dir, common = Path(lines[0]), Path(lines[1])
+    if not git_dir.is_absolute():
+        git_dir = (root / git_dir).resolve()
+    if not common.is_absolute():
+        common = (root / common).resolve()
+    if git_dir == common:
+        return None  # 主工作树
+    main_root = common.parent
+    if (main_root / marker).exists():
+        return main_root
+    return None
+
+
+def _resolve(r: Path) -> Path:
+    """候选 root 统一收口：worktree 场景映射为主仓根（有 db 才替换），否则原样。"""
+    return _map_worktree_to_main(r, MARKER) or r
 
 
 def _log(log_path: Path, status: str) -> None:

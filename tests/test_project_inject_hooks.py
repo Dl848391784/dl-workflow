@@ -143,3 +143,26 @@ def test_conventions_inject_silent_on_bad_stdin(tmp_path):
     assert proc.returncode == 0
     assert proc.stdout == b""
     assert b"Traceback" not in proc.stderr
+
+
+def test_project_root_maps_worktree_to_main(tmp_path):
+    import subprocess as sp
+
+    hooks = _load("cginject", "hooks/codegraph_inject.py")
+    repo = _git_repo(tmp_path)
+    _mk_codegraph_db(repo)                      # 主仓有 db
+    wt = tmp_path / "wt"
+    sp.run(["git", "worktree", "add", str(wt), "-b", "feat-x"], cwd=repo, check=True,
+           capture_output=True)
+    assert hooks._project_root({"cwd": str(wt)}) == repo
+
+
+def test_project_root_keeps_worktree_without_main_db(tmp_path):
+    import subprocess as sp
+
+    hooks = _load("cvinject", "hooks/conventions_inject.py")
+    repo = _git_repo(tmp_path)                   # 主仓无 .conventions db
+    wt = tmp_path / "wt2"
+    sp.run(["git", "worktree", "add", str(wt), "-b", "feat-y"], cwd=repo, check=True,
+           capture_output=True)
+    assert hooks._project_root({"cwd": str(wt)}) == Path(str(wt)).resolve()
