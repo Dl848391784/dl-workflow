@@ -11,7 +11,7 @@
 - 候选记录复用 8 字段契约：`source="inferred"`、`subject="inferred:<type>:<slug>"`、`compliance`=支持度、`statement` 含支持度+新近度叙事。
 - **新近度维度**（「最新的是规范」）：证据文件按 git 最后提交时间分新老；违反案例集中在 N 年前老文件 → 叙事标注「主流写法=B，违反案例均为遗留」。
 
-**Architecture:** `mine_conventions.py` 新增候选生成器模块区：`mine_candidates(cg, root, files, rules, dismissed) -> list[dict]`，main 在规则派发后总是调用（候选为主）。G1=写法主流归纳（logging，参数无关全库扫描）；G2=工具引用集中度（codegraph import 图，TOP 集中目标）。注入 hook 增加候选区（≤3 条）；cvx 格式加 CANDIDATE 标记。
+**Architecture:** `mine_conventions.py` 新增候选生成器模块区：`mine_candidates(cg, root, files, rules, dismissed) -> list[dict]`，main 在规则派发后总是调用（候选为主）。G1=写法主流归纳（logging，参数无关全库扫描）；G2=工具引用集中度（codegraph import 图，TOP 集中目标）。注入 hook 增加候选区（≤3 条）；cvx 格式加 CANDIDATE 标记。——cvx CANDIDATE 标记未做：query 已暴露 source=inferred，drift 通道天然隔离，标记冗余（终审裁决）
 
 **Tech Stack:** Python 3.11 stdlib + PyYAML + git CLI；pytest。
 

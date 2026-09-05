@@ -358,9 +358,10 @@ def _recency_note(root: Path, evidence: list[dict], now: int | None = None) -> s
 
 
 def _g1_logging_majority(files: list[str], root: Path, cg=None) -> list[dict]:
-    """G1 写法主流归纳：全库日志风格统计（参数无关）。多数派≥MIN_SAMPLE 即产候选。cg 形参占位（统一生成器签名，本维度不用 db）。"""
+    """G1 写法主流归纳：全库日志风格统计（参数无关）。多数派≥MIN_SAMPLE 且支持度≥SUPPORT_MIN 即产候选；
+    证据/新近度取少数派侧（两侧对称，主流方向不再出假叙事）。cg 形参占位（统一生成器签名，本维度不用 db）。"""
     f_hits: list[dict] = []
-    lazy = 0
+    lazy_hits: list[dict] = []
     for rel in files:
         try:
             lines = (root / rel).read_text(encoding="utf-8", errors="replace").splitlines()
@@ -370,15 +371,19 @@ def _g1_logging_majority(files: list[str], root: Path, cg=None) -> list[dict]:
             if FSTRING_LOG_RE.search(line):
                 f_hits.append({"file": rel, "line": i})
             elif LAZY_LOG_RE.search(line):
-                lazy += 1
-    denom = len(f_hits) + lazy
+                lazy_hits.append({"file": rel, "line": i})
+    denom = len(f_hits) + len(lazy_hits)
     if denom < MIN_SAMPLE:
         return []
-    majority, support, minority_hits = (
-        ("%-惰性", lazy / denom, f_hits) if lazy >= len(f_hits) else ("f-string", len(f_hits) / denom, [])
-    )
+    if len(lazy_hits) >= len(f_hits):
+        majority, slug, majority_hits, minority_hits = "%-惰性", "lazy_percent", lazy_hits, f_hits
+    else:
+        majority, slug, majority_hits, minority_hits = "f-string", "fstring", f_hits, lazy_hits
+    support = len(majority_hits) / denom
+    if support < SUPPORT_MIN:
+        return []  # 无主流（两侧都不够压倒性）→ 不产候选，SUPPORT_MIN 的本义
     return [{
-        "dimension": "inferred", "subject": "inferred:logging:lazy_percent",
+        "dimension": "inferred", "subject": f"inferred:logging:{slug}",
         "statement": (f"候选规范：日志主流写法={majority}（支持度 {support:.2f}, n={denom}）；"
                       f"{_recency_note(root, minority_hits)}——确认后写入 conventions.yaml 转正"),
         "source": "inferred", "sample_size": denom, "compliance": support,
@@ -452,7 +457,10 @@ def load_dismissed(root: Path) -> list[str]:
         return []
     if not isinstance(data, dict):
         return []
-    return list(data.get("dismissed") or [])
+    dismissed = data.get("dismissed")
+    if not isinstance(dismissed, list):
+        return []  # 标量写法（如 dismissed: foo）不生效——抑制静默失败，只能保守视为无否决
+    return list(dismissed)
 
 
 def mine_candidates(cg, root: Path, files: list[str], rules: list[dict], dismissed: list[str]) -> list[dict]:

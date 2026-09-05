@@ -328,6 +328,7 @@ def test_file_ages_and_none_on_missing_git(tmp_path):
 
 def test_g1_logging_majority_candidate(tmp_path, monkeypatch):
     monkeypatch.setattr(mc, "MIN_SAMPLE", 2)  # fixture 样本量 3 < 默认 20
+    monkeypatch.setattr(mc, "SUPPORT_MIN", 0.5)  # support 2/3=0.67 < 默认 0.90
     repo = _repo_with_commits(tmp_path, {
         "new1.py": ('logger.info("a %s", x)\n', 10),
         "new2.py": ('logger.info("b %s", y)\n', 20),
@@ -339,7 +340,22 @@ def test_g1_logging_majority_candidate(tmp_path, monkeypatch):
     assert c["source"] == "inferred" and c["drift"] == 0
     assert c["subject"] == "inferred:logging:lazy_percent"
     assert c["compliance"] == pytest.approx(2 / 3)
+    assert c["evidence"] == [{"file": "old.py", "line": 1}]  # 少数派侧证据
     assert "新近" in c["statement"] or "遗留" in c["statement"]
+
+
+def test_g1_fstring_majority_has_evidence_and_recency(tmp_path, monkeypatch):
+    monkeypatch.setattr(mc, "MIN_SAMPLE", 2)  # fixture 样本量 10 < 默认 20
+    files = {f"f{i}.py": ('logger.info(f"x {v}")\n', 30) for i in range(9)}
+    files["lazy.py"] = ('logger.info("y %s", v)\n', 800)
+    repo = _repo_with_commits(tmp_path, files)
+    cands = mc._g1_logging_majority(sorted(files), repo)
+    assert len(cands) == 1
+    c = cands[0]
+    assert c["subject"] == "inferred:logging:fstring"
+    assert c["evidence"] and c["evidence"][0]["file"] == "lazy.py"
+    assert "更早 1 处" in c["statement"]
+    assert c["compliance"] == pytest.approx(0.9)
 
 
 def test_mine_candidates_suppressed_by_manual_rule_and_dismissed(tmp_path, monkeypatch):
@@ -379,3 +395,8 @@ def test_load_dismissed(tmp_path):
     (tmp_path / "conventions.yaml").write_text("dismissed:\n  - inferred:logging:lazy_percent\n", encoding="utf-8")
     assert mc.load_dismissed(tmp_path) == ["inferred:logging:lazy_percent"]
     assert mc.load_dismissed(tmp_path / "nope") == []
+
+
+def test_load_dismissed_scalar_silently_inactive(tmp_path):
+    (tmp_path / "conventions.yaml").write_text("dismissed: inferred:logging:lazy_percent\n", encoding="utf-8")
+    assert mc.load_dismissed(tmp_path) == []  # 标量写法不生效（抑制静默失败）

@@ -69,6 +69,9 @@ UserPromptSubmit 注入 hook（直引 `~/.dl-workflow/hooks/`，换机重跑本�
 **校准三态**：认可 → 把候选 params 抄进 `rules:` 转正（该类型候选此后抑制）；
 否决 → subject 加进顶层 `dismissed:` 清单不再产出；不处理 → 每次注入继续呈证，不裁决。
 
+注意：手动 rule 的 params 不合法时 load_rules 会跳过该 rule（stderr 警告）且不触发槽位抑制——
+该类型候选会继续产出，修正好 params 后自然消失。`dismissed:` 必须是 YAML 列表（`- item`），写成标量不生效。
+
 ### 支持矩阵
 
 | 平台 | 级别 | 说明 |
