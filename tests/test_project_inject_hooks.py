@@ -1,0 +1,143 @@
+# tests/test_project_inject_hooks.py
+"""集中版 inject hooks 单元测试：payload.cwd 项目根解析 + 注入协议 + 永不阻断。
+
+对应 designs/setup-installer-design.md。fixture=tmp git repo（.codegraph/.conventions db 手造），
+hook 经 subprocess 喂 stdin payload（端到端，同 test_codegraph_gate.py 风格）。
+"""
+
+import importlib.util
+import json
+import sqlite3
+import subprocess
+import sys
+from pathlib import Path
+
+HOOKS = Path(__file__).resolve().parents[1] / "hooks"
+
+
+def _load(name, rel):
+    path = Path(__file__).resolve().parents[1] / rel
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _git_repo(tmp_path):
+    repo = tmp_path / "proj"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    (repo / "x.py").write_text("def foo():\n    pass\n")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"],
+        cwd=repo,
+        check=True,
+    )
+    return repo
+
+
+def _payload(repo, prompt="看下 foo"):
+    return json.dumps({"prompt": prompt, "cwd": str(repo)})
+
+
+def _run_hook(script, repo, payload):
+    return subprocess.run(
+        [sys.executable, str(HOOKS / script)],
+        input=payload,
+        capture_output=True,
+        text=True,
+        cwd=repo,
+    )
+
+
+def _mk_codegraph_db(repo):
+    db = repo / ".codegraph" / "codegraph.db"
+    db.parent.mkdir(parents=True)
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE files (path TEXT, indexed_at INTEGER)")
+    conn.execute(
+        "CREATE TABLE nodes (name TEXT, kind TEXT, file_path TEXT, start_line INTEGER)"
+    )
+    conn.execute("INSERT INTO files VALUES ('x.py', 1757059200000)")
+    conn.execute("INSERT INTO nodes VALUES ('foo', 'function', 'x.py', 1)")
+    conn.commit()
+    conn.close()
+
+
+def _mk_conventions_db(repo, drift=1):
+    db = repo / ".conventions" / "conventions.db"
+    db.parent.mkdir(parents=True)
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        """
+        CREATE TABLE conventions (
+          id INTEGER PRIMARY KEY, dimension TEXT NOT NULL, subject TEXT NOT NULL,
+          statement TEXT NOT NULL, source TEXT NOT NULL, sample_size INTEGER NOT NULL,
+          compliance REAL, drift INTEGER NOT NULL DEFAULT 0, evidence TEXT NOT NULL,
+          generated_at TEXT NOT NULL, commit_hash TEXT);
+        CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
+        """
+    )
+    conn.execute(
+        "INSERT INTO conventions (dimension, subject, statement, source, sample_size,"
+        " compliance, drift, evidence, generated_at, commit_hash) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (
+            "d3_style",
+            "H11 日志风格",
+            "f-string 1 处",
+            "doc_declared",
+            942,
+            1.0,
+            drift,
+            "[]",
+            "2026-09-05T00:00:00",
+            "abc",
+        ),
+    )
+    conn.execute("INSERT INTO meta VALUES ('commit_hash', 'abc')")
+    conn.commit()
+    conn.close()
+
+
+def test_project_root_prefers_payload_cwd(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # 进程 cwd 与 payload cwd 不同
+    hooks = _load("cginject", "hooks/codegraph_inject.py")
+    repo = _git_repo(tmp_path)
+    assert hooks._project_root({"cwd": str(repo)}) == repo
+
+
+def test_codegraph_inject_uses_project_db(tmp_path):
+    repo = _git_repo(tmp_path)
+    _mk_codegraph_db(repo)
+    proc = _run_hook("codegraph_inject.py", repo, _payload(repo, "foo 是谁"))
+    assert proc.returncode == 0
+    ctx = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "foo" in ctx and "x.py" in ctx
+
+
+def test_conventions_inject_drifts_and_never_blocks(tmp_path):
+    repo = _git_repo(tmp_path)
+    _mk_conventions_db(repo, drift=1)
+    proc = _run_hook("conventions_inject.py", repo, _payload(repo))
+    assert proc.returncode == 0
+    ctx = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "H11 日志风格" in ctx
+
+
+def test_conventions_inject_silent_without_db(tmp_path):
+    repo = _git_repo(tmp_path)
+    proc = _run_hook("conventions_inject.py", repo, _payload(repo))
+    assert proc.returncode == 0 and proc.stdout == ""
+
+
+def test_conventions_inject_silent_on_bad_stdin(tmp_path):
+    repo = _git_repo(tmp_path)
+    proc = subprocess.run(
+        [sys.executable, str(HOOKS / "conventions_inject.py")],
+        input=b"\x00\xff not json",
+        capture_output=True,
+        text=False,
+        cwd=repo,
+    )
+    assert proc.returncode == 0
