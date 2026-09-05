@@ -74,7 +74,7 @@ rules:
 
 ## 分期落地
 
-- **P1 安装器骨架+通用层**：setup 脚本 + 阶段0/1/2④⑤⑥ + 阶段3基础自检。**自举验证 = 本仓（factor_ic_analyzer）拆装重建**：拆掉当前手工装的注册/post-commit/hooks → 跑 setup 重建 → 清单全绿。
+- **P1 安装器骨架+通用层**（已收口）：setup 脚本 + 阶段1 + 阶段2④⑤⑥ + 阶段0 python≥3.11 版本下限（check_deps）。**刻意推迟**：阶段3 等价自检的自动化（模拟 payload 冒烟脚本）→ P2；当前等价验证 = P1 自举记录的手工流程。**自举验证 = 本仓（factor_ic_analyzer）拆装重建**：拆掉当前手工装的注册/post-commit/hooks → 跑 setup 重建 → 清单全绿。
 - **P2 蒸馏层通用化**：checker 四类型参数化 + yaml schema 落地 + 本仓规则迁 yaml（仓内蒸馏器副本退役，切 `~/.dl-workflow` 版）。
 
 ## 验收

@@ -65,7 +65,9 @@ check_deps() {
     echo "✗ 需要 bash ≥ 4（当前 $BASH_VERSION，dl-lib.sh 用 declare -A）" >&2
     exit 1
   fi
-  echo "✓ 依赖检查通过（python3, git, bash $BASH_VERSION）"
+  python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' \
+    || { echo "✗ 需要 python ≥ 3.11（hook 脚本用 3.10+ 语法，当前 $(python3 -V 2>&1)）" >&2; exit 1; }
+  echo "✓ 依赖检查通过（$(python3 -V 2>&1), git, bash $BASH_VERSION）"
 }
 
 # ---------- copy 文件（冲突则备份原文件） ----------
