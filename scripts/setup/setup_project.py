@@ -10,7 +10,6 @@ UserPromptSubmit inject hook（绝对路径引用 ~/.dl-workflow/hooks/）⑦ �
 
 import argparse
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -20,18 +19,22 @@ POST_COMMIT_MARK = "mine_conventions.py"
 POST_COMMIT_BLOCK = """#!/bin/sh
 # Auto-sync codegraph + re-mine conventions after each commit (background, non-blocking)
 codegraph sync >/dev/null 2>&1 &
-python3 "$DLWF_HOME/bin/mine_conventions.py" >/dev/null 2>&1 &
+python3 "{home}/bin/mine_conventions.py" >/dev/null 2>&1 &
 exit 0
 """
 
 
-def patch_post_commit(project: Path) -> str:
-    """post-commit 补丁：无则建、缺 mine_conventions 行则整块替换、齐则跳过。返回三态。"""
+def patch_post_commit(project: Path, home: Path) -> str:
+    """post-commit 补丁：无则建、缺 mine_conventions 行则整块替换、齐则跳过。返回三态。
+
+    写绝对路径（home 由 CLI 参数解析而来）——git 调 post-commit 时不继承
+    $DLWF_HOME，相对/变量引用会静默失效，故禁环境变量引用。
+    """
     hook = project / ".git" / "hooks" / "post-commit"
     if hook.exists() and POST_COMMIT_MARK in hook.read_text(encoding="utf-8", errors="replace"):
         return "already-ok"
     existed = hook.exists()
-    hook.write_text(POST_COMMIT_BLOCK)
+    hook.write_text(POST_COMMIT_BLOCK.format(home=home))
     hook.chmod(0o755)
     return "patched" if existed else "created"
 
@@ -68,7 +71,8 @@ def merge_project_settings(project: Path, home: Path) -> dict:
 
 
 def ensure_codegraph_index(project: Path) -> int:
-    """codegraph init + index；CLI 缺失返回 1（警告层，不硬失败）。"""
+    """codegraph init + index。返回分层：0=ok（index 完成或 db 已存在），
+    1=warn（非 git 仓库 / CLI 缺失——仅打印警告不阻断），2=hard fail（init 执行但失败）。"""
     if not (project / ".git").exists():
         print("  ⚠ 非 git 仓库，跳过 codegraph index")
         return 1
@@ -82,7 +86,7 @@ def ensure_codegraph_index(project: Path) -> int:
     proc = subprocess.run(["codegraph", "init"], cwd=project, capture_output=True, text=True)
     if proc.returncode != 0:
         print(f"  ✗ codegraph init 失败: {proc.stderr.strip()}")
-        return 1
+        return 2
     print("✓ codegraph index 完成")
     return 0
 
@@ -116,8 +120,10 @@ def main(argv=None) -> int:
     print(f"═══ dl setup --project {project} ═══")
     fails = 0
     if not args.skip_index:
-        fails += 1 if ensure_codegraph_index(project) == 1 and not (project / ".codegraph" / "codegraph.db").exists() else 0
-    status = patch_post_commit(project)
+        rc = ensure_codegraph_index(project)
+        if rc == 2:
+            fails += 1
+    status = patch_post_commit(project, args.home)
     print(f"{'✓' if status != 'failed' else '✗'} post-commit: {status}")
     merged = merge_project_settings(project, args.home)
     print(f"✓ settings.json 合并: added={merged['added']} kept={merged['kept']}")

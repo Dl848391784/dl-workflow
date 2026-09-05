@@ -5,7 +5,6 @@
 
 import importlib.util
 import json
-import sqlite3
 import subprocess
 from pathlib import Path
 
@@ -35,10 +34,10 @@ def test_patch_post_commit_idempotent(tmp_path):
     repo = _git_repo(tmp_path)
     hook = repo / ".git" / "hooks" / "post-commit"
     hook.write_text("#!/bin/sh\ncodegraph sync >/dev/null 2>&1 &\nexit 0\n")
-    status = sp.patch_post_commit(repo)
+    status = sp.patch_post_commit(repo, tmp_path / "home")
     text = hook.read_text()
     assert "mine_conventions.py" in text and "codegraph sync" in text and status == "patched"
-    status2 = sp.patch_post_commit(repo)
+    status2 = sp.patch_post_commit(repo, tmp_path / "home")
     assert text == hook.read_text() and status2 == "already-ok"
 
 
@@ -48,7 +47,7 @@ def test_patch_post_commit_creates_missing(tmp_path):
     hook = repo / ".git" / "hooks" / "post-commit"
     if hook.exists():
         hook.unlink()
-    assert sp.patch_post_commit(repo) == "created"
+    assert sp.patch_post_commit(repo, tmp_path / "home") == "created"
     assert "mine_conventions.py" in hook.read_text()
 
 
