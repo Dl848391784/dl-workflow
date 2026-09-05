@@ -83,6 +83,24 @@ rules:
 2. 幂等：连跑两次，第二次全 `already-ok`。
 3. 自举：本仓拆装重建后行为一致——注入文本、drift 数字与手工期基准一致（H7 3文件/H11 1处f-string）。
 
+### P1 自举记录（2026-09-05，factor_ic_analyzer 实仓拆装重建）
+
+**过程**（备份 `/tmp/fac_settings_backup.json` + `/tmp/fac_postcommit_backup` 后）：
+
+1. 基线：`scripts/cvx.py drift` → H7（n=442, 合规率 0.99, 3 证据文件）+ H11（n=942, 合规率 1.00, 1 处 f-string）。
+2. 拆手工接线：settings.json 精确摘除两条 inject 注册（UserPromptSubmit 摘空为 `[]`，其余保留）；post-commit 重写为最小 codegraph-only 版。
+3. 跑集中版：`setup_project.py --project <factor> --home <worktree> --skip-index`。
+   - **实爆 1 个真 bug**：`merge_project_settings` 对「键在但组摘空」的 `UserPromptSubmit: []` 取 `groups[0]` IndexError（`setdefault` 默认值只对缺键生效）。修复=空列表自建承载组 + 回归测试 `test_merge_project_settings_empty_event_list`（commit 4c911df）。这正是自举验证的价值——tmp repo 测试只覆盖了缺键/有组两态。
+4. 重跑全绿：`post-commit: already-ok`、`settings added=2 kept=0`、首次蒸馏 8 条（drift 2）。
+
+**等价验收**：
+
+- 集中版 `hooks/conventions_inject.py`（cwd payload 冒烟）→ 漂移注入 JSON，H7/H11 在列，n 与合规率与基线一致。
+- 集中版 `bin/cvx.py --db <repo>/.conventions/conventions.db drift` 输出与基线**全文一致**（subject 级 diff 为空，全文 diff 亦为空）。
+- settings.json 注册指向 worktree 绝对路径（`--home <worktree>` 预期行为）；post-commit 为双后台任务块（绝对路径禁静默失效）。
+
+**收口注意**：Task 5 收口 merge 回 main 后须重跑一次 `--project <factor> --home ~/.dl-workflow`，把 factor settings.json 里的注册路径从 worktree 换回 canonical 家。
+
 ## 风险
 
 - npm 全局目录多会话竞争（既有记忆）：装 codegraph 时查残留 npm 进程。
