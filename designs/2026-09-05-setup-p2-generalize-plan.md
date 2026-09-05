@@ -96,6 +96,7 @@ def test_main_dispatches_registered_checker(tmp_path, monkeypatch):
     rows = sqlite3.connect(f"file:{out}?mode=ro", uri=True).execute(
         "SELECT subject FROM conventions").fetchall()
     assert rows == [("stub",)]
+```
 
 - [ ] **Step 2: 跑测试确认失败** — `cd /home/admin/projects/dl-p2-generalize && python3 -m pytest tests/test_mine_conventions.py -q` → 新 4 条 failed（load_rules 不存在）。
 
