@@ -122,6 +122,60 @@ def ensure_codegraph_index(project: Path) -> int:
     return 0
 
 
+CONVENTIONS_TEMPLATE = """# 项目约定声明（dl setup 生成模板——按项目实际规范填写/删减；真源见 ~/.dl-workflow/designs/setup-installer-design.md）
+# 每规则：id（唯一）/ type（checker 类型）/ statement（文档声明，呈证用）/ params。
+# 类型：path_literal_scan | logging_style | layering | skeleton | util_graph | exit_codes
+# 无本文件或 rules 为空 -> 蒸馏器只跑 import 图纯事实。
+rules:
+  # 示例 1：路径真源规则（paths.py 换成你项目的路径模块）
+  - id: H7_path_literal
+    type: path_literal_scan
+    statement: "路径只能 from paths import"
+    params:
+      exempt_files: [paths.py]
+      preset: abs_unix_path        # 或 abs_win_path / regex 自定义
+  # 示例 2：日志风格
+  - id: H11_log_style
+    type: logging_style
+    statement: "日志 % 惰性禁 f-string"
+    params:
+      # 单引号标量内嵌 ' 需按 YAML 规范翻倍转义（''），解析结果仍为 ["''"]
+      fstring_regex: 'logger\\.(debug|info|warning|error|critical)\\(\\s*f["''"]'
+      lazy_regex: 'logger\\.(debug|info|warning|error|critical)\\(\\s*["''][^"''\\n]*%[srda]'
+  # 示例 3：分层边界（from 支持 "*" 通配）
+  - id: H1_layering
+    type: layering
+    statement: "模块边界：UI 只读后端"
+    params:
+      forbidden: [{from: "*", to: web_ui}]
+  # 示例 4：脚本族骨架（traits 键=统计项名，值=子串匹配）
+  - id: scripts_skeleton
+    type: skeleton
+    statement: "scripts/ 族骨架模式"
+    params:
+      glob: "scripts/*.py"
+      exclude_name_prefix: [test_]
+      traits: {argparse: "import argparse", main函数: "def main(", __main__守卫: "__name__", paths导入: "from paths import"}
+  # 示例 5：工具函数使用图谱（需 codegraph db）
+  - id: util_graph
+    type: util_graph
+    params: {target_files: [paths.py]}
+  # 示例 6：退出码分布（纯事实）
+  - id: scripts_exit_codes
+    type: exit_codes
+    params: {glob: "scripts/*.py"}
+"""
+
+
+def ensure_conventions_yaml(project: Path) -> str:
+    """缺则写注释模板（幂等）；存在不动。"""
+    path = project / "conventions.yaml"
+    if path.exists():
+        return "already-ok"
+    path.write_text(CONVENTIONS_TEMPLATE, encoding="utf-8")
+    return "created"
+
+
 def first_distill(project: Path, home: Path) -> int:
     """首次蒸馏（best-effort：失败仅警告，不阻断）。"""
     script = home / "bin" / "mine_conventions.py"
@@ -161,6 +215,8 @@ def main(argv=None) -> int:
         f"✓ settings.json 合并: added={merged['added']} "
         f"upgraded={merged['upgraded']} kept={merged['kept']}"
     )
+    cy = ensure_conventions_yaml(project)
+    print(f"✓ conventions.yaml: {cy}")
     if not args.skip_distill:
         first_distill(project, args.home)  # best-effort，不计 fails
     print("═══ 完成（⚠ 项不阻断，详见上方输出）═══")

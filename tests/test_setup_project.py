@@ -150,3 +150,13 @@ def test_merge_project_settings_aborts_on_bad_json(tmp_path):
     (home / "hooks").mkdir(parents=True)
     with pytest.raises(SystemExit):
         sp.merge_project_settings(repo, home)
+
+
+def test_ensure_conventions_yaml_creates_and_idempotent(tmp_path):
+    sp = _load()
+    repo = _git_repo(tmp_path)
+    assert sp.ensure_conventions_yaml(repo) == "created"
+    text = (repo / "conventions.yaml").read_text(encoding="utf-8")
+    assert "rules:" in text and "path_literal_scan" in text and "#" in text
+    assert sp.ensure_conventions_yaml(repo) == "already-ok"
+    assert (repo / "conventions.yaml").read_text(encoding="utf-8") == text
