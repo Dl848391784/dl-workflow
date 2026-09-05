@@ -141,3 +141,5 @@ def test_conventions_inject_silent_on_bad_stdin(tmp_path):
         cwd=repo,
     )
     assert proc.returncode == 0
+    assert proc.stdout == b""
+    assert b"Traceback" not in proc.stderr

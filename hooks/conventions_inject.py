@@ -31,7 +31,7 @@ def _project_root(payload: dict) -> Path:
         str(Path.cwd()),
     ]
     for cand in candidates:
-        if not cand:
+        if not isinstance(cand, str) or not cand:
             continue
         try:
             proc = subprocess.run(
