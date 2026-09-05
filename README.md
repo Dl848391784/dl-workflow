@@ -2,6 +2,10 @@
 
 Claude Code 5 阶段工作流 + codegraph H15 查证门禁的独立仓库。**跨项目通用**，装到 `~/.claude/` 后任意 git 项目内可用。
 
+## 下载
+
+维护机已挂下载端点（dashboard 复用 9000 端口）：访问 `http://<维护机IP>:9000/download` 即触发最新版 tarball 下载（HEAD 变化自动重打）。解压后 `./install.sh` 即装（首跑自动部署到 `~/.dl-workflow`）。
+
 ## 是什么
 
 两套工具，都是 Claude Code 的通用扩展（不是任何单一项目的领域代码）：
