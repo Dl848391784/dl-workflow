@@ -220,6 +220,56 @@ def test_load_rules_bad_yaml_aborts(tmp_path):
         mc.load_rules(root)
 
 
+def test_load_rules_non_dict_top_level(tmp_path, capsys):
+    root = tmp_path / "p5"
+    root.mkdir()
+    (root / "conventions.yaml").write_text("- just\n- a\n", encoding="utf-8")
+    assert mc.load_rules(root) == []
+    assert "顶层非 mapping" in capsys.readouterr().err
+
+
+def test_load_rules_rejects_missing_params(tmp_path, capsys):
+    import yaml as _yaml
+
+    root = tmp_path / "p6"
+    root.mkdir()
+    rules = [{"id": "H11", "type": "logging_style", "statement": "s",
+              "params": {"fstring_regex": "x"}}]  # 缺 lazy_regex
+    (root / "conventions.yaml").write_text(_yaml.safe_dump({"rules": rules}), encoding="utf-8")
+    assert mc.load_rules(root) == []
+    assert "H11" in capsys.readouterr().err
+
+
+def test_load_rules_rejects_bad_preset_and_regex(tmp_path, capsys):
+    import yaml as _yaml
+
+    root = tmp_path / "p7"
+    root.mkdir()
+    rules = [{"id": "bad_preset", "type": "path_literal_scan", "params": {"preset": "abs_mac_path"}},
+             {"id": "bad_regex", "type": "path_literal_scan", "params": {"regex": "("}}]
+    (root / "conventions.yaml").write_text(_yaml.safe_dump({"rules": rules}), encoding="utf-8")
+    assert mc.load_rules(root) == []
+    err = capsys.readouterr().err
+    assert "bad_preset" in err and "bad_regex" in err
+
+
+def test_run_rules_fallback_import_graph(tmp_path):
+    cg = _fixture_cg(tmp_path)
+    repo = _git_repo(tmp_path)  # 无 conventions.yaml 的 git 仓库（cg.db 同目录不冲突）
+    records = mc._run_rules(cg, repo, [])
+    assert records and all(r["source"] == "code_evidence" for r in records)
+    assert all("->" in r["subject"] for r in records)
+
+
+def test_main_soft_degradation_stderr(tmp_path, capsys):
+    out = tmp_path / "out.db"
+    # 非 git 目录 + 无 codegraph db → 两条软降级警告，main 仍 exit 0
+    assert mc.main(["--root", str(tmp_path / "notgit"), "--codegraph-db", str(tmp_path / "no.db"),
+                    "--out", str(out)]) == 0
+    err = capsys.readouterr().err
+    assert "非 git" in err or "codegraph db 缺失" in err
+
+
 def _git_repo(tmp_path):
     import subprocess
 

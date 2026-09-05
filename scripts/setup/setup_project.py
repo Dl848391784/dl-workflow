@@ -154,6 +154,7 @@ rules:
     statement: "scripts/ 族骨架模式"
     params:
       glob: "scripts/*.py"
+      # 注意：glob 不跨目录层级——含子目录用 "scripts/**/*.py"（fnmatch 语义见 pathlib.PurePath.match）
       exclude_name_prefix: [test_]
       traits: {argparse: "import argparse", main函数: "def main(", __main__守卫: "__name__", paths导入: "from paths import"}
   # 示例 5：工具函数使用图谱（需 codegraph db）

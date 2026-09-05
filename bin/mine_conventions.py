@@ -27,7 +27,7 @@ import sqlite3
 import subprocess
 import sys
 import time
-from pathlib import Path
+from pathlib import Path, PurePath
 
 
 DEFAULT_CG_DB = Path(".codegraph") / "codegraph.db"
@@ -111,10 +111,6 @@ def _write_db(out_path: Path, records: list[dict], generated_at: str, commit_has
     os.replace(tmp, out_path)
 
 
-# 绝对路径字面量（H7 违规候选）：字符串以常见挂载根开头
-ABS_PATH_RE = re.compile(r"""["'](/(?:home|data|mnt|opt|srv)/)""")
-
-
 # D3 正则：H11 日志风格 + 退出码字面量
 _LOG_FN = r"logger\.(?:debug|info|warning|error|critical)\("
 FSTRING_LOG_RE = re.compile(_LOG_FN + r"""\s*f["']""")
@@ -133,17 +129,28 @@ CHECKERS: dict = {}
 _PRESET_PATH_RES = {"abs_unix_path": re.compile(r"""["'](/(?:home|data|mnt|opt|srv)/)"""),
                     "abs_win_path": re.compile(r"""[A-Za-z]:\\\\""")}
 
+# 各 rule type 的必填 params 键（缺省视为空集）
+REQUIRED_PARAMS = {
+    "path_literal_scan": set(),          # preset/regex 二选一皆有默认
+    "logging_style": {"fstring_regex", "lazy_regex"},
+    "layering": set(),                   # forbidden 缺省视为 []
+    "skeleton": {"glob", "traits"},
+    "util_graph": {"target_files"},
+    "exit_codes": set(),
+}
+
 
 def _glob_match(files, glob, exclude_prefix=()):
-    from pathlib import PurePath
-
     return [f for f in files
             if PurePath(f).match(glob) and not PurePath(f).name.startswith(exclude_prefix)]
 
 
 def check_path_literal(rule, ctx):
     params = rule.get("params") or {}
-    pat = params.get("regex") and re.compile(params["regex"]) or _PRESET_PATH_RES[params.get("preset", "abs_unix_path")]
+    if params.get("regex"):
+        pat = re.compile(params["regex"])
+    else:
+        pat = _PRESET_PATH_RES[params.get("preset", "abs_unix_path")]
     exempt = set(params.get("exempt_files") or [])
     violations, scanned = [], 0
     for rel in ctx["files"]:
@@ -196,7 +203,7 @@ def check_logging_style(rule, ctx):
 def check_layering(rule, ctx):
     cg = ctx["cg"]
     if cg is None:
-        print("mine_conventions: layering/util_graph 需 codegraph db，跳过", file=sys.stderr)
+        print(f"mine_conventions: {rule['type']} 需 codegraph db，跳过", file=sys.stderr)
         return []
     forbidden = (rule.get("params") or {}).get("forbidden") or []
     rows = cg.execute(
@@ -212,6 +219,7 @@ def check_layering(rule, ctx):
         for f in forbidden:
             if d == f.get("to") and (f.get("from") in ("*", s)):
                 violations.append({"file": src_fp, "line": line})
+                break  # 同一条边不被多条 forbidden 重复计数
     records = [{
         "dimension": "layering", "subject": f"{s}->{d}", "statement": f"{s} import {d}：{c} 处",
         "source": "code_evidence", "sample_size": c, "compliance": None, "drift": 0, "evidence": [],
@@ -328,13 +336,34 @@ def load_rules(root: Path) -> list[dict]:
     except yaml.YAMLError as e:
         print(f"mine_conventions: {RULES_FILE} 解析失败: {e}", file=sys.stderr)
         sys.exit(1)
-    rules = (data or {}).get("rules") or []
+    if not isinstance(data, dict):
+        print(f"mine_conventions: {RULES_FILE} 顶层非 mapping（视作无 rules）", file=sys.stderr)
+        return []
+    rules = data.get("rules") or []
     valid = []
     for r in rules:
         rtype = r.get("type") if isinstance(r, dict) else None
         if not rtype or rtype not in CHECKERS:
             print(f"mine_conventions: 跳过未知/缺 type 的 rule: {r!r:.120}", file=sys.stderr)
             continue
+        params = r.get("params") or {}
+        missing = REQUIRED_PARAMS.get(rtype, set()) - set(params)
+        if missing:
+            print(f"mine_conventions: 跳过缺 params 的 rule: {r.get('id')}（缺 {sorted(missing)}）",
+                  file=sys.stderr)
+            continue
+        if rtype == "path_literal_scan":
+            if "preset" in params and params["preset"] not in _PRESET_PATH_RES:
+                print(f"mine_conventions: 跳过未知 preset 的 rule: {r.get('id')}（{params['preset']}）",
+                      file=sys.stderr)
+                continue
+            if "regex" in params:
+                try:
+                    re.compile(params["regex"])
+                except re.error as e:
+                    print(f"mine_conventions: 跳过非法 regex 的 rule: {r.get('id')}（{e}）",
+                          file=sys.stderr)
+                    continue
         valid.append(r)
     return valid
 

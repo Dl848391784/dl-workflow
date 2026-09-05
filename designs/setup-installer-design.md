@@ -59,7 +59,7 @@ rules:
     params: {target_files: [paths.py]}
 ```
 
-无 yaml 或无 rules → 只跑 code_evidence 维度（import 图/骨架降级为纯事实）。
+无 yaml 或无 rules → 只跑 import 图纯事实（layering 空 forbidden）。
 
 ## setup 脚本结构（分阶段、逐项装、逐项验）
 
