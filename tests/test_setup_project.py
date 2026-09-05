@@ -230,3 +230,46 @@ def test_main_verify_mode_exit_codes(tmp_path, capsys):
                     "--verify", "--skip-index", "--skip-distill"]) == 1
     out = capsys.readouterr().out
     assert "❌" in out
+
+
+def test_verify_project_smoke_timeout_marks_fail_not_raise(tmp_path, monkeypatch):
+    """冒烟 subprocess 超时/OSError -> 记 ❌ 不 traceback，其余检查照常跑（best-effort 语义）。"""
+    sp = _load()
+    repo = _git_repo(tmp_path)
+    home = _fake_home(tmp_path)
+    sp.patch_post_commit(repo, home)
+    sp.merge_project_settings(repo, home)
+    _fake_dbs(repo)
+
+    def _boom(*a, **kw):
+        raise subprocess.TimeoutExpired(cmd=a[0] if a else "hook", timeout=15)
+
+    monkeypatch.setattr(sp.subprocess, "run", _boom)
+    checks = sp.verify_project(repo, home)
+    assert len(checks) == 6
+    smoke = [(n, ok, d) for n, ok, d in checks if "inject 冒烟" in n]
+    assert len(smoke) == 2 and all(not ok for _, ok, _ in smoke)
+    assert all("无法执行: TimeoutExpired" in d for _, _, d in smoke)
+    rest = [(n, ok) for n, ok, _ in checks if "inject 冒烟" not in n]
+    assert all(ok for _, ok in rest), rest
+
+
+def test_filter_skipped_flag_combos():
+    """skip 标志过滤为纯函数，verify/接线两路共用同一谓词。"""
+    sp = _load()
+    checks = [
+        ("settings.json inject 注册", True, "ok"),
+        ("post-commit 双后台任务", True, "ok"),
+        ("inject 冒烟 codegraph_inject.py", True, "ok"),
+        ("inject 冒烟 conventions_inject.py", True, "ok"),
+        ("conventions db 可读", False, "db 缺失"),
+        ("codegraph db 已索引", False, "db 缺失"),
+    ]
+    assert len(sp._filter_skipped(checks, False, False)) == 6
+    skip_index = sp._filter_skipped(checks, True, False)
+    assert len(skip_index) == 5 and all("codegraph db" not in n for n, _, _ in skip_index)
+    skip_distill = sp._filter_skipped(checks, False, True)
+    assert len(skip_distill) == 5 and all("conventions db" not in n for n, _, _ in skip_distill)
+    both = sp._filter_skipped(checks, True, True)
+    assert len(both) == 4
+    assert all(ok for _, ok, _ in both)  # 两个 db ❌ 被滤掉后 verdict 不再误报

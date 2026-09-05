@@ -63,7 +63,7 @@ def _map_worktree_to_main(root: Path, marker: Path) -> Path | None:
         return None
     if run.returncode != 0:
         return None
-    lines = run.stdout.split()
+    lines = run.stdout.splitlines()
     if len(lines) < 2:
         return None
     git_dir, common = Path(lines[0]), Path(lines[1])

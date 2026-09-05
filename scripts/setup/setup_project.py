@@ -229,9 +229,13 @@ def verify_project(project: Path, home: Path) -> list[tuple[str, bool, str]]:
             # 未注册时冒烟没有意义（hook 好不好与装没装是两件事）——按未接线记 ❌
             checks.append((f"inject 冒烟 {name}", False, "settings 未注册，跳过冒烟"))
             continue
-        proc = subprocess.run(
-            ["python3", str(home / "hooks" / name)], input=payload,
-            capture_output=True, text=True, cwd=project, timeout=15)
+        try:
+            proc = subprocess.run(
+                ["python3", str(home / "hooks" / name)], input=payload,
+                capture_output=True, text=True, cwd=project, timeout=15)
+        except (subprocess.TimeoutExpired, OSError) as e:
+            checks.append((f"inject 冒烟 {name}", False, f"无法执行: {e.__class__.__name__}"))
+            continue
         if proc.returncode == 0:
             note = "有注入" if proc.stdout.strip() else "无注入（无漂移/无命中=可接受）"
             checks.append((f"inject 冒烟 {name}", True, note))
@@ -269,6 +273,18 @@ def _print_verify(checks: list[tuple[str, bool, str]]) -> int:
     return 0 if all(ok for _, ok, _ in checks) else 1
 
 
+def _filter_skipped(checks, skip_index, skip_distill):
+    """--skip-index/--skip-distill 场景：被跳过的产物（两个 db）不纳入判定——verify 与接线模式两路一致。"""
+    out = []
+    for name, ok, detail in checks:
+        if skip_index and "codegraph db" in name:
+            continue
+        if skip_distill and "conventions db" in name:
+            continue
+        out.append((name, ok, detail))
+    return out
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="dl setup 项目级接线（designs/setup-installer-design.md）")
     parser.add_argument("--project", type=Path, required=True)
@@ -280,12 +296,7 @@ def main(argv=None) -> int:
     project = args.project.resolve()
 
     if args.verify:
-        checks = verify_project(project, args.home)
-        # --skip-index/--skip-distill 场景：被跳过的产物（两个 db）不纳入退出码判定
-        if args.skip_index:
-            checks = [c for c in checks if "codegraph db" not in c[0]]
-        if args.skip_distill:
-            checks = [c for c in checks if "conventions db" not in c[0]]
+        checks = _filter_skipped(verify_project(project, args.home), args.skip_index, args.skip_distill)
         return _print_verify(checks)
 
     print(f"═══ dl setup --project {project} ═══")
@@ -305,7 +316,7 @@ def main(argv=None) -> int:
     print(f"✓ conventions.yaml: {cy}")
     if not args.skip_distill:
         first_distill(project, args.home)  # best-effort，不计 fails
-    vrc = _print_verify(verify_project(project, args.home))
+    vrc = _print_verify(_filter_skipped(verify_project(project, args.home), args.skip_index, args.skip_distill))
     if vrc != 0:
         print("  ⚠ 等价自检有 ❌（不阻断接线，见上方清单）")
     print("═══ 完成（⚠ 项不阻断，详见上方输出）═══")
