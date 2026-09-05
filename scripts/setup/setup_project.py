@@ -10,12 +10,14 @@ UserPromptSubmit inject hook（绝对路径引用 ~/.dl-workflow/hooks/）⑦ �
 
 import argparse
 import json
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
 
 
 POST_COMMIT_MARK = "mine_conventions.py"
+INJECT_HOOKS = ("codegraph_inject.py", "conventions_inject.py")
 POST_COMMIT_BLOCK = """#!/bin/sh
 # Auto-sync codegraph + re-mine conventions after each commit (background, non-blocking)
 codegraph sync >/dev/null 2>&1 &
@@ -194,14 +196,97 @@ def first_distill(project: Path, home: Path) -> int:
     return 0
 
 
+def _verify_settings(project: Path, home: Path) -> tuple[bool, str]:
+    path = project / ".claude" / "settings.json"
+    if not path.exists():
+        return False, "settings.json 缺失"
+    try:
+        settings = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return False, "settings.json 非法 JSON"
+    cmds = [h.get("command", "") for g in settings.get("hooks", {}).get("UserPromptSubmit", [])
+            for h in g.get("hooks", [])]
+    missing = [n for n in INJECT_HOOKS
+               if not any(n in c and str(home) in c for c in cmds)]
+    if missing:
+        return False, f"缺注册或路径非 home: {missing}"
+    return True, "两条 inject 注册指向 home"
+
+
+def verify_project(project: Path, home: Path) -> list[tuple[str, bool, str]]:
+    """阶段3 等价自检（designs/setup-installer-design.md）：逐项 ✅/❌，可机器核验「效果一样」。"""
+    checks: list[tuple[str, bool, str]] = []
+    ok, detail = _verify_settings(project, home)
+    checks.append(("settings.json inject 注册", ok, detail))
+    registered = ok
+    hook = project / ".git" / "hooks" / "post-commit"
+    text = hook.read_text(encoding="utf-8", errors="replace") if hook.exists() else ""
+    ok = "mine_conventions.py" in text and "codegraph sync" in text
+    checks.append(("post-commit 双后台任务", ok, "ok" if ok else "缺 codegraph sync/mine_conventions"))
+    payload = json.dumps({"prompt": "dl setup verify", "cwd": str(project)})
+    for name in INJECT_HOOKS:
+        if not registered:
+            # 未注册时冒烟没有意义（hook 好不好与装没装是两件事）——按未接线记 ❌
+            checks.append((f"inject 冒烟 {name}", False, "settings 未注册，跳过冒烟"))
+            continue
+        proc = subprocess.run(
+            ["python3", str(home / "hooks" / name)], input=payload,
+            capture_output=True, text=True, cwd=project, timeout=15)
+        if proc.returncode == 0:
+            note = "有注入" if proc.stdout.strip() else "无注入（无漂移/无命中=可接受）"
+            checks.append((f"inject 冒烟 {name}", True, note))
+        else:
+            checks.append((f"inject 冒烟 {name}", False, proc.stderr.strip()[:120]))
+    db = project / ".conventions" / "conventions.db"
+    if db.exists():
+        try:
+            conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+            n = conn.execute("SELECT COUNT(*) FROM conventions").fetchone()[0]
+            conn.close()
+            checks.append(("conventions db 可读", True, f"{n} 条约定"))
+        except sqlite3.Error as e:
+            checks.append(("conventions db 可读", False, str(e)[:120]))
+    else:
+        checks.append(("conventions db 可读", False, "db 缺失"))
+    cg = project / ".codegraph" / "codegraph.db"
+    if cg.exists():
+        try:
+            conn = sqlite3.connect(f"file:{cg}?mode=ro", uri=True)
+            n = conn.execute("SELECT COUNT(*) FROM nodes").fetchone()[0]
+            conn.close()
+            checks.append(("codegraph db 已索引", n > 0, f"{n} nodes"))
+        except sqlite3.Error as e:
+            checks.append(("codegraph db 已索引", False, str(e)[:120]))
+    else:
+        checks.append(("codegraph db 已索引", False, "db 缺失"))
+    return checks
+
+
+def _print_verify(checks: list[tuple[str, bool, str]]) -> int:
+    print("▸ 等价自检（阶段3）")
+    for name, ok, detail in checks:
+        print(f"  {'✅' if ok else '❌'} {name} — {detail}")
+    return 0 if all(ok for _, ok, _ in checks) else 1
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="dl setup 项目级接线（designs/setup-installer-design.md）")
     parser.add_argument("--project", type=Path, required=True)
     parser.add_argument("--home", type=Path, default=Path.home() / ".dl-workflow")
     parser.add_argument("--skip-index", action="store_true")
     parser.add_argument("--skip-distill", action="store_true")
+    parser.add_argument("--verify", action="store_true")
     args = parser.parse_args(argv)
     project = args.project.resolve()
+
+    if args.verify:
+        checks = verify_project(project, args.home)
+        # --skip-index/--skip-distill 场景：被跳过的产物（两个 db）不纳入退出码判定
+        if args.skip_index:
+            checks = [c for c in checks if "codegraph db" not in c[0]]
+        if args.skip_distill:
+            checks = [c for c in checks if "conventions db" not in c[0]]
+        return _print_verify(checks)
 
     print(f"═══ dl setup --project {project} ═══")
     fails = 0
@@ -220,6 +305,9 @@ def main(argv=None) -> int:
     print(f"✓ conventions.yaml: {cy}")
     if not args.skip_distill:
         first_distill(project, args.home)  # best-effort，不计 fails
+    vrc = _print_verify(verify_project(project, args.home))
+    if vrc != 0:
+        print("  ⚠ 等价自检有 ❌（不阻断接线，见上方清单）")
     print("═══ 完成（⚠ 项不阻断，详见上方输出）═══")
     return 1 if fails else 0
 

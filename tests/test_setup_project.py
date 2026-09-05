@@ -21,7 +21,7 @@ def _load():
 
 def _git_repo(tmp_path):
     repo = tmp_path / "proj"
-    repo.mkdir()
+    repo.mkdir(parents=True)
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
     (repo / "a.py").write_text("x = 1\n")
     subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
@@ -160,3 +160,73 @@ def test_ensure_conventions_yaml_creates_and_idempotent(tmp_path):
     assert "rules:" in text and "path_literal_scan" in text and "#" in text
     assert sp.ensure_conventions_yaml(repo) == "already-ok"
     assert (repo / "conventions.yaml").read_text(encoding="utf-8") == text
+
+
+def _fake_home(tmp_path):
+    home = tmp_path / "dlwf"
+    (home / "hooks").mkdir(parents=True)
+    for name in ("codegraph_inject.py", "conventions_inject.py"):
+        (home / "hooks" / name).write_text(
+            "import json,sys\n"
+            "json.load(sys.stdin)\n"
+            "print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit',"
+            " 'additionalContext': 'stub'}}))\n")
+    return home
+
+
+def _fake_dbs(repo):
+    import sqlite3
+
+    (repo / ".conventions").mkdir(exist_ok=True)
+    conn = sqlite3.connect(repo / ".conventions" / "conventions.db")
+    conn.execute("CREATE TABLE conventions (id INTEGER)")
+    conn.execute("INSERT INTO conventions VALUES (1)")
+    conn.commit()
+    conn.close()
+    (repo / ".codegraph").mkdir(exist_ok=True)
+    conn = sqlite3.connect(repo / ".codegraph" / "codegraph.db")
+    conn.execute("CREATE TABLE nodes (id TEXT)")
+    conn.execute("INSERT INTO nodes VALUES ('n1')")
+    conn.commit()
+    conn.close()
+
+
+def test_verify_project_all_ok(tmp_path):
+    sp = _load()
+    repo = _git_repo(tmp_path)
+    home = _fake_home(tmp_path)
+    sp.patch_post_commit(repo, home)
+    sp.merge_project_settings(repo, home)
+    _fake_dbs(repo)
+    checks = sp.verify_project(repo, home)
+    assert all(ok for _, ok, _ in checks), checks
+    names = [n for n, _, _ in checks]
+    assert any("settings.json" in n for n in names)
+    assert any("post-commit" in n for n in names)
+    assert any("codegraph_inject" in n for n in names)
+    assert any("conventions_inject" in n for n in names)
+
+
+def test_verify_project_reports_failures(tmp_path):
+    sp = _load()
+    repo = _git_repo(tmp_path)
+    home = _fake_home(tmp_path)
+    # 什么都不接线 → 全部 ❌（6 项），不抛异常
+    checks = sp.verify_project(repo, home)
+    assert not any(ok for _, ok, _ in checks)
+    assert len(checks) == 6
+
+
+def test_main_verify_mode_exit_codes(tmp_path, capsys):
+    sp = _load()
+    repo = _git_repo(tmp_path)
+    home = _fake_home(tmp_path)
+    sp.patch_post_commit(repo, home)
+    sp.merge_project_settings(repo, home)
+    assert sp.main(["--project", str(repo), "--home", str(home), "--verify",
+                    "--skip-index", "--skip-distill"]) == 0
+    capsys.readouterr()
+    assert sp.main(["--project", str(_git_repo(tmp_path / "other")), "--home", str(home),
+                    "--verify", "--skip-index", "--skip-distill"]) == 1
+    out = capsys.readouterr().out
+    assert "❌" in out
