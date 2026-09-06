@@ -30,4 +30,5 @@ def test_doctor_bare_repo_reports_failures(tmp_path, capsys):
     assert doctor.main(["--project", str(repo), "--home", str(tmp_path / "no-home")]) == 1
     out = capsys.readouterr().out
     assert "1. 接线" in out and "2. codegraph" in out and "3. conventions" in out
+    assert "4. inject" in out and "5. 环境" in out
     assert "❌" in out and "═══ 结束" in out

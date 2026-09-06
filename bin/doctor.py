@@ -2,9 +2,9 @@
 """doctor - dl setup 远程接入一键诊断报告（designs/setup-installer-design.md §阶段3 延伸）。
 
 为「维护者看不到目标机器」场景设计：目标机器上跑一次，把完整输出贴回给维护者即可判
-「装没装对、索引成不成、蒸馏有没有产出」。只读一切，零副作用。
+「装没装对、索引成不成、蒸馏有没有产出」。只读 db/配置；inject 冒烟按 hook 既有行为留调用日志（.claude/.c*_inject.log）。
 
-覆盖五节：
+覆盖五节（inject 冒烟会在项目 .claude/ 留 hook 调用日志，属既有观测行为）：
   1. 接线（settings 注册/post-commit/等价自检复用 setup_project.verify_project）
   2. codegraph db 规模与语言构成（Java 索引成不成的第一判据：nodes/edges 数 + .java 文件数）
   3. conventions db 产出（按 source 计数 + drift 清单 + inferred 候选清单）
@@ -57,13 +57,15 @@ def _sec_wiring(project: Path, home: Path) -> bool:
     ok = True
     sp = home / "scripts" / "setup" / "setup_project.py"
     if sp.exists():
-        sys.path.insert(0, str(home / "scripts" / "setup"))
-        import importlib.util
+        try:
+            import importlib.util
 
-        spec = importlib.util.spec_from_file_location("setup_project", sp)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        checks = mod.verify_project(project, home)
+            spec = importlib.util.spec_from_file_location("setup_project", sp)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            checks = mod.verify_project(project, home)
+        except Exception as e:  # 目标机 setup_project 损坏也不拖垮整份报告
+            return _ck("setup_project 加载/自检", False, f"{e.__class__.__name__}: {str(e)[:100]}")
         for name, cok, detail in checks:
             ok &= _ck(name, cok, detail)
     else:
@@ -90,8 +92,14 @@ def _sec_codegraph(project: Path) -> bool:
             age_h = (time.time() - idx / 1000) / 3600
             age = f"（{age_h:.0f}h 前索引）"
         ok &= _ck("规模", files > 0, f"files={files} nodes={nodes} edges={edges}{age}")
-        lang = f"java nodes={java}"
-        ok &= _ck("Java 索引", java > 0 if files else True, lang if java else "0 个 .java 节点——Java 未进索引？")
+        jrc, jout, _ = _run(["git", "ls-files", "--", "*.java"], cwd=project)
+        has_java = jrc == 0 and bool(jout)
+        if not has_java:
+            print("  ○ Java 索引 — N/A（非 Java 项目）")
+        elif java > 0:
+            ok &= _ck("Java 索引", True, f"java nodes={java}")
+        else:
+            ok &= _ck("Java 索引", False, "项目含 .java 但 0 个 .java 节点——Java 未进索引？")
         print(f"  top edge kinds: {', '.join(f'{k}×{c}' for k, c in kinds) or '(无)'}")
     except sqlite3.Error as e:
         ok &= _ck("db 查询", False, str(e)[:120])
