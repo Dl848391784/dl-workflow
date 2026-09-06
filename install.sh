@@ -16,6 +16,21 @@
 
 set -euo pipefail
 
+# ---------- bash 版本前置检查（必须在任何变量/函数使用之前） ----------
+# macOS 默认 bash 3.2：strict-mode 下会在首个变量引用处报裸「unbound variable」，
+# 用户拿不到指引（实爆：3.2 下 line 55 DL_HOME 裸错）。dl-lib.sh 用 declare -A，
+# bash ≥ 4 是硬要求——此处直接给清晰指引，不往后拖。
+if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
+  cat >&2 <<'EOF'
+✗ 需要 bash ≥ 4（当前 bash 3.x，是 macOS 系统自带版本）
+  macOS:  brew install bash
+          然后用新 bash 重跑：/opt/homebrew/bin/bash install.sh
+                  （Intel Mac: /usr/local/bin/bash install.sh）
+  Linux:  系统自带 bash 4+，若仍报此错请检查 PATH。
+EOF
+  exit 1
+fi
+
 # ---------- 路径 ----------
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DL_HOME="$HOME/.dl-workflow"
@@ -47,14 +62,15 @@ EOF
 # ---------- tarball 部署：代码先在 ~/.dl-workflow 安家 ----------
 # settings.json hook 注册与 bashrc DL_WF_HOME 都硬编码 ~/.dl-workflow（settings 直引源设计），
 # 所以从解压目录首跑时先 overlay 复制过去，再重-exec canonical 副本走全流程。
-# cp -a overlay 不删旧文件：~/.dl-workflow 里有运行态（dashboard-run/ 等），禁 --delete。
+# cp -pR（GNU/BSD 双兼容；macOS 的 BSD cp 无 -a）：overlay 不删旧文件——
+# ~/.dl-workflow 里有运行态（dashboard-run/ 等），禁 --delete。
 ensure_home() {
   if [ "$SRC_DIR" = "$DL_HOME" ]; then
     return 0
   fi
   echo "▸ 部署代码到 $DL_HOME（tarball 首跑）"
   mkdir -p "$DL_HOME"
-  cp -a "$SRC_DIR/." "$DL_HOME/"
+  cp -pR "$SRC_DIR/." "$DL_HOME/"
   echo "  ↺ 重-exec $DL_HOME/install.sh $*"
   exec "$DL_HOME/install.sh" "$@"
 }
@@ -63,11 +79,7 @@ ensure_home() {
 check_deps() {
   command -v python3 >/dev/null || { echo "✗ 缺 python3" >&2; exit 1; }
   command -v git >/dev/null || { echo "✗ 缺 git" >&2; exit 1; }
-  # dl-lib.sh 用 declare -A（bash ≥ 4）
-  if [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
-    echo "✗ 需要 bash ≥ 4（当前 $BASH_VERSION，dl-lib.sh 用 declare -A）" >&2
-    exit 1
-  fi
+  # bash ≥ 4 检查已前移到脚本顶部（3.2 会在任何函数执行前报 unbound variable 裸错）
   python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' \
     || { echo "✗ 需要 python ≥ 3.11（hook 脚本用 3.10+ 语法，当前 $(python3 -V 2>&1)）" >&2; exit 1; }
   echo "✓ 依赖检查通过（$(python3 -V 2>&1), git, bash $BASH_VERSION）"
