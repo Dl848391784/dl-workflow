@@ -400,3 +400,20 @@ def test_load_dismissed(tmp_path):
 def test_load_dismissed_scalar_silently_inactive(tmp_path):
     (tmp_path / "conventions.yaml").write_text("dismissed: inferred:logging:lazy_percent\n", encoding="utf-8")
     assert mc.load_dismissed(tmp_path) == []  # 标量写法不生效（抑制静默失败）
+
+
+def test_git_tracked_sources_includes_java(tmp_path):
+    import subprocess
+
+    repo = tmp_path / "proj"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    (repo / "a.py").write_text("x = 1\n")
+    (repo / "src").mkdir()
+    (repo / "src" / "B.java").write_text("class B {}\n")
+    (repo / "src" / "c.txt").write_text("noise\n")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "i"],
+                   cwd=repo, check=True)
+    files = mc._git_tracked_sources(repo)
+    assert sorted(files) == ["a.py", "src/B.java"]

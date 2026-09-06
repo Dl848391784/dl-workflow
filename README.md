@@ -72,6 +72,21 @@ UserPromptSubmit 注入 hook（直引 `~/.dl-workflow/hooks/`，换机重跑本�
 注意：手动 rule 的 params 不合法时 load_rules 会跳过该 rule（stderr 警告）且不触发槽位抑制——
 该类型候选会继续产出，修正好 params 后自然消失。`dismissed:` 必须是 YAML 列表（`- item`），写成标量不生效。
 
+### Java 项目能力矩阵与远程接入诊断
+
+**能力矩阵**（codegraph 索引成功的前提下）：
+
+| 维度 | Java 可用性 | 说明 |
+|---|---|---|
+| layering / util_graph / G2 归纳 | ✅ 语言无关 | import 图驱动，价值最大 |
+| path_literal_scan / skeleton | ✅ 可用 | 扫描集已含 *.java；正则/glob 在 yaml 里按 Java 写 |
+| logging_style / exit_codes / G1 归纳 | ⚠ 待语言预设 | 默认正则 Python 口径，Java 下零命中（无害） |
+
+**远程接入验收**（维护者看不到目标机器时）：目标机器跑
+`python3 ~/.dl-workflow/bin/doctor.py --project <项目>`，把完整输出贴回维护者。
+五节报告：接线 ✅/❌、codegraph 规模与 **Java 索引节点数（成不成第一判据）**、
+conventions 产出（drift+候选清单）、inject 冒烟、环境版本。
+
 ### 支持矩阵
 
 | 平台 | 级别 | 说明 |

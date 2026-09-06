@@ -57,8 +57,14 @@ def _git(root: Path, *args: str) -> str:
     return proc.stdout.strip()
 
 
-def _git_tracked_py(root: Path) -> list[str]:
-    return [ln for ln in _git(root, "ls-files", "--", "*.py").splitlines() if ln]
+# 文本扫描维度的源码扩展名（Java 等语言进扫描集；正则口径以 yaml 规则为准，Py 正则对
+# 其他语言零命中=无害。db 维度 layer/util_graph/G2 本就语言无关）
+SOURCE_EXTS = ("*.py", "*.java", "*.kt", "*.go", "*.js", "*.ts", "*.rs",
+               "*.c", "*.cc", "*.cpp", "*.h")
+
+
+def _git_tracked_sources(root: Path) -> list[str]:
+    return [ln for ln in _git(root, "ls-files", "--", *SOURCE_EXTS).splitlines() if ln]
 
 
 def _top_module(rel: str) -> str:
@@ -168,7 +174,7 @@ def check_path_literal(rule, ctx):
     clean = scanned - len(violations)
     return [{
         "dimension": "path_literal_scan", "subject": rule["id"],
-        "statement": f"{rule.get('statement', '')}；实证 {scanned} 个 .py 中 {len(violations)} 个违规（合规率 {clean / max(scanned, 1):.2f}）",
+        "statement": f"{rule.get('statement', '')}；实证 {scanned} 个源码文件中 {len(violations)} 个违规（合规率 {clean / max(scanned, 1):.2f}）",
         "source": "doc_declared", "sample_size": scanned,
         "compliance": clean / max(scanned, 1), "drift": 1 if violations else 0,
         "evidence": violations[:EVIDENCE_CAP],
@@ -555,7 +561,7 @@ def main(argv=None) -> int:
         cg = None
     # 非 git 仓库：files 为空、commit_hash 为空串（纯 db 维度仍运行）
     try:
-        files = _git_tracked_py(args.root)
+        files = _git_tracked_sources(args.root)
         commit_hash = _git(args.root, "rev-parse", "HEAD")
     except (subprocess.CalledProcessError, FileNotFoundError):
         print("mine_conventions: 非 git 仓库或缺 git 命令，files 为空（纯 db 维度仍运行）", file=sys.stderr)
