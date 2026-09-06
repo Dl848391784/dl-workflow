@@ -2,6 +2,19 @@
 
 Claude Code 5 阶段工作流 + codegraph H15 查证门禁的独立仓库。**跨项目通用**，装到 `~/.claude/` 后任意 git 项目内可用。
 
+## 快速开始（另一台机器首次安装）
+
+```bash
+wget http://<维护机IP>:9000/download -O dl.tar.gz && tar xzf dl.tar.gz   # ① 下载最新版
+./dl-workflow-*/install.sh                                                # ② 机器级：dl 命令/门禁/依赖
+cd <你的项目> && ~/.dl-workflow/install.sh --project                      # ③ 项目接线：索引+蒸馏+自检清单
+python3 ~/.dl-workflow/bin/doctor.py --project <你的项目>                  # ④ 一键诊断报告
+```
+
+第 ③ 步尾部会打出自检清单，第 ④ 步出五节报告——**把这两份输出贴回维护者**，
+这是远程机器「装没装对、索引成不成（Java 看 java nodes）」的唯一验收方式。
+之后 `dl <name>` 即进入 5 阶段工作流。各步细节见下文对应章节。
+
 ## 下载
 
 维护机已挂下载端点（dashboard 复用 9000 端口）：访问 `http://<维护机IP>:9000/download` 即触发最新版 tarball 下载（HEAD 变化自动重打）。解压后 `./install.sh` 即装（首跑自动部署到 `~/.dl-workflow`）。
