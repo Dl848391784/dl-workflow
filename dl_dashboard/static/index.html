@@ -28,8 +28,9 @@
     </div>
     <form id="create-form">
       <div class="field">
-        <label for="cf-project">项目</label>
-        <select id="cf-project" required></select>
+        <label for="cf-project">项目（可选历史，也可手填绝对路径）</label>
+        <input id="cf-project" list="cf-projects" placeholder="/绝对/路径——选历史或直接输入" required>
+        <datalist id="cf-projects"></datalist>
       </div>
       <div class="field">
         <label for="cf-name">工作流名（自动生成，可手改）</label>

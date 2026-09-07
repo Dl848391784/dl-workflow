@@ -1059,9 +1059,11 @@ function dedupeName(base) {
 }
 
 function openCreateModal() {
-  const selP = $("cf-project");
-  selP.innerHTML = lastProjects.map((p) =>
-    `<option value="${esc(p)}">${esc(p)}</option>`).join("");
+  // datalist 提供历史候选；输入框可自由填路径。localStorage 记住上次选择。
+  $("cf-projects").innerHTML = lastProjects.map((p) =>
+    `<option value="${esc(p)}">`).join("");
+  $("cf-project").value =
+    localStorage.getItem("dl-last-project") || lastProjects[0] || "";
   $("cf-provider").innerHTML =
     `<option value="">server 当前环境（默认）</option>` +
     lastProviders.map((p) => `<option value="${esc(p)}">${esc(p)}</option>`).join("");
@@ -1119,8 +1121,9 @@ $("create-form").onsubmit = async (e) => {
   const scope = document.querySelector("#scope-cards .mode-card.sel").dataset.v;
   const tacet = document.querySelector("#track-cards .mode-card.sel").dataset.v === "tacet";
   try {
+    localStorage.setItem("dl-last-project", $("cf-project").value.trim());
     const r = await post("/api/create", {
-      project: $("cf-project").value,
+      project: $("cf-project").value.trim(),
       name,
       statement,
       scope,

@@ -150,10 +150,13 @@ def test_inject_rejected_message_when_covered(client):
     assert d["ok"] is False and "答案已提交" in d["msg"]
 
 
-def test_project_whitelist_enforced(client):
+def test_project_validation_rejects_non_git(client):
+    # 契约更新（组合框自由输入时代）：未登记但存在的非 git 目录 → 400；不存在 → 400
     c, _ = client
     r = c.get("/api/workflow", params={"project": "/etc", "name": "x"})
-    assert r.status_code == 403
+    assert r.status_code == 400
+    r = c.get("/api/workflow", params={"project": "/nonexistent-xyz", "name": "x"})
+    assert r.status_code == 400
 
 
 def test_detail_rejects_path_traversal_name(client):
@@ -431,3 +434,51 @@ def test_download_endpoint_serves_attachment(client, tmp_path, monkeypatch):
         assert "attachment" in r.headers["content-disposition"]
         assert "dl-workflow-0.0.0.tar.gz" in r.headers["content-disposition"]
         assert r.content == b"\x1f\x8b fake-tarball"
+
+
+def test_create_free_text_project_persists_and_validates(client, tmp_path, monkeypatch):
+    import subprocess as _sp
+
+    c, _project_dir = client
+    toml = tmp_path / "dashboard.toml"
+    toml.write_text('projects = ["/x"]\n', encoding="utf-8")
+    monkeypatch.setattr("dl_dashboard.app._CONFIG_PATH", toml)
+
+    # ① 自由文本新项目（git 仓）→ 创建成功 + 持久化进 toml + 快照可见
+    free = tmp_path / "free"
+    free.mkdir()
+    _sp.run(["git", "init", "-q"], cwd=free, check=True)
+    (free / "a").write_text("x")
+    _sp.run(["git", "add", "-A"], cwd=free, check=True)
+    _sp.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "i"], cwd=free, check=True)
+    monkeypatch.setattr("dl_dashboard.actions.create_workflow",
+                        lambda *a, **k: (True, "ok"))
+    r = c.post("/api/create", json={
+        "project": str(free), "name": "demo", "statement": "q"})
+    assert r.status_code == 200 and r.json()["ok"]
+    text = toml.read_text(encoding="utf-8")
+    assert str(free) in text
+    snap = c.get("/api/workflows").json()
+    assert str(free) in snap["projects"]
+
+    # ② 幂等：同项目再建不重复写
+    before = toml.read_text(encoding="utf-8")
+    c.post("/api/create", json={"project": str(free), "name": "demo2", "statement": "q"})
+    assert toml.read_text(encoding="utf-8").count(str(free)) == before.count(str(free))
+
+    # ③ 校验：不存在的目录 → 400；非 git 目录 → 400
+    r = c.post("/api/create", json={
+        "project": str(tmp_path / "nope"), "name": "x", "statement": "q"})
+    assert r.status_code == 400
+    nogit = tmp_path / "nogit"
+    nogit.mkdir()
+    r = c.post("/api/create", json={
+        "project": str(nogit), "name": "x2", "statement": "q"})
+    assert r.status_code == 400
+
+
+def test_registered_project_still_trusted(client):
+    c, project = client
+    # 登记项目（fixture 无 .git）在信任名单内，不被新校验误伤
+    r = c.get("/api/workflow", params={"project": str(project), "name": "demo"})
+    assert r.status_code == 200

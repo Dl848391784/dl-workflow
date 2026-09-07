@@ -19,7 +19,7 @@ from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from dl_dashboard import actions, audit, health, metrics, outputs, scanner
-from dl_dashboard.config import DashboardConfig, load_config
+from dl_dashboard.config import DEFAULT_CONFIG, DashboardConfig, load_config
 from dl_dashboard.driver_mgr import DriverManager
 from dl_flow_common import steer_list
 
@@ -28,6 +28,7 @@ log = logging.getLogger("dl_dashboard")
 DLWF = Path(__file__).resolve().parents[1]
 CACHE_DIR = DLWF / "dashboard-cache"
 RUNTIME_DIR = DLWF / "dashboard-run"
+_CONFIG_PATH = DEFAULT_CONFIG
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
@@ -99,6 +100,9 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
     mgr = DriverManager(DLWF, RUNTIME_DIR)
     app = FastAPI(title="dl-workflow dashboard")
     locks = weakref.WeakValueDictionary()
+    # 创建时手填的新项目（组合框自由输入）——会话内即时并入快照；
+    # 创建成功同时 _persist_project 写回 dashboard.toml（历史留存，重启亦复用）
+    extra_projects: set[str] = set()
     # provider 注册表：名字 -> env（None = 继承 server 环境）
     providers: dict[str, dict | None] = {}
     for name in cfg.providers:
@@ -117,10 +121,38 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
         return None
 
     def _project(raw: str) -> Path:
-        p = Path(raw)
-        if p not in cfg.projects:
-            raise HTTPException(403, f"项目未登记: {raw}")
+        p = Path(raw).expanduser().resolve()
+        # 已登记（toml/本会话新增）直接信任；新路径须存在且是 git 仓库
+        known = {str(x.expanduser().resolve()) for x in cfg.projects} | extra_projects
+        if str(p) in known:
+            return p
+        if not p.is_dir():
+            raise HTTPException(400, f"项目目录不存在: {raw}")
+        if not (p / ".git").exists():
+            raise HTTPException(400, f"项目目录不是 git 仓库（缺 .git）: {raw}")
         return p
+
+    def _persist_project(proj: Path) -> None:
+        """创建成功的新项目追加进 dashboard.toml projects（历史留存，幂等）。
+
+        失败仅告警（持久化是增强，不得影响创建主流程）。
+        """
+        p = str(proj)
+        try:
+            text = _CONFIG_PATH.read_text(encoding="utf-8") if _CONFIG_PATH.exists() else ""
+            known = sorted({str(x.expanduser().resolve()) for x in cfg.projects} | extra_projects)
+            if p in known:
+                return
+            line = "projects = [" + ", ".join(json.dumps(x) for x in [*known, p]) + "]"
+            if re.search(r"^projects\s*=.*$", text, flags=re.M):
+                text = re.sub(r"^projects\s*=.*$", line, text, count=1, flags=re.M)
+            else:
+                text = (text.rstrip() + "\n" + line + "\n") if text.strip() else line + "\n"
+            _CONFIG_PATH.write_text(text, encoding="utf-8")
+            extra_projects.add(p)
+            log.info("dashboard.toml 已登记新项目 %s", p)
+        except OSError:
+            log.warning("持久化项目进 dashboard.toml 失败: %s", p)
 
     def _lock(project: Path, name: str) -> asyncio.Lock:
         return locks.setdefault(f"{project}::{name}", asyncio.Lock())
@@ -141,8 +173,9 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
 
     def _snapshot() -> dict:
         return {
-            "workflows": [_row(i) for i in scanner.scan_all(cfg.projects)],
-            "projects": [str(p) for p in cfg.projects],
+            "workflows": [_row(i) for i in scanner.scan_all(
+                tuple(cfg.projects) + tuple(Path(x) for x in extra_projects))],
+            "projects": [str(p) for p in cfg.projects] + sorted(extra_projects),
             "providers": list(providers.keys()),
         }
 
@@ -288,6 +321,8 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
                 providers.get(provider) if provider else None)
             if ok and provider:
                 _provider_file(proj, name).write_text(provider, encoding="utf-8")
+            if ok:
+                _persist_project(proj)
         return {"ok": ok, "msg": msg}
 
     @app.post("/api/inject")
