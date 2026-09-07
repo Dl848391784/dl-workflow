@@ -15,8 +15,8 @@ cd <你的项目> && python3 ~/.dl-workflow/bin/doctor.py                  # ④
 这是远程机器「装没装对、索引成不成（Java 看 java nodes）」的唯一验收方式。
 之后 `dl <name>` 即进入 5 阶段工作流。各步细节见下文对应章节。
 
-**dashboard 不会自动启动**（dl 工作流驾驶台，可选）：前台跑 `python3 -m dl_dashboard.app`
-（Ctrl+C 停止）；常驻用 `setsid nohup python3 -m dl_dashboard.app > ~/.dl-workflow/dashboard-run/server.log 2>&1 &`。
+**dashboard 不会自动启动**（dl 工作流驾驶台，可选）：前台跑 `cd ~/.dl-workflow && python3 -m dl_dashboard.app`
+（Ctrl+C 停止）；常驻用 `setsid nohup bash -c 'cd ~/.dl-workflow && python3 -m dl_dashboard.app' > ~/.dl-workflow/dashboard-run/server.log 2>&1 &`。
 
 
 ## 下载
