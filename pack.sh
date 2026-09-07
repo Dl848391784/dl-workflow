@@ -76,5 +76,5 @@ done
 
 COUNT=$(wc -l <<<"$LISTING")
 SIZE=$(du -h "$OUT" | cut -f1)
-echo "✓ $OUT（$COUNT 个文件，$SIZE）"
+echo "✓ ${OUT}（$COUNT 个文件，${SIZE}）"
 echo "  目标机器: tar xzf $PREFIX.tar.gz && cd $PREFIX && ./install.sh"

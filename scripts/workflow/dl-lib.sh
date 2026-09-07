@@ -50,7 +50,7 @@ if [ -f "$WF_ENGINE" ]; then
   # phase_labels / subphases 按需查（函数内 python 取,避免大 declare）。
 else
   # engine 缺失（dl-workflow 损坏）-> 退化为空,各函数返回空串（no silent fallback：不假数据）。
-  echo "⚠ dl_flow_engine.py 缺失（$WF_ENGINE），阶段常量不可用。" >&2
+  echo "⚠ dl_flow_engine.py 缺失（${WF_ENGINE}），阶段常量不可用。" >&2
   WF_PHASES=()
   WF_GATED_AFTER=""
 fi

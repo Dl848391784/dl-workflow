@@ -98,7 +98,7 @@ done
 # 必须在 repo 内
 WF_REPO_TOPLEVEL="$(git -C "$WF_REPO_ROOT" rev-parse --show-toplevel 2>/dev/null || true)"
 if [ -z "$WF_REPO_TOPLEVEL" ]; then
-  echo "wf-launch: 不在 git 仓库内（$WF_REPO_ROOT）。请在 repo 内运行。" >&2
+  echo "wf-launch: 不在 git 仓库内（${WF_REPO_ROOT}）。请在 repo 内运行。" >&2
   exit 1
 fi
 
@@ -138,9 +138,9 @@ if [ -f "$STATE_FILE" ]; then
   # 已存在：续
   SESSION_ID=$(wf_state_get "$WF_NAME" session_id 2>/dev/null || echo "")
   WORKTREE_EXISTING=$(wf_state_get "$WF_NAME" worktree_path 2>/dev/null || echo "$WORKTREE_PATH")
-  echo "▸ 续工作流 '$WF_NAME'（session=$SESSION_ID）"
+  echo "▸ 续工作流 '$WF_NAME'（session=${SESSION_ID}）"
   if [ ! -d "$WORKTREE_EXISTING" ]; then
-    echo "  ⚠ worktree 缺失（$WORKTREE_EXISTING），重新 attach"
+    echo "  ⚠ worktree 缺失（${WORKTREE_EXISTING}），重新 attach"
     git -C "$WF_REPO_ROOT" worktree add --force "$WORKTREE_PATH" "$BRANCH" 2>/dev/null \
       || git -C "$WF_REPO_ROOT" worktree add "$WORKTREE_PATH" -B "$BRANCH" 2>/dev/null \
       || { echo "  ✗ 无法重建 worktree" >&2; exit 1; }

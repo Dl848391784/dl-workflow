@@ -68,11 +68,11 @@ ensure_home() {
   if [ "$SRC_DIR" = "$DL_HOME" ]; then
     return 0
   fi
-  echo "▸ 部署代码到 $DL_HOME（tarball 首跑）"
+  echo "▸ 部署代码到 ${DL_HOME}（tarball 首跑）"
   mkdir -p "$DL_HOME"
   cp -pR "$SRC_DIR/." "$DL_HOME/"
   echo "  ↺ 重-exec $DL_HOME/install.sh $*"
-  # 必须用 $BASH（当前解释器）而非 shebang 重 exec：macOS 的 #!/bin/bash 是
+  # 必须用 ${BASH}（当前解释器）而非 shebang 重 exec：macOS 的 #!/bin/bash 是
   # 3.2，即使首跑用 homebrew bash 5.x，shebang 重 exec 也会切回 3.2 炸掉（实爆）。
   exec "$BASH" "$DL_HOME/install.sh" "$@"
 }
@@ -84,7 +84,7 @@ check_deps() {
   # bash ≥ 4 检查已前移到脚本顶部（3.2 会在任何函数执行前报 unbound variable 裸错）
   python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' \
     || { echo "✗ 需要 python ≥ 3.11（hook 脚本用 3.10+ 语法，当前 $(python3 -V 2>&1)）" >&2; exit 1; }
-  echo "✓ 依赖检查通过（$(python3 -V 2>&1), git, bash $BASH_VERSION）"
+  echo "✓ 依赖检查通过（$(python3 -V 2>&1), git, bash ${BASH_VERSION}）"
 }
 
 # ---------- copy 文件（冲突则备份原文件） ----------
@@ -296,6 +296,17 @@ _pip_install_user() {  # _pip_install_user <pkg...>
   if ! python3 -m pip config list 2>/dev/null | grep -q "index.url\|index-url"; then
     pip_extra=(--index-url https://mirrors.aliyun.com/pypi/simple/)
     echo "  ↺ 无 pip 镜像配置，本次安装走 aliyun 镜像（一次性，不改配置）"
+  fi
+  # PEP 668（Homebrew/受管 Python）：stdlib 下 EXTERNALLY-MANAGED 标记存在时 pip
+  # 拒绝 --user 安装——仅本次追加 --break-system-packages，不改 pip 全局配置；
+  # pip 过旧不支持该参数时只告警（实爆：Mac Homebrew Python 拒绝 pip install --user）。
+  if python3 -c 'import sysconfig,pathlib,sys; p=pathlib.Path(sysconfig.get_path("stdlib"))/"EXTERNALLY-MANAGED"; sys.exit(0 if p.exists() else 1)'; then
+    if python3 -m pip install --help 2>/dev/null | grep -q -- "--break-system-packages"; then
+      pip_extra+=(--break-system-packages)
+      echo "  ↺ PEP 668 环境（EXTERNALLY-MANAGED），本次追加 --break-system-packages（一次性，不改配置）"
+    else
+      echo "  ⚠ 检测到 PEP 668 标记但 pip 不支持 --break-system-packages，pip 安装可能失败" >&2
+    fi
   fi
   python3 -m pip install --user "${pip_extra[@]}" "$@"
 }
