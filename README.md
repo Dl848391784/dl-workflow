@@ -15,6 +15,10 @@ cd <你的项目> && python3 ~/.dl-workflow/bin/doctor.py                  # ④
 这是远程机器「装没装对、索引成不成（Java 看 java nodes）」的唯一验收方式。
 之后 `dl <name>` 即进入 5 阶段工作流。各步细节见下文对应章节。
 
+**dashboard 不会自动启动**（dl 工作流驾驶台，可选）：前台跑 `python3 -m dl_dashboard.app`
+（Ctrl+C 停止）；常驻用 `setsid nohup python3 -m dl_dashboard.app > ~/.dl-workflow/dashboard-run/server.log 2>&1 &`。
+
+
 ## 下载
 
 维护机已挂下载端点（dashboard 复用 9000 端口）：访问 `http://<维护机IP>:9000/download` 即触发最新版 tarball 下载（HEAD 变化自动重打）。解压后 `./install.sh` 即装（首跑自动部署到 `~/.dl-workflow`）。

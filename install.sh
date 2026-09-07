@@ -548,6 +548,11 @@ main() {
     ② cd <你的项目> && python3 ~/.dl-workflow/bin/doctor.py
     ③ 把 ① 尾部自检清单 + ② 完整输出贴回维护者确认
   （远程机器的唯一验收方式；详见 README「快速开始」）
+
+  可选：dashboard（dl 工作流驾驶台，不会自动启动）：
+    python3 -m dl_dashboard.app          # 前台跑，Ctrl+C 停止
+    setsid nohup python3 -m dl_dashboard.app \
+      > ~/.dl-workflow/dashboard-run/server.log 2>&1 &   # 常驻后台
 ╚══════════════════════════════════════════════════════════╝
 NEXT
   fi
