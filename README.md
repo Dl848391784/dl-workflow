@@ -8,7 +8,7 @@ Claude Code 5 阶段工作流 + codegraph H15 查证门禁的独立仓库。**�
 wget http://<维护机IP>:9000/download -O dl.tar.gz && tar xzf dl.tar.gz   # ① 下载最新版
 ./dl-workflow-*/install.sh                                                # ② 机器级：dl 命令/门禁/依赖
 cd <你的项目> && ~/.dl-workflow/install.sh --project                      # ③ 项目接线：索引+蒸馏+自检清单
-python3 ~/.dl-workflow/bin/doctor.py --project <你的项目>                  # ④ 一键诊断报告
+cd <你的项目> && python3 ~/.dl-workflow/bin/doctor.py                  # ④ 一键诊断报告
 ```
 
 第 ③ 步尾部会打出自检清单，第 ④ 步出五节报告——**把这两份输出贴回维护者**，
@@ -96,7 +96,7 @@ UserPromptSubmit 注入 hook（直引 `~/.dl-workflow/hooks/`，换机重跑本�
 | logging_style / exit_codes / G1 归纳 | ⚠ 待语言预设 | 默认正则 Python 口径，Java 下零命中（无害） |
 
 **远程接入验收**（维护者看不到目标机器时）：目标机器跑
-`python3 ~/.dl-workflow/bin/doctor.py --project <项目>`，把完整输出贴回维护者。
+`cd <项目> && python3 ~/.dl-workflow/bin/doctor.py`，把完整输出贴回维护者。
 五节报告：接线 ✅/❌、codegraph 规模与 **Java 索引节点数（成不成第一判据）**、
 conventions 产出（drift+候选清单）、inject 冒烟、环境版本。
 
