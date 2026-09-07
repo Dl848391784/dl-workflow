@@ -72,7 +72,9 @@ ensure_home() {
   mkdir -p "$DL_HOME"
   cp -pR "$SRC_DIR/." "$DL_HOME/"
   echo "  ↺ 重-exec $DL_HOME/install.sh $*"
-  exec "$DL_HOME/install.sh" "$@"
+  # 必须用 $BASH（当前解释器）而非 shebang 重 exec：macOS 的 #!/bin/bash 是
+  # 3.2，即使首跑用 homebrew bash 5.x，shebang 重 exec 也会切回 3.2 炸掉（实爆）。
+  exec "$BASH" "$DL_HOME/install.sh" "$@"
 }
 
 # ---------- 前置检查 ----------
