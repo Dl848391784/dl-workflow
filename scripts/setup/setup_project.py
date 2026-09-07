@@ -104,8 +104,9 @@ def merge_project_settings(project: Path, home: Path) -> dict:
 
 
 def ensure_codegraph_index(project: Path) -> int:
-    """codegraph init + index。返回分层：0=ok（index 完成或 db 已存在），
-    1=warn（非 git 仓库 / CLI 缺失——仅打印警告不阻断），2=hard fail（init 执行但失败）。"""
+    """codegraph init + index + 过期索引自动刷新（sync）。返回分层：
+    0=ok（index/sync 完成或 db 新鲜），1=warn（非 git / CLI 缺失 / sync 失败——
+    仅打印警告不阻断），2=hard fail（init 执行但失败）。"""
     if not (project / ".git").exists():
         print("  ⚠ 非 git 仓库，跳过 codegraph index")
         return 1
@@ -114,7 +115,22 @@ def ensure_codegraph_index(project: Path) -> int:
         return 1
     db = project / ".codegraph" / "codegraph.db"
     if db.exists():
-        print("  ↺ .codegraph/codegraph.db 已存在，跳过 index")
+        # db 存在也须查新鲜度：过期（>INDEX_STALE_HOURS）自动 codegraph sync——
+        # setup 承诺「装完效果一样」，放行 48 天旧索引违背承诺（实爆：Java 项目接入
+        # 吃到 1151h 前索引）。
+        age_h = _db_age_hours(db)
+        if age_h is None:
+            print("  ↺ .codegraph/codegraph.db 新鲜度不可判，跳过 index")
+            return 0
+        if age_h <= INDEX_STALE_HOURS:
+            print(f"  ↺ .codegraph/codegraph.db 新鲜（{age_h:.0f}h 前索引），跳过 index")
+            return 0
+        print(f"▸ 索引 {age_h:.0f}h 前（>{INDEX_STALE_HOURS}h），自动 codegraph sync 刷新…")
+        sync = subprocess.run(["codegraph", "sync"], cwd=project, capture_output=True, text=True)
+        if sync.returncode != 0:
+            print(f"  ⚠ codegraph sync 失败: {sync.stderr.strip()[:200]}（旧索引保留）")
+            return 1
+        print("✓ 索引已刷新")
         return 0
     proc = subprocess.run(["codegraph", "init"], cwd=project, capture_output=True, text=True)
     if proc.returncode != 0:
@@ -122,6 +138,25 @@ def ensure_codegraph_index(project: Path) -> int:
         return 2
     print("✓ codegraph index 完成")
     return 0
+
+
+INDEX_STALE_HOURS = 24
+
+
+def _db_age_hours(db: Path) -> float | None:
+    """codegraph db 的索引龄（files.indexed_at 最大值的距今小时数）；不可判返回 None。"""
+    import sqlite3 as _sqlite3
+    import time as _time
+
+    try:
+        conn = _sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        row = conn.execute("SELECT MAX(indexed_at) FROM files").fetchone()
+        conn.close()
+    except _sqlite3.Error:
+        return None
+    if not row or not row[0]:
+        return None
+    return (_time.time() - row[0] / 1000) / 3600
 
 
 CONVENTIONS_TEMPLATE = """# 项目约定声明（dl setup 生成模板——按项目实际规范填写/删减；真源见 ~/.dl-workflow/designs/setup-installer-design.md）

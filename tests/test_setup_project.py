@@ -285,3 +285,44 @@ def test_filter_skipped_flag_combos():
     both = sp._filter_skipped(checks, True, True)
     assert len(both) == 4
     assert all(ok for _, ok, _ in both)  # 两个 db ❌ 被滤掉后 verdict 不再误报
+
+
+def _mk_codegraph_db(repo, age_hours):
+    import sqlite3 as _sq
+    import time as _t
+
+    (repo / ".codegraph").mkdir(exist_ok=True)
+    conn = _sq.connect(repo / ".codegraph" / "codegraph.db")
+    conn.execute("CREATE TABLE files (path TEXT, indexed_at INTEGER)")
+    conn.execute("INSERT INTO files VALUES ('a.py', ?)", (int((_t.time() - age_hours * 3600) * 1000),))
+    conn.commit(); conn.close()
+
+
+def test_stale_index_triggers_sync(tmp_path, monkeypatch):
+    sp = _load()
+    repo = _git_repo(tmp_path)
+    _mk_codegraph_db(repo, 100)
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        class R: returncode = 0; stdout = ""; stderr = ""
+        return R()
+    monkeypatch.setattr(sp.subprocess, "run", fake_run)
+    assert sp.ensure_codegraph_index(repo) == 0
+    assert any(c[:2] == ["codegraph", "sync"] for c in calls)
+
+
+def test_fresh_index_skips_sync(tmp_path, monkeypatch):
+    sp = _load()
+    repo = _git_repo(tmp_path)
+    _mk_codegraph_db(repo, 1)
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        class R: returncode = 0; stdout = ""; stderr = ""
+        return R()
+    monkeypatch.setattr(sp.subprocess, "run", fake_run)
+    assert sp.ensure_codegraph_index(repo) == 0
+    assert not any(c[:2] == ["codegraph", "sync"] for c in calls)
