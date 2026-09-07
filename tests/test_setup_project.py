@@ -170,6 +170,10 @@ def test_ensure_conventions_yaml_creates_and_idempotent(tmp_path):
     assert sp.ensure_conventions_yaml(repo) == "created"
     text = (repo / "conventions.yaml").read_text(encoding="utf-8")
     assert "rules:" in text and "path_literal_scan" in text and "#" in text
+    # 模板必须 rules 为空（示例全注释）——激活示例会抢占归纳层槽位（实爆）
+    import yaml as _y
+
+    assert (_y.safe_load(text) or {}).get("rules") == []
     assert sp.ensure_conventions_yaml(repo) == "already-ok"
     assert (repo / "conventions.yaml").read_text(encoding="utf-8") == text
 

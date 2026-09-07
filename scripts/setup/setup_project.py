@@ -159,49 +159,53 @@ def _db_age_hours(db: Path) -> float | None:
     return (_time.time() - row[0] / 1000) / 3600
 
 
-CONVENTIONS_TEMPLATE = """# 项目约定声明（dl setup 生成模板——按项目实际规范填写/删减；真源见 ~/.dl-workflow/designs/setup-installer-design.md）
+CONVENTIONS_TEMPLATE = """# 项目约定声明（dl setup 生成模板；真源见 ~/.dl-workflow/designs/setup-installer-design.md）
 # 每规则：id（唯一）/ type（checker 类型）/ statement（文档声明，呈证用）/ params。
 # 类型：path_literal_scan | logging_style | layering | skeleton | util_graph | exit_codes
-# 无本文件或 rules 为空 -> 蒸馏器只跑 import 图纯事实。
-rules:
-  # 示例 1：路径真源规则（paths.py 换成你项目的路径模块）
-  - id: H7_path_literal
-    type: path_literal_scan
-    statement: "路径只能 from paths import"
-    params:
-      exempt_files: [paths.py]
-      preset: abs_unix_path        # 或 abs_win_path / regex 自定义
-  # 示例 2：日志风格
-  - id: H11_log_style
-    type: logging_style
-    statement: "日志 % 惰性禁 f-string"
-    params:
-      # 单引号标量内嵌 ' 需按 YAML 规范翻倍转义（''），解析结果仍为 ["''"]
-      fstring_regex: 'logger\\.(debug|info|warning|error|critical)\\(\\s*f["''"]'
-      lazy_regex: 'logger\\.(debug|info|warning|error|critical)\\(\\s*["''][^"''\\n]*%[srda]'
-  # 示例 3：分层边界（from 支持 "*" 通配）
-  - id: H1_layering
-    type: layering
-    statement: "模块边界：UI 只读后端"
-    params:
-      forbidden: [{from: "*", to: web_ui}]
-  # 示例 4：脚本族骨架（traits 键=统计项名，值=子串匹配）
-  - id: scripts_skeleton
-    type: skeleton
-    statement: "scripts/ 族骨架模式"
-    params:
-      glob: "scripts/*.py"
-      # 注意：glob 不跨目录层级——含子目录用 "scripts/**/*.py"（fnmatch 语义见 pathlib.PurePath.match）
-      exclude_name_prefix: [test_]
-      traits: {argparse: "import argparse", main函数: "def main(", __main__守卫: "__name__", paths导入: "from paths import"}
-  # 示例 5：工具函数使用图谱（需 codegraph db）
-  - id: util_graph
-    type: util_graph
-    params: {target_files: [paths.py]}
-  # 示例 6：退出码分布（纯事实）
-  - id: scripts_exit_codes
-    type: exit_codes
-    params: {glob: "scripts/*.py"}
+#
+# ⚠️ rules 默认必须为空：示例规则若激活，会抢占归纳层槽位（同 type 手动规则抑制
+# inferred 候选）——导致装上却一条候选都不产（实爆：Java 项目接入）。分析得出为主：
+# 默认跑 import 图纯事实 + 归纳层自动提候选；想声明自己的规范时，把下方示例
+# 取消注释并改成你项目的真值（即「手动填写校准」）。
+rules: []
+
+# ============ 示例（取消注释+改值即启用；教育用，勿直接激活） ============
+# 示例 1：路径真源规则（路径模块换成你项目的）
+# - id: H7_path_literal
+#   type: path_literal_scan
+#   statement: "路径只能 from <你们的路径模块> import"
+#   params:
+#     exempt_files: [<你们的路径配置文件>]
+#     preset: abs_unix_path        # 或 abs_win_path / regex 自定义
+# 示例 2：日志风格（Python 口径；Java 请在 params 里换自己的正则）
+# - id: H11_log_style
+#   type: logging_style
+#   statement: "日志 % 惰性禁 f-string"
+#   params:
+#     fstring_regex: 'logger\\.(debug|info|warning|error|critical)\\(\\s*f["'']'
+#     lazy_regex: 'logger\\.(debug|info|warning|error|critical)\\(\\s*["''][^"''\\n]*%[srda]'
+# 示例 3：分层边界（from 支持 "*" 通配；多模块工程 from/to 填子模块目录名）
+# - id: H1_layering
+#   type: layering
+#   statement: "架构规范：<你们文档原话>"
+#   params:
+#     forbidden: [{from: "*", to: <不许被依赖的层>}]
+# 示例 4：脚本族骨架（traits 键=统计项名，值=子串匹配）
+# - id: scripts_skeleton
+#   type: skeleton
+#   statement: "scripts/ 族骨架模式"
+#   params:
+#     glob: "scripts/*.py"
+#     exclude_name_prefix: [test_]
+#     traits: {argparse: "import argparse", main函数: "def main(", __main__守卫: "__name__", paths导入: "from paths import"}
+# 示例 5：工具引用集中度（需 codegraph db；指向你们最希望被复用的工具模块）
+# - id: util_graph
+#   type: util_graph
+#   params: {target_files: [<你们的 util/common 模块>]}
+# 示例 6：退出码分布（纯事实）
+# - id: scripts_exit_codes
+#   type: exit_codes
+#   params: {glob: "scripts/*.py"}
 """
 
 
