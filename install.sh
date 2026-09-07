@@ -14,22 +14,23 @@
 # 幂等：连续跑两次结果一致。冲突文件备份到 ~/.claude/.dl-workflow-backup/<ts>/。
 # 可选层（4/5/6/7）失败只警告不阻断——核心工作流不依赖它们。
 
-set -euo pipefail
-
-# ---------- bash 版本前置检查（必须在任何变量/函数使用之前） ----------
-# macOS 默认 bash 3.2：strict-mode 下会在首个变量引用处报裸「unbound variable」，
-# 用户拿不到指引（实爆：3.2 下 line 55 DL_HOME 裸错）。dl-lib.sh 用 declare -A，
-# bash ≥ 4 是硬要求——此处直接给清晰指引，不往后拖。
-if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
-  cat >&2 <<'EOF'
-✗ 需要 bash ≥ 4（当前 bash 3.x，是 macOS 系统自带版本）
-  macOS:  brew install bash
-          然后用新 bash 重跑：/opt/homebrew/bin/bash install.sh
-                  （Intel Mac: /usr/local/bin/bash install.sh）
-  Linux:  系统自带 bash 4+，若仍报此错请检查 PATH。
-EOF
+# ---------- bash 4+ 自动选择（必须最先，且语法兼容 3.2/POSIX） ----------
+# 直接执行 ~/.dl-workflow/install.sh 时 shebang #!/bin/bash 在 macOS 是 3.2（实爆）——
+# 这里自检：当前解释器 <4 则自动 exec Homebrew bash 重跑（用户无感，无需记路径）。
+# 不用 set -u 特性/数组下标，保证 3.2 和 sh 都能走到重 exec。
+_major=$("${BASH:-/bin/bash}" -c 'printf %s "${BASH_VERSINFO[0]:-0}"' 2>/dev/null)
+_major=${_major:-0}
+case ${_major} in ''|*[!0-9]*) _major=0 ;; esac  # 非数字一律按旧版处理，走重 exec 救援
+if [ "$_major" -lt 4 ] 2>/dev/null; then
+  for _b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+    [ -x "$_b" ] && exec "$_b" "$0" "$@"
+  done
+  echo "✗ 需要 bash ≥ 4（当前 ${_major:-?}）。macOS 请先：brew install bash，然后重跑本脚本" >&2
   exit 1
 fi
+unset _major _b
+
+set -euo pipefail
 
 # ---------- 路径 ----------
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
