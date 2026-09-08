@@ -330,3 +330,25 @@ def test_fresh_index_skips_sync(tmp_path, monkeypatch):
     monkeypatch.setattr(sp.subprocess, "run", fake_run)
     assert sp.ensure_codegraph_index(repo) == 0
     assert not any(c[:2] == ["codegraph", "sync"] for c in calls)
+
+
+class TestProjectSettingsDualEngine:
+    """engine 参数决定项目资源目录（.claude | .qoder）；hook 注册内容与引擎无关。"""
+
+    def test_qoder_targets_dot_qoder(self, tmp_path):
+        proj = tmp_path / "proj"
+        (proj / ".git" / "hooks").mkdir(parents=True)
+        sp = _load()
+        sp.merge_project_settings(proj, Path("/home/admin/.dl-workflow"), engine="qodercli")
+        assert (proj / ".qoder" / "settings.json").exists()
+        assert not (proj / ".claude" / "settings.json").exists()
+        s = json.loads((proj / ".qoder" / "settings.json").read_text())
+        cmds = [h["command"] for g in s["hooks"]["UserPromptSubmit"] for h in g["hooks"]]
+        assert any("codegraph_inject.py" in c for c in cmds)
+
+    def test_default_engine_unchanged(self, tmp_path):
+        proj = tmp_path / "proj"
+        (proj / ".git" / "hooks").mkdir(parents=True)
+        sp = _load()
+        sp.merge_project_settings(proj, Path("/home/admin/.dl-workflow"))
+        assert (proj / ".claude" / "settings.json").exists()

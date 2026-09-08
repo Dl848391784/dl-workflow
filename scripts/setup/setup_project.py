@@ -5,7 +5,8 @@
 UserPromptSubmit inject hook（绝对路径引用 ~/.dl-workflow/hooks/）⑦ 首次蒸馏（best-effort）。
 每步打印 installed / already-ok / failed 三态；硬失败退出 1。
 
-用法：python3 scripts/setup/setup_project.py --project DIR [--home DIR] [--skip-index] [--skip-distill]
+用法：python3 scripts/setup/setup_project.py --project DIR [--home DIR] [--engine claude|qodercli]
+          [--skip-index] [--skip-distill]
 """
 
 import argparse
@@ -50,14 +51,17 @@ def patch_post_commit(project: Path, home: Path) -> str:
     return "patched" if existed else "created"
 
 
-def merge_project_settings(project: Path, home: Path) -> dict:
-    """项目 .claude/settings.json 幂等合并两条 inject hook（按 hook 脚本 basename 判重）。
+def merge_project_settings(project: Path, home: Path, engine: str = "claude") -> dict:
+    """项目 settings.json 幂等合并两条 inject hook（按 hook 脚本 basename 判重）。
+    engine=qodercli 时目标目录 .qoder（P1；hook 注册内容不变——
+    hooks 路径引用 ~/.dl-workflow 与引擎无关）。
 
     basename 判重：--home 变化（worktree -> ~/.dl-workflow 收口）时旧 command 串
     永不匹配精确判重，会无限累积死 hook——按 basename 命中且串不同则原地替换（upgraded）。
     JSON 损坏 -> SystemExit（硬失败，不擅自覆盖用户配置）。
     """
-    settings_path = project / ".claude" / "settings.json"
+    resource_dir = ".qoder" if engine == "qodercli" else ".claude"
+    settings_path = project / resource_dir / "settings.json"
     if settings_path.exists():
         try:
             settings = json.loads(settings_path.read_text(encoding="utf-8"))
@@ -328,6 +332,8 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="dl setup 项目级接线（designs/setup-installer-design.md）")
     parser.add_argument("--project", type=Path, required=True)
     parser.add_argument("--home", type=Path, default=Path.home() / ".dl-workflow")
+    parser.add_argument("--engine", choices=["claude", "qodercli"], default="claude",
+                        help="目标引擎：决定项目资源目录（.claude | .qoder）")
     parser.add_argument("--skip-index", action="store_true")
     parser.add_argument("--skip-distill", action="store_true")
     parser.add_argument("--verify", action="store_true")
@@ -346,7 +352,7 @@ def main(argv=None) -> int:
             fails += 1
     status = patch_post_commit(project, args.home)
     print(f"{'✓' if status != 'failed' else '✗'} post-commit: {status}")
-    merged = merge_project_settings(project, args.home)
+    merged = merge_project_settings(project, args.home, engine=args.engine)
     print(
         f"✓ settings.json 合并: added={merged['added']} "
         f"upgraded={merged['upgraded']} kept={merged['kept']}"
