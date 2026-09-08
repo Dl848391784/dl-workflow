@@ -92,10 +92,11 @@ STOPWORDS = frozenset(
 
 
 def _project_root(payload: dict) -> Path:
-    """项目根解析：payload.cwd → CLAUDE_PROJECT_DIR → 进程 cwd，各自经 git rev-parse 反查。"""
+    """项目根解析：payload.cwd → QODER_PROJECT_DIR → CLAUDE_PROJECT_DIR → 进程 cwd，各自经 git rev-parse 反查。"""
     candidates = [
         payload.get("cwd"),
-        os.environ.get("CLAUDE_PROJECT_DIR"),
+        # env 链：QODER_PROJECT_DIR（qoder 引擎注入）→ CLAUDE_PROJECT_DIR（claude/别名）
+        os.environ.get("QODER_PROJECT_DIR") or os.environ.get("CLAUDE_PROJECT_DIR"),
         str(Path.cwd()),
     ]
     for cand in candidates:
