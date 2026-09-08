@@ -48,12 +48,29 @@ class TestCheckEngine:
     def test_qoder_byok_unregistered_warns(self, monkeypatch, tmp_path):
         monkeypatch.setenv("DL_ENGINE", "qodercli")
         monkeypatch.setenv("QODER_CONFIG_DIR", str(tmp_path))  # 空目录=无 settings.json
-        # config_root 在 dl_engine 模块导入时冻结——强制重导入使 env 生效
-        sys.modules.pop("dl_engine", None)
-        from doctor import check_engine
-        results = check_engine()
+        # config_root 在 dl_engine 模块导入时冻结——强制重导入使 env 生效；
+        # 旧模块保存/恢复，避免残留冻结实例造成顺序依赖污染
+        old = sys.modules.pop("dl_engine", None)
+        try:
+            from doctor import check_engine
+            results = check_engine()
+        finally:
+            if old is not None:
+                sys.modules["dl_engine"] = old
+            else:
+                sys.modules.pop("dl_engine", None)
         byok = [ok for ok, msg in results if "BYOK" in msg]
         assert byok and byok[0] is False  # 未注册 → False（warn 级由主流程定）
+
+    def test_unknown_engine_reported_not_crash(self, monkeypatch, tmp_path, capsys):
+        monkeypatch.setenv("DL_ENGINE", "gemini")
+        doctor = _load()
+        repo = _git_repo(tmp_path)
+        rc = doctor.main(["--project", str(repo), "--home", str(tmp_path / "no-home")])
+        out = capsys.readouterr().out
+        assert "未知引擎" in out  # 转为 ❌ 检查项，不穿透崩报告
+        assert "2. codegraph" in out  # 后续节照常出——整份报告不丢
+        assert rc == 1
 
     def test_doctor_main_includes_engine_check(self, tmp_path, capsys):
         doctor = _load()

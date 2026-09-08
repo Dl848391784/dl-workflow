@@ -58,14 +58,23 @@ def check_engine() -> "list[tuple[bool, str]]":
     ① DL_ENGINE 声明引擎的 binary 在 PATH；② qoder 引擎加查 BYOK 注册态
     （~/.qoder/settings.json 含 apiKey 字段 = 向导注册过；P0 D8：手写
     customModels 只过本地解析、调用被云端拒，必须 TUI 向导注册）。
+
+    未知 DL_ENGINE：get_engine() 按 no-silent-fallback 铁律 sys.exit(2)，
+    SystemExit 不继承 Exception 会穿透 _sec_wiring 的 except——此处显式捕获
+    转为一条 ❌ 检查项（诊断报告不被拖垮，照「目标机损坏也不拖垮整份报告」
+    既有模式）。
     """
+    import os
     import shutil
 
     # repo 根不在 sys.path（脚本直跑），先补再 import——照 hooks/ 既有约定
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     import dl_engine  # noqa: E402
 
-    eng = dl_engine.get_engine()
+    try:
+        eng = dl_engine.get_engine()
+    except SystemExit:
+        return [(False, f"DL_ENGINE={os.environ.get('DL_ENGINE')!r} 未知引擎（claude|qodercli）")]
     results = [(shutil.which(eng.binary) is not None, f"引擎 binary {eng.binary} 在 PATH")]
     if eng.name == "qodercli":
         settings = eng.config_root / "settings.json"
