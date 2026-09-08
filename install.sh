@@ -245,14 +245,6 @@ install_to_home() {
 _bashrc_segment() {
   cat <<'BASHRC_EOF'
 
-  # 检查 dl 是否已被占用（alias/函数/命令）
-  local dl_conflict=0
-  if grep -qE '^(dl|function dl|dl\(\))|alias dl=' "$BASHRC" 2>/dev/null; then
-    dl_conflict=1
-  fi
-
-  cat >> "$BASHRC" <<'BASHRC_EOF'
-
 # BEGIN dl-workflow  (installed by ~/.dl-workflow/install.sh)
 # 5 阶段工作流入口。真源：~/.dl-workflow/scripts/workflow/dl-launch.sh
 #
