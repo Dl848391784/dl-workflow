@@ -271,9 +271,15 @@ _dl_launch() {
   "$DL_WF_HOME/scripts/workflow/dl-launch.sh" --workflow "$@"
 }
 
-# dl 命令：独立入口
+# dl 命令：独立入口。@qoder = qodercli 引擎（子 shell 置 DL_ENGINE，不污染当前 shell）
 dl() {
-  [ $# -ge 1 ] || { echo "用法: dl <name> [--resume|--phase <p>|--base <ref>|--debug|--done] | list" >&2; return 1; }
+  [ $# -ge 1 ] || { echo "用法: dl [@qoder] <name> [--resume|--phase <p>|--base <ref>|--debug|--done] | list" >&2; return 1; }
+  if [ "$1" = "@qoder" ]; then
+    shift
+    [ $# -ge 1 ] || { echo "用法: dl @qoder <name> [args...]" >&2; return 1; }
+    ( export DL_ENGINE=qodercli; _dl_launch "$@" )
+    return
+  fi
   _dl_launch "$@"
 }
 # END dl-workflow
