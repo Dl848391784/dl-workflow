@@ -151,12 +151,14 @@ def _last_assistant_text(transcript_path: str) -> str:
     return ""
 
 
-# 后台 Agent 的派发/归还信号（harness 契约，v2.118 实测自真实 transcript）。
-# 派发 = tool_result 文本含 launch ack 与 agentId；归还 = <task-notification>
-# 携 <task-id>。两者的 id 同为 16-17 位小写 hex（agentId 即 task-id）。
+# 后台 Agent 的派发/归还信号（harness 契约，v2.118 实测自真实 transcript；
+# qoder 复核 2026-09-08 P0 D7）。派发 = tool_result 文本含 launch ack 与
+# agentId；归还 = <task-notification> 携 <task-id>。id 真身 = 16-17 位小写
+# hex；qoder 引擎带 a<type>- 前缀（ageneral-purpose-<hex16>），前缀可选故
+# 双引擎兼容。fence.py 有同步副本，两处必须同改。
 _AGENT_LAUNCH_ACK = "Async agent launched successfully"
-_AGENT_LAUNCH_ID_RE = re.compile(r"agentId:\s*([0-9a-f]{16,17})\b")
-_AGENT_DONE_ID_RE = re.compile(r"<task-id>\s*([0-9a-f]{16,17})\s*</task-id>")
+_AGENT_LAUNCH_ID_RE = re.compile(r"agentId:\s*(?:a[a-z-]+-)?([0-9a-f]{16,17})\b")
+_AGENT_DONE_ID_RE = re.compile(r"<task-id>\s*(?:a[a-z-]+-)?([0-9a-f]{16,17})\s*</task-id>")
 
 
 def _pending_background_agent_count(transcript_path: str) -> int:

@@ -410,9 +410,11 @@ _S15_FETCH_CURL_RE = re.compile(r"^\s*curl\s+(?=(?:-\S+\s+|\S+=\S+\s+)*-)")
 
 # 后台 Agent 派发/归还信号——与 hooks/workflow_advance.py 同口径（单源在那边
 # 的 docstring，此处只做 pending 判定，两处 regex 必须同步改）。
+# qoder 复核 2026-09-08 P0 D7：qoder 引擎 agentId/task-id 带 a<type>- 前缀
+# （ageneral-purpose-<hex16>），前缀可选故双引擎兼容。
 _AGENT_LAUNCH_ACK = "Async agent launched successfully"
-_AGENT_LAUNCH_ID_RE = re.compile(r"agentId:\s*([0-9a-f]{16,17})\b")
-_AGENT_DONE_ID_RE = re.compile(r"<task-id>\s*([0-9a-f]{16,17})\s*</task-id>")
+_AGENT_LAUNCH_ID_RE = re.compile(r"agentId:\s*(?:a[a-z-]+-)?([0-9a-f]{16,17})\b")
+_AGENT_DONE_ID_RE = re.compile(r"<task-id>\s*(?:a[a-z-]+-)?([0-9a-f]{16,17})\s*</task-id>")
 
 
 def _payload_transcript(payload: dict) -> str:
