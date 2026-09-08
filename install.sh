@@ -241,16 +241,9 @@ install_to_home() {
 # dl 是工作流入口，独立于 ac-ark/claude（不碰用户的 provider shim）。
 # 用法：dl <name> [--resume|--phase <p>|--base <ref>|--done]
 #      dl list
-install_bashrc() {
-  echo "▸ 检查 $BASHRC"
-  if grep -q "# BEGIN dl-workflow" "$BASHRC" 2>/dev/null; then
-    echo "  ↺ 已有 dl-workflow 段落，跳过"
-    return 0
-  fi
-
-  # 备份
-  mkdir -p "$BACKUP_DIR"
-  cp -p "$BASHRC" "$BACKUP_DIR/bashrc" 2>/dev/null || touch "$BASHRC"
+# bashrc 段落真源（新装追加 / 旧段升级共用——两处引用同一函数，改内容只改这里）
+_bashrc_segment() {
+  cat <<'BASHRC_EOF'
 
   # 检查 dl 是否已被占用（alias/函数/命令）
   local dl_conflict=0
@@ -301,12 +294,53 @@ dl() {
 }
 # END dl-workflow
 BASHRC_EOF
+}
+
+install_bashrc() {
+  echo "▸ 检查 $BASHRC"
+  if grep -q "# BEGIN dl-workflow" "$BASHRC" 2>/dev/null; then
+    if grep -q "DL_ENGINE" "$BASHRC" 2>/dev/null; then
+      echo "  ↺ 已有 dl-workflow 段落（含 @qoder 引擎入口），跳过"
+      return 0
+    fi
+    # 旧段升级（2026-09-09 实爆：T8 新 heredoc 被 skip 挡住，现役 bashrc 仍是
+    # DL_CLAUDE 旧约——@qoder 不设 DL_ENGINE，launcher 落 claude 引擎）。
+    # 备份后整段替换 BEGIN/END 之间内容；段外行（ac-* 函数等）不动。
+    mkdir -p "$BACKUP_DIR"
+    cp -p "$BASHRC" "$BACKUP_DIR/bashrc" 2>/dev/null || touch "$BASHRC"
+    _bashrc_segment > "$BACKUP_DIR/dl-segment.new"
+    python3 - "$BASHRC" "$BACKUP_DIR/dl-segment.new" <<'PY'
+import sys
+
+path, seg_path = sys.argv[1], sys.argv[2]
+lines = open(path, encoding="utf-8").readlines()
+seg = open(seg_path, encoding="utf-8").read()
+begin = next(i for i, l in enumerate(lines) if l.startswith("# BEGIN dl-workflow"))
+end = next(i for i, l in enumerate(lines) if l.startswith("# END dl-workflow"))
+open(path, "w", encoding="utf-8").write("".join(lines[:begin]) + seg + "".join(lines[end + 1:]))
+print("upgraded")
+PY
+    echo "✓ ~/.bashrc dl-workflow 段落已升级（旧 DL_CLAUDE 约 → @qoder/DL_ENGINE 双引擎；备份在 $BACKUP_DIR）"
+    return 0
+  fi
+
+  # 备份
+  mkdir -p "$BACKUP_DIR"
+  cp -p "$BASHRC" "$BACKUP_DIR/bashrc" 2>/dev/null || touch "$BASHRC"
+
+  # 检查 dl 是否已被占用（alias/函数/命令）
+  local dl_conflict=0
+  if grep -qE '^(dl|function dl|dl\(\))|alias dl=' "$BASHRC" 2>/dev/null; then
+    dl_conflict=1
+  fi
+
+  _bashrc_segment >> "$BASHRC"
 
   if [ "$dl_conflict" = "1" ]; then
     echo "  ⚠ 检测到 ~/.bashrc 已有 dl 定义。dl-workflow 的 dl 函数定义在后，会覆盖。"
   fi
   echo "✓ ~/.bashrc 已追加 dl-workflow 段落（dl 函数 + _dl_launch）"
-  echo "  入口：dl <name> | ac-ark --dl <name>（后者需在 ac-ark 里加 --dl 拦截，见 README）"
+  echo "  入口：dl [@qoder] <name> | ac-ark --dl <name>（后者需在 ac-ark 里加 --dl 拦截，见 README）"
 }
 
 # ---------- pip --user 安装（dashboard 与 HTML 两层共用） ----------
