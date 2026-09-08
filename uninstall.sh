@@ -71,7 +71,7 @@ uninstall_from_home "$HOME/.claude"
 # qodercli 引擎对称卸载：仅当该 home 有 dl-workflow 安装痕迹才动（与 install.sh
 # --engine qodercli 的 QODER_HOME 默认值同口径，QODER_CONFIG_DIR 可覆盖）。
 QODER_HOME="${QODER_CONFIG_DIR:-$HOME/.qoder}"
-if [ -f "$QODER_HOME/commands/dl.md" ] || [ -d "$QODER_HOME/skills/workflow-creation" ]; then
+if [ -f "$QODER_HOME/commands/dl.md" ] || [ -d "$QODER_HOME/skills/workflow-creation" ] || [ -f "$QODER_HOME/output-styles/workflow.md" ]; then
   uninstall_from_home "$QODER_HOME"
 else
   echo "  - $QODER_HOME 无 dl-workflow 安装痕迹，跳过（qodercli 引擎未装或已卸）"

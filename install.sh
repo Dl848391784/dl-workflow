@@ -139,9 +139,9 @@ merge_settings() {
   local settings="$target_home/settings.json"
   # 备份现有 settings.json
   if [ -f "$settings" ] && ! grep -q "workflow_phase.py\|codegraph_gate.py" "$settings" 2>/dev/null; then
-    mkdir -p "$BACKUP_DIR"
-    cp -p "$settings" "$BACKUP_DIR/settings.json"
-    echo "  ↺ 备份现有 settings.json -> $BACKUP_DIR/settings.json"
+    mkdir -p "$BACKUP_DIR/${target_home##*/}"
+    cp -p "$settings" "$BACKUP_DIR/${target_home##*/}/settings.json"
+    echo "  ↺ 备份现有 settings.json -> $BACKUP_DIR/${target_home##*/}/settings.json"
   fi
 
   python3 - "$settings" <<'PY'
