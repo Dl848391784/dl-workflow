@@ -1,7 +1,8 @@
 #!/bin/bash
 # tests/test_dl_launch_engine.sh——launcher 引擎解析冒烟（不真起 TUI，只验变量解析段）
 set -euo pipefail
-LAUNCH=~/projects/dl-workflow-wt/qodercli-engine-profile/scripts/workflow/dl-launch.sh
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LAUNCH="$REPO_ROOT/scripts/workflow/dl-launch.sh"
 
 # 引擎解析段独立可测：source 前截取（launcher 无库模式，改用文本级断言：
 # 抽引擎 case 块单独 eval）
@@ -17,9 +18,9 @@ check qodercli qodercli accept_edits
 echo "✓ launcher 引擎解析双引擎正确"
 
 # wf_write_settings 引擎分支（qoder + DL_QODER_MODEL 时写 model 键）
-export WF_META_ROOT="$(mktemp -d)" WF_REPO_ROOT=/tmp WF_LIB_DIR="$PWD/scripts/workflow"
+export WF_META_ROOT="$(mktemp -d)" WF_REPO_ROOT=/tmp WF_LIB_DIR="$REPO_ROOT/scripts/workflow"
 export WF_SETTINGS_TEMPLATE_VERSION=1
-source scripts/workflow/dl-lib.sh
+source "$REPO_ROOT/scripts/workflow/dl-lib.sh"
 DL_ENGINE=qodercli DL_QODER_MODEL=deepseek/deepseek-v4-flash-pg wf_write_settings engtest
 python3 -c "
 import json

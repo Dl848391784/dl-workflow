@@ -28,8 +28,9 @@ class TestGetEngine:
 
     def test_unknown_engine_hard_fails(self, monkeypatch):
         monkeypatch.setenv("DL_ENGINE", "gemini")
-        with pytest.raises(SystemExit):
+        with pytest.raises(SystemExit) as exc_info:
             dl_engine.get_engine()
+        assert exc_info.value.code == 2
 
     def test_empty_env_is_claude(self, monkeypatch):
         monkeypatch.setenv("DL_ENGINE", "")
