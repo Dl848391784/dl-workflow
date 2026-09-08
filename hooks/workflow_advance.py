@@ -287,17 +287,23 @@ def _maybe_autodone_tui(project_root: Path, name: str, state: dict) -> None:
 
 
 def _stop_continue(body: str) -> int:
-    """返 Stop hook 的 additionalContext 续轮（changelog:1000 机制）通用底座。
+    """返 Stop hook 续轮指令通用底座。
 
-    模型收到 body -> 自动再来一轮,无用户介入。撞 cap(默认 8)
-    -> claude 自动告警终结本轮（changelog:1435）。
+    引擎契约（qodercli-engine-profile P0 D5 实测）：claude 认
+    hookSpecificOutput.additionalContext（changelog:1000，撞 cap 默认 8 自动
+    终结）；qodercli 只认 decision=block+reason——reason 文本注入为 user msg，
+    additionalContext 被忽略（探针实证），stop_hook_active 二次触发=true 与
+    claude 同语义。按 DL_ENGINE 分路，默认 claude 路径逐字不动。
     """
-    out = {
-        "hookSpecificOutput": {
-            "hookEventName": "Stop",
-            "additionalContext": body,
+    if os.environ.get("DL_ENGINE", "").strip() == "qodercli":
+        out = {"decision": "block", "reason": body}
+    else:
+        out = {
+            "hookSpecificOutput": {
+                "hookEventName": "Stop",
+                "additionalContext": body,
+            }
         }
-    }
     sys.stdout.write(json.dumps(out, ensure_ascii=False) + "\n")
     sys.stdout.flush()
     return 0
