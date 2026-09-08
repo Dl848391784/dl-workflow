@@ -1,0 +1,32 @@
+#!/bin/bash
+# tests/test_dl_launch_engine.sh——launcher 引擎解析冒烟（不真起 TUI，只验变量解析段）
+set -euo pipefail
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LAUNCH="$REPO_ROOT/scripts/workflow/dl-launch.sh"
+
+# 引擎解析段独立可测：source 前截取（launcher 无库模式，改用文本级断言：
+# 抽引擎 case 块单独 eval）
+check() {
+  local dl_engine="$1" expect_bin="$2" expect_perm="$3"
+  local ENGINE_BIN ENGINE_PERM DL_ENGINE="$dl_engine"
+  eval "$(sed -n '/^# ---------- 引擎/,/^esac/p' "$LAUNCH" | sed 's/exit 1/return 1/')"
+  [ "$ENGINE_BIN" = "$expect_bin" ] || { echo "✗ DL_ENGINE=$dl_engine binary=$ENGINE_BIN"; exit 1; }
+  [ "$ENGINE_PERM" = "$expect_perm" ] || { echo "✗ DL_ENGINE=$dl_engine perm=$ENGINE_PERM"; exit 1; }
+}
+check claude claude acceptEdits
+check qodercli qodercli accept_edits
+echo "✓ launcher 引擎解析双引擎正确"
+
+# wf_write_settings 引擎分支（qoder + DL_QODER_MODEL 时写 model 键）
+export WF_META_ROOT="$(mktemp -d)" WF_REPO_ROOT=/tmp WF_LIB_DIR="$REPO_ROOT/scripts/workflow"
+export WF_SETTINGS_TEMPLATE_VERSION=1
+source "$REPO_ROOT/scripts/workflow/dl-lib.sh"
+DL_ENGINE=qodercli DL_QODER_MODEL=deepseek/deepseek-v4-flash-pg wf_write_settings engtest
+python3 -c "
+import json
+s = json.load(open('$WF_META_ROOT/engtest/settings.json'))
+assert s['model'] == 'deepseek/deepseek-v4-flash-pg', s.get('model')
+assert s['permissions']['defaultMode'] == 'acceptEdits'  # qoder 忽略但 claude 引擎同文件兼容
+assert any('workflow_phase.py' in h['command'] for g in s['hooks']['UserPromptSubmit'] for h in g['hooks'])
+print('✓ wf_write_settings qoder 分支正确')
+"

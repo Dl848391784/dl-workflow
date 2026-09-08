@@ -37,6 +37,7 @@ from pathlib import Path
 _DLWF_ROOT = Path(__file__).resolve().parents[2]  # ~/.dl-workflow/
 sys.path.insert(0, str(_DLWF_ROOT))
 import dl_flow_engine as engine  # noqa: E402
+import dl_engine  # noqa: E402  # 引擎 profile 单源（qodercli-engine-profile P1）
 from dl_flow_common import steer_consume  # noqa: E402  # 插话通道（evolution-up P5）
 from scripts.workflow import project_tools  # noqa: E402
 
@@ -278,15 +279,17 @@ def _maybe_predispatch_redteam(
             except (ProcessLookupError, OverflowError, ValueError, TypeError):
                 pass
     sid = str(uuid.uuid4())
+    eng = dl_engine.get_engine()
     cmd = [
-        "claude",
+        eng.binary,
         "-p",
         "--output-format",
         "json",
         "--tools",
         "Read",
-        "--permission-mode",
-        "acceptEdits",
+    ]
+    cmd += eng.permission_args()
+    cmd += [
         "--settings",
         str(settings),
         "--session-id",
@@ -721,23 +724,17 @@ def run_session(
     None/None = 零覆盖（现状）。
     """
     sid = resume_sid or str(uuid.uuid4())
-    cmd = [
-        "claude",
-        "-p",
-        "--output-format",
-        "stream-json",
-        "--verbose",
-    ]
+    eng = dl_engine.get_engine()
+    cmd = [eng.binary, "-p", "--output-format", "stream-json"]
+    cmd += eng.verbose_args()
     if tools:
         cmd += ["--tools", ",".join(tools)]
     if disallow_ask:
-        # --disallowedTools 是变长参数（<tools...>）：其后必须跟旗标——
-        # 直接跟位置参数 prompt 会被吞成工具名（2026-08-12 实爆：claude 秒退
-        # rc=1「Input must be provided」，prep 3 连空转退 12）
-        cmd += ["--disallowedTools", "AskUserQuestion"]
+        # claude：--disallowedTools 是变长参数，其后必须跟旗标（2026-08-12 实爆）；
+        # qoder：无 AskUserQuestion 工具（P0 D4），eng.disallow_ask_args() 返回空
+        cmd += eng.disallow_ask_args()
+    cmd += eng.permission_args()
     cmd += [
-        "--permission-mode",
-        "acceptEdits",
         "--settings",
         str(settings),
         "--append-system-prompt-file",
@@ -752,12 +749,7 @@ def run_session(
     else:
         cmd += ["--session-id", sid]
     if debug:
-        cmd += [
-            "--debug",
-            "api,hooks",
-            "--debug-file",
-            str(meta / f"cc_debug.{sid[:8]}.log"),
-        ]
+        cmd += eng.debug_args(meta / f"cc_debug.{sid[:8]}.log")
     # prompt 走 stdin 不走 argv（2026-08-12 interaction run plan:2#子5 实爆）：
     # 交接包随步数增长 + 中文 1.68 bytes/char 放大，prompt 超 MAX_ARG_STRLEN
     # （131,072 bytes/单参数）→ Popen OSError E2BIG「Argument list too long」，
@@ -902,16 +894,11 @@ class MergedSession:
         self.alive = True
         self.rc: "int | None" = None
         self._closed = False
-        cmd = [
-            "claude",
-            "-p",
-            "--input-format",
-            "stream-json",
-            "--output-format",
-            "stream-json",
-            "--verbose",
-            "--permission-mode",
-            "acceptEdits",
+        eng = dl_engine.get_engine()
+        cmd = [eng.binary, "-p", "--input-format", "stream-json", "--output-format", "stream-json"]
+        cmd += eng.verbose_args()
+        cmd += eng.permission_args()
+        cmd += [
             "--settings",
             str(settings),
             "--append-system-prompt-file",
@@ -923,12 +910,7 @@ class MergedSession:
         cmd += engine.NO_MCP_ARGS
         cmd += ["--session-id", self.sid]
         if debug:
-            cmd += [
-                "--debug",
-                "api,hooks",
-                "--debug-file",
-                str(meta / f"cc_debug.{self.sid[:8]}.log"),
-            ]
+            cmd += eng.debug_args(meta / f"cc_debug.{self.sid[:8]}.log")
         meta.mkdir(parents=True, exist_ok=True)
         self._log_f = open(meta / "drive-stream.jsonl", "a", encoding="utf-8")
         self._err_f = open(meta / "cc_sdk.log", "a", encoding="utf-8")
@@ -1783,17 +1765,17 @@ def _build_tui_cmd(
     tools（u3-sub1-cost）：段前缀剥离的工具白名单（segment_tools + TUI 交互
     三件套）——必须放在 NO_MCP_ARGS 之前（--mcp-config variadic 吞尾随位置
     参数的教训同 `--` 修复）；None = 全量工具（现状）。"""
+    eng = dl_engine.get_engine()
     cmd = [
-        "claude",
+        eng.binary,
         "--session-id",
         sid,
         "--settings",
         str(settings),
         "--append-system-prompt-file",
         str(rules),
-        "--permission-mode",
-        "acceptEdits",
     ]
+    cmd += eng.permission_args()
     if tools:
         # 逗号单串单 argv 元素（u2-residual-cost 同法，无变长吞参风险）
         cmd += ["--tools", ",".join(tools)]
@@ -1801,12 +1783,7 @@ def _build_tui_cmd(
     # （位置参数 prompt 必须仍在末尾——见下方 append 顺序）
     cmd += engine.NO_MCP_ARGS
     if debug:
-        cmd += [
-            "--debug",
-            "api,hooks",
-            "--debug-file",
-            str(meta / f"cc_debug.{sid[:8]}.log"),
-        ]
+        cmd += eng.debug_args(meta / f"cc_debug.{sid[:8]}.log")
     if prompt is not None:
         # u3-sub1-cost 前置修复：--mcp-config 是 variadic，prompt 紧跟其后会被
         # 吞作第二个配置文件路径（短 prompt 报 "MCP config file not found"，

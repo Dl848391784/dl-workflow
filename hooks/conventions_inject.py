@@ -3,7 +3,7 @@
 UserPromptSubmit hook：注入项目约定蒸馏瘦档（designs/setup-installer-design.md）。
 
 集中化版本：本文件由项目 settings.json 以绝对路径引用，一份服务任意项目；
-项目根从 hook payload 解析（payload.cwd → CLAUDE_PROJECT_DIR → 进程 cwd）。
+项目根从 hook payload 解析（payload.cwd → QODER_PROJECT_DIR → CLAUDE_PROJECT_DIR → 进程 cwd）。
 
 注入策略：仅在有活跃漂移点、inferred 候选规范或索引过期（>5 commit）时注入——
 三者皆无则无仲裁需求，完整约定深查走 ~/.dl-workflow/bin/cvx.py（避免每次 prompt 静态噪音）。
@@ -28,10 +28,11 @@ MARKER = Path(".conventions") / "conventions.db"
 
 
 def _project_root(payload: dict) -> Path:
-    """项目根解析：payload.cwd → CLAUDE_PROJECT_DIR → 进程 cwd，各自经 git rev-parse 反查。"""
+    """项目根解析：payload.cwd → QODER_PROJECT_DIR → CLAUDE_PROJECT_DIR → 进程 cwd，各自经 git rev-parse 反查。"""
     candidates = [
         payload.get("cwd"),
-        os.environ.get("CLAUDE_PROJECT_DIR"),
+        # env 链：QODER_PROJECT_DIR（qoder 引擎注入）→ CLAUDE_PROJECT_DIR（claude/别名）
+        os.environ.get("QODER_PROJECT_DIR") or os.environ.get("CLAUDE_PROJECT_DIR"),
         str(Path.cwd()),
     ]
     for cand in candidates:

@@ -19,6 +19,8 @@ import sys
 import time
 from pathlib import Path
 
+import dl_engine
+
 from dl_flow_checks import (
     _MECH_EXTRA_ITEM_CHECKS,
     _MECH_EXTRA_STR_CHECKS,
@@ -215,7 +217,9 @@ def _subagent_dir(
     if not wt:
         return None
     enc = "".join(c if c.isalnum() else "-" for c in str(wt))
-    base = Path.home() / ".claude" / "projects" / enc
+    # transcript 根按引擎（P1：claude=~/.claude/projects，qoder=~/.qoder/projects——
+    # E2E 冒烟 D14 实测：qoder 段 transcript 不落 ~/.claude，硬编码=agent 报告零召回）
+    base = dl_engine.get_engine().transcript_projects_root() / enc
     if not base.is_dir():
         return None
     dirs = []

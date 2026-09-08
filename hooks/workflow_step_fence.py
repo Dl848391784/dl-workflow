@@ -410,9 +410,11 @@ _S15_FETCH_CURL_RE = re.compile(r"^\s*curl\s+(?=(?:-\S+\s+|\S+=\S+\s+)*-)")
 
 # 后台 Agent 派发/归还信号——与 hooks/workflow_advance.py 同口径（单源在那边
 # 的 docstring，此处只做 pending 判定，两处 regex 必须同步改）。
+# qoder 复核 2026-09-08 P0 D7：qoder 引擎 agentId/task-id 带 a<type>- 前缀
+# （ageneral-purpose-<hex16>），前缀可选故双引擎兼容。
 _AGENT_LAUNCH_ACK = "Async agent launched successfully"
-_AGENT_LAUNCH_ID_RE = re.compile(r"agentId:\s*([0-9a-f]{16,17})\b")
-_AGENT_DONE_ID_RE = re.compile(r"<task-id>\s*([0-9a-f]{16,17})\s*</task-id>")
+_AGENT_LAUNCH_ID_RE = re.compile(r"agentId:\s*(?:a[a-z-]+-)?([0-9a-f]{16,17})\b")
+_AGENT_DONE_ID_RE = re.compile(r"<task-id>\s*(?:a[a-z-]+-)?([0-9a-f]{16,17})\s*</task-id>")
 
 
 def _payload_transcript(payload: dict) -> str:
@@ -426,8 +428,8 @@ def _payload_transcript(payload: dict) -> str:
 
 def _session_id(payload: dict) -> str:
     """会话标识（v2.69，同 design_gate/codegraph_gate）：payload session_id（真源）
-    → transcript_path 文件名 stem（双保险）→ env CLAUDE_SESSION_ID（向后兼容）
-    → "_fallback"。用于区分 front 前台会话（session_id == state.session_id）与
+    → transcript_path 文件名 stem（双保险）→ env QODER_SESSION_ID →
+    CLAUDE_SESSION_ID（向后兼容）→ "_fallback"。用于区分 front 前台会话（session_id == state.session_id）与
     drive 段工人 headless 会话（session_id ≠）。"""
     sid = str(payload.get("session_id") or "").strip()
     if sid:
@@ -437,7 +439,13 @@ def _session_id(payload: dict) -> str:
         stem = Path(tp).stem
         if stem:
             return stem
-    return os.environ.get("CLAUDE_SESSION_ID", "").strip() or "_fallback"
+    # env fallback：QODER_SESSION_ID（qoder 引擎注入）→ CLAUDE_SESSION_ID
+    #（claude 引擎/向后兼容）。P0 实测 qoder 两前缀都注入，顺序无害、QODER 优先。
+    return (
+        os.environ.get("QODER_SESSION_ID", "").strip()
+        or os.environ.get("CLAUDE_SESSION_ID", "").strip()
+        or "_fallback"
+    )
 
 
 def _pending_background_agent_count(transcript_path: str) -> int:

@@ -4103,3 +4103,72 @@ def test_merged_run_stops_at_tacet_silent_step(wf_repo, monkeypatch):
     sess = insts[0]
     assert sess.closed  # 撞静默步收段
     assert len(sess.sends) == 1  # 只有 #2 真跑——#3 未被横扫
+
+
+class TestSegmentCmdDualEngine:
+    """4 处 spawn cmd 按 DL_ENGINE 分路（qodercli-engine-profile P1 T5）。
+
+    Popen 捕获 cmd 断言整链：binary/verbose/permission/disallow_ask/debug
+    碎片全部来自 dl_engine profile（claude 引擎下与单引擎时代逐位一致）。
+    """
+
+    def _capture_cmd(self, monkeypatch):
+        captured = {}
+
+        class FakeStdin:
+            def write(self, s):
+                pass
+
+            def close(self):
+                pass
+
+        class FakeProc:
+            pid = 999999
+            returncode = 0
+
+            def __init__(self, cmd, **kw):
+                captured["cmd"] = cmd
+                self.stdin = FakeStdin()
+                self.stdout = iter([])
+
+            def wait(self, timeout=None):
+                return 0
+
+            def terminate(self):
+                pass
+
+            def kill(self):
+                pass
+
+        dl_drive = _load(DRIVER, "dl_drive")
+        monkeypatch.setattr(dl_drive.subprocess, "Popen", FakeProc)
+        return dl_drive, captured
+
+    def test_run_session_claude_golden(self, monkeypatch, tmp_path):
+        monkeypatch.delenv("DL_ENGINE", raising=False)
+        dl_drive, captured = self._capture_cmd(monkeypatch)
+        dl_drive.run_session(
+            "p", cwd=tmp_path, settings=tmp_path / "s.json",
+            sys_prompt_file=tmp_path / "r.md", meta=tmp_path,
+            debug=True, note="t",
+        )
+        cmd = captured["cmd"]
+        assert cmd[0] == "claude"
+        assert "--verbose" in cmd
+        assert "acceptEdits" in cmd
+        assert "--debug-file" in cmd
+
+    def test_run_session_qoder(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("DL_ENGINE", "qodercli")
+        dl_drive, captured = self._capture_cmd(monkeypatch)
+        dl_drive.run_session(
+            "p", cwd=tmp_path, settings=tmp_path / "s.json",
+            sys_prompt_file=tmp_path / "r.md", meta=tmp_path,
+            debug=True, note="t", disallow_ask=True,
+        )
+        cmd = captured["cmd"]
+        assert cmd[0] == "qodercli"
+        assert "--verbose" not in cmd
+        assert "accept_edits" in cmd
+        assert "--debug-file" not in cmd and "--debug" in cmd
+        assert "--disallowedTools" not in cmd  # D4：qoder 无 AskUserQuestion

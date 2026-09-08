@@ -77,8 +77,8 @@ def _is_workflow_file(path: Path) -> bool:
 
 def _session_id(payload: dict) -> str:
     """会话标识（v2.69）：payload session_id（hooks 规范公共字段，真源）→
-    transcript_path 文件名 stem（双保险）→ env CLAUDE_SESSION_ID（向后兼容）
-    → "_fallback"。旧版只读 env，而 hook 环境从未注入该变量——所有会话塌缩
+    transcript_path 文件名 stem（双保险）→ env QODER_SESSION_ID →
+    CLAUDE_SESSION_ID（向后兼容）→ "_fallback"。旧版只读 env，而 hook 环境从未注入该变量——所有会话塌缩
     _fallback.log 跨会话共享留痕（2026-08-03 v2.67 漏网实证，
     designs/gate-session-isolation-fix-design.md）。"""
     sid = str(payload.get("session_id") or "").strip()
@@ -89,8 +89,13 @@ def _session_id(payload: dict) -> str:
         stem = Path(tp).stem
         if stem:
             return stem
-    sid = os.environ.get("CLAUDE_SESSION_ID", "").strip()
-    return sid or "_fallback"
+    # env fallback：QODER_SESSION_ID（qoder 引擎注入）→ CLAUDE_SESSION_ID
+    #（claude 引擎/向后兼容）。P0 实测 qoder 两前缀都注入，顺序无害、QODER 优先。
+    return (
+        os.environ.get("QODER_SESSION_ID", "").strip()
+        or os.environ.get("CLAUDE_SESSION_ID", "").strip()
+        or "_fallback"
+    )
 
 
 def _payload_cwd(payload: dict) -> str:

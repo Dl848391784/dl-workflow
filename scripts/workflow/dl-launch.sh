@@ -1,5 +1,5 @@
 #!/bin/bash
-# dl-launch.sh - 工作流 launcher：建/续 worktree + state + session，起 claude TUI
+# dl-launch.sh - 工作流 launcher：建/续 worktree + state + session，起所选引擎 TUI（默认原生 claude）
 # 真源：designs/workflow-system-design.md
 # 被 ~/.bashrc 的 dl 调用（不设 provider env，继承当前 shell env）。
 #
@@ -239,7 +239,7 @@ echo "────────────────────────�
 echo "进入工作流（隔离 worktree）。/dl status 查看阶段，/dl next 推进。"
 echo "──────────────────────────────────────────────────────────"
 
-# ---------- 起 claude ----------
+# ---------- 起所选引擎（默认原生 claude） ----------
 # settings：per-workflow settings 启用工作流 hook + output style（叠加在 project settings 上）
 WF_SETTINGS="$WF_META_ROOT/$WF_NAME/settings.json"
 # 若 settings 模板缺失，回退到不带 --settings（仍可用 hook 注入，但 output style 失效）
@@ -272,11 +272,22 @@ fi
 
 cd "$WORKTREE_PATH"
 
-# launcher 始终 exec 原生 claude。provider env 由调用方在交互 shell 里 export
+# launcher exec 所选引擎（默认原生 claude）。provider env 由调用方在交互 shell 里 export
 # （ac-ark --dl 时 ac-ark 函数已 export ark env；claude --dl / dl 时用默认或当前 shell env）。
 # launcher 子进程继承父 shell env，故 claude 自动带上 provider 的 ANTHROPIC_* 配置。
 # 不用 @provider 机制：provider 选择由「用哪个命令调」决定，不是 launcher 去 exec provider
 # （provider 若是 bashrc 函数，launcher 子进程 exec 不到，会 not found）。
+
+# ---------- 引擎（DL_ENGINE：claude 默认 | qodercli；qodercli-engine-profile P1） ----------
+# bashrc dl @qoder 入口置 DL_ENGINE=qodercli；未设=claude（现状逐位一致）。
+# 未知值显式报错（no silent fallback）。bashrc 注释宣称的「不硬编码 claude」
+# 间接层在此真接线（此前 dl-launch.sh:324/326 为字面 exec claude）。
+DL_ENGINE="${DL_ENGINE:-claude}"
+case "$DL_ENGINE" in
+  claude)   ENGINE_BIN=claude;   ENGINE_PERM=acceptEdits ;;
+  qodercli) ENGINE_BIN=qodercli; ENGINE_PERM=accept_edits ;;
+  *) echo "✗ DL_ENGINE=$DL_ENGINE 未知引擎（claude|qodercli）" >&2; exit 1 ;;
+esac
 
 # --debug：debug 落盘到 per-wf 目录（cc_debug.log = --debug-file；cc_sdk.log = stderr）。
 # 独立文件而非 /tmp/cc_debug.log——/tmp 那份被所有直接会话混写，按时间窗口过滤会误判
@@ -285,7 +296,13 @@ cd "$WORKTREE_PATH"
 # 2>>cc_sdk.log 的既有行为一致，非 debug 模式 stderr 本来也只有零星行）。
 DEBUG_ARGS=()
 if [ "$WF_DEBUG" = "1" ]; then
-  DEBUG_ARGS=(--debug api,hooks --debug-file "$WF_META_ROOT/$WF_NAME/cc_debug.log")
+  if [ "$DL_ENGINE" = "qodercli" ]; then
+    # qoder 无 --debug-file（P0 D2）；--debug 后日志自动落
+    # ~/.qoder/logs/sessions/<proj>/<sid>/segments/*.jsonl
+    DEBUG_ARGS=(--debug)
+  else
+    DEBUG_ARGS=(--debug api,hooks --debug-file "$WF_META_ROOT/$WF_NAME/cc_debug.log")
+  fi
 fi
 
 # --permission-mode acceptEdits 钉死（2026-08-02 tail_volume_acceleration_annualized 审计实测）：
@@ -296,7 +313,8 @@ fi
 # 压不住持久化的 auto 选择，唯 CLI flag 优先级最高。v2.36「入 allowlist 即根治」
 # 只对 Bash 成立。acceptEdits 下 Edit/Write 本地放行零裁决，AskQ 照常弹窗，
 # codegraph_gate（H15）等 PreToolUse hook 不受影响。放在 "$@" 前，用户显式传值可覆盖。
-PERM_ARGS=(--permission-mode acceptEdits)
+# qoder 同理唯 CLI flag 生效——P0 实测 settings defaultMode 被忽略。
+PERM_ARGS=(--permission-mode "$ENGINE_PERM")
 
 # ---------- 模式派发（2026-08-11 用户裁决：默认 = v4 front 前台混合） ----------
 # v4（默认，front-tui-hybrid-design）：常驻 TUI 前台（下方 TUI 路径），非交互步
@@ -321,7 +339,7 @@ fi
 
 # resume：用钉死的 session_id 恢复；否则用 --session-id 钉死
 if [ "$WF_RESUME" = "1" ] && [ -n "${SESSION_ID:-}" ]; then
-  exec claude --resume "$SESSION_ID" "${SETTINGS_ARGS[@]}" "${SYS_PROMPT_ARGS[@]}" "${DEBUG_ARGS[@]}" "${PERM_ARGS[@]}" "$@" 2>>"$WF_META_ROOT/$WF_NAME/cc_sdk.log"
+  exec "$ENGINE_BIN" --resume "$SESSION_ID" "${SETTINGS_ARGS[@]}" "${SYS_PROMPT_ARGS[@]}" "${DEBUG_ARGS[@]}" "${PERM_ARGS[@]}" "$@" 2>>"$WF_META_ROOT/$WF_NAME/cc_sdk.log"
 else
-  exec claude --session-id "$SESSION_ID" "${SETTINGS_ARGS[@]}" "${SYS_PROMPT_ARGS[@]}" "${DEBUG_ARGS[@]}" "${PERM_ARGS[@]}" "$@" 2>>"$WF_META_ROOT/$WF_NAME/cc_sdk.log"
+  exec "$ENGINE_BIN" --session-id "$SESSION_ID" "${SETTINGS_ARGS[@]}" "${SYS_PROMPT_ARGS[@]}" "${DEBUG_ARGS[@]}" "${PERM_ARGS[@]}" "$@" 2>>"$WF_META_ROOT/$WF_NAME/cc_sdk.log"
 fi

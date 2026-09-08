@@ -45,6 +45,7 @@ SKIP_HTML=0
 SKIP_DISTILLER=0
 PROJECT_MODE=0
 PROJECT_DIR=""
+ENGINE=""
 WARNINGS=()
 
 usage() {
@@ -57,6 +58,9 @@ usage() {
   --skip-distiller  不装 pyyaml（约定蒸馏不可用，核心工作流不受影响）
   --project[=DIR]   项目级接线：codegraph index + post-commit + settings 合并 + 首蒸
                     （在 DIR 或当前目录执行；机器级安装照常先跑）
+  --engine claude|qodercli
+                    引擎接线：qodercli 时 skill/output-style/command + hooks 注册
+                    追加装到 qoder config home（默认 ~/.qoder）；claude home 永远装
 EOF
 }
 
@@ -89,50 +93,55 @@ check_deps() {
 }
 
 # ---------- copy 文件（冲突则备份原文件） ----------
+# target_home 参数化：claude（~/.claude）永远装；qodercli 引擎追加装 qoder config
+# home（~/.qoder）——备份路径前缀剥离按目标 home 计算，备份统一落 $BACKUP_DIR。
 copy_with_backup() {
-  local src="$1" dst="$2"
+  local target_home="$1" src="$2" dst="$3"
   if [ -e "$dst" ]; then
     # 已存在且内容相同 -> 跳过（幂等）
     if cmp -s "$src" "$dst"; then
       return 0
     fi
     # 内容不同 -> 备份
-    mkdir -p "$BACKUP_DIR/$(dirname "${dst#$CLAUDE_HOME/}")"
-    cp -p "$dst" "$BACKUP_DIR/${dst#$CLAUDE_HOME/}"
-    echo "  ↺ 备份冲突: $dst -> $BACKUP_DIR/${dst#$CLAUDE_HOME/}"
+    mkdir -p "$BACKUP_DIR/$(dirname "${dst#$target_home/}")"
+    cp -p "$dst" "$BACKUP_DIR/${dst#$target_home/}"
+    echo "  ↺ 备份冲突: $dst -> $BACKUP_DIR/${dst#$target_home/}"
   fi
   mkdir -p "$(dirname "$dst")"
   cp -p "$src" "$dst"
 }
 
 install_files() {
-  echo "▸ 复制文件到 $CLAUDE_HOME/"
+  local target_home="$1"
+  echo "▸ 复制文件到 $target_home/"
   # hooks 不 copy：直接引用源 ~/.dl-workflow/hooks/*.py（settings.json 里写 ~ 路径，
   # shell 执行时展开）。改 hook 后 git pull 即生效，无同步副本开销。
   # 只 copy Claude Code 硬编码加载路径的文件（skills/output-styles/commands）。
   # skill（整个子目录，含 references/ 按需参考文件——SKILL.md 已拆瘦路由+重型参考外置）
-  mkdir -p "$CLAUDE_HOME/skills/workflow-creation/references"
-  copy_with_backup "$SRC_DIR/skills/workflow-creation/SKILL.md" "$CLAUDE_HOME/skills/workflow-creation/SKILL.md"
+  mkdir -p "$target_home/skills/workflow-creation/references"
+  copy_with_backup "$target_home" "$SRC_DIR/skills/workflow-creation/SKILL.md" "$target_home/skills/workflow-creation/SKILL.md"
   for f in "$SRC_DIR/skills/workflow-creation/references/"*.md; do
-    copy_with_backup "$f" "$CLAUDE_HOME/skills/workflow-creation/references/$(basename "$f")"
+    copy_with_backup "$target_home" "$f" "$target_home/skills/workflow-creation/references/$(basename "$f")"
   done
   # output-style
-  copy_with_backup "$SRC_DIR/output-styles/workflow.md" "$CLAUDE_HOME/output-styles/workflow.md"
+  copy_with_backup "$target_home" "$SRC_DIR/output-styles/workflow.md" "$target_home/output-styles/workflow.md"
   # command
-  copy_with_backup "$SRC_DIR/commands/dl.md" "$CLAUDE_HOME/commands/dl.md"
+  copy_with_backup "$target_home" "$SRC_DIR/commands/dl.md" "$target_home/commands/dl.md"
   echo "✓ 文件复制完成（hooks 不 copy，settings.json 直接引用 ~/.dl-workflow/hooks/）"
 }
 
-# ---------- 合并 ~/.claude/settings.json 的 hooks ----------
+# ---------- 合并 <引擎 home>/settings.json 的 hooks ----------
 # 用 python3 读写 JSON（避 jq 依赖）。已注册的 command 跳过；缺失的 append。
+# target_home 参数化（引擎 home 根）；hooks 源路径 ~/.dl-workflow/hooks/ 与引擎无关。
 merge_settings() {
-  echo "▸ 合并 $CLAUDE_HOME/settings.json"
-  local settings="$CLAUDE_HOME/settings.json"
+  local target_home="$1"
+  echo "▸ 合并 $target_home/settings.json"
+  local settings="$target_home/settings.json"
   # 备份现有 settings.json
   if [ -f "$settings" ] && ! grep -q "workflow_phase.py\|codegraph_gate.py" "$settings" 2>/dev/null; then
-    mkdir -p "$BACKUP_DIR"
-    cp -p "$settings" "$BACKUP_DIR/settings.json"
-    echo "  ↺ 备份现有 settings.json -> $BACKUP_DIR/settings.json"
+    mkdir -p "$BACKUP_DIR/${target_home##*/}"
+    cp -p "$settings" "$BACKUP_DIR/${target_home##*/}/settings.json"
+    echo "  ↺ 备份现有 settings.json -> $BACKUP_DIR/${target_home##*/}/settings.json"
   fi
 
   python3 - "$settings" <<'PY'
@@ -219,6 +228,14 @@ PY
   echo "✓ settings.json 合并完成"
 }
 
+# ---------- 按引擎 home 安装（copies + settings hooks 注册） ----------
+# claude home 永远装（现状不变）；--engine qodercli 时追加 qoder config home。
+install_to_home() {
+  local target_home="$1"
+  install_files "$target_home"
+  merge_settings "$target_home"
+}
+
 # ---------- 追写 ~/.bashrc 的 dl 函数 ----------
 # 用 BEGIN/END dl-workflow 段落做幂等标记。
 # dl 是工作流入口，独立于 ac-ark/claude（不碰用户的 provider shim）。
@@ -271,9 +288,15 @@ _dl_launch() {
   "$DL_WF_HOME/scripts/workflow/dl-launch.sh" --workflow "$@"
 }
 
-# dl 命令：独立入口
+# dl 命令：独立入口。@qoder = qodercli 引擎（子 shell 置 DL_ENGINE，不污染当前 shell）
 dl() {
-  [ $# -ge 1 ] || { echo "用法: dl <name> [--resume|--phase <p>|--base <ref>|--debug|--done] | list" >&2; return 1; }
+  [ $# -ge 1 ] || { echo "用法: dl [@qoder] <name> [--resume|--phase <p>|--base <ref>|--debug|--done] | list" >&2; return 1; }
+  if [ "$1" = "@qoder" ]; then
+    shift
+    [ $# -ge 1 ] || { echo "用法: dl @qoder <name> [args...]" >&2; return 1; }
+    ( export DL_ENGINE=qodercli; _dl_launch "$@" )
+    return
+  fi
   _dl_launch "$@"
 }
 # END dl-workflow
@@ -502,22 +525,40 @@ main() {
   echo "  目标:   $CLAUDE_HOME/"
   echo
   ensure_home "$@"
-  local arg
-  for arg in "$@"; do
-    case "$arg" in
-      --skip-dashboard) SKIP_DASHBOARD=1 ;;
-      --skip-codegraph) SKIP_CODEGRAPH=1 ;;
-      --skip-html) SKIP_HTML=1 ;;
-      --skip-distiller) SKIP_DISTILLER=1 ;;
-      --project) PROJECT_MODE=1 ;;
-      --project=*) PROJECT_MODE=1; PROJECT_DIR="${arg#--project=}" ;;
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --skip-dashboard) SKIP_DASHBOARD=1; shift ;;
+      --skip-codegraph) SKIP_CODEGRAPH=1; shift ;;
+      --skip-html) SKIP_HTML=1; shift ;;
+      --skip-distiller) SKIP_DISTILLER=1; shift ;;
+      --project) PROJECT_MODE=1; shift ;;
+      --project=*) PROJECT_MODE=1; PROJECT_DIR="${1#--project=}"; shift ;;
+      --engine)
+        [ $# -ge 2 ] || { echo "✗ --engine 需要值（claude|qodercli）" >&2; exit 1; }
+        ENGINE="$2"; shift 2 ;;
+      --engine=*) ENGINE="${1#--engine=}"; shift ;;
       -h|--help) usage; exit 0 ;;
-      *) echo "✗ 未知参数: $arg" >&2; usage >&2; exit 1 ;;
+      *) echo "✗ 未知参数: $1" >&2; usage >&2; exit 1 ;;
     esac
   done
+  if [ -n "$ENGINE" ] && [ "$ENGINE" != "claude" ] && [ "$ENGINE" != "qodercli" ]; then
+    echo "✗ --engine 只支持 claude|qodercli（当前: $ENGINE）" >&2; exit 1
+  fi
   check_deps
-  install_files
-  merge_settings
+  install_to_home "$CLAUDE_HOME"   # claude 永远装（现状不变）
+  if [ "$ENGINE" = "qodercli" ]; then
+    QODER_HOME="${QODER_CONFIG_DIR:-$HOME/.qoder}"
+    install_to_home "$QODER_HOME"
+    cat <<EOF
+✓ qodercli 引擎已接线到 $QODER_HOME
+  后续三步人工项（P0 D8/D10）：
+  ① 认证：qodercli login（或 export QODER_PERSONAL_ACCESS_TOKEN）
+  ② BYOK：TUI 跑 qodercli → /model → Custom → Add custom model 注册一次
+     （服务端校验，手写 settings 只过本地解析、调用会被拒）
+  ③ 项目目录首次进 TUI 确认 Trusted Workspace（不受信目录不加载项目级
+     settings/hooks/AGENTS.md）
+EOF
+  fi
   install_bashrc
   install_dashboard_deps
   install_codegraph

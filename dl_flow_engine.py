@@ -35,6 +35,9 @@ from pathlib import Path
 from typing import Any
 
 
+import dl_engine
+
+
 # ---------- 节点树（单源在 dl_flow_nodes.py；此处 re-export 保持 engine.* 访问面不变）----------
 #
 # 拆分缘由（2026-07-27，designs/scope-and-constraints-substeps-design.md §6 前置项）：
@@ -421,8 +424,11 @@ MERGED_RUN_NODES = frozenset({"understand:2"})
 # （2026-08-01 understand:1 审计：24 次裁决 316.6s 全 allow 纯税，其中
 # AskUserQuestion 3 次均值 46.2s 被误归因为用户思考时间）。
 SETTINGS_TEMPLATE_VERSION = (
-    10  # v10：项目工具 command 头并入 allowlist（wf_write_settings 补写，
+    11  # v11：qoder 引擎附加 model 键（DL_QODER_MODEL 设值时，wf_write_settings
 )
+# qoder 分支条件行）——per-wf settings 经 --settings 传入每个段/judge，模型选择
+# 随文件走不依赖账号默认；claude 引擎无 DL_QODER_MODEL 时模板逐位不变（空行）。
+# v10：项目工具 command 头并入 allowlist（wf_write_settings 补写，
 # project_tool_heads() 过滤后只加只读发现类——codebase-archaeology-toolbox-design
 # §3.2 action 3 / §4 row 5；空工具 = 零改动。
 # v9：statusLine 进度栏入模板（dl_statusline.py，refreshInterval=10 空闲
@@ -2912,13 +2918,17 @@ def _run_judge_once(prompt: str) -> tuple[bool, str, bool]:
         # 主会话与 provider/认证链不动（K3 端点忽略该 var，无副作用）。
         env = dict(os.environ)
         env["MAX_THINKING_TOKENS"] = "0"
+        eng = dl_engine.get_engine()
         res = subprocess.run(
             # --tools ""：judge 明确不调工具，裁掉全套工具 schema（harness 开销大头）。
             # --system-prompt：judge 人设替换 coding 助手人设，减人设冲突干扰。
             # 两者都是命令行 flag：settings.json 加载链不动,认证（env 继承或
             # settings env 块）在任何机器上照常。
+            # skills 注册表路径按引擎单点替换（rubric 文本在 dl_flow_nodes 静态
+            # 定义，此处是全部 judge prompt 的唯一收口）：先长后短防子串误伤
+            # （"~/.claude/skills" 本身含 ".claude/skills"）。
             [
-                "claude",
+                eng.binary,
                 "-p",
                 "--output-format",
                 "json",
@@ -2928,7 +2938,9 @@ def _run_judge_once(prompt: str) -> tuple[bool, str, bool]:
                 *NO_MCP_ARGS,
                 "--system-prompt",
                 JUDGE_SYSTEM_PROMPT,
-                prompt,
+                prompt.replace("~/.claude/skills", eng.skills_dir_display).replace(
+                    ".claude/skills", f"{eng.project_resource_dir}/skills"
+                ),
             ],
             capture_output=True,
             text=True,
@@ -2951,7 +2963,7 @@ def _run_judge_once(prompt: str) -> tuple[bool, str, bool]:
         return False, f"judge 调用失败（{type(e).__name__}）", False
     if res.returncode != 0:
         LAST_JUDGE_META["judge_error"] = f"exit={res.returncode}"
-        return False, f"judge claude -p 退出码 {res.returncode}", False
+        return False, f"judge {eng.binary} -p 退出码 {res.returncode}", False
 
     # claude -p --output-format json：stdout 末尾一行是 {"is_error":...,"result":"..."}
     # （冒烟实测：ac-ark 包装器在前面混入调试日志,但 result JSON 在最后一行）。

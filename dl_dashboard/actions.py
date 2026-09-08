@@ -20,6 +20,7 @@ from dl_dashboard.scanner import meta_root
 DLWF = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(DLWF))
 
+import dl_engine  # noqa: E402
 import dl_flow_engine as engine  # noqa: E402
 
 log = logging.getLogger("dl_dashboard.actions")
@@ -207,19 +208,21 @@ def inject_answer(project: Path, name: str, answer: str,
                        "防重复注入；新问题落盘后自动恢复可注入")
     meta = meta_root(project, name)
     ov = engine.segment_spawn_overrides(node, step)
+    eng = dl_engine.get_engine()
     cmd = [
-        "claude", "--resume", sid,
+        eng.binary, "--resume", sid,
         "--settings", str(meta / "settings.drive-tui.json"),
         "--append-system-prompt-file", str(meta / f"tui-rules.{nid}.md"),
-        "--permission-mode", "acceptEdits",
     ]
+    cmd += eng.permission_args()
     if ov["tools"]:
         # -p 一次性轮无真人可答：AskUserQuestion 结构性移除（调了也是立即
         # 报错的白费轮，还诱导模型走「重问」死路——E2 实爆），只补清单工具
         tools = tuple(ov["tools"]) + ("TaskCreate", "TaskUpdate")
         cmd += ["--tools", ",".join(tools)]
     else:
-        cmd += ["--disallowedTools", "AskUserQuestion"]
+        # qoder 无 AskUserQuestion 工具 = 结构堵死，封禁豁免（P0 D4）
+        cmd += eng.disallow_ask_args()
     # E2：一次性注入包装——声明「之后无人可答」防重问死路（-p 单轮会话，
     # 文字重问 = 零 trace 收场），指路落库协议；缺漏由门控裁决不重问
     payload = (

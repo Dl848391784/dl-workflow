@@ -766,3 +766,42 @@ class TestTuiAutodone:
         out, _err = _run_hook(mod, wf_repo, monkeypatch, capsys)
         assert self._autodone(wf_repo).exists()
         assert "hookSpecificOutput" not in out  # 不做编排（防双 orchestrator）
+
+
+class TestStopContinueEngineContract:
+    """P0 D5 实测：qoder 只认 decision=block+reason（additionalContext 被忽略）。"""
+
+    def test_claude_outputs_additional_context(self, monkeypatch, capsys):
+        advance = _load_hook()
+        monkeypatch.delenv("DL_ENGINE", raising=False)
+        advance._stop_continue("BODY_X")
+        out = json.loads(capsys.readouterr().out)
+        assert out["hookSpecificOutput"]["additionalContext"] == "BODY_X"
+        assert "decision" not in out
+
+    def test_qoder_outputs_decision_reason(self, monkeypatch, capsys):
+        advance = _load_hook()
+        monkeypatch.setenv("DL_ENGINE", "qodercli")
+        advance._stop_continue("BODY_X")
+        out = json.loads(capsys.readouterr().out)
+        assert out == {"decision": "block", "reason": "BODY_X"}
+
+
+class TestAgentIdRegexDualEngine:
+    """P0 D7：qoder agentId = a<type>-<hex16>（如 ageneral-purpose-104997bfb6f1884a）。"""
+
+    @pytest.mark.parametrize("text,expect", [
+        ("Async agent launched successfully.\nagentId: 104997bfb6f1884a (internal ID)", "104997bfb6f1884a"),  # claude
+        ("Async agent launched successfully.\nagentId: ageneral-purpose-104997bfb6f1884a (internal ID", "104997bfb6f1884a"),  # qoder
+    ])
+    def test_launch_id(self, text, expect):
+        advance = _load_hook()
+        assert advance._AGENT_LAUNCH_ID_RE.findall(text) == [expect]
+
+    @pytest.mark.parametrize("text,expect", [
+        ("<task-id>104997bfb6f1884a</task-id>", "104997bfb6f1884a"),
+        ("<task-id>ageneral-purpose-104997bfb6f1884a</task-id>", "104997bfb6f1884a"),
+    ])
+    def test_done_id(self, text, expect):
+        advance = _load_hook()
+        assert advance._AGENT_DONE_ID_RE.findall(text) == [expect]
