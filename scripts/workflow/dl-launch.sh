@@ -1,5 +1,5 @@
 #!/bin/bash
-# dl-launch.sh - 工作流 launcher：建/续 worktree + state + session，起 claude TUI
+# dl-launch.sh - 工作流 launcher：建/续 worktree + state + session，起所选引擎 TUI（默认原生 claude）
 # 真源：designs/workflow-system-design.md
 # 被 ~/.bashrc 的 dl 调用（不设 provider env，继承当前 shell env）。
 #
@@ -239,7 +239,7 @@ echo "────────────────────────�
 echo "进入工作流（隔离 worktree）。/dl status 查看阶段，/dl next 推进。"
 echo "──────────────────────────────────────────────────────────"
 
-# ---------- 起 claude ----------
+# ---------- 起所选引擎（默认原生 claude） ----------
 # settings：per-workflow settings 启用工作流 hook + output style（叠加在 project settings 上）
 WF_SETTINGS="$WF_META_ROOT/$WF_NAME/settings.json"
 # 若 settings 模板缺失，回退到不带 --settings（仍可用 hook 注入，但 output style 失效）
@@ -272,7 +272,7 @@ fi
 
 cd "$WORKTREE_PATH"
 
-# launcher 始终 exec 原生 claude。provider env 由调用方在交互 shell 里 export
+# launcher exec 所选引擎（默认原生 claude）。provider env 由调用方在交互 shell 里 export
 # （ac-ark --dl 时 ac-ark 函数已 export ark env；claude --dl / dl 时用默认或当前 shell env）。
 # launcher 子进程继承父 shell env，故 claude 自动带上 provider 的 ANTHROPIC_* 配置。
 # 不用 @provider 机制：provider 选择由「用哪个命令调」决定，不是 launcher 去 exec provider

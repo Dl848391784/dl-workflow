@@ -274,6 +274,7 @@ wf_write_settings() {
   # permissions.defaultMode 保持 acceptEdits：qoder 忽略 settings defaultMode
   #（P0 实测两拼写 init=default）——权限唯 CLI flag 承重，dl-launch PERM_ARGS 已钉；
   # 此值供 claude 引擎。
+  # DL_QODER_MODEL 直接插值未 JSON 转义——modelID 实为安全 slug；含引号会产出非法 JSON 在 spawn 时显式报错（fail loud，非静默）
   local model_line=""
   if [ "${DL_ENGINE:-claude}" = "qodercli" ] && [ -n "${DL_QODER_MODEL:-}" ]; then
     model_line="\"model\": \"${DL_QODER_MODEL}\","
