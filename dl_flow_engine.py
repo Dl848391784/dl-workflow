@@ -35,6 +35,9 @@ from pathlib import Path
 from typing import Any
 
 
+import dl_engine
+
+
 # ---------- 节点树（单源在 dl_flow_nodes.py；此处 re-export 保持 engine.* 访问面不变）----------
 #
 # 拆分缘由（2026-07-27，designs/scope-and-constraints-substeps-design.md §6 前置项）：
@@ -2912,13 +2915,17 @@ def _run_judge_once(prompt: str) -> tuple[bool, str, bool]:
         # 主会话与 provider/认证链不动（K3 端点忽略该 var，无副作用）。
         env = dict(os.environ)
         env["MAX_THINKING_TOKENS"] = "0"
+        eng = dl_engine.get_engine()
         res = subprocess.run(
             # --tools ""：judge 明确不调工具，裁掉全套工具 schema（harness 开销大头）。
             # --system-prompt：judge 人设替换 coding 助手人设，减人设冲突干扰。
             # 两者都是命令行 flag：settings.json 加载链不动,认证（env 继承或
             # settings env 块）在任何机器上照常。
+            # skills 注册表路径按引擎单点替换（rubric 文本在 dl_flow_nodes 静态
+            # 定义，此处是全部 judge prompt 的唯一收口）：先长后短防子串误伤
+            # （"~/.claude/skills" 本身含 ".claude/skills"）。
             [
-                "claude",
+                eng.binary,
                 "-p",
                 "--output-format",
                 "json",
@@ -2928,7 +2935,9 @@ def _run_judge_once(prompt: str) -> tuple[bool, str, bool]:
                 *NO_MCP_ARGS,
                 "--system-prompt",
                 JUDGE_SYSTEM_PROMPT,
-                prompt,
+                prompt.replace("~/.claude/skills", eng.skills_dir_display).replace(
+                    ".claude/skills", f"{eng.project_resource_dir}/skills"
+                ),
             ],
             capture_output=True,
             text=True,

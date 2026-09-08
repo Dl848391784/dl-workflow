@@ -14314,3 +14314,38 @@ class TestU4Sub3FermateCut:
         assert "fermate 裁剪·机械静默" in ferm
         # 注记只命中子3 一行（其余 4 步不带）
         assert ferm.count("fermate 裁剪·机械静默") == 1
+
+
+# ---------- judge spawn 双引擎（P1 T6）----------
+
+
+class TestJudgeCmdDualEngine:
+    def test_judge_cmd_qoder(self, monkeypatch):
+        # qodercli 引擎：judge spawn 的 binary 走 profile，rubric 文本里的
+        # ~/.claude/skills / .claude/skills 字面按引擎单点替换（prompt 参数化）。
+        monkeypatch.setenv("DL_ENGINE", "qodercli")
+        captured = {}
+
+        class FakeRes:
+            returncode = 0
+            stdout = (
+                '{"is_error":false,"result":"{\\"pass\\":true,\\"reason\\":\\"ok\\"}"}'
+            )
+
+        def fake_run(cmd, **kw):
+            captured["cmd"] = cmd
+            return FakeRes()
+
+        monkeypatch.setattr(eng.subprocess, "run", fake_run)
+        ok, reason, retryable = eng._run_judge_once(
+            "判据含 ~/.claude/skills 与 .claude/skills 引用"
+        )
+        # FakeRes 让判定解析走完（pass=True，非重试路径）
+        assert ok and reason == "ok" and not retryable
+        cmd = captured["cmd"]
+        assert cmd[0] == "qodercli"
+        prompt_arg = cmd[-1]
+        assert "~/.qoder/skills" in prompt_arg
+        assert "~/.claude/skills" not in prompt_arg
+        assert ".claude/skills" not in prompt_arg
+        assert ".qoder/skills" in prompt_arg
