@@ -10,12 +10,13 @@ from dl_dashboard import actions
 from dl_dashboard.scanner import meta_root
 
 
-def _mk_state(project: Path, name: str, segs, *, worktree_path: str | None = None) -> Path:
+def _mk_state(project: Path, name: str, segs, *, worktree_path: str | None = None,
+              phase: str = "plan", sub_index: int = 4) -> Path:
     meta = meta_root(project, name)
     meta.mkdir(parents=True)
     state = {
-        "name": name, "phase": "plan", "sub_index": 4, "sub_step_index": 2,
-        "node": "plan:4", "gate": "pending", "held_for_gate": True,
+        "name": name, "phase": phase, "sub_index": sub_index, "sub_step_index": 2,
+        "node": f"{phase}:{sub_index}", "gate": "pending", "held_for_gate": True,
         "segment_sessions": segs,
     }
     if worktree_path is not None:
@@ -389,6 +390,66 @@ def test_inject_wraps_answer_and_drops_ask_user_question(tmp_path):
     payload = cmd[cmd.index("-p") + 1]
     assert "选A" in payload and "一次性注入" in payload and "STEP_DONE" in payload
     assert "AskUserQuestion" not in ",".join(cmd)
+
+
+class TestInjectCmdDualEngine:
+    """T7：needuser 注入 cmd 的 binary/perm/disallow_ask 走 dl_engine profile。"""
+
+    def _inject_cmd(self, tmp_path, monkeypatch, *, engine_name,
+                    phase="plan", sub_index=4):
+        """跑 inject_answer 到 cmd 构造为止，返回捕获的 cmd 列表。"""
+        if engine_name is None:
+            monkeypatch.delenv("DL_ENGINE", raising=False)
+        else:
+            monkeypatch.setenv("DL_ENGINE", engine_name)
+        nid = f"{phase}:{sub_index}"
+        meta = _mk_state(tmp_path, "demo", [
+            {"ts": "t", "session_id": "s1", "kind": "tui-step-needuser",
+             "node": nid, "sub_step": 2, "note": "rc=0"},
+        ], worktree_path=str(tmp_path / "wt"), phase=phase, sub_index=sub_index)
+        (meta / "settings.drive-tui.json").write_text("{}", encoding="utf-8")
+        (meta / f"tui-rules.{nid}.md").write_text("rules", encoding="utf-8")
+        _mk_need_user(meta, node=nid, sub_step=2)
+        with patch.object(actions.subprocess, "run",
+                          return_value=MagicMock(returncode=0, stdout="", stderr="")) as run:
+            ok, msg = actions.inject_answer(tmp_path, "demo", "选A")
+        assert ok, msg
+        return run.call_args[0][0]
+
+    def test_inject_cmd_qoder(self, tmp_path, monkeypatch):
+        # plan:4 带 segment_tools → --tools 白名单分支
+        cmd = self._inject_cmd(tmp_path, monkeypatch, engine_name="qodercli")
+        assert cmd[0] == "qodercli"
+        assert "accept_edits" in cmd
+        assert "--disallowedTools" not in cmd
+        assert "--tools" in cmd
+
+    def test_inject_cmd_qoder_no_tools_node(self, tmp_path, monkeypatch):
+        # execute:0 无 segment_tools → disallow_ask 分支（qoder = 空，结构堵死）
+        cmd = self._inject_cmd(tmp_path, monkeypatch, engine_name="qodercli",
+                               phase="execute", sub_index=0)
+        assert cmd[0] == "qodercli"
+        assert "accept_edits" in cmd
+        assert "--disallowedTools" not in cmd
+        assert "--tools" not in cmd
+
+    def test_inject_cmd_claude_default(self, tmp_path, monkeypatch):
+        # claude 默认（DL_ENGINE 未设）→ 与单引擎时代逐位一致
+        cmd = self._inject_cmd(tmp_path, monkeypatch, engine_name=None)
+        assert cmd[0] == "claude"
+        assert "acceptEdits" in cmd
+        assert "--disallowedTools" not in cmd  # plan:4 走 --tools 分支
+        tools = cmd[cmd.index("--tools") + 1]
+        assert "TaskCreate" in tools and "TaskUpdate" in tools
+
+    def test_inject_cmd_claude_no_tools_node(self, tmp_path, monkeypatch):
+        # execute:0 → claude disallow_ask 分支（qoder 对照 = 空）
+        cmd = self._inject_cmd(tmp_path, monkeypatch, engine_name=None,
+                               phase="execute", sub_index=0)
+        assert cmd[0] == "claude"
+        assert "acceptEdits" in cmd
+        assert "--disallowedTools" in cmd
+        assert "AskUserQuestion" in cmd
 
 
 def test_inject_ready_false_when_answered(tmp_path):
