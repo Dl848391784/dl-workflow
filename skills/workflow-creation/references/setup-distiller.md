@@ -60,3 +60,20 @@ inject hook 是 Claude Code 的 settings.json hook 协议——Qoder 下不触�
 ## 3. 远程验收模式（维护者看不到目标机器）
 
 目标机器：`install.sh --project`（尾部自检清单）→ `doctor.py`（五节报告）→ **两份输出贴回维护者**。维护者判读：§2 java nodes（Java 索引成败）/ edges kinds（imports 边量级）→ §3 按 source 计数 + drift/候选清单 → §1/§4 全 ✅ = 接线贯通。doctor 只读 db/配置；inject 冒烟会在项目 .claude/ 留 hook 调用日志（既有观测行为）。
+
+## 4. 安装层改动的验证范式：fake-HOME e2e（2026-09-04 起）
+
+改 install.sh/pack.sh 后**不在真机试**（bashrc/settings/npm/pip 全有副作用），用假 HOME 全链路真跑：
+
+```bash
+rm -rf /tmp/fh && mkdir -p /tmp/fh
+env HOME=/tmp/fh PATH=/usr/local/bin:/usr/bin:/bin bash <repo>/install.sh   # 首装：全层真实下载
+env HOME=/tmp/fh PATH=/usr/local/bin:/usr/bin:/bin bash /tmp/fh/.dl-workflow/install.sh   # 重跑：幂等验证
+```
+
+- **PATH 剥离** `~/.npm-global/bin` 等本机已装路径——否则 `command -v codegraph` 之类检查命中本机存量，安装路径测不到（本机环境污染=fake-HOME 最常见的假阳性）。
+- **验收双判据**：首装自检报告全 ✓（pip/npm 真实下载跑通）；**重跑每步干净「已存在跳过」**（幂等性=重跑零副作用，这是安装脚本的第一契约）。
+- **`python3 -m pip` 非 `pip3`**（实爆）：`~/.local/bin/pip3` 是 user-site wrapper 脚本，`from pip._internal` 解析依赖原 HOME 的 user site——HOME 一切换即 `ModuleNotFoundError`。系统 pip 走 `python3 -m pip` 永远可达。
+- **镜像=一次性 CLI 参数，不碰用户配置文件**：`pip --index-url aliyun`、`npm --registry=npmmirror`、`env npm_config_registry=... bun install`——境内默认源极慢是常态，但改写用户 `~/.npmrc`/`pip.conf` 是越界（auto-updater 镜像事故同族教训）。pip 侧有例外面：`pip config list` 已配 index 时不叠加（尊重既有配置）。
+- **ensure_home 模式**（tarball 部署）：脚本自定位源目录 ≠ `$HOME/.dl-workflow` 时先 `cp -a` overlay 过去再 `exec` 重跑——overlay **禁 --delete**（`~/.dl-workflow` 有 dashboard-run 等运行态），升级残留旧文件可接受。
+- **自检报告非零退出**：装完逐项 ✓/✗ + 警告汇总，失败项 exit 1——装没装对不靠人读全文判断（doctor.py 是 --project 侧的同类桥梁，§3）。
