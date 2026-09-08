@@ -68,3 +68,17 @@ class TestArgsComposition:
         assert dl_engine.get_engine().skills_dir_display == "~/.claude/skills"
         monkeypatch.setenv("DL_ENGINE", "qodercli")
         assert dl_engine.get_engine().skills_dir_display == "~/.qoder/skills"
+
+
+class TestTranscriptProjectsRoot:
+    """D14：transcript 根按引擎（E2E 冒烟实测 qoder 段 transcript 落 ~/.qoder/projects）。"""
+
+    def test_claude_root(self, monkeypatch):
+        monkeypatch.delenv("DL_ENGINE", raising=False)
+        eng = dl_engine.get_engine()
+        assert eng.transcript_projects_root == Path.home() / ".claude" / "projects"
+
+    def test_qoder_root(self, monkeypatch):
+        monkeypatch.setenv("DL_ENGINE", "qodercli")
+        eng = dl_engine.get_engine()
+        assert eng.transcript_projects_root == Path.home() / ".qoder" / "projects"
