@@ -79,9 +79,18 @@ def check_engine() -> "list[tuple[bool, str]]":
     results = [(shutil.which(eng.binary) is not None, f"引擎 binary {eng.binary} 在 PATH")]
     if eng.name == "qodercli":
         settings = eng.config_root / "settings.json"
-        has_byok = settings.exists() and '"apiKey"' in settings.read_text(
-            encoding="utf-8", errors="replace"
-        )
+        # 判据（merge 后实机修正）：向导注册后凭据不落 settings.json（存 ~/.qoder/.auth），
+        # settings 只留 model.name="provider/model" 选中态——查 apiKey 字面值必假 ❌。
+        # 自定义模型键形态 = "provider/model"（内置模型无 /）。
+        has_byok = False
+        if settings.exists():
+            try:
+                import json as _json
+
+                _data = _json.loads(settings.read_text(encoding="utf-8", errors="replace"))
+                has_byok = "/" in str((_data.get("model") or {}).get("name", ""))
+            except (ValueError, AttributeError):
+                has_byok = False
         results.append(
             (has_byok, f"BYOK 已向 TUI 向导注册（{settings}）——未注册则 /model Custom 向导注册一次")
         )

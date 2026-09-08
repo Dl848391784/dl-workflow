@@ -62,6 +62,28 @@ class TestCheckEngine:
         byok = [ok for ok, msg in results if "BYOK" in msg]
         assert byok and byok[0] is False  # 未注册 → False（warn 级由主流程定）
 
+    def test_qoder_byok_registered_via_model_name(self, monkeypatch, tmp_path):
+        """向导注册后判据=settings model.name 为 provider/model 形态（凭据在 .auth 不在 settings）。"""
+        monkeypatch.setenv("DL_ENGINE", "qodercli")
+        (tmp_path / "settings.json").write_text(
+            '{"model": {"name": "deepseek/deepseek-v4-flash-pg"}}', encoding="utf-8"
+        )
+        monkeypatch.setenv("QODER_CONFIG_DIR", str(tmp_path))
+        import sys as _sys
+
+        old = _sys.modules.pop("dl_engine", None)
+        try:
+            from doctor import check_engine
+
+            results = check_engine()
+        finally:
+            if old is not None:
+                _sys.modules["dl_engine"] = old
+            else:
+                _sys.modules.pop("dl_engine", None)
+        byok = [ok for ok, msg in results if "BYOK" in msg]
+        assert byok and byok[0] is True
+
     def test_unknown_engine_reported_not_crash(self, monkeypatch, tmp_path, capsys):
         monkeypatch.setenv("DL_ENGINE", "gemini")
         doctor = _load()
