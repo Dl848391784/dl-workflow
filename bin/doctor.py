@@ -17,6 +17,7 @@
 
 import argparse
 import json
+import os
 import sqlite3
 import subprocess
 import sys
@@ -98,7 +99,7 @@ def _sec_wiring(project: Path, home: Path) -> bool:
             spec = importlib.util.spec_from_file_location("setup_project", sp)
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
-            checks = mod.verify_project(project, home)
+            checks = mod.verify_project(project, home, os.environ.get("DL_ENGINE", "claude"))
         except Exception as e:  # 目标机 setup_project 损坏也不拖垮整份报告
             return _ck("setup_project 加载/自检", False, f"{e.__class__.__name__}: {str(e)[:100]}")
         for name, cok, detail in checks:

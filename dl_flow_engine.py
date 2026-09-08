@@ -2963,7 +2963,7 @@ def _run_judge_once(prompt: str) -> tuple[bool, str, bool]:
         return False, f"judge 调用失败（{type(e).__name__}）", False
     if res.returncode != 0:
         LAST_JUDGE_META["judge_error"] = f"exit={res.returncode}"
-        return False, f"judge claude -p 退出码 {res.returncode}", False
+        return False, f"judge {eng.binary} -p 退出码 {res.returncode}", False
 
     # claude -p --output-format json：stdout 末尾一行是 {"is_error":...,"result":"..."}
     # （冒烟实测：ac-ark 包装器在前面混入调试日志,但 result JSON 在最后一行）。
