@@ -5,7 +5,7 @@
 「装没装对、索引成不成、蒸馏有没有产出」。只读 db/配置；inject 冒烟按 hook 既有行为留调用日志（.claude/.c*_inject.log）。
 
 覆盖五节（inject 冒烟会在项目 .claude/ 留 hook 调用日志，属既有观测行为）：
-  1. 接线（settings 注册/post-commit/等价自检复用 setup_project.verify_project）
+  1. 接线（settings 注册/post-commit/等价自检复用 setup_project.verify_project + 引擎就绪：binary on PATH/qoder BYOK 注册态）
   2. codegraph db 规模与语言构成（Java 索引成不成的第一判据：nodes/edges 数 + .java 文件数）
   3. conventions db 产出（按 source 计数 + drift 清单 + inferred 候选清单）
   4. inject 冒烟（双 hook，cwd payload）
@@ -52,6 +52,32 @@ def _ro(db: Path) -> sqlite3.Connection | None:
         return None
 
 
+def check_engine() -> "list[tuple[bool, str]]":
+    """引擎就绪检查（qodercli-engine-profile P1 T10）。
+
+    ① DL_ENGINE 声明引擎的 binary 在 PATH；② qoder 引擎加查 BYOK 注册态
+    （~/.qoder/settings.json 含 apiKey 字段 = 向导注册过；P0 D8：手写
+    customModels 只过本地解析、调用被云端拒，必须 TUI 向导注册）。
+    """
+    import shutil
+
+    # repo 根不在 sys.path（脚本直跑），先补再 import——照 hooks/ 既有约定
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    import dl_engine  # noqa: E402
+
+    eng = dl_engine.get_engine()
+    results = [(shutil.which(eng.binary) is not None, f"引擎 binary {eng.binary} 在 PATH")]
+    if eng.name == "qodercli":
+        settings = eng.config_root / "settings.json"
+        has_byok = settings.exists() and '"apiKey"' in settings.read_text(
+            encoding="utf-8", errors="replace"
+        )
+        results.append(
+            (has_byok, f"BYOK 已向 TUI 向导注册（{settings}）——未注册则 /model Custom 向导注册一次")
+        )
+    return results
+
+
 def _sec_wiring(project: Path, home: Path) -> bool:
     _sec("1. 接线")
     ok = True
@@ -70,6 +96,8 @@ def _sec_wiring(project: Path, home: Path) -> bool:
             ok &= _ck(name, cok, detail)
     else:
         ok &= _ck("setup_project.py 存在", False, str(sp))
+    for eok, msg in check_engine():
+        ok &= _ck(msg, eok)
     return ok
 
 
