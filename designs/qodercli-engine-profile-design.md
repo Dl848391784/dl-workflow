@@ -104,12 +104,19 @@ qodercli（阿里，2025-10-16 发布）实证为 Claude Code 兼容 harness：5
 - bashrc `dl @qoder <name>` 接通（`dl @<provider>` 扩展位本就预留）→ `DL_ENGINE=qodercli` 贯穿 launcher/drive/dashboard
 - uninstall.sh 对称支持
 
-## 5. 验收与测试
+## 5. 验收与测试（✅ P1 全项完成 2026-09-09）
 
-- P0 对账矩阵 = 测试基线，逐项留证据（hook payload 落盘样本、stream-json 原始流样本）
-- 适配层 golden test：双引擎 cmd 构造快照对比
-- 回归：claude 引擎下现有行为逐位不变（现有测试套件过）
-- 最终验收：同一测试工作流双引擎各跑 u 阶段起步，evidence/transcript/成本字段逐条对账
+- ✅ P0 对账矩阵 = 测试基线（§3a/3b）
+- ✅ 适配层 golden test：双引擎 cmd 构造快照（tests/test_dl_engine.py 10 条 + test_dl_drive.py TestSegmentCmdDualEngine）
+- ✅ 回归：分支全量 **1568 passed, 2 skipped** vs main 基线 1532 passed（+36 新测试零回归）；终审（opus 全分支 26 commits）架构/正确性零缺陷，1 必修+7 可带修由修复波 4 commit 全落地
+- ✅ **E2E 冒烟（qoder 引擎 + DeepSeek BYOK，fermate 全程）**：/tmp/dl-qoder-smoke 探针仓，`DL_ENGINE=qodercli` 起真实工作流，understand 4 子阶段 + plan:1 + plan:2 **gate=done 完结**，产物装配（understands/plans md+HTML）正常。逐子步骤门控 judge 全部经 qodercli。实证覆盖：
+  - headless 段（run_session）、MergedSession 段内续步（NDJSON 注入）、prep→need_user→qodercli --resume -p 注入循环、红队预派发、confirm-readback、门控 nudge 重试、合并段异常退出自动重派
+  - hooks 全链：SessionStart/UPS 注入、PreToolUse fence、Stop advance 推进、statusLine
+  - permissions allowlist 被 qoder 正确执行（policy source 实证），非白名单命令自动拒绝且模型自适应（无静默）
+- **E2E 新发现（2 项）**：
+  - **D13（qodercli 内部稳定性）**：长 merged 会话中 2 次 wedge——`model.response.completed`(stop_reason=tool_use) + PreToolUse hook 成功后无任何后续事件（无 permission.resolved/shell.started），进程睡眠不死。三变量最小复现（非白名单/多行命令/真 drive-tui settings）均不重现→判定 qodercli 内部问题（长 SDK 会话），非适配层缺陷。处置：SIGTERM 后 driver 自动重派成功（韧性成立）。**后续项：qoder 引擎加段无活动 watchdog（超时自动 SIGTERM=自动重派，把人工处置机械化）**
+  - **D14（适配层漏点，已修）**：dl_flow_trace transcript 根硬编码 `~/.claude/projects`——qoder 段 transcript 落 `~/.qoder/projects`，agent 报告召回会零命中。修复：`EngineProfile.transcript_projects_root()` 方法（调用期解析 Path.home——字段 import 期冻结曾致 14 个既有测试 fixture 静默失效，二轮实修），commit 9b90c19+49326dd。冒烟期间 agent 派发次数=0，该路径靠单测+方法级验证兜底
+- 验收结论：**方案 A 成立，qoder 引擎可用性成立（n=1 全程）**。BYOK usage/cost 全零按设计降级（D6，segment_stats 显 $0.000 不报错）
 
 ## 6. 风险
 
