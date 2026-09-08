@@ -15,3 +15,17 @@ check() {
 check claude claude acceptEdits
 check qodercli qodercli accept_edits
 echo "✓ launcher 引擎解析双引擎正确"
+
+# wf_write_settings 引擎分支（qoder + DL_QODER_MODEL 时写 model 键）
+export WF_META_ROOT="$(mktemp -d)" WF_REPO_ROOT=/tmp WF_LIB_DIR="$PWD/scripts/workflow"
+export WF_SETTINGS_TEMPLATE_VERSION=1
+source scripts/workflow/dl-lib.sh
+DL_ENGINE=qodercli DL_QODER_MODEL=deepseek/deepseek-v4-flash-pg wf_write_settings engtest
+python3 -c "
+import json
+s = json.load(open('$WF_META_ROOT/engtest/settings.json'))
+assert s['model'] == 'deepseek/deepseek-v4-flash-pg', s.get('model')
+assert s['permissions']['defaultMode'] == 'acceptEdits'  # qoder 忽略但 claude 引擎同文件兼容
+assert any('workflow_phase.py' in h['command'] for g in s['hooks']['UserPromptSubmit'] for h in g['hooks'])
+print('✓ wf_write_settings qoder 分支正确')
+"

@@ -424,8 +424,11 @@ MERGED_RUN_NODES = frozenset({"understand:2"})
 # （2026-08-01 understand:1 审计：24 次裁决 316.6s 全 allow 纯税，其中
 # AskUserQuestion 3 次均值 46.2s 被误归因为用户思考时间）。
 SETTINGS_TEMPLATE_VERSION = (
-    10  # v10：项目工具 command 头并入 allowlist（wf_write_settings 补写，
+    11  # v11：qoder 引擎附加 model 键（DL_QODER_MODEL 设值时，wf_write_settings
 )
+# qoder 分支条件行）——per-wf settings 经 --settings 传入每个段/judge，模型选择
+# 随文件走不依赖账号默认；claude 引擎无 DL_QODER_MODEL 时模板逐位不变（空行）。
+# v10：项目工具 command 头并入 allowlist（wf_write_settings 补写，
 # project_tool_heads() 过滤后只加只读发现类——codebase-archaeology-toolbox-design
 # §3.2 action 3 / §4 row 5；空工具 = 零改动。
 # v9：statusLine 进度栏入模板（dl_statusline.py，refreshInterval=10 空闲

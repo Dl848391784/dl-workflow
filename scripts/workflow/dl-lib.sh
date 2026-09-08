@@ -269,9 +269,19 @@ wf_write_settings() {
   local LIB_DIR_ABS="$WF_LIB_DIR"
   local hk="$WF_LIB_DIR/../../hooks"
   mkdir -p "$dir"
+  # qoder 引擎附加 model 键（DL_QODER_MODEL 设值时）——per-wf settings 经
+  # --settings 传入每个段/judge，模型选择随文件走不依赖账号默认。
+  # permissions.defaultMode 保持 acceptEdits：qoder 忽略 settings defaultMode
+  #（P0 实测两拼写 init=default）——权限唯 CLI flag 承重，dl-launch PERM_ARGS 已钉；
+  # 此值供 claude 引擎。
+  local model_line=""
+  if [ "${DL_ENGINE:-claude}" = "qodercli" ] && [ -n "${DL_QODER_MODEL:-}" ]; then
+    model_line="\"model\": \"${DL_QODER_MODEL}\","
+  fi
   cat > "$dir/settings.json" <<JSON
 {
   "wf_settings_template_version": ${WF_SETTINGS_TEMPLATE_VERSION:-0},
+  ${model_line}
   "outputStyle": "workflow",
   "statusLine": {
     "type": "command",
