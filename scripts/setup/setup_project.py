@@ -239,8 +239,9 @@ def first_distill(project: Path, home: Path) -> int:
     return 0
 
 
-def _verify_settings(project: Path, home: Path) -> tuple[bool, str]:
-    path = project / ".claude" / "settings.json"
+def _verify_settings(project: Path, home: Path, engine: str = "claude") -> tuple[bool, str]:
+    resource_dir = ".qoder" if engine == "qodercli" else ".claude"
+    path = project / resource_dir / "settings.json"
     if not path.exists():
         return False, "settings.json 缺失"
     try:
@@ -256,10 +257,10 @@ def _verify_settings(project: Path, home: Path) -> tuple[bool, str]:
     return True, "两条 inject 注册指向 home"
 
 
-def verify_project(project: Path, home: Path) -> list[tuple[str, bool, str]]:
+def verify_project(project: Path, home: Path, engine: str = "claude") -> list[tuple[str, bool, str]]:
     """阶段3 等价自检（designs/setup-installer-design.md）：逐项 ✅/❌，可机器核验「效果一样」。"""
     checks: list[tuple[str, bool, str]] = []
-    ok, detail = _verify_settings(project, home)
+    ok, detail = _verify_settings(project, home, engine)
     checks.append(("settings.json inject 注册", ok, detail))
     registered = ok
     hook = project / ".git" / "hooks" / "post-commit"
@@ -341,7 +342,7 @@ def main(argv=None) -> int:
     project = args.project.resolve()
 
     if args.verify:
-        checks = _filter_skipped(verify_project(project, args.home), args.skip_index, args.skip_distill)
+        checks = _filter_skipped(verify_project(project, args.home, args.engine), args.skip_index, args.skip_distill)
         return _print_verify(checks)
 
     print(f"═══ dl setup --project {project} ═══")
@@ -361,7 +362,7 @@ def main(argv=None) -> int:
     print(f"✓ conventions.yaml: {cy}")
     if not args.skip_distill:
         first_distill(project, args.home)  # best-effort，不计 fails
-    vrc = _print_verify(_filter_skipped(verify_project(project, args.home), args.skip_index, args.skip_distill))
+    vrc = _print_verify(_filter_skipped(verify_project(project, args.home, args.engine), args.skip_index, args.skip_distill))
     if vrc != 0:
         print("  ⚠ 等价自检有 ❌（不阻断接线，见上方清单）")
     print("═══ 完成（⚠ 项不阻断，详见上方输出）═══")

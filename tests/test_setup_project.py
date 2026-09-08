@@ -352,3 +352,14 @@ class TestProjectSettingsDualEngine:
         sp = _load()
         sp.merge_project_settings(proj, Path("/home/admin/.dl-workflow"))
         assert (proj / ".claude" / "settings.json").exists()
+
+    def test_verify_settings_follows_engine(self, tmp_path):
+        """--engine qodercli 接线后 verify 必须查 .qoder（否则误报 settings 缺失）。"""
+        sp = _load()
+        proj = tmp_path / "proj"
+        (proj / ".git" / "hooks").mkdir(parents=True)
+        sp.merge_project_settings(proj, Path("/home/admin/.dl-workflow"), engine="qodercli")
+        ok, _ = sp._verify_settings(proj, Path("/home/admin/.dl-workflow"), "qodercli")
+        assert ok
+        ok_claude, detail = sp._verify_settings(proj, Path("/home/admin/.dl-workflow"))
+        assert not ok_claude and "缺失" in detail
