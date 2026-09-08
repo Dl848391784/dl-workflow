@@ -76,9 +76,9 @@ class TestTranscriptProjectsRoot:
     def test_claude_root(self, monkeypatch):
         monkeypatch.delenv("DL_ENGINE", raising=False)
         eng = dl_engine.get_engine()
-        assert eng.transcript_projects_root == Path.home() / ".claude" / "projects"
+        assert eng.transcript_projects_root() == Path.home() / ".claude" / "projects"
 
     def test_qoder_root(self, monkeypatch):
         monkeypatch.setenv("DL_ENGINE", "qodercli")
         eng = dl_engine.get_engine()
-        assert eng.transcript_projects_root == Path.home() / ".qoder" / "projects"
+        assert eng.transcript_projects_root() == Path.home() / ".qoder" / "projects"

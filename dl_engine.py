@@ -33,9 +33,17 @@ class EngineProfile:
     debug_logs_root: (
         Path | None
     )  # debug 日志自动落盘根（qoder）；claude=None（走 --debug-file）
-    # harness transcript 根（<root>/<enc-cwd>/<sid>.jsonl + subagents/，dl_flow_trace 消费）
-    transcript_projects_root: Path
     usage_metered: bool  # False=BYOK 引擎 usage/cost 全零（P0 D6），成本对账降级 N/A
+
+    def transcript_projects_root(self) -> Path:
+        """harness transcript 根（<root>/<enc-cwd>/<sid>.jsonl + subagents/，dl_flow_trace 消费）。
+
+        方法而非字段：Path.home() 必须调用期解析（既有测试 monkeypatch Path.home
+        注入 fixture——字段在 import 期冻结会静默失效，2026-09-09 14 连跪实证）。
+        """
+        if self.name == "claude":
+            return Path.home() / ".claude" / "projects"
+        return self.config_root / "projects"
 
     def permission_args(self) -> list[str]:
         return ["--permission-mode", self.permission_cli_value]
@@ -69,7 +77,6 @@ _PROFILES: dict[str, EngineProfile] = {
         permission_cli_value="acceptEdits",
         skills_dir_display="~/.claude/skills",
         debug_logs_root=None,
-        transcript_projects_root=Path.home() / ".claude" / "projects",
         usage_metered=True,
     ),
     "qodercli": EngineProfile(
@@ -82,11 +89,6 @@ _PROFILES: dict[str, EngineProfile] = {
         permission_cli_value="accept_edits",
         skills_dir_display="~/.qoder/skills",
         debug_logs_root=Path.home() / ".qoder" / "logs" / "sessions",
-        # P0 实测 transcript 落 ~/.qoder/projects（编码规则同 claude）
-        transcript_projects_root=Path(
-            os.environ.get("QODER_CONFIG_DIR") or (Path.home() / ".qoder")
-        )
-        / "projects",
         # BYOK 实测 usage/cost 全零（D6）；内置 Qwen 模型待验（设计 §3c）——
         # 有实证前一律按未计量处理（对账显示 N/A，不报错不虚构）
         usage_metered=False,

@@ -219,7 +219,7 @@ def _subagent_dir(
     enc = "".join(c if c.isalnum() else "-" for c in str(wt))
     # transcript 根按引擎（P1：claude=~/.claude/projects，qoder=~/.qoder/projects——
     # E2E 冒烟 D14 实测：qoder 段 transcript 不落 ~/.claude，硬编码=agent 报告零召回）
-    base = dl_engine.get_engine().transcript_projects_root / enc
+    base = dl_engine.get_engine().transcript_projects_root() / enc
     if not base.is_dir():
         return None
     dirs = []
