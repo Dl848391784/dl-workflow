@@ -1,29 +1,31 @@
 #!/bin/bash
 # dl-workflow uninstall.sh
-# 删 ~/.claude/{hooks,skills,output-styles,commands}/ 里 dl-workflow 装的文件
-# 摘除 ~/.claude/settings.json 里 dl-workflow 注册的 hook
-# 从 ~/.bashrc 删 BEGIN/END dl-workflow 段落
+# 删 ~/.claude/{skills,output-styles,commands}/ 里 dl-workflow 装的文件（qodercli
+# 引擎装过则对称删 ~/.qoder/ 同路径——仅当有 dl-workflow 安装痕迹时，不碰纯 qoder 配置）
+# 摘除各引擎 home settings.json 里 dl-workflow 注册的 hook
+# 从 ~/.bashrc 删 BEGIN/END dl-workflow 段落（两引擎共用一份，只删一次）
 
 set -euo pipefail
 
-CLAUDE_HOME="$HOME/.claude"
 BASHRC="$HOME/.bashrc"
 
 echo "═══ dl-workflow uninstall ═══"
 
-# ---------- 删文件 ----------
+# ---------- 删单个 home 下的 dl-workflow 文件 + settings 注册 ----------
 # hooks 不删（install 时没 copy，直接引用源 ~/.dl-workflow/hooks/）。
-# 只删 Claude Code 硬编码加载路径下 copy 的文件。
-echo "▸ 删除 skill / output-style / command"
-rm -rf "$CLAUDE_HOME/skills/workflow-creation" && echo "  - $CLAUDE_HOME/skills/workflow-creation/"
-rm -f "$CLAUDE_HOME/output-styles/workflow.md" && echo "  - $CLAUDE_HOME/output-styles/workflow.md"
-rm -f "$CLAUDE_HOME/commands/dl.md" && echo "  - $CLAUDE_HOME/commands/dl.md"
+# 只删硬编码加载路径下 copy 的文件。
+uninstall_from_home() {
+  local target_home="$1"
+  echo "▸ 删除 $target_home 的 skill / output-style / command"
+  rm -rf "$target_home/skills/workflow-creation" && echo "  - $target_home/skills/workflow-creation/"
+  rm -f "$target_home/output-styles/workflow.md" && echo "  - $target_home/output-styles/workflow.md"
+  rm -f "$target_home/commands/dl.md" && echo "  - $target_home/commands/dl.md"
 
-# ---------- 摘 settings.json 里 dl-workflow 注册的 hooks ----------
-SETTINGS="$CLAUDE_HOME/settings.json"
-if [ -f "$SETTINGS" ]; then
-  echo "▸ 摘除 settings.json 里 dl-workflow 的 hook 注册"
-  python3 - "$SETTINGS" <<'PY'
+  # ---------- 摘 settings.json 里 dl-workflow 注册的 hooks ----------
+  local SETTINGS="$target_home/settings.json"
+  if [ -f "$SETTINGS" ]; then
+    echo "▸ 摘除 $SETTINGS 里 dl-workflow 的 hook 注册"
+    python3 - "$SETTINGS" <<'PY'
 import json, sys, re
 
 path = sys.argv[1]
@@ -62,6 +64,17 @@ with open(path, "w", encoding="utf-8") as f:
 
 print(f"  removed {removed} 个 dl-workflow hook 注册")
 PY
+  fi
+}
+
+uninstall_from_home "$HOME/.claude"
+# qodercli 引擎对称卸载：仅当该 home 有 dl-workflow 安装痕迹才动（与 install.sh
+# --engine qodercli 的 QODER_HOME 默认值同口径，QODER_CONFIG_DIR 可覆盖）。
+QODER_HOME="${QODER_CONFIG_DIR:-$HOME/.qoder}"
+if [ -f "$QODER_HOME/commands/dl.md" ] || [ -d "$QODER_HOME/skills/workflow-creation" ]; then
+  uninstall_from_home "$QODER_HOME"
+else
+  echo "  - $QODER_HOME 无 dl-workflow 安装痕迹，跳过（qodercli 引擎未装或已卸）"
 fi
 
 # ---------- 删 ~/.bashrc 的 BEGIN/END dl-workflow 段 ----------
