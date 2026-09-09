@@ -56,9 +56,10 @@ def _ro(db: Path) -> sqlite3.Connection | None:
 def check_engine() -> "list[tuple[bool, str]]":
     """引擎就绪检查（qodercli-engine-profile P1 T10）。
 
-    ① DL_ENGINE 声明引擎的 binary 在 PATH；② qoder 引擎加查 BYOK 注册态
-    （~/.qoder/settings.json 含 apiKey 字段 = 向导注册过；P0 D8：手写
-    customModels 只过本地解析、调用被云端拒，必须 TUI 向导注册）。
+    ① DL_ENGINE 声明引擎的 binary 在 PATH；② qoder 引擎加查「认证与模型
+    可用性」——`qodercli --list-models` 能列出模型即就绪（未登录时该命令
+    非零退出，官方语义）。**BYOK 与否不是检查项**（2026-09-09 用户裁决：
+    用内置 Qwen 模型是合法路径，拿 BYOK 当 ❌ = 把用户行为误判成故障）。
 
     未知 DL_ENGINE：get_engine() 按 no-silent-fallback 铁律 sys.exit(2)，
     SystemExit 不继承 Exception 会穿透 _sec_wiring 的 except——此处显式捕获
@@ -78,22 +79,29 @@ def check_engine() -> "list[tuple[bool, str]]":
         return [(False, f"DL_ENGINE={os.environ.get('DL_ENGINE')!r} 未知引擎（claude|qodercli）")]
     results = [(shutil.which(eng.binary) is not None, f"引擎 binary {eng.binary} 在 PATH")]
     if eng.name == "qodercli":
-        settings = eng.config_root / "settings.json"
-        # 判据（merge 后实机修正）：向导注册后凭据不落 settings.json（存 ~/.qoder/.auth），
-        # settings 只留 model.name="provider/model" 选中态——查 apiKey 字面值必假 ❌。
-        # 自定义模型键形态 = "provider/model"（内置模型无 /）。
-        has_byok = False
-        if settings.exists():
-            try:
-                import json as _json
+        # 认证与模型可用性：`qodercli --list-models`（官方语义：未登录非零退出）。
+        # 认 PAT（env）也认浏览器登录态（~/.qoder/.auth）；BYOK/内置模型不问。
+        # 网络调用给 25s 超时——doctor 是诊断工具，挂死比慢更不能忍。
+        import subprocess
 
-                _data = _json.loads(settings.read_text(encoding="utf-8", errors="replace"))
-                has_byok = "/" in str((_data.get("model") or {}).get("name", ""))
-            except (ValueError, AttributeError):
-                has_byok = False
-        results.append(
-            (has_byok, f"BYOK 已向 TUI 向导注册（{settings}）——未注册则 /model Custom 向导注册一次")
-        )
+        try:
+            proc = subprocess.run(
+                [eng.binary, "--list-models"],
+                capture_output=True, text=True, errors="replace", timeout=25,
+            )
+            models = [l.strip() for l in proc.stdout.splitlines() if l.strip() and "MODEL" not in l]
+            if proc.returncode == 0 and models:
+                results.append(
+                    (True, f"qodercli 已认证，可用模型 {len(models)} 个（{models[0]} 等）")
+                )
+            else:
+                results.append(
+                    (False, "qodercli 未认证或无可用模型——qodercli login（或 export QODER_PERSONAL_ACCESS_TOKEN）")
+                )
+        except (OSError, subprocess.TimeoutExpired) as e:
+            results.append(
+                (False, f"qodercli --list-models 探测失败（{type(e).__name__}）——查网络/代理后重跑")
+            )
     return results
 
 
