@@ -596,7 +596,11 @@ EOF
     local pdir="${PROJECT_DIR:-$PWD}"
     echo
     echo "▸ 项目级接线: $pdir"
-    python3 "$DL_HOME/scripts/setup/setup_project.py" --project "$pdir" || \
+    # --engine 跟随（2026-09-09 用户实机反馈）：--engine qodercli 时项目 inject
+    # 注册落 .qoder/settings.json；未指定 = claude（现状不变）
+    local setup_engine_args=()
+    [ -n "$ENGINE" ] && setup_engine_args=(--engine "$ENGINE")
+    python3 "$DL_HOME/scripts/setup/setup_project.py" --project "$pdir" "${setup_engine_args[@]}" || \
       echo "  ⚠ 项目接线有硬失败（见上方），机器级安装不受影响"
   fi
   echo
