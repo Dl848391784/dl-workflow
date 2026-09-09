@@ -45,44 +45,59 @@ class TestCheckEngine:
         # claude 已装环境应过；断言键存在即可（机差异不钉布尔值）
         assert any("claude" in msg for _, msg in results)
 
-    def test_qoder_byok_unregistered_warns(self, monkeypatch, tmp_path):
-        monkeypatch.setenv("DL_ENGINE", "qodercli")
-        monkeypatch.setenv("QODER_CONFIG_DIR", str(tmp_path))  # 空目录=无 settings.json
-        # config_root 在 dl_engine 模块导入时冻结——强制重导入使 env 生效；
-        # 旧模块保存/恢复，避免残留冻结实例造成顺序依赖污染
-        old = sys.modules.pop("dl_engine", None)
-        try:
-            from doctor import check_engine
-            results = check_engine()
-        finally:
-            if old is not None:
-                sys.modules["dl_engine"] = old
-            else:
-                sys.modules.pop("dl_engine", None)
-        byok = [ok for ok, msg in results if "BYOK" in msg]
-        assert byok and byok[0] is False  # 未注册 → False（warn 级由主流程定）
-
-    def test_qoder_byok_registered_via_model_name(self, monkeypatch, tmp_path):
-        """向导注册后判据=settings model.name 为 provider/model 形态（凭据在 .auth 不在 settings）。"""
-        monkeypatch.setenv("DL_ENGINE", "qodercli")
-        (tmp_path / "settings.json").write_text(
-            '{"model": {"name": "deepseek/deepseek-v4-flash-pg"}}', encoding="utf-8"
-        )
-        monkeypatch.setenv("QODER_CONFIG_DIR", str(tmp_path))
+    def _fresh_dl_engine(self, monkeypatch):
+        """dl_engine 重导入防 import 期冻结（config_root 读 QODER_CONFIG_DIR）。"""
         import sys as _sys
 
         old = _sys.modules.pop("dl_engine", None)
+        return old
+
+    def _restore_dl_engine(self, old):
+        import sys as _sys
+
+        if old is not None:
+            _sys.modules["dl_engine"] = old
+        else:
+            _sys.modules.pop("dl_engine", None)
+
+    def test_qoder_authenticated_models_ok(self, monkeypatch):
+        """认证且能列模型 → ✅（BYOK/内置不问，2026-09-09 用户裁决）。"""
+        monkeypatch.setenv("DL_ENGINE", "qodercli")
+        old = self._fresh_dl_engine(monkeypatch)
+
+        class FakeProc:
+            returncode = 0
+            stdout = "MODEL\nQwen3.8-Max\ndeepseek/deepseek-v4-flash-pg\n"
+
         try:
+            monkeypatch.setattr("subprocess.run", lambda *a, **kw: FakeProc())
             from doctor import check_engine
 
             results = check_engine()
         finally:
-            if old is not None:
-                _sys.modules["dl_engine"] = old
-            else:
-                _sys.modules.pop("dl_engine", None)
-        byok = [ok for ok, msg in results if "BYOK" in msg]
-        assert byok and byok[0] is True
+            self._restore_dl_engine(old)
+        auth = [ok for ok, msg in results if "认证" in msg]
+        assert auth and auth[0] is True
+
+    def test_qoder_unauthenticated_warns(self, monkeypatch):
+        """--list-models 非零退出 → ❌ 提示登录（非 BYOK 文案）。"""
+        monkeypatch.setenv("DL_ENGINE", "qodercli")
+        old = self._fresh_dl_engine(monkeypatch)
+
+        class FakeProc:
+            returncode = 1
+            stdout = ""
+
+        try:
+            monkeypatch.setattr("subprocess.run", lambda *a, **kw: FakeProc())
+            from doctor import check_engine
+
+            results = check_engine()
+        finally:
+            self._restore_dl_engine(old)
+        auth = [ok for ok, msg in results if "认证" in msg]
+        assert auth and auth[0] is False
+        assert "login" in results[[i for i, (ok, m) in enumerate(results) if "认证" in m][0]][1]
 
     def test_unknown_engine_reported_not_crash(self, monkeypatch, tmp_path, capsys):
         monkeypatch.setenv("DL_ENGINE", "gemini")

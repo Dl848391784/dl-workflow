@@ -52,7 +52,7 @@
 |---|---|---|
 | `✗ DL_ENGINE=xxx 未知引擎` exit 2 | no silent fallback 设计内（拼错/未支持引擎） | 改 `claude`/`qodercli` |
 | qoder 下段会话权限全被问/不生效 | settings `permissions.defaultMode` 被 qoder 忽略（P0 实测两拼写 init=default）——**权限唯 CLI flag 承重**（dl-launch PERM_ARGS 已钉，设计内兼容） | 无需修；别试图用 settings 补 |
-| doctor 报 BYOK 未注册但模型能跑 | 凭据在 `.auth` 不在 settings（判据=model.name 形态，2026-09-09 已修） | 升级到此修复后版本 |
+| doctor 报 BYOK 未注册（旧版判据） | **判据已废**（2026-09-09 用户裁决：BYOK 是用户行为非检查项）——新判据=`--list-models` 认证与模型可用性，BYOK/内置不问 | 升级到 ≥0.10.3 |
 | 新项目目录 hook/AGENTS.md 不加载 | Trusted Workspace 门（D10） | TUI 进一次该目录确认信任 |
 | segment_stats 全 $0.000/0 token | D6 BYOK 未计量，预期 | 审计成本时该引擎标记 N/A，不做对账 |
 | `dl @qoder` 起的却是 claude | bashrc 段是旧 DL_CLAUDE 约（install.sh 升级路径 2026-09-09 已修，重跑 install.sh 自愈） | `bash ~/.dl-workflow/install.sh` |
