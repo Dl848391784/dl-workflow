@@ -77,3 +77,10 @@ env HOME=/tmp/fh PATH=/usr/local/bin:/usr/bin:/bin bash /tmp/fh/.dl-workflow/ins
 - **镜像=一次性 CLI 参数，不碰用户配置文件**：`pip --index-url aliyun`、`npm --registry=npmmirror`、`env npm_config_registry=... bun install`——境内默认源极慢是常态，但改写用户 `~/.npmrc`/`pip.conf` 是越界（auto-updater 镜像事故同族教训）。pip 侧有例外面：`pip config list` 已配 index 时不叠加（尊重既有配置）。
 - **ensure_home 模式**（tarball 部署）：脚本自定位源目录 ≠ `$HOME/.dl-workflow` 时先 `cp -a` overlay 过去再 `exec` 重跑——overlay **禁 --delete**（`~/.dl-workflow` 有 dashboard-run 等运行态），升级残留旧文件可接受。
 - **自检报告非零退出**：装完逐项 ✓/✗ + 警告汇总，失败项 exit 1——装没装对不靠人读全文判断（doctor.py 是 --project 侧的同类桥梁，§3）。
+
+## 5. 双引擎安装面（2026-09-09 qodercli-engine-profile 收口起）
+
+- **`install.sh --engine qodercli`**：claude 面永远照装（现状不变），追加把 skill/output-style/command copy 到 `~/.qoder/` + hooks 注册合并进 `~/.qoder/settings.json`（注册内容与 claude 面相同——hook 路径引 `~/.dl-workflow` 与引擎无关）。尾部打印三个人工项：①认证（login/PAT）②BYOK 必须 TUI `/model` Custom 向导注册（手写 settings 云端拒建 pool）③项目目录 Trusted Workspace 首确认。uninstall 对称（仅当有安装痕迹才动 `~/.qoder`）。
+- **bashrc 段落升级路径**：marker 在但段内无 `DL_ENGINE` = 旧 DL_CLAUDE 约段落 → 备份后整段替换（旧版 install.sh 一律 skip 会把它永久挡死——`dl @qoder` 不起 qoder 引擎的实爆根因）。`_bashrc_segment()` 是段落唯一真源（新装追加/旧段升级共用）。
+- **验证范式补充（bashrc 污染实爆复盘）**：改 bashrc 生成逻辑后，fake-HOME e2e 的验收**必须加 `bash -n <结果 bashrc>` + `source 后 type dl/_dl_launch`**——只 grep 内容标记（DL_ENGINE 在不在）拦不住结构性污染（2026-09-09 `_bashrc_segment` 把函数体残行+dangling heredoc opener 吞进段落，两机 bashrc 全毁；grep 全绿）。**验证手段要覆盖真实使用方式，内容标记 ≠ 可用**。
+- **doctor 引擎就绪检查**（`check_engine`，接 _sec_wiring 末节）：binary on PATH + qoder BYOK 注册态（判据=settings `model.name` 含 `/`——凭据在 `~/.qoder/.auth` 不落 settings，查 apiKey 字面值必假 ❌）。未知 DL_ENGINE 转 ❌ 检查项不崩报告（SystemExit 不继承 Exception，穿透会丢 4/5 节）。
