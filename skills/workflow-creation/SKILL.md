@@ -1,7 +1,7 @@
 ---
 name: workflow-creation
-description: 建工作流系统 + 运行诊断 + 运行审计。触发：新建/改工作流、dl 命令、阶段不推进、注入没生效、/dl 报错、hook 装错位置、模型否认收到注入、5 阶段不显示、gate 裁决记录(evidence)不落地、子步骤编排(sub_steps/STEP_DONE) 不推进、evidence 写到 worktree、审计一轮运行(可避免的 error/返工/耗时/token 优化)、tacet 实验轨道/dlt/force-tacet 行为、fermate/plan-only 轨道判读（跑没跑完/停在 plan:2）、dashboard 症状（提交按钮复活/陈旧卡/时间轴缺数据/总时间不对/修复没生效/时间轴挂永不执行的节点/进度不满100%）、setup 安装器/约定蒸馏/归纳层症状（install.sh --project 报错/注入没生效/蒸馏零产出/索引过期/Java 项目接入/conventions.yaml 槽位/doctor 诊断/换机重装）。
-version: 2.10
+description: 建工作流系统 + 运行诊断 + 运行审计。触发：新建/改工作流、dl 命令、阶段不推进、注入没生效、/dl 报错、hook 装错位置、模型否认收到注入、5 阶段不显示、gate 裁决记录(evidence)不落地、子步骤编排(sub_steps/STEP_DONE) 不推进、evidence 写到 worktree、审计一轮运行(可避免的 error/返工/耗时/token 优化)、tacet 实验轨道/dlt/force-tacet 行为、fermate/plan-only 轨道判读（跑没跑完/停在 plan:2）、dashboard 症状（提交按钮复活/陈旧卡/时间轴缺数据/总时间不对/修复没生效/时间轴挂永不执行的节点/进度不满100%）、setup 安装器/约定蒸馏/归纳层症状（install.sh --project 报错/注入没生效/蒸馏零产出/索引过期/Java 项目接入/conventions.yaml 槽位/doctor 诊断/换机重装）、qodercli 引擎症状（dl @qoder/DL_ENGINE 未知引擎报错/qoder 下 hook 不触发/BYOK 未注册或云端拒建 pool/settings defaultMode 被忽略/段 wedge 无活动/Trusted Workspace 门/BYOK usage 全零）。
+version: 2.11
 ---
 
 # workflow-creation
@@ -37,6 +37,8 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
 
 **dl setup 安装器 + 约定蒸馏层**（2026-09 起，与 5 阶段工作流正交的项目理解层）：`install.sh --project` 一键接线任意项目（codegraph index 过期自动 sync/post-commit 双后台/inject 双 hook/首蒸）；蒸馏器（`bin/mine_conventions.py`）从代码实证挖隐性约定进 `<项目>/.conventions/conventions.db`，三种来源=doc_declared(yaml 人声明)/code_evidence(纯事实)/inferred(归纳层候选，槽位校准：yaml 同 type 手动规则抑制候选)；`doctor.py` 五节报告=远程验收桥梁；`/download` 端点自动分发最新包。诊断手册 → `references/setup-distiller.md`。
 
+**双引擎（qodercli-engine-profile，2026-09-09 收口，designs/qodercli-engine-profile-design.md）**：`dl @qoder <name>` = qodercli 后端（bashrc 子 shell 置 `DL_ENGINE=qodercli`，claude 未设=默认零变化）。差异单源 = 仓根 `dl_engine.py`（EngineProfile：binary/配置根/权限拼写/flag 差异/transcript 根/计量语义，全部 spawn 与 settings 写出经它分路；hooks 只读 `DL_ENGINE`/`QODER_*` env 保持零 import）。模型选择 = per-wf settings `model` 键（`DL_QODER_MODEL` 注入）或向导选中默认。诊断/差异速查/wedge 处置 → `references/engine-qodercli.md`。
+
 **TACET 实验轨道**（2026-08-23 收口合并 main，designs/force-tacet-experiment-design.md）：`dlt <name>` = 同一 launcher 自动附加 `--force-tacet`--六步脊柱（u:1#1/u:1#2/u:1#3/u:1#4/plan:1#2/plan:4#4）全额执行，其余 38 子步 engine 机械静默（零 token/零 judge），到 plan:4 门栏与 main 同路径停等。`force_tacet` 是 per-instance sticky state 开关（engine 全程 state.get 判定、默认 off），**模型无权自封**；普通 `dl` 永远全量 44 步。实例开关：`dl_flow_engine.py force-tacet <name> on|off`。**中途升级**（evolution-up P3，2026-09-04）：`/dl upgrade <phase>:<sub>#<step>` 把单步移出本实例静默集改全量（`state.tacet_upgraded` sticky，`tacet_silent_for` 单源派生，scanner/交接包/时间轴全链路跟随），按指引 `/dl state-reset` 重跑——沉默步欠账的补救通道，对齐 fermate off+state-reset 形态。**相似实例检索**（evolution-up P4）：`handoff_pack` 在 understand 阶段注入「相似历史实例」节——字符 bigram Jaccard 检索跨项目历史实例的 根因@ 行（项目池读 dashboard.toml），钉死「参考非证据=竞争假设候选，须本仓取证」。
 
 **FERMATE（plan-only）轨道**（2026-08-26，designs/fermate-plan-only-design.md；**同日用户决议默认翻转：新实例默认 fermate，`--forte` 进完整模式**——默认落 launcher 层新建分支，在飞/续跑实例零迁移，WF_TUI=1 旧路径豁免默认）：第二正交开关——tacet 管步骤**密度**（44 步内 38 静默），fermate 管流程**深度**（plan 止于 plan:2，plan:3/plan:4 裁剪不存在：能力包/检查点消费方全在 execute，无执行=产物纯税）。`dl <name> --forte`=完整模式（可与 --force-tacet/dlt 组合，dlt 透传零改动；组合时脊柱重映射 plan:4#4->plan:2#4）——plan:2 末步过门控即实例完结（gate=done，fermate-auto-complete-design 2026-08-29：无门栏无 `/dl gate` 收货环节，人工确认点唯一 = `/dl done` 归档），plan.md 只有「执行步骤」一节=最终交付物。`force_fermate` per-instance sticky（模型无权自封）；实例开关：`dl_flow_engine.py fermate <name> on|off`。升级全量执行：fermate off + `/dl state-reset plan:2`。u:4#3（验收方式设计）v2 已裁剪（u4-sub3-fermate-cut-design：fermate 下整步机械静默，u:4#4 验收包三字段+占位声明×state 双向核验，gate 静态兜底零变体）——fermate 轨道=32 步。
@@ -61,6 +63,7 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
 | 词形/结构/存在性判据下沉机械层（append-trace 当场拒、写侧校验） | `references/mechanical-checks.md` |
 | 弱模型约束（文案失效→机制堵入口、一次通过率、步骤越界） | `references/weak-model-mechanisms.md` |
 | setup/蒸馏/归纳层症状（install 报错/注入没生效/零候选/索引过期/Java 接入/macOS 坑/非 Claude 宿主/远程验收） | `references/setup-distiller.md` |
+| qodercli 引擎一切（dl @qoder/DL_ENGINE/BYOK 注册与判据/段 wedge 无活动/defaultMode 忽略/Trusted Workspace/transcript 根/引擎差异速查） | `references/engine-qodercli.md` |
 | 审计一轮运行（可避免的 error/返工/token/耗时、成本归因、方差） | `references/runtime-audit.md` |
 | 从严 gate → 默认-PASS framing 反转操作序列（逐节点 playbook） | `references/gate-framing-playbook.md` |
 | 优化耗时/token（瓶颈分层、探索预算、上下文膨胀、提效杠杆） | `references/cost-optimization.md` |
@@ -113,6 +116,7 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
 - "段在跑没动静 / 是否卡死 / headless 秒退 rc=1 / Input must be provided / 前台模型非交互位置自行干活抢活" → references/diagnostics.md 症状 Z
 - "Argument list too long / E2BIG / 段异常起不来 / fence off 了仍被拦 / 段工人故障接管" → references/diagnostics.md 症状 AA + 症状 Z 末条
 - "审计这轮运行 / 符合预期吗 / 哪些 error 返工可避免 / judge 输入膨胀 / 重建丢弃" → references/runtime-audit.md
+- "dl @qoder / qoder 引擎 / DL_ENGINE 报错 / BYOK / qoder 段卡死 wedge / qoder hook 不触发" → references/engine-qodercli.md
 - "无人值守跑工作流 / 顺序跑多轮 / 答案注入 / 注入没生效 / 双 driver / driver 死了还在推进 / 后台任务被收割" → references/runtime-audit.md #25（无人值守驱动 loop+四坑）#27（台账形态）
 - "门槛打地鼠 / append-trace 反复被拒 / from-file 提交次数 / 拒绝形态 / 锚点查无 / 改动规格语法不合" → references/cost-optimization.md #54（审计手法+验证口径）
 - "tacet / dlt / force-tacet / 脊柱步 / 静默步 / 为啥这步没跑" -> designs/force-tacet-experiment-design.md（轨道语义）；统计/审计 tacet 实例 -> references/runtime-audit.md #27（段->步骤映射三通道）；首跑收口审计（成本账/execute纯度/可用性结论）-> designs/force-tacet-run1-audit.md

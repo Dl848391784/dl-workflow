@@ -123,3 +123,18 @@
 - 跨通道对齐法：session 首末时间戳 vs state history 的 entered/exited_at 逐段卡位（hold 等用户的时间落在两 session 间隙，不计模型成本）。
 
 **无人值守驱动的台账形态差异（2026-08-26 三轮无人值守审计）**：①**交互步在 headless 驱动下入台账**（kind=tui-step-needuser/tui-step，与 front-TUI 盲区相反）——每交互步三件套：prep（headless-step）+ tui-step-needuser（打印问题文本）+ **注入 fork**（台账外：`claude --resume` 派生新 session 文件，1-2 轮小会话，按窗口归并；与 #25「注入轮登记混淆不进段合计主口径」同口径）；②**台账外会话必须按 state.created_at 过滤**——同名旧实例的 transcript 混居同一 projects 目录（worktree 路径编码相同），不过滤则数日前的旧会话全混进孤儿清单（同名重建实跑教训，#3 同族）；③**合并段去重**——同 sid 跨子步骤（plan:1#3+#4 合并段、understand:2 MERGED_RUN 段内续步）台账出多行，合计只计一次（展示可重复列，合计去重）；④**耗时三桶的无人值守版**——段内干活（transcript 首末戳合计）/ judge+段启动税（差值主体）/ **驱动方周转税**（无人值守时驱动方的边界干等，由轮询节奏决定：sleep 轮询实测 19-59min/轮，前台 TUI 此桶≈0）——**与前台基线对比时必须剔出周转税**，否则把驱动方式税误记成工作流退化（本轮实证：剔出后 Run 1 段内干活 150min ≈ 前台基线 147min，「4h vs 2h」的差值主体是周转税+交互步 3 段形态对价，不是模型变慢）。
+
+## 28. E2E 冒烟方法论（引擎/编排级改动的实锤验收，2026-09-09 qoder 轨道实证）
+
+**触发**：引擎适配、编排行为级改动——pytest 全绿证明不了工作流能跑（D14 transcript 根漏点单测全绿、E2E 才暴露）。模式 = 无人值守驱动（#25）的探针仓变体：
+
+1. **探针仓**：`/tmp/<probe>` git init + 一个真实小任务文件（本例=momentum 函数补边界处理+测试）——零污染主仓
+2. **起实例**：`DL_WF_HOME=<被测代码树> DL_ENGINE=<engine> DL_QODER_MODEL=<provider/modelID> bash dl-launch.sh --workflow <name> --headless`（WF_HEADLESS 必须走 flag，env 会被 dl-launch.sh:75 覆写——实爆）
+3. **驱动循环**（wf_ctl 模式，`~/scripts/wf_ctl.py` 机制）：`statement`（预置陈述免裸开场）→ `drive`（stdin DEVNULL 前台跑到断点自退）→ 见 need_user 就 `inject`（qoder 引擎 = `qodercli --resume <tui-step-needuser sid> -p <answer>`，注入目标只信段台账 kind=tui-step-needuser 当前 node/step——两轮竞态实爆铁律不变）→ `status` 收割
+4. **收割判据**：fermate 实例终点 = `state.node=plan:2` 且 `gate=done`（plan:2 末步过门控即完结）；产物装配（`.claude/{understands,plans}/<name>.md`+HTML）在场
+
+**qoder 引擎审计口径**：
+- segment_stats 全 `$0.000`/0 token = **D6 BYOK 未计量的预期形态**，不是故障也不是免费——成本对账对该引擎标 N/A，禁止拿 usage 零值做优化结论
+- 段 wedge（engine-qodercli.md §3 特征三件套）是 qodercli 内部随机事件——审计报「wedge 次数+SIGTERM 后自动重派成功率」，**不归因编排也不归因模型**；watchdog 落地前属已知基础设施噪声
+- judge 全链走 qodercli（`-p --output-format json --tools ""`），判词/通过语义与 claude 轨道同口径对账（本例逐子步骤门控全过）
+- BYOK 路由经 Qoder 云端代理——成本账没有 provider 侧账单可对的，按段台账轮数×时长做相对账
