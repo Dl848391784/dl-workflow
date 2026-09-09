@@ -623,6 +623,25 @@ EOF
 ╚══════════════════════════════════════════════════════════╝
 NEXT
   fi
+
+  # qoder 用户引导（只提示不代劳——写 ~/.qoder 需用户显式 --engine 授权，
+  # 见 designs/qodercli-engine-profile-design.md；检测=binary 在 PATH 且 qoder 面无安装痕迹）
+  if [ "$ENGINE" != "qodercli" ] && command -v qodercli >/dev/null 2>&1 \
+     && [ ! -d "${QODER_CONFIG_DIR:-$HOME/.qoder}/skills/workflow-creation" ]; then
+    cat <<'QODER_NEXT'
+
+╔══════════════════════════════════════════════════════════╗
+  检测到 qodercli——要用 qoder 引擎（dl @qoder <name>），下一步：
+    ① bash ~/.dl-workflow/install.sh --engine qodercli
+       （skill/hooks 注册装到 ~/.qoder，幂等，不碰已有配置）
+    ② qodercli login（或 export QODER_PERSONAL_ACCESS_TOKEN）
+    ③ BYOK：TUI 跑 qodercli → /model → Custom → Add custom model
+       注册一次（必须走向导，服务端建 pool；手写 settings 会被拒）
+    ④ 每个项目目录首次进 qodercli TUI 确认 Trusted Workspace
+    验证：DL_ENGINE=qodercli python3 ~/.dl-workflow/bin/doctor.py（两条 ✅）
+╚══════════════════════════════════════════════════════════╝
+QODER_NEXT
+  fi
 }
 
 main "$@"
