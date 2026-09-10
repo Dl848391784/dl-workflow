@@ -69,3 +69,5 @@ qodercli-engine-profile 落地后，引擎由 **dashboard server 进程 env**（
 | drive 归一写 env 影响同进程其它逻辑 | DL_ENGINE 只被引擎分路消费，无其它读者；归一写在最早期 |
 | 旧实例（无 engine 字段）行为漂移 | 读侧一律 default claude = 现状 |
 | 前端卡片交互与 scope 卡片冲突 | 独立卡片组 id（engine-cards），复用 class 不共享状态 |
+| 旧实例（无 engine 字段）在 qoder-env server 下驱动仍错引擎（归一 no-op=现状，逐位一致约束的取舍） | 已知局限：只根治新实例；旧实例显式 `DL_ENGINE=claude` 驱动，或补写字段（终审观察 1） |
+| 显式 env resume 与 front+segment 混合模式叠加时，同实例 front TTY 与段工人可短暂两引擎并存（三条件叠加角落） | 设计内「实例为准」；避免显式 env resume 跨引擎实例（终审观察 2） |
