@@ -51,6 +51,7 @@ class WorkflowInfo:
     gate_actionable: bool = False  # gate 按钮可作用（门栏扣留 / 闸门后置阶段 pending）
     force_tacet: bool = False
     force_fermate: bool = False
+    engine: str = "claude"  # per-instance-engine：实例引擎徽标（旧实例兜底 claude）
     tacet_upgraded: tuple[str, ...] = ()  # 中途升级步清单（evolution-up P3）
     error: str | None = None
     # 在飞段（driver 起跑落盘、收工清除）：总执行时间 = Σ 完成段 + 本段实跑
@@ -180,6 +181,7 @@ def scan_workflow(project: Path, name: str) -> WorkflowInfo:
         gate_actionable=gate_actionable_of(state),
         force_tacet=bool(state.get("force_tacet")),
         force_fermate=bool(state.get("force_fermate")),
+        engine=str(state.get("engine") or "claude"),
         tacet_upgraded=tuple(state.get("tacet_upgraded") or []),
         current_segment=state.get("current_segment"),
     )
