@@ -23,6 +23,9 @@ sys.path.insert(0, str(DLWF))
 import dl_engine  # noqa: E402
 import dl_flow_engine as engine  # noqa: E402
 
+# create_workflow 的 engine 参数遮蔽模块别名——函数内用 _flow_engine 指模块
+_flow_engine = engine
+
 log = logging.getLogger("dl_dashboard.actions")
 
 ALLOWED_DL_CMDS = ("advance", "step-pass", "dispute", "state-reset", "next", "back", "jump")
@@ -46,12 +49,15 @@ _SCOPE_FLAGS = {"fermate": "--fermate", "forte": "--forte"}
 def create_workflow(project: Path, name: str, statement: str, mgr,
                     scope: str = "fermate", tacet: bool = False,
                     provider_env: dict | None = None,
-                    timeout: int = 600) -> tuple[bool, str]:
+                    timeout: int = 600,
+                    engine: str | None = None) -> tuple[bool, str]:
     """launcher 建实例（headless）-> 置 problem_statement -> 起 driver。
 
     两维正交：scope=fermate|forte（互斥），tacet=True|False（独立）。
     成败判定沿用 wf_ctl：实例落盘（state.json 存在）即建成，launcher
     超时/非零 rc 只作消息展示（driver 在 TTY 缺失下徘徊是已知形态）。
+    engine（per-instance-engine）：None=调用方 env 默认（claude）；
+    显式值经 env 传 launcher 落 state.engine，并随 driver spawn env 携带。
     """
     if scope not in _SCOPE_FLAGS:
         return False, f"未知范围 {scope}（可选：{'/'.join(_SCOPE_FLAGS)}）"
@@ -59,11 +65,15 @@ def create_workflow(project: Path, name: str, statement: str, mgr,
             "--workflow", name, "--headless", _SCOPE_FLAGS[scope]]
     if tacet:
         argv.append("--force-tacet")
+    launch_env = None
+    if engine:
+        launch_env = {**os.environ, "DL_ENGINE": engine}
     try:
         p = subprocess.run(argv,
             cwd=str(project), stdin=subprocess.DEVNULL,
             capture_output=True, text=True, timeout=timeout,
             errors="replace",
+            env=launch_env,
         )
         tail = (p.stdout + p.stderr)[-500:]
     except subprocess.TimeoutExpired:
@@ -71,9 +81,12 @@ def create_workflow(project: Path, name: str, statement: str, mgr,
     state_p = meta_root(project, name) / "state.json"
     if not state_p.exists():
         return False, f"建实例失败：{tail}"
-    engine.set_problem_statement(project, name, statement)
-    state = engine.load_state(project, name)
-    mgr.start(project, name, Path(state["worktree_path"]), env=provider_env)
+    _flow_engine.set_problem_statement(project, name, statement)
+    state = _flow_engine.load_state(project, name)
+    drv_env = provider_env
+    if engine:
+        drv_env = {**(provider_env or {}), "DL_ENGINE": engine}
+    mgr.start(project, name, Path(state["worktree_path"]), env=drv_env)
     return True, f"工作流 {name} 已建并启动 driver。{tail[-200:]}"
 
 

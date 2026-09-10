@@ -395,6 +395,84 @@ def test_inject_wraps_answer_and_drops_ask_user_question(tmp_path):
     assert "AskUserQuestion" not in ",".join(cmd)
 
 
+class TestCreateWorkflowEngine:
+    """T5：create_workflow engine 参数——显式值经 launcher env 传 DL_ENGINE 落
+    state.engine，并随 driver spawn env 携带；None=现状逐位一致（不传 env）。"""
+
+    def _fake_launcher(self, tmp_path, name, captured):
+        """launcher 假跑：写含 engine 的 state.json（成败判定=state.json 存在）。"""
+
+        class FakeProc:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        def fake_run(argv, **kw):
+            captured["env"] = kw.get("env")
+            meta = meta_root(tmp_path, name)
+            meta.mkdir(parents=True)
+            (meta / "state.json").write_text(
+                json.dumps({"worktree_path": "/wt", "engine": "qodercli"}),
+                encoding="utf-8")
+            return FakeProc()
+
+        return fake_run
+
+    def test_launcher_env_carries_engine(self, monkeypatch, tmp_path):
+        captured: dict = {}
+        started: dict = {}
+
+        class FakeMgr:
+            def start(self, project, name, worktree, env=None):
+                started["env"] = env
+                return 123
+
+        monkeypatch.setattr(actions.subprocess, "run",
+                            self._fake_launcher(tmp_path, "wf1", captured))
+        with patch.object(actions.engine, "set_problem_statement"):
+            ok, msg = actions.create_workflow(
+                tmp_path, "wf1", "stmt", FakeMgr(), engine="qodercli")
+        assert ok, msg
+        assert captured["env"]["DL_ENGINE"] == "qodercli"  # launcher env 落 state
+        assert started["env"]["DL_ENGINE"] == "qodercli"  # driver spawn env 携带
+
+    def test_engine_none_keeps_current_behavior(self, monkeypatch, tmp_path):
+        """engine=None：不传 env（launcher 继承调用方 env 现状），逐位一致。"""
+        captured: dict = {}
+
+        class FakeMgr:
+            def start(self, project, name, worktree, env=None):
+                return 123
+
+        monkeypatch.setattr(actions.subprocess, "run",
+                            self._fake_launcher(tmp_path, "wf1", captured))
+        with patch.object(actions.engine, "set_problem_statement"):
+            ok, _ = actions.create_workflow(tmp_path, "wf1", "stmt", FakeMgr())
+        assert ok
+        assert captured["env"] is None
+
+    def test_drv_env_merges_provider_and_engine(self, monkeypatch, tmp_path):
+        """provider_env 与 DL_ENGINE 合并携带（非覆盖）：provider env 创建登记
+        通道与引擎选择正交。"""
+        captured: dict = {}
+        started: dict = {}
+
+        class FakeMgr:
+            def start(self, project, name, worktree, env=None):
+                started["env"] = env
+                return 123
+
+        monkeypatch.setattr(actions.subprocess, "run",
+                            self._fake_launcher(tmp_path, "wf1", captured))
+        with patch.object(actions.engine, "set_problem_statement"):
+            ok, _ = actions.create_workflow(
+                tmp_path, "wf1", "stmt", FakeMgr(),
+                provider_env={"ANTHROPIC_API_KEY": "k"}, engine="qodercli")
+        assert ok
+        assert started["env"]["ANTHROPIC_API_KEY"] == "k"
+        assert started["env"]["DL_ENGINE"] == "qodercli"
+
+
 class TestInjectCmdDualEngine:
     """T7：needuser 注入 cmd 的 binary/perm/disallow_ask 走 dl_engine profile。"""
 
