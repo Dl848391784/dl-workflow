@@ -146,6 +146,9 @@ PY
 }
 
 # 读单个字段：wf_state_get <name> <field>
+# 字段缺失：engine 特判打印 claude（它是唯一带兜底语义的字段，旧实例无该键=claude）；
+# 其它字段缺失打印空串（调用方多带 2>/dev/null||echo "" 兜底，净效果不变）。
+# 文件损坏（JSONDecodeError）/不存在：exit 1——读侧契约被多处依赖，fail loud 由调用方裁决。
 wf_state_get() {
   local f="$WF_META_ROOT/$1/state.json" field="$2"
   [ -f "$f" ] || return 1
@@ -153,8 +156,8 @@ wf_state_get() {
 import json, sys
 try:
     with open(sys.argv[1], encoding="utf-8") as f:
-        print(json.load(f)[sys.argv[2]])
-except (KeyError, FileNotFoundError, json.JSONDecodeError):
+        print(json.load(f).get(sys.argv[2], "claude" if sys.argv[2] == "engine" else ""))
+except (FileNotFoundError, json.JSONDecodeError):
     sys.exit(1)
 PY
 }
