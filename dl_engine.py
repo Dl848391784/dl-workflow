@@ -96,15 +96,28 @@ _PROFILES: dict[str, EngineProfile] = {
 }
 
 
-def get_engine() -> EngineProfile:
-    """当前引擎 profile。DL_ENGINE 未设/空 = claude；未知值硬失败。"""
-    name = os.environ.get("DL_ENGINE", "").strip() or "claude"
+def get_engine(override: str | None = None) -> EngineProfile:
+    """当前引擎 profile。优先级：override（per-instance state）> DL_ENGINE env > claude。
+
+    未知值硬失败（no silent fallback）。空串 override/env = 未指定。
+    """
+    name = (override or os.environ.get("DL_ENGINE", "")).strip() or "claude"
     profile = _PROFILES.get(name)
     if profile is None:
         print(
-            f"✗ DL_ENGINE={name!r} 未知引擎（可选：{sorted(_PROFILES)}）"
+            f"✗ 引擎={name!r} 未知（可选：{sorted(_PROFILES)}）"
             "——拒绝静默回退（no silent fallback）",
             file=sys.stderr,
         )
         sys.exit(2)
     return profile
+
+
+def available_engines() -> list[str]:
+    """机器上可用引擎列表（dashboard 表单选项数据源）。顺序=默认优先级（claude 在前）。
+
+    一个都探不到返回 []——调用方（表单）按列表渲染，空列表=不渲染引擎卡片。
+    """
+    import shutil
+
+    return [name for name, p in _PROFILES.items() if shutil.which(p.binary)]
