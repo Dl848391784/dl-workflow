@@ -424,8 +424,12 @@ MERGED_RUN_NODES = frozenset({"understand:2"})
 # （2026-08-01 understand:1 审计：24 次裁决 316.6s 全 allow 纯税，其中
 # AskUserQuestion 3 次均值 46.2s 被误归因为用户思考时间）。
 SETTINGS_TEMPLATE_VERSION = (
-    11  # v11：qoder 引擎附加 model 键（DL_QODER_MODEL 设值时，wf_write_settings
+    12  # v12：UserPromptSubmit 补登 codegraph_inject + conventions_inject
 )
+# （2026-09-10 cvx-wiring：worktree 内无 project settings.json，旧假设「inject
+# 由项目自己注册」在工作流会话不成立，44 步全程收不到 codegraph/蒸馏瘦档——
+# 蒸馏层目标消费者=工作流；两 hook 已 worktree-ready，无 db 项目静默退出）。
+# v11：qoder 引擎附加 model 键（DL_QODER_MODEL 设值时，wf_write_settings
 # qoder 分支条件行）——per-wf settings 经 --settings 传入每个段/judge，模型选择
 # 随文件走不依赖账号默认；claude 引擎无 DL_QODER_MODEL 时模板逐位不变（空行）。
 # v10：项目工具 command 头并入 allowlist（wf_write_settings 补写，

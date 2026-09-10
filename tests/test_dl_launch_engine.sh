@@ -28,5 +28,10 @@ s = json.load(open('$WF_META_ROOT/engtest/settings.json'))
 assert s['model'] == 'deepseek/deepseek-v4-flash-pg', s.get('model')
 assert s['permissions']['defaultMode'] == 'acceptEdits'  # qoder 忽略但 claude 引擎同文件兼容
 assert any('workflow_phase.py' in h['command'] for g in s['hooks']['UserPromptSubmit'] for h in g['hooks'])
+# v12：两个 inject hook 必须随 per-wf settings 自包含登记（worktree 内无 project
+# settings.json，不登记则工作流会话全程收不到 codegraph/蒸馏瘦档注入）
+ups = [h['command'] for g in s['hooks']['UserPromptSubmit'] for h in g['hooks']]
+assert any('codegraph_inject.py' in c for c in ups), ups
+assert any('conventions_inject.py' in c for c in ups), ups
 print('✓ wf_write_settings qoder 分支正确')
 "
