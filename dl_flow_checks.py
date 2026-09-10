@@ -2137,11 +2137,11 @@ def _check_fetch_report_recorded(qa: list, *_ctx) -> str | None:
     if _ctx and _ctx[0] is not None:
         aq = _load_atomic_questions(_ctx[0], _ctx[1])
         if aq:
-            required = max(
-                1,
-                sum(
-                    1 for it in aq if isinstance(it, dict) and it.get("tier") != "none"
-                ),
+            # 全 none 档 = 零报告项即过（v2.40「豁免报告项」本义——原 max(1,)
+            # 地板把全豁免压成 required=1，逻辑上不可达：v1_text 实爆，模型
+            # 4 轮重写死锁。legacy=aq 缺失才走默认 1）
+            required = sum(
+                1 for it in aq if isinstance(it, dict) and it.get("tier") != "none"
             )
     if found >= required:
         return None

@@ -10296,6 +10296,20 @@ class TestFetchTier:
         ok, msg = self._append_s4_reports(tmp_path, 1)
         assert not ok and "2 个" in msg and "仅 1 个" in msg
 
+    def test_all_none_atoms_fully_exempt(self, tmp_path):
+        """全 none 档原子 = 零报告项也过（v2.40「豁免报告项」语义——`max(1,)` 地板
+        曾使全豁免逻辑不可达：v1_text 实爆，两原子均 tier=none 仍被要 1 个
+        蒸馏报告项，模型 4 轮载荷重写死锁 + NEED_USER 升级）。"""
+        self._write_step2_trace_with_aq(
+            tmp_path,
+            [
+                {"q": "A", "tier": "none", "tier_reason": "仓内可证"},
+                {"q": "B", "tier": "none", "tier_reason": "仓内可证"},
+            ],
+        )
+        ok, msg = self._append_s4_reports(tmp_path, 0)
+        assert ok, msg
+
     def test_none_atom_exempt_from_report(self, tmp_path):
         self._write_step2_trace_with_aq(
             tmp_path,
