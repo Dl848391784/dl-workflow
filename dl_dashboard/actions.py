@@ -208,7 +208,9 @@ def inject_answer(project: Path, name: str, answer: str,
                        "防重复注入；新问题落盘后自动恢复可注入")
     meta = meta_root(project, name)
     ov = engine.segment_spawn_overrides(node, step)
-    eng = dl_engine.get_engine()
+    # per-instance-engine：inject 引擎跟实例 state（override 直传，多实例
+    # server 进程禁 env 竞态）；旧实例无字段=None→env→claude 兜底
+    eng = dl_engine.get_engine(state_raw.get("engine"))
     cmd = [
         eng.binary, "--resume", sid,
         "--settings", str(meta / "settings.drive-tui.json"),

@@ -11,7 +11,8 @@ from dl_dashboard.scanner import meta_root
 
 
 def _mk_state(project: Path, name: str, segs, *, worktree_path: str | None = None,
-              phase: str = "plan", sub_index: int = 4) -> Path:
+              phase: str = "plan", sub_index: int = 4,
+              engine: str | None = None) -> Path:
     meta = meta_root(project, name)
     meta.mkdir(parents=True)
     state = {
@@ -21,6 +22,8 @@ def _mk_state(project: Path, name: str, segs, *, worktree_path: str | None = Non
     }
     if worktree_path is not None:
         state["worktree_path"] = worktree_path
+    if engine is not None:
+        state["engine"] = engine  # per-instance-engine：实例引擎落 state（T2）
     (meta / "state.json").write_text(json.dumps(state), encoding="utf-8")
     return meta
 
@@ -450,6 +453,51 @@ class TestInjectCmdDualEngine:
         assert "acceptEdits" in cmd
         assert "--disallowedTools" in cmd
         assert "AskUserQuestion" in cmd
+
+
+class TestInjectUsesInstanceEngine:
+    """per-instance-engine：inject 引擎跟实例 state，不跟 server env（多实例进程禁 env 竞态）。"""
+
+    def _inject_cmd_state_engine(self, tmp_path, monkeypatch, *,
+                                 state_engine, env_engine):
+        """脚手架照 TestInjectCmdDualEngine：state 带 engine 字段，跑
+        inject_answer 捕获 cmd（env 由调用方决定，验证 state/env 优先级）。"""
+        if env_engine is None:
+            monkeypatch.delenv("DL_ENGINE", raising=False)
+        else:
+            monkeypatch.setenv("DL_ENGINE", env_engine)
+        nid = "plan:4"
+        meta = _mk_state(tmp_path, "demo", [
+            {"ts": "t", "session_id": "s1", "kind": "tui-step-needuser",
+             "node": nid, "sub_step": 2, "note": "rc=0"},
+        ], worktree_path=str(tmp_path / "wt"), engine=state_engine)
+        (meta / "settings.drive-tui.json").write_text("{}", encoding="utf-8")
+        (meta / f"tui-rules.{nid}.md").write_text("rules", encoding="utf-8")
+        _mk_need_user(meta, node=nid, sub_step=2)
+        with patch.object(actions.subprocess, "run",
+                          return_value=MagicMock(returncode=0, stdout="", stderr="")) as run:
+            ok, msg = actions.inject_answer(tmp_path, "demo", "选A")
+        assert ok, msg
+        return run.call_args[0][0]
+
+    def test_inject_reads_state_engine(self, tmp_path, monkeypatch):
+        # server 无 env：state.engine=qodercli 直驱 cmd（override=None→env 兜底锚在 T7 用例）
+        cmd = self._inject_cmd_state_engine(tmp_path, monkeypatch,
+                                            state_engine="qodercli", env_engine=None)
+        assert cmd[0] == "qodercli"
+        assert "accept_edits" in cmd
+
+    def test_inject_state_engine_beats_env(self, tmp_path, monkeypatch):
+        # state.engine 优先于 server env：多实例同进程，env 是竞态源（本例 env 指另一引擎）
+        cmd = self._inject_cmd_state_engine(tmp_path, monkeypatch,
+                                            state_engine="qodercli", env_engine="claude")
+        assert cmd[0] == "qodercli"
+
+    def test_inject_missing_state_engine_falls_back_to_env(self, tmp_path, monkeypatch):
+        # 旧实例无 engine 字段（state_engine=None 不落盘）→ override=None→env 兜底
+        cmd = self._inject_cmd_state_engine(tmp_path, monkeypatch,
+                                            state_engine=None, env_engine="qodercli")
+        assert cmd[0] == "qodercli"
 
 
 def test_inject_ready_false_when_answered(tmp_path):
