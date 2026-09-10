@@ -1155,3 +1155,17 @@ button:disabled { opacity: 0.6; cursor: not-allowed; }
 }
 .stmt-toggle:hover { text-decoration: underline; }
 .stmt-toggle.hidden { display: none; }
+
+/* 窄屏卡片模式（audit-mobile-cards，手机端实机反馈）：行→卡片，列值带标横排，
+   判词/长文本列整行底部全宽。桌面布局零变化。 */
+@media (max-width: 640px) {
+  .audit-tbl, .audit-tbl tbody, .audit-tbl tr, .audit-tbl td { display: block; }
+  .audit-tbl thead { display: none; }
+  .audit-tbl tr { border-bottom: 2px solid var(--line, #2a2f3a); padding: 8px 0; }
+  .audit-tbl td { display: inline-block; padding: 2px 10px 2px 0; border-bottom: none; }
+  .audit-tbl td::before { content: attr(data-l) "："; color: var(--dim, #8a93a5); }
+  .audit-tbl td.audit-reason { display: block; max-width: none; margin-top: 6px; }
+  .audit-blocked td:first-child, .audit-pass td:first-child { border-left: none; }
+  .audit-tbl tr.audit-blocked { border-left: 3px solid #e0704a; padding-left: 8px; }
+  .audit-tbl tr.audit-pass { border-left: 3px solid #4ab07a; padding-left: 8px; }
+}

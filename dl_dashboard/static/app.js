@@ -919,11 +919,11 @@ function renderAudit(a) {
       "</tr></thead><tbody>";
     for (const s of g.steps) {
       const cls = s.blocked ? "audit-blocked" : "audit-pass";
-      html += `<tr class="${cls}"><td class="num">${esc(s.node)}#${s.sub_step}</td>` +
-        `<td class="num">${s.traces}</td><td class="num">${s.blocked}</td>` +
-        `<td>${STATUS[s.status] || esc(s.status)}</td>` +
-        `<td class="num">${s.attempts_to_pass ?? "—"}</td>` +
-        `<td class="audit-reason">${esc(s.last_reason || "")}</td></tr>`;
+      html += `<tr class="${cls}"><td class="num" data-l="步骤">${esc(s.node)}#${s.sub_step}</td>` +
+        `<td class="num" data-l="提交">${s.traces}</td><td class="num" data-l="block">${s.blocked}</td>` +
+        `<td data-l="状态">${STATUS[s.status] || esc(s.status)}</td>` +
+        `<td class="num" data-l="第几次过">${s.attempts_to_pass ?? "—"}</td>` +
+        `<td class="audit-reason" data-l="末次判词">${esc(s.last_reason || "")}</td></tr>`;
     }
     html += "</tbody></table>";
   }
@@ -939,12 +939,12 @@ function renderAudit(a) {
       "<th>节点</th><th>段</th><th>轮</th><th>墙钟</th><th>成本</th>" +
       "<th>fresh in</th><th>cache read</th></tr></thead><tbody>";
     for (const n of a.nodes) {
-      html += `<tr><td class="num">${esc(n.node)}</td>` +
-        `<td class="num">${n.segments}</td><td class="num">${n.turns}</td>` +
-        `<td class="num">${fmtHMS(n.duration_s)}</td>` +
-        `<td class="num">$${n.cost_usd}</td>` +
-        `<td class="num">${fmtTok(n.input_tokens)}</td>` +
-        `<td class="num">${fmtTok(n.cache_read)}</td></tr>`;
+      html += `<tr><td class="num" data-l="节点">${esc(n.node)}</td>` +
+        `<td class="num" data-l="段">${n.segments}</td><td class="num" data-l="轮">${n.turns}</td>` +
+        `<td class="num" data-l="墙钟">${fmtHMS(n.duration_s)}</td>` +
+        `<td class="num" data-l="成本">$${n.cost_usd}</td>` +
+        `<td class="num" data-l="fresh in">${fmtTok(n.input_tokens)}</td>` +
+        `<td class="num" data-l="cache read">${fmtTok(n.cache_read)}</td></tr>`;
     }
     html += "</tbody></table>";
   }
