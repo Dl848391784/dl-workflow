@@ -27,6 +27,7 @@ http://<维护机>:9000/download     # 最新 tarball（HEAD 变化自动重打�
 3. **yaml 解析失败**：mine_conventions 硬失败（SystemExit），db 不更新——`mine_conventions.py --root <项目>` 看 stderr。
 4. **post-commit 不重挖**：查 `<项目>/.git/hooks/post-commit` 是否含 `mine_conventions.py` 标记；setup 幂等，重跑 `--project` 自愈。
 5. **worktree 会话**：映射主仓，主仓无 `.conventions/conventions.db` 时维持 worktree 根（静默）——先跑主仓的首次蒸馏。
+5b. **dl 工作流会话收不到注入**（2026-09-10 cvx-wiring 修复前实爆）：dl 段会话 cwd=worktree，worktree 无 project settings.json（上条 gitignore 所致），per-wf settings 模板 v12 起已自包含登记 codegraph_inject+conventions_inject——存量实例 `dl <name> --resume` 补写自愈；模板版本戳落后会告警。**cvx CLI 在 worktree 报「无 db」**：8915b7a 前 cvx 相对路径解析，段会话内跑 cvx 得「无 db」→ 模型误信「无活跃漂移点」；已修 `_resolve_db`（git 反查+linked worktree 映射主仓，commit 8915b7a）。
 6. **settings.json 被 `*.json` gitignore 忽略**=正常（不入库约定）；换机/换 worktree 重跑 `--project` 重建。
 
 ### B. 索引过期 / 蒸馏图太旧
