@@ -13,6 +13,26 @@ async function post(url, body) {
   return r.json();
 }
 
+// 问题描述折叠/展开（stmt-collapse）：CSS line-clamp 截断，溢出才显示按钮
+function _stmt_collapse_sync(el) {
+  el.classList.add("stmt-collapsed");
+  let btn = el.nextElementSibling;
+  if (!btn || !btn.classList || !btn.classList.contains("stmt-toggle")) {
+    btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "stmt-toggle";
+    el.parentNode.insertBefore(btn, el.nextSibling);
+  }
+  // class 先加再量：scrollHeight（全文高）> clientHeight（截断高）= 真溢出
+  const overflow = el.scrollHeight > el.clientHeight + 1;
+  btn.classList.toggle("hidden", !overflow);
+  btn.textContent = "展开全部 ▾";
+  btn.onclick = () => {
+    const collapsed = el.classList.toggle("stmt-collapsed");
+    btn.textContent = collapsed ? "展开全部 ▾" : "收起 ▴";
+  };
+}
+
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -953,7 +973,10 @@ function renderDetailLive(d) {
   } else {
     live.textContent = "";
   }
-  $("d-statement").textContent = d.info.problem_statement;
+  // 问题描述折叠（stmt-collapse）：>3 行默认收起，真溢出才给「展开全部」按钮
+  const stmtEl = $("d-statement");
+  stmtEl.textContent = d.info.problem_statement;
+  _stmt_collapse_sync(stmtEl);
   // 标题行 gate 放行按钮（仅在可作用时显示——gate_actionable scanner 单源：
   // 门栏扣留 / 闸门后置阶段 pending；gate 从启动就是 pending，旧判定
   // 「held || pending」= 全程常显，点了报错）
