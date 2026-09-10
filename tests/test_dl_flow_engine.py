@@ -5469,6 +5469,41 @@ class TestStatementsRecordFormat:
         assert "in[1]" in msg and "in[2]" in msg and "传导" in msg
 
 
+class TestInterfaceDataContract:
+    """plan 完备性：interface 数据消费条目必须带数据契约（执行零求证）。"""
+
+    def test_signal_without_contract_rejected(self):
+        from dl_flow_checks import _check_interface_data_contract
+
+        msg = _check_interface_data_contract(
+            "Consumes：仓内数据层 fetch_market_cap.py:19-21 的 circ_market_cap 列"
+        )
+        assert msg is not None and "数据契约" in msg
+
+    def test_signal_with_contract_passes(self):
+        from dl_flow_checks import _check_interface_data_contract
+
+        assert _check_interface_data_contract(
+            "Consumes：MARKET_CAP_DATA（json.gz，结构 {meta, data:[records]}，"
+            "circ_market_cap 单位=元需÷1e8；记录按日期升序，末次命中=最新；"
+            "读不到/标的缺→None（失败语义）；读取先例=fetch_market_cap.py:19-21）"
+        ) is None
+
+    def test_exemption_declaration_passes(self):
+        from dl_flow_checks import _check_interface_data_contract
+
+        assert _check_interface_data_contract(
+            "Consumes：步骤1 Produces ScreenerConfig.validate() -> None（纯代码接口）"
+        ) is None
+
+    def test_pure_signature_without_signal_passes(self):
+        from dl_flow_checks import _check_interface_data_contract
+
+        assert _check_interface_data_contract(
+            "Consumes：步骤1 Produces ScreenerConfig（dataclass）；Produces：screen(cfg, symbol) -> dict"
+        ) is None
+
+
 class TestRubricDispute:
     """v2.30 #7 判据申诉通道（tail_volume u:3 子4：模型第 4 轮已正确诊断
     「判据与 in-scope 命题矛盾」，但 escalate 只有重做/放行/回退三出口——
