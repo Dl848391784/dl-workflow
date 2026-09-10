@@ -6,6 +6,15 @@
 
 `DL_ENGINE` env（`dl @qoder` 入口子 shell 置位）→ `dl_engine.get_engine()` 返回 EngineProfile（binary/配置根/权限拼写/flag 差异/transcript 根/计量语义）→ 全部 spawn（drive 4 处/judge/dashboard/launcher）、settings 写出 3 处、hooks 契约面（env 链/Stop 输出/agentId regex）按 profile 或 DL_ENGINE 分路。**claude 未设 DL_ENGINE = 逐位不变**（golden 测试锁死）。
 
+## 1.5 引擎选择三层（per-instance-engine，2026-09-10 落地，designs/per-instance-engine-design.md）
+
+**优先级**：显式 `DL_ENGINE` env（bashrc @qoder/调用方）> 实例 `state.json.engine`（sticky）> claude 默认。
+- **建实例**：dashboard 创建表单卡片选择（`/api/engines` 探测渲染，禁下拉，单引擎机器单卡；qoder 选中时 provider 下拉禁用）或 `dl @qoder`——落 `state.engine`。
+- **drive**（单实例进程）：main 启动读 state.engine 归一写回 env（`_apply_instance_engine`）——段/judge/hooks 全链跟随，**与拉起方的 server/shell env 解耦**（旧实例无字段=不动 env=现状，已知局限见设计 §6）。
+- **dashboard inject**（多实例进程）：`get_engine(override)` 直传实例引擎，**禁 env 竞态**。
+- **resume sticky**：无 env `dl <name> --resume` 从 state 读回（state.json 损坏=fail loud 报错，旧实例无字段=claude 兜底）；`dl-launch` 引擎校验在 wf_state_init 之前（garbage 不落盘）。
+- **排障先对三处**：state.json 的 engine 值 → 段进程 argv 首元素（qodercli|claude）→ dashboard server env 的 DL_ENGINE（v1 遗留语义，仅影响「未归一」路径）。
+
 ## 2. 差异速查（P0 实测 D1-D12）与适配点映射
 
 | # | qodercli 实测事实 | 适配落点 |
