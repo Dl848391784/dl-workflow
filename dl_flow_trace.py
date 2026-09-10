@@ -28,6 +28,7 @@ from dl_flow_checks import (
     _MECH_STATEMENTS_CHECKS,
     _NOUN_L,
     _NOUN_R,
+    _check_interface_data_contract,
     _implementation_nouns,
     _load_atomic_questions,
     _placeholder_hit,
@@ -771,6 +772,12 @@ def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool
                         f"——本步逐项必备：{'/'.join(req_fields)}"
                         "（字段齐备是机械校验的形式要件，补齐再提交）"
                     )
+                if "interface" in req_fields:
+                    contract_msg = _check_interface_data_contract(
+                        str(flds.get("interface", ""))
+                    )
+                    if contract_msg is not None:
+                        return False, f"statements[{i}].fields.interface：{contract_msg}"
         nouns = _implementation_nouns(project_root)
         for i, item in enumerate(statements):
             for noun in sorted(nouns):

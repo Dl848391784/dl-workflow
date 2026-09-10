@@ -1597,6 +1597,35 @@ def _check_change_list_anchor(statements: list, project_root: Path, name) -> str
     )
 
 
+# plan-completeness（执行零求证）：interface 数据契约词表（判据钉死非裁量）。
+# 误拦成本>漏拦成本——契约词 ≥2 即过；「纯代码接口」豁免声明随时可写。
+_CONTRACT_SIGNAL_WORDS = (
+    "读", "数据", "json", "parquet", "gzip", "DataFrame", "API", "缓存", "文件", "源码",
+)
+_CONTRACT_KEYWORDS = ("单位", "格式", "结构", "失败语义", "示例", "先例")
+
+
+def _check_interface_data_contract(interface_text: str) -> str | None:
+    """interface 字段数据契约半机械校验（plan-completeness 设计 §2②）。
+
+    数据消费信号词命中 → 须同时含 ≥2 个契约词或「纯代码接口」豁免声明；
+    无信号（纯签名）→ 放行。违例返拒绝文案，合规返 None。
+    """
+    if "纯代码接口" in interface_text:
+        return None
+    if not any(w in interface_text for w in _CONTRACT_SIGNAL_WORDS):
+        return None
+    hits = sum(1 for w in _CONTRACT_KEYWORDS if w in interface_text)
+    if hits >= 2:
+        return None
+    return (
+        f"interface 含数据消费条目但数据契约不足（契约词命中 {hits}/2，"
+        "需「单位/格式/结构/失败语义/示例/先例」中 ≥2 个）——执行零求证标准："
+        "消费数据/文件/API 时必给五要素（格式样本/单位换算/时序语义/失败语义/"
+        "读取先例），纯函数接口请显式声明「纯代码接口」豁免"
+    )
+
+
 # 回归防护显式抉择的 test 文件词形（regression_guard_declared 用）：
 # test_*.py / *_test.py / test_cases 或 tests 目录下文件 = 测试条目。
 _TEST_FILE_RE = re.compile(
