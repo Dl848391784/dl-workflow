@@ -477,6 +477,35 @@ def test_create_free_text_project_persists_and_validates(client, tmp_path, monke
     assert r.status_code == 400
 
 
+def test_api_engines_lists_available(client, monkeypatch):
+    """GET /api/engines：可选引擎清单（创建表单/徽标数据源）。"""
+    monkeypatch.setattr("dl_engine.available_engines", lambda: ["claude", "qodercli"])
+    r = client[0].get("/api/engines")
+    assert r.status_code == 200 and r.json()["engines"] == ["claude", "qodercli"]
+
+
+def test_api_create_rejects_unknown_engine(client, monkeypatch):
+    """create 接 engine 参数：∉ available_engines → ok:False（不建实例）。"""
+    c, project = client
+    monkeypatch.setattr("dl_engine.available_engines", lambda: ["claude"])
+    r = c.post("/api/create", json={
+        "project": str(project), "name": "x", "statement": "y", "engine": "qodercli"})
+    assert r.json()["ok"] is False and "engine" in r.json()["msg"]
+
+
+def test_api_create_passes_engine_to_action(client, monkeypatch):
+    """合法 engine 透传 create_workflow(engine=...)（T5 传递链末环）。"""
+    c, project = client
+    monkeypatch.setattr("dl_engine.available_engines", lambda: ["claude", "qodercli"])
+    with patch("dl_dashboard.app.actions.create_workflow",
+               return_value=(True, "ok")) as cw:
+        r = c.post("/api/create", json={
+            "project": str(project), "name": "x", "statement": "y",
+            "engine": "qodercli"})
+    assert r.json()["ok"] is True
+    assert cw.call_args.kwargs["engine"] == "qodercli"
+
+
 def test_registered_project_still_trusted(client):
     c, project = client
     # 登记项目（fixture 无 .git）在信任名单内，不被新校验误伤

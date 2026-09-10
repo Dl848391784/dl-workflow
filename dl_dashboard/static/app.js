@@ -119,7 +119,10 @@ function renderSidebar(workflows) {
     const dot = w.error ? "err" : isWaiting(w) ? "wait" : w.driver_pid ? "ok" : "off";
     const modeTag = (w.force_tacet ? `<span class="tag mode-tacet">tacet</span>` : "") +
       (w.force_fermate ? `<span class="tag mode-fermate">fermate</span>` : "") +
-      (w.gate === "done" ? `<span class="tag mode-done">已完结</span>` : "");
+      (w.gate === "done" ? `<span class="tag mode-done">已完结</span>` : "") +
+      (w.engine && w.engine !== "claude"
+        // 非默认引擎才显徽标（claude=默认不吵；scanner 旧实例兜底 claude 不会到这）
+        ? `<span class="engine-badge engine-${esc(w.engine)}">${w.engine === "qodercli" ? "qoder" : esc(w.engine)}</span>` : "");
     item.innerHTML =
       `<div class="wf-line1"><span class="dot ${dot}"></span>` +
       `<span class="wf-name">${esc(w.name)}</span>${modeTag}` +
@@ -1092,6 +1095,46 @@ document.querySelectorAll(".mode-cards").forEach((row) => {
   });
 });
 
+/* 引擎卡（per-instance-engine）：异步渲染，逐卡绑 onclick（上面的静态绑定
+   覆盖不到）；claude 默认选中；单引擎机器只一张卡；空列表不渲染零行为变化 */
+async function initEngineCards() {
+  const row = $("engine-cards");
+  const r = await fetch("/api/engines");
+  const data = await r.json().catch(() => ({}));
+  const engines = (data && data.engines) || [];
+  row.innerHTML = "";
+  const LABELS = {
+    claude: ["claude", "Claude Code 后端（默认）"],
+    qodercli: ["qoder", "Qoder CLI 后端（dl @qoder）"],
+  };
+  engines.forEach((eng, i) => {
+    const [title, desc] = LABELS[eng] || [eng, eng];
+    const card = document.createElement("div");
+    card.className = "mode-card" + (i === 0 ? " sel" : "");
+    card.dataset.v = eng;
+    card.innerHTML = `<b>${esc(title)}</b><span>${esc(desc)}</span>`;
+    card.onclick = () => {
+      row.querySelectorAll(".mode-card").forEach((x) => x.classList.remove("sel"));
+      card.classList.add("sel");
+      syncProviderForEngine();
+    };
+    row.appendChild(card);
+  });
+  syncProviderForEngine();
+}
+initEngineCards().catch((err) => console.warn("engine cards unavailable:", err));
+
+function currentEngine() {
+  return document.querySelector("#engine-cards .mode-card.sel")?.dataset.v || "claude";
+}
+
+function syncProviderForEngine() {
+  const sel = $("cf-provider");
+  const qoder = currentEngine() === "qodercli";
+  sel.disabled = qoder;  // provider=claude 系 ac-* env，qoder 不适用
+  sel.title = qoder ? "qoder 引擎不使用 provider（模型由向导选中或 DL_QODER_MODEL 定）" : "";
+}
+
 $("create-form").onsubmit = async (e) => {
   e.preventDefault();
   // 创建中禁重复提交（launcher 要跑十几秒——无反馈时用户会连点，
@@ -1129,6 +1172,7 @@ $("create-form").onsubmit = async (e) => {
       scope,
       tacet,
       provider: $("cf-provider").value || null,
+      engine: currentEngine(),
     });
     toast(r.ok ? `已创建 ${name}` : r.msg, r.ok);
     if (r.ok) closeCreateModal();

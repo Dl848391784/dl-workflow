@@ -11,7 +11,8 @@ from dl_dashboard.scanner import meta_root
 
 
 def _mk_state(project: Path, name: str, segs, *, worktree_path: str | None = None,
-              phase: str = "plan", sub_index: int = 4) -> Path:
+              phase: str = "plan", sub_index: int = 4,
+              engine: str | None = None) -> Path:
     meta = meta_root(project, name)
     meta.mkdir(parents=True)
     state = {
@@ -21,6 +22,8 @@ def _mk_state(project: Path, name: str, segs, *, worktree_path: str | None = Non
     }
     if worktree_path is not None:
         state["worktree_path"] = worktree_path
+    if engine is not None:
+        state["engine"] = engine  # per-instance-engine：实例引擎落 state（T2）
     (meta / "state.json").write_text(json.dumps(state), encoding="utf-8")
     return meta
 
@@ -392,6 +395,84 @@ def test_inject_wraps_answer_and_drops_ask_user_question(tmp_path):
     assert "AskUserQuestion" not in ",".join(cmd)
 
 
+class TestCreateWorkflowEngine:
+    """T5：create_workflow engine 参数——显式值经 launcher env 传 DL_ENGINE 落
+    state.engine，并随 driver spawn env 携带；None=现状逐位一致（不传 env）。"""
+
+    def _fake_launcher(self, tmp_path, name, captured):
+        """launcher 假跑：写含 engine 的 state.json（成败判定=state.json 存在）。"""
+
+        class FakeProc:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        def fake_run(argv, **kw):
+            captured["env"] = kw.get("env")
+            meta = meta_root(tmp_path, name)
+            meta.mkdir(parents=True)
+            (meta / "state.json").write_text(
+                json.dumps({"worktree_path": "/wt", "engine": "qodercli"}),
+                encoding="utf-8")
+            return FakeProc()
+
+        return fake_run
+
+    def test_launcher_env_carries_engine(self, monkeypatch, tmp_path):
+        captured: dict = {}
+        started: dict = {}
+
+        class FakeMgr:
+            def start(self, project, name, worktree, env=None):
+                started["env"] = env
+                return 123
+
+        monkeypatch.setattr(actions.subprocess, "run",
+                            self._fake_launcher(tmp_path, "wf1", captured))
+        with patch.object(actions.engine, "set_problem_statement"):
+            ok, msg = actions.create_workflow(
+                tmp_path, "wf1", "stmt", FakeMgr(), engine="qodercli")
+        assert ok, msg
+        assert captured["env"]["DL_ENGINE"] == "qodercli"  # launcher env 落 state
+        assert started["env"]["DL_ENGINE"] == "qodercli"  # driver spawn env 携带
+
+    def test_engine_none_keeps_current_behavior(self, monkeypatch, tmp_path):
+        """engine=None：不传 env（launcher 继承调用方 env 现状），逐位一致。"""
+        captured: dict = {}
+
+        class FakeMgr:
+            def start(self, project, name, worktree, env=None):
+                return 123
+
+        monkeypatch.setattr(actions.subprocess, "run",
+                            self._fake_launcher(tmp_path, "wf1", captured))
+        with patch.object(actions.engine, "set_problem_statement"):
+            ok, _ = actions.create_workflow(tmp_path, "wf1", "stmt", FakeMgr())
+        assert ok
+        assert captured["env"] is None
+
+    def test_drv_env_merges_provider_and_engine(self, monkeypatch, tmp_path):
+        """provider_env 与 DL_ENGINE 合并携带（非覆盖）：provider env 创建登记
+        通道与引擎选择正交。"""
+        captured: dict = {}
+        started: dict = {}
+
+        class FakeMgr:
+            def start(self, project, name, worktree, env=None):
+                started["env"] = env
+                return 123
+
+        monkeypatch.setattr(actions.subprocess, "run",
+                            self._fake_launcher(tmp_path, "wf1", captured))
+        with patch.object(actions.engine, "set_problem_statement"):
+            ok, _ = actions.create_workflow(
+                tmp_path, "wf1", "stmt", FakeMgr(),
+                provider_env={"ANTHROPIC_API_KEY": "k"}, engine="qodercli")
+        assert ok
+        assert started["env"]["ANTHROPIC_API_KEY"] == "k"
+        assert started["env"]["DL_ENGINE"] == "qodercli"
+
+
 class TestInjectCmdDualEngine:
     """T7：needuser 注入 cmd 的 binary/perm/disallow_ask 走 dl_engine profile。"""
 
@@ -450,6 +531,51 @@ class TestInjectCmdDualEngine:
         assert "acceptEdits" in cmd
         assert "--disallowedTools" in cmd
         assert "AskUserQuestion" in cmd
+
+
+class TestInjectUsesInstanceEngine:
+    """per-instance-engine：inject 引擎跟实例 state，不跟 server env（多实例进程禁 env 竞态）。"""
+
+    def _inject_cmd_state_engine(self, tmp_path, monkeypatch, *,
+                                 state_engine, env_engine):
+        """脚手架照 TestInjectCmdDualEngine：state 带 engine 字段，跑
+        inject_answer 捕获 cmd（env 由调用方决定，验证 state/env 优先级）。"""
+        if env_engine is None:
+            monkeypatch.delenv("DL_ENGINE", raising=False)
+        else:
+            monkeypatch.setenv("DL_ENGINE", env_engine)
+        nid = "plan:4"
+        meta = _mk_state(tmp_path, "demo", [
+            {"ts": "t", "session_id": "s1", "kind": "tui-step-needuser",
+             "node": nid, "sub_step": 2, "note": "rc=0"},
+        ], worktree_path=str(tmp_path / "wt"), engine=state_engine)
+        (meta / "settings.drive-tui.json").write_text("{}", encoding="utf-8")
+        (meta / f"tui-rules.{nid}.md").write_text("rules", encoding="utf-8")
+        _mk_need_user(meta, node=nid, sub_step=2)
+        with patch.object(actions.subprocess, "run",
+                          return_value=MagicMock(returncode=0, stdout="", stderr="")) as run:
+            ok, msg = actions.inject_answer(tmp_path, "demo", "选A")
+        assert ok, msg
+        return run.call_args[0][0]
+
+    def test_inject_reads_state_engine(self, tmp_path, monkeypatch):
+        # server 无 env：state.engine=qodercli 直驱 cmd（override=None→env 兜底锚在 T7 用例）
+        cmd = self._inject_cmd_state_engine(tmp_path, monkeypatch,
+                                            state_engine="qodercli", env_engine=None)
+        assert cmd[0] == "qodercli"
+        assert "accept_edits" in cmd
+
+    def test_inject_state_engine_beats_env(self, tmp_path, monkeypatch):
+        # state.engine 优先于 server env：多实例同进程，env 是竞态源（本例 env 指另一引擎）
+        cmd = self._inject_cmd_state_engine(tmp_path, monkeypatch,
+                                            state_engine="qodercli", env_engine="claude")
+        assert cmd[0] == "qodercli"
+
+    def test_inject_missing_state_engine_falls_back_to_env(self, tmp_path, monkeypatch):
+        # 旧实例无 engine 字段（state_engine=None 不落盘）→ override=None→env 兜底
+        cmd = self._inject_cmd_state_engine(tmp_path, monkeypatch,
+                                            state_engine=None, env_engine="qodercli")
+        assert cmd[0] == "qodercli"
 
 
 def test_inject_ready_false_when_answered(tmp_path):

@@ -4172,3 +4172,37 @@ class TestSegmentCmdDualEngine:
         assert "accept_edits" in cmd
         assert "--debug-file" not in cmd and "--debug" in cmd
         assert "--disallowedTools" not in cmd  # D4：qoder 无 AskUserQuestion
+
+
+# ---------- T3：实例引擎归一（per-instance-engine T3） ----------
+dl_drive = _load(DRIVER, "dl_drive_ie")
+
+
+class TestApplyInstanceEngine:
+    """state.engine 归一写回 DL_ENGINE env（drive 单实例进程，归一后段
+    spawn/judge/hooks 全链跟随；旧实例无字段=不动 env，claude 默认零变化）。"""
+
+    def _mk_state(self, tmp_path, name, engine_value=None):
+        meta = tmp_path / ".claude" / "workflows" / name
+        meta.mkdir(parents=True)
+        state = {"name": name, "phase": "understand"}
+        if engine_value is not None:
+            state["engine"] = engine_value
+        (meta / "state.json").write_text(json.dumps(state), encoding="utf-8")
+
+    def test_state_engine_normalized_to_env(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("DL_ENGINE", raising=False)
+        self._mk_state(tmp_path, "wf1", "qodercli")
+        dl_drive._apply_instance_engine(tmp_path, "wf1")
+        assert os.environ["DL_ENGINE"] == "qodercli"
+
+    def test_missing_field_keeps_env(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("DL_ENGINE", "claude")
+        self._mk_state(tmp_path, "wf1")  # 旧实例无 engine 字段
+        dl_drive._apply_instance_engine(tmp_path, "wf1")
+        assert os.environ["DL_ENGINE"] == "claude"
+
+    def test_missing_state_noop(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("DL_ENGINE", raising=False)
+        dl_drive._apply_instance_engine(tmp_path, "ghost")
+        assert "DL_ENGINE" not in os.environ

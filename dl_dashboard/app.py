@@ -23,6 +23,8 @@ from dl_dashboard.config import DEFAULT_CONFIG, DashboardConfig, load_config
 from dl_dashboard.driver_mgr import DriverManager
 from dl_flow_common import steer_list
 
+import dl_engine
+
 log = logging.getLogger("dl_dashboard")
 
 DLWF = Path(__file__).resolve().parents[1]
@@ -307,6 +309,11 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
     def health_page():
         return _serve_html("health.html")
 
+    @app.get("/api/engines")
+    def engines():
+        """可选引擎清单（per-instance-engine）：创建表单/徽标数据源。"""
+        return {"engines": dl_engine.available_engines()}
+
     @app.post("/api/create")
     async def create(body: dict):
         proj = _project(body["project"])
@@ -314,11 +321,17 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
         provider = body.get("provider")
         if provider and provider not in providers:
             return {"ok": False, "msg": f"未知 provider {provider}（可选：{'/'.join(providers)}）"}
+        eng_sel = body.get("engine")
+        if eng_sel and eng_sel not in dl_engine.available_engines():
+            return {"ok": False,
+                    "msg": f"engine {eng_sel} 在本机不可用"
+                           f"（可选：{'/'.join(dl_engine.available_engines())}）"}
         async with _lock(proj, name):
             ok, msg = await asyncio.to_thread(
                 actions.create_workflow, proj, name, body["statement"], mgr,
                 body.get("scope", "fermate"), bool(body.get("tacet")),
-                providers.get(provider) if provider else None)
+                providers.get(provider) if provider else None,
+                engine=eng_sel)
             if ok and provider:
                 _provider_file(proj, name).write_text(provider, encoding="utf-8")
             if ok:

@@ -194,6 +194,15 @@ def test_scan_workflow_mode_flags(tmp_path):
     assert scan_workflow(tmp_path, "demo").force_tacet is False  # 老工作流无字段→False
 
 
+def test_scan_workflow_engine_default_and_read(tmp_path):
+    """engine 徽标透传（前端徽标数据源）：无字段 → claude 兜底（旧实例）；
+    有字段 → 逐字透传。"""
+    _mk_workflow(tmp_path, "old", BASE_STATE)
+    _mk_workflow(tmp_path, "new", {**BASE_STATE, "engine": "qodercli"})
+    assert scan_workflow(tmp_path, "old").engine == "claude"
+    assert scan_workflow(tmp_path, "new").engine == "qodercli"
+
+
 def test_scan_all_sorted_by_created_at_desc(tmp_path):
     _mk_workflow(tmp_path, "old", dict(BASE_STATE, created_at="2026-08-25T10:00:00"))
     _mk_workflow(tmp_path, "new", dict(BASE_STATE, created_at="2026-08-27T10:00:00"))

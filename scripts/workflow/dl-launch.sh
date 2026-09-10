@@ -133,6 +133,31 @@ if [ "$WF_DONE" = "1" ]; then
   exit 0
 fi
 
+# ---------- 引擎（DL_ENGINE：claude 默认 | qodercli；qodercli-engine-profile P1） ----------
+# 优先级：显式 DL_ENGINE env（bashrc @qoder/调用方）> state.engine（per-instance
+# sticky，resume 无 env 时接回原引擎）> claude。旧实例无 engine 字段=claude。
+# 未知值显式报错（no silent fallback）。bashrc 注释宣称的「不硬编码 claude」
+# 间接层在此真接线（此前 dl-launch.sh:324/326 为字面 exec claude）。
+# 位置在「新建 or 续」与 wf_state_init 之前：garbage 引擎值在校验处即 exit 1，
+# 不落盘 state.json（终审修复波）；sticky 读取靠 state.json 存在性区分——
+# 新实例文件未建走 claude 默认，旧实例无字段由 wf_state_get 兜底 claude，
+# 文件损坏才 fail loud（no silent fallback）。
+if [ -z "${DL_ENGINE:-}" ]; then
+  if [ -f "$WF_META_ROOT/$WF_NAME/state.json" ]; then
+    DL_ENGINE="$(wf_state_get "$WF_NAME" engine)" || {
+      echo "✗ $WF_META_ROOT/$WF_NAME/state.json 存在但 engine 读取失败（文件损坏）——拒绝静默落 claude（no silent fallback）" >&2
+      exit 1
+    }
+  else
+    DL_ENGINE=claude
+  fi
+fi
+case "$DL_ENGINE" in
+  claude)   ENGINE_BIN=claude;   ENGINE_PERM=acceptEdits ;;
+  qodercli) ENGINE_BIN=qodercli; ENGINE_PERM=accept_edits ;;
+  *) echo "✗ DL_ENGINE=$DL_ENGINE 未知引擎（claude|qodercli）" >&2; exit 1 ;;
+esac
+
 # ---------- 新建 or 续 ----------
 if [ -f "$STATE_FILE" ]; then
   # 已存在：续
@@ -167,7 +192,9 @@ else
   else
     SESSION_ID="$(cat /proc/sys/kernel/random/uuid 2>/dev/null || python3 -c 'import uuid;print(uuid.uuid4())')"
   fi
-  wf_state_init "$WF_NAME" "$SESSION_ID" "$WF_BASE" "$BRANCH" "$WORKTREE_PATH"
+  # DL_ENGINE 已在上方「新建 or 续」之前解析（引擎块前移：garbage 不落盘）；
+  # 此处 init 仅把解析结果写入 state.engine（per-instance sticky 真源）
+  wf_state_init "$WF_NAME" "$SESSION_ID" "$WF_BASE" "$BRANCH" "$WORKTREE_PATH" "${DL_ENGINE:-}"
   wf_write_settings "$WF_NAME"
   echo "  session: $SESSION_ID"
   WF_NEW_INSTANCE=1
@@ -277,17 +304,6 @@ cd "$WORKTREE_PATH"
 # launcher 子进程继承父 shell env，故 claude 自动带上 provider 的 ANTHROPIC_* 配置。
 # 不用 @provider 机制：provider 选择由「用哪个命令调」决定，不是 launcher 去 exec provider
 # （provider 若是 bashrc 函数，launcher 子进程 exec 不到，会 not found）。
-
-# ---------- 引擎（DL_ENGINE：claude 默认 | qodercli；qodercli-engine-profile P1） ----------
-# bashrc dl @qoder 入口置 DL_ENGINE=qodercli；未设=claude（现状逐位一致）。
-# 未知值显式报错（no silent fallback）。bashrc 注释宣称的「不硬编码 claude」
-# 间接层在此真接线（此前 dl-launch.sh:324/326 为字面 exec claude）。
-DL_ENGINE="${DL_ENGINE:-claude}"
-case "$DL_ENGINE" in
-  claude)   ENGINE_BIN=claude;   ENGINE_PERM=acceptEdits ;;
-  qodercli) ENGINE_BIN=qodercli; ENGINE_PERM=accept_edits ;;
-  *) echo "✗ DL_ENGINE=$DL_ENGINE 未知引擎（claude|qodercli）" >&2; exit 1 ;;
-esac
 
 # --debug：debug 落盘到 per-wf 目录（cc_debug.log = --debug-file；cc_sdk.log = stderr）。
 # 独立文件而非 /tmp/cc_debug.log——/tmp 那份被所有直接会话混写，按时间窗口过滤会误判

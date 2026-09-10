@@ -3066,6 +3066,19 @@ def run_segment(project_root: Path, name: str, debug: bool = False) -> int:
     return code
 
 
+def _apply_instance_engine(project_root: Path, name: str) -> None:
+    """per-instance-engine：实例引擎 sticky——state.engine 归一写回 DL_ENGINE env。
+
+    drive 是单实例进程：归一后下游 get_engine()（段 spawn/judge）与 hooks
+    （经 harness 继承 env）全链自动跟随，与拉起 drive 的 server/shell env 解耦
+    （根治「claude 实例在 qoder server 下被错引擎驱动」）。旧实例无字段=不动
+    env（调用方 env 原样，=现状）。
+    """
+    state = engine.load_state(project_root, name)
+    if state and state.get("engine"):
+        os.environ["DL_ENGINE"] = state["engine"]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="dl_drive", description="headless driver 编排器"
@@ -3090,6 +3103,7 @@ def main(argv: list[str] | None = None) -> int:
     if project_root is None:
         print("✗ 不在 git 仓库内", file=sys.stderr)
         return 1
+    _apply_instance_engine(project_root, args.name)
     if args.segment:
         return run_segment(project_root, args.name, debug=args.debug)
     return drive(project_root, args.name, args.debug, verbose=args.verbose)

@@ -1131,3 +1131,8 @@ button:disabled { opacity: 0.6; cursor: not-allowed; }
 .steer-ul li .hint { margin-left: auto; }
 .steer-pending { color: #e0b34a; }
 .steer-done { color: var(--dim, #8a93a5); }
+
+/* 引擎徽标（per-instance-engine）：实例卡片上标非默认引擎，claude/qoder 两色 */
+.engine-badge { font-size: 11px; padding: 1px 6px; border-radius: 4px; margin-left: 6px;
+  background: var(--badge-bg, rgba(88,166,255,.18)); color: var(--badge-fg, #7db3f7); }
+.engine-qodercli { background: rgba(255,153,68,.16); color: #f0a35e; }

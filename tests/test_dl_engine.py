@@ -82,3 +82,36 @@ class TestTranscriptProjectsRoot:
         monkeypatch.setenv("DL_ENGINE", "qodercli")
         eng = dl_engine.get_engine()
         assert eng.transcript_projects_root() == Path.home() / ".qoder" / "projects"
+
+
+class TestAvailableEngines:
+    def test_both_present(self, monkeypatch):
+        monkeypatch.setattr("shutil.which", lambda b: f"/usr/bin/{b}")
+        assert dl_engine.available_engines() == ["claude", "qodercli"]
+
+    def test_only_qoder(self, monkeypatch):
+        monkeypatch.setattr(
+            "shutil.which", lambda b: "/usr/bin/qodercli" if b == "qodercli" else None
+        )
+        assert dl_engine.available_engines() == ["qodercli"]
+
+    def test_none_present(self, monkeypatch):
+        monkeypatch.setattr("shutil.which", lambda b: None)
+        assert dl_engine.available_engines() == []
+
+
+class TestGetEngineOverride:
+    def test_override_beats_env(self, monkeypatch):
+        monkeypatch.setenv("DL_ENGINE", "claude")
+        assert dl_engine.get_engine("qodercli").binary == "qodercli"
+
+    def test_none_override_falls_back_to_env(self, monkeypatch):
+        monkeypatch.setenv("DL_ENGINE", "qodercli")
+        assert dl_engine.get_engine(None).binary == "qodercli"
+        assert dl_engine.get_engine("").binary == "qodercli"  # 空串=未指定
+
+    def test_unknown_override_hard_fails(self):
+        import pytest
+
+        with pytest.raises(SystemExit):
+            dl_engine.get_engine("gemini")

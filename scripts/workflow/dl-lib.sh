@@ -125,19 +125,19 @@ wf_set_state_path() {
 }
 
 wf_state_init() {
-  # $1=name $2=session_id $3=base_ref $4=branch $5=worktree_path
-  local name="$1" sid="$2" base="$3" branch="$4" wtp="$5"
+  # $1=name $2=session_id $3=base_ref $4=branch $5=worktree_path $6=engine
+  local name="$1" sid="$2" base="$3" branch="$4" wtp="$5" engine="${6:-claude}"
   mkdir -p "$WF_META_ROOT/$name"
-  python3 - "$WF_META_ROOT/$name/state.json" "$name" "$sid" "$base" "$branch" "$wtp" <<'PY'
-import json, sys, datetime
-path, name, sid, base, branch, wtp = sys.argv[1:7]
-# datetime.utcnow 不可在 workflow 脚本外用，但 launcher 脚本非 workflow 内 JS，此处 bash+python 正常
+  python3 - "$WF_META_ROOT/$name/state.json" "$name" "$sid" "$base" "$branch" "$wtp" "$engine" <<'PY'
+import json, sys
+path, name, sid, base, branch, wtp, engine = sys.argv[1:8]
 import time
 now = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
 state = {
   "name": name, "phase": "understand", "index": 1,
   "sub_index": 1, "sub_total": 4,   # 起于 understand，含 4 子阶段
   "session_id": sid, "base_ref": base, "branch": branch, "worktree_path": wtp,
+  "engine": engine,  # per-instance-engine：实例引擎 sticky（读侧一律 .get("engine","claude") 兜底）
   "gate": "pending", "created_at": now, "updated_at": now, "history": [],
 }
 with open(path, "w", encoding="utf-8") as f:
@@ -146,6 +146,9 @@ PY
 }
 
 # 读单个字段：wf_state_get <name> <field>
+# 字段缺失：engine 特判打印 claude（它是唯一带兜底语义的字段，旧实例无该键=claude）；
+# 其它字段缺失打印空串（调用方多带 2>/dev/null||echo "" 兜底，净效果不变）。
+# 文件损坏（JSONDecodeError）/不存在：exit 1——读侧契约被多处依赖，fail loud 由调用方裁决。
 wf_state_get() {
   local f="$WF_META_ROOT/$1/state.json" field="$2"
   [ -f "$f" ] || return 1
@@ -153,8 +156,8 @@ wf_state_get() {
 import json, sys
 try:
     with open(sys.argv[1], encoding="utf-8") as f:
-        print(json.load(f)[sys.argv[2]])
-except (KeyError, FileNotFoundError, json.JSONDecodeError):
+        print(json.load(f).get(sys.argv[2], "claude" if sys.argv[2] == "engine" else ""))
+except (FileNotFoundError, json.JSONDecodeError):
     sys.exit(1)
 PY
 }
