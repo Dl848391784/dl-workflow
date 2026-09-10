@@ -167,7 +167,8 @@ else
   else
     SESSION_ID="$(cat /proc/sys/kernel/random/uuid 2>/dev/null || python3 -c 'import uuid;print(uuid.uuid4())')"
   fi
-  wf_state_init "$WF_NAME" "$SESSION_ID" "$WF_BASE" "$BRANCH" "$WORKTREE_PATH"
+  # ${DL_ENGINE:-}：引擎块在下方才解析（resume 时先写初值再从 state 接回，旧行为=claude）
+  wf_state_init "$WF_NAME" "$SESSION_ID" "$WF_BASE" "$BRANCH" "$WORKTREE_PATH" "${DL_ENGINE:-}"
   wf_write_settings "$WF_NAME"
   echo "  session: $SESSION_ID"
   WF_NEW_INSTANCE=1
@@ -279,10 +280,13 @@ cd "$WORKTREE_PATH"
 # （provider 若是 bashrc 函数，launcher 子进程 exec 不到，会 not found）。
 
 # ---------- 引擎（DL_ENGINE：claude 默认 | qodercli；qodercli-engine-profile P1） ----------
-# bashrc dl @qoder 入口置 DL_ENGINE=qodercli；未设=claude（现状逐位一致）。
+# 优先级：显式 DL_ENGINE env（bashrc @qoder/调用方）> state.engine（per-instance
+# sticky，resume 无 env 时接回原引擎）> claude。旧实例无 engine 字段=claude。
 # 未知值显式报错（no silent fallback）。bashrc 注释宣称的「不硬编码 claude」
 # 间接层在此真接线（此前 dl-launch.sh:324/326 为字面 exec claude）。
-DL_ENGINE="${DL_ENGINE:-claude}"
+if [ -z "${DL_ENGINE:-}" ]; then
+  DL_ENGINE="$(wf_state_get "$WF_NAME" engine 2>/dev/null || echo claude)"
+fi
 case "$DL_ENGINE" in
   claude)   ENGINE_BIN=claude;   ENGINE_PERM=acceptEdits ;;
   qodercli) ENGINE_BIN=qodercli; ENGINE_PERM=accept_edits ;;

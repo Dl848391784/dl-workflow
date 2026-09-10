@@ -35,3 +35,24 @@ assert any('codegraph_inject.py' in c for c in ups), ups
 assert any('conventions_inject.py' in c for c in ups), ups
 print('✓ wf_write_settings qoder 分支正确')
 "
+
+# --- per-instance engine：state 落引擎 + resume sticky ---
+SEG="$WF_META_ROOT/sticky/state.json"
+mkdir -p "$WF_META_ROOT/sticky"
+cat > "$SEG" <<'JSON'
+{"name": "sticky", "engine": "qodercli"}
+JSON
+# wf_state_init 落引擎字段（6 参形态）
+wf_state_init falltest sid-1 master wf/falltest /tmp/wt qodercli
+python3 -c "
+import json
+s = json.load(open('$WF_META_ROOT/falltest/state.json'))
+assert s['engine'] == 'qodercli', s.get('engine')
+print('✓ wf_state_init 落 engine 字段')
+"
+# resume sticky：DL_ENGINE 未设时从 state 读（wf_state_get 真实函数，name=sticky 定位）
+DL_ENGINE=""
+WF_NAME=sticky  # set -u 下引擎块引用 $WF_NAME；sticky 用例 state.json 即 <root>/sticky/
+eval "$(sed -n '/^# ---------- 引擎/,/^esac/p' "$LAUNCH" | sed 's/exit 1/return 1/')"
+[ "$DL_ENGINE" = "qodercli" ] || { echo "✗ resume sticky 未读到 state engine: $DL_ENGINE"; exit 1; }
+echo "✓ resume sticky：无 env 时 state.engine 生效"
