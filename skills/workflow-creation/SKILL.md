@@ -117,7 +117,7 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
 - "Argument list too long / E2BIG / 段异常起不来 / fence off 了仍被拦 / 段工人故障接管" → references/diagnostics.md 症状 AA + 症状 Z 末条
 - "审计这轮运行 / 符合预期吗 / 哪些 error 返工可避免 / judge 输入膨胀 / 重建丢弃" → references/runtime-audit.md
 - "dl @qoder / qoder 引擎 / DL_ENGINE 报错 / BYOK / qoder 段卡死 wedge / qoder hook 不触发" → references/engine-qodercli.md
-- "无人值守跑工作流 / 顺序跑多轮 / 答案注入 / 注入没生效 / 双 driver / driver 死了还在推进 / 后台任务被收割" → references/runtime-audit.md #25（无人值守驱动 loop+四坑）#27（台账形态）
+- "无人值守跑工作流 / 顺序跑多轮 / 答案注入 / 注入没生效 / 双 driver / driver 死了还在推进 / 后台任务被收割 / driver 探针强杀 / 孤儿段双段并发 / need_user 陈旧卡" → references/runtime-audit.md #25（无人值守驱动 loop+六坑）#27（台账形态）
 - "门槛打地鼠 / append-trace 反复被拒 / from-file 提交次数 / 拒绝形态 / 锚点查无 / 改动规格语法不合" → references/cost-optimization.md #54（审计手法+验证口径）
 - "tacet / dlt / force-tacet / 脊柱步 / 静默步 / 为啥这步没跑" -> designs/force-tacet-experiment-design.md（轨道语义）；统计/审计 tacet 实例 -> references/runtime-audit.md #27（段->步骤映射三通道）；首跑收口审计（成本账/execute纯度/可用性结论）-> designs/force-tacet-run1-audit.md
 - "设计新编排节点 / 拆几个子步骤 / 每步什么目的 / 要不要取证步 / 步数怎么定 / 代码设计拆步 / 拆解任务 / 任务切分 / 执行计划 plan.md" → references/node-split-methodology.md；查某节点有几步/关键不对称 → references/nodes-index.md
