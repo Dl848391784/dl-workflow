@@ -49,12 +49,18 @@ qodercli-engine-profile 落地后，引擎由 **dashboard server 进程 env**（
 - **qoder 模型不进表单**（YAGNI）：v1 = 向导选中的账号默认 或 server `DL_QODER_MODEL`；per-instance 模型选择等真实需求再做
 - **`dl @qoder` bashrc 入口保留**：新建时显式覆盖（优先级高于默认）；resume 时 state sticky 生效
 
-## 5. 验收与测试
+## 5. 验收与测试（✅ 完成 2026-09-10）
 
-- 单测：`available_engines` 探测矩阵 / state 默认 claude / drive 归一（state=qodercli → 段 cmd=qodercli）/ inject 读 state
-- bash 冒烟：dl-launch resume sticky（无 DL_ENGINE 环境变量接 qoder 实例起 qodercli）
-- dashboard 测试：/api/engines、/api/create 引擎校验与传递、表单渲染逻辑
-- **实机 E2E**：dashboard 建 qoder 实例 → `state.engine=qodercli` → driver spawn=qodercli（进程 argv 实证）；claude 实例在 qoder server 下被驱动**不串引擎**（② 的修复点）；无 env `dl <name> --resume` 接 qoder 实例保持 qoder
+- ✅ 单测：`available_engines` 探测矩阵（T1，6 条）/ state 默认 claude + sticky（T2，bash 冒烟）/ drive 归一（T3，3 条）/ inject 读 state（T4，3 档优先级）/ scanner+API+create（T5，7 条）——dashboard 三文件 104 passed
+- ✅ bash 冒烟：dl-launch resume sticky（无 DL_ENGINE 接 qoder 实例起 qodercli）+ wf_state_init 6 参落字段
+- ✅ **实机 E2E（同 server 双实例双引擎，/tmp/e2e-engine-probe + 独立端口 19001）**：
+  - `GET /api/engines` → `["claude","qodercli"]`；`engine=gemini` 创建被拒（ok:false+可选列表）
+  - 建 e2eqoder → `state.engine=qodercli`，driver 段进程 argv=**qodercli**（无 --verbose，qoder flag 形态正确）
+  - 建 e2eclaude → `state.engine=claude`，driver 段进程 argv=**claude**（带 --verbose/--disallowedTools）——**同 server 双实例双引擎不串**（② 归一修复点实证）
+  - 实例列表 API 徽标字段：e2eqoder=qodercli / e2eclaude=claude（scanner 透传正确）
+  - 清理：driver/server 全停，实例归档（worktree/分支/元数据清除）
+- ✅ 回归：相关文件隔离全绿；全量 25 failed 与干净 HEAD 逐一相同（既有顺序污染，另立跟进项，非本分支引入）
+- 前端卡片/provider 禁用/徽标渲染为代码级+API 级验证（服务器无浏览器），视觉项留用户 dashboard 上眼确认
 
 ## 6. 风险
 
