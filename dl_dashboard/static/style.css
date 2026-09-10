@@ -1118,7 +1118,8 @@ button:disabled { opacity: 0.6; cursor: not-allowed; }
 .audit-tbl th { color: var(--dim, #8a93a5); font-weight: 500; }
 .audit-blocked td:first-child { border-left: 3px solid #e0704a; }
 .audit-pass td:first-child { border-left: 3px solid #4ab07a; }
-.audit-reason { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim, #8a93a5); }
+/* 判词整文换行（移动端实爆：nowrap+auto 表格布局下 max-width 被忽略，长判词撑爆表格横向滚动） */
+.audit-reason { max-width: 420px; white-space: normal; word-break: break-word; color: var(--dim, #8a93a5); }
 .audit-disputes { margin: 8px 0 16px; font-size: 13px; }
 .health-main { padding: 16px 24px; max-width: 1100px; }
 .topbar-actions { display: flex; gap: 10px; align-items: center; }
