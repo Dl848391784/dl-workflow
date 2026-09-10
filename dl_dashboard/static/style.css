@@ -1136,3 +1136,21 @@ button:disabled { opacity: 0.6; cursor: not-allowed; }
 .engine-badge { font-size: 11px; padding: 1px 6px; border-radius: 4px; margin-left: 6px;
   background: var(--badge-bg, rgba(88,166,255,.18)); color: var(--badge-fg, #7db3f7); }
 .engine-qodercli { background: rgba(255,153,68,.16); color: #f0a35e; }
+
+/* 问题描述折叠（stmt-collapse）：默认 3 行截断，按钮控制展开/收起 */
+#d-statement.stmt-collapsed {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+.stmt-toggle {
+  background: none;
+  border: none;
+  color: var(--accent, #7db3f7);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 0;
+}
+.stmt-toggle:hover { text-decoration: underline; }
+.stmt-toggle.hidden { display: none; }
