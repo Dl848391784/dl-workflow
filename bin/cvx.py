@@ -10,6 +10,7 @@
 import argparse
 import json
 import sqlite3
+import subprocess
 import sys
 from pathlib import Path
 
@@ -18,6 +19,51 @@ DEFAULT_DB = Path(".conventions") / "conventions.db"
 MAX_ROWS = 30
 
 COLUMNS = ("dimension", "subject", "statement", "source", "sample_size", "compliance", "drift", "evidence")
+
+
+def _git(args: list[str], cwd: Path) -> subprocess.CompletedProcess | None:
+    try:
+        proc = subprocess.run(
+            ["git", *args], cwd=cwd, capture_output=True, text=True, timeout=10
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return proc if proc.returncode == 0 else None
+
+
+def _resolve_db(explicit: Path | None) -> Path:
+    """默认 db 路径解析（2026-09-10 cvx-wt-root，E2E 实爆驱动）。
+
+    --db 显式指定优先；否则 cwd 经 git 反查仓根取 <根>/.conventions/conventions.db；
+    linked worktree（git-dir ≠ git-common-dir）且主仓有 db 时映射主仓——
+    与 hooks/conventions_inject.py _map_worktree_to_main 同构（工作流段会话
+    cwd=worktree 是 cvx 的主消费场景，相对路径解析在该场景报「无 db」=
+    模型误信「无活跃漂移点」）。非 git/全程无 db 回退 cwd 相对路径
+    （现状行为，缺失报错文案不变）。任何 git 探测失败静默回退，永不阻断。
+    """
+    if explicit is not None:
+        return explicit
+    cwd = Path.cwd()
+    top = _git(["rev-parse", "--show-toplevel"], cwd)
+    if top is not None:
+        root = Path(top.stdout.strip())
+        db = root / DEFAULT_DB
+        if db.exists():
+            return db
+        both = _git(["rev-parse", "--git-dir", "--git-common-dir"], cwd)
+        if both is not None:
+            lines = both.stdout.splitlines()
+            if len(lines) >= 2:
+                git_dir, common = Path(lines[0]), Path(lines[1])
+                if not git_dir.is_absolute():
+                    git_dir = (root / git_dir).resolve()
+                if not common.is_absolute():
+                    common = (root / common).resolve()
+                if git_dir != common:
+                    main_db = common.parent / DEFAULT_DB
+                    if main_db.exists():
+                        return main_db
+    return DEFAULT_DB
 
 
 def _open_db(db_path: Path) -> sqlite3.Connection:
@@ -58,14 +104,14 @@ def main(argv=None) -> int:
     parser.add_argument("command", choices=["query", "drift"])
     parser.add_argument("keyword", nargs="?", default=None)
     parser.add_argument("--json", action="store_true")
-    parser.add_argument("--db", type=Path, default=DEFAULT_DB)
+    parser.add_argument("--db", type=Path, default=None)
     args = parser.parse_args(argv)
     if args.command == "query" and not args.keyword:
         print("cvx: query 需要关键词", file=sys.stderr)
         return 1
 
     try:
-        conn = _open_db(args.db)
+        conn = _open_db(_resolve_db(args.db))
     except (FileNotFoundError, sqlite3.OperationalError) as e:
         print(f"cvx: {e}", file=sys.stderr)
         return 1

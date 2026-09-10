@@ -93,3 +93,40 @@ def test_main_exit_codes(tmp_path, capsys):
     out = capsys.readouterr().out
     assert json.loads(out)[0]["subject"] == "H11 日志风格"
     assert cvx.main(["query", "x", "--db", str(tmp_path / "nope.db")]) == 1
+
+
+def _git(*args, cwd):
+    import subprocess
+
+    p = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+    assert p.returncode == 0, p.stderr
+
+
+def test_resolve_db_linked_worktree_maps_to_main(tmp_path, monkeypatch):
+    """linked worktree cwd 且无本地 db → 映射主仓 db（2026-09-10 E2E 实爆：
+    工作流段会话 cwd=worktree，cvx 相对路径解析报「无 db」，
+    模型误信「无活跃漂移点」——蒸馏指针在工作流主消费场景失效）。"""
+    main = tmp_path / "main"
+    main.mkdir()
+    _git("init", "-b", "main", cwd=main)
+    (main / "README.md").write_text("x", encoding="utf-8")
+    _git("add", "README.md", cwd=main)
+    _git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init", cwd=main)
+    (main / ".conventions").mkdir()
+    db = _fixture_db(main / ".conventions")
+    wt = tmp_path / "wt"
+    _git("worktree", "add", str(wt), "-b", "feat/t", cwd=main)
+
+    # worktree cwd → 主仓 db
+    monkeypatch.chdir(wt)
+    assert cvx._resolve_db(None) == db
+    # 主仓 cwd → 主仓 db
+    monkeypatch.chdir(main)
+    assert cvx._resolve_db(None) == db
+    # 显式 --db 优先
+    assert cvx._resolve_db(Path("custom.db")) == Path("custom.db")
+
+
+def test_resolve_db_non_git_falls_back_to_cwd_relative(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert cvx._resolve_db(None) == Path(".conventions") / "conventions.db"
