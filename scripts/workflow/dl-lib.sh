@@ -217,9 +217,13 @@ wf_state_mark_artifact() {
 # 好处：改 hook 后 git pull 即生效，无需重跑 install.sh 同步副本。
 # hook 内已改造为 payload.cwd -> git 反查主 repo 根（不再依赖 __file__.parents[2]）。
 #
-# 注：`codegraph_inject.py` 是**项目专属** hook（读项目 codegraph db 结构），
-# 不由 dl-workflow 管，由项目自己的 `.claude/settings.json` 注册即可。
-# dl-workflow 生成的 per-wf settings 只登 workflow + codegraph_gate/audit 这 4 个。
+# 注（2026-09-10 cvx-wiring 修复前）：曾认定 `codegraph_inject.py`/`conventions_inject.py`
+# 是**项目专属** hook「由项目自己的 `.claude/settings.json` 注册即可」——该假设在
+# worktree 场景不成立（worktree 内无 project settings.json，见上），导致工作流会话
+# 全程收不到 codegraph 瘦档与约定蒸馏漂移注入（蒸馏层目标消费者=工作流，设计立意见
+# designs/convention_mining_design.md 头行）。两 hook 均已 worktree-ready
+# （_map_worktree_to_main 反查主仓 db；无 db 项目静默退出零副作用），故 per-wf
+# settings 自包含登记全部 6 个 hook：workflow 4 个 + codegraph_gate/audit + 2 个 inject。
 #
 # `hk` = $WF_LIB_DIR/../hooks（绝对路径，source 时钉死，不依赖调用方注入 LIB_DIR）。
 #
@@ -373,7 +377,9 @@ wf_write_settings() {
     "UserPromptSubmit": [
       {
         "hooks": [
-          { "type": "command", "command": "python3 $hk/workflow_phase.py" }
+          { "type": "command", "command": "python3 $hk/workflow_phase.py" },
+          { "type": "command", "command": "python3 $hk/codegraph_inject.py" },
+          { "type": "command", "command": "python3 $hk/conventions_inject.py" }
         ]
       }
     ],

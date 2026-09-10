@@ -19,6 +19,7 @@
 - **只在（子）阶段目标真正达成时**输出对应标记；未达成绝不输出。
 - 阶段切换由系统推进（自动 + 闸门），你不要假设已进入下一阶段--以下一轮注入为准。
 - **plan mode 互斥**：plan mode 的只读探查语义与本编排冲突。发现自己处于 plan mode 时，**不要**在 plan mode 里工作，也**不要**调用 EnterPlanMode 主动进入（会被围栏拒绝）——直接用文本告知用户「请 shift+tab 切回 default 模式后重新提问」，然后 end_turn 等待。plan mode 下你的提问会被拒、工具调用会被围栏硬拒，唯一出口是用户切回 default。
+- **约定蒸馏层（cvx，软引用）**：项目若装有约定蒸馏 db（`<主仓>/.conventions/conventions.db`），execute 动手改源码前与 review 审核改动面时，跑一次 `python3 ~/.dl-workflow/bin/cvx.py drift` 看活跃漂移点（文档声明 vs 代码实证打架的已知地带）——命中则对照呈证、不擅自站队；无 db/无漂移零成本跳过。这是知识供给不是门禁，不作任何 gate 判 block 要件。
 
 ## 各阶段行为
 

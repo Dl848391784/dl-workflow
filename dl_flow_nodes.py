@@ -1180,6 +1180,12 @@ _NODES: dict[str, Node] = {
                     "<repo>`，查询结果留痕）+ Read/Grep/Bash 查数据，"
                     "证实/证伪问题在本仓存在 + 查已有解法；none 档原子在此全覆盖"
                     "（仓内可达即定答，无外部源）。"
+                    # 2026-09-10 cvx-wiring：约定蒸馏层引入内部仓库层——漂移点=
+                    # 「文档声明 vs 代码实证」打架的已知地带，是仓内证据的一等来源
+                    # （资源指针，非判据；无 db 项目 cvx 静默退出零副作用）。
+                    "约定层同查——`python3 ~/.dl-workflow/bin/cvx.py drift` 看活跃"
+                    "漂移点：机制落在漂移区时，文档声明与代码实证并列收为证据一条"
+                    "（不擅自站队）；无漂移/无 db 零成本跳过。"
                     "模式枚举二态（禁沉默，append-trace 机械核验存在性）：根因/问题"
                     "机制指向可文本检索的代码写法（表达式/调用/写法形态，如 `* 100`）"
                     "时，必跑全仓枚举（grep -rn 或等效），载荷载「模式枚举」q 项="
@@ -2696,6 +2702,14 @@ _NODES: dict[str, Node] = {
                     "零提及）→ 该事实单点验证一次（每条事实最多一次，验存在"
                     "即止，禁顺手掘进内部结构）。零 evidence 全量翻找（前序"
                     "结论已在交接包）。"
+                    # 2026-09-10 cvx-wiring：约定蒸馏层=「现状」的统计事实层
+                    # （D1-D4）。本步 strip 项目上下文后模型不知 cvx 存在，
+                    # 必须在 purpose 内置指针（资源指针，非判据）。
+                    "约定层勘察同位——`python3 ~/.dl-workflow/bin/cvx.py drift` "
+                    "查活跃漂移点、`cvx query <主题>` 查写法/骨架实证（「新写一个 "
+                    "X 该长什么样」的统计答案）：方案涉及漂移区或将新写脚本时"
+                    "列为现状事实一条，一次即止不占单点验证配额；无漂移/无 db "
+                    "零成本跳过。"
                 ),
                 input="understand.md（问题陈述+范围约束+成功标准）",
                 record=True,
@@ -3965,7 +3979,14 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     "逐字引用即合法——含 plugin 前缀条目，无需读磁盘 plugin "
                     "目录）；②内置工具集与 CLI/MCP 枚举引用"
                     "CLAUDE.md §3、强制路由核对引用 CLAUDE.md §2（均会话"
-                    "自动加载，零重读零重跑）；子1 需求清单在交接包内"
+                    "自动加载，零重读零重跑）；"
+                    # 2026-09-10 cvx-wiring：仓内共享工具/写法约定是「复用
+                    # 哪个既有工具函数、新写什么形态」的实证答案（D1 共享工具
+                    # 图谱/D4 骨架模式）——资源指针，非判据。
+                    "仓内共享工具与写法约定（复用既有工具函数/新写脚本骨架"
+                    "类问题）查 `python3 ~/.dl-workflow/bin/cvx.py query <主题>`"
+                    "（约定蒸馏 db，无 db 项目静默零成本跳过）；"
+                    "子1 需求清单在交接包内"
                     "逐字引用，零重翻 evidence。枚举例外（按条配额）："
                     "磁盘 skill 目录（用户级/项目级）每目录 ls 一次"
                     "（读后零重读——同一目录全步累计枚举一次，~/ 与其"
@@ -4880,7 +4901,9 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
         # 最小两节（用户决议）——判决书无「结论」节即废品。
         gate_mech=GateMech.ARTIFACT_CONTAINS,
         artifact_contains=ARTIFACT_SECTIONS["review.md"],
-        gate_rubric="对照 understand.md 真实问题 + 成功标准,判定 solved/partial/not,附 file:line 证据。",
+        # 2026-09-10 cvx-wiring：约定层对照为软指针（「有则引无则免」），
+        # 非 block 要件——review 是改动面合规对照的天然决策点。
+        gate_rubric="对照 understand.md 真实问题 + 成功标准,判定 solved/partial/not,附 file:line 证据。改动面涉及已知约定/漂移区时可对照 `python3 ~/.dl-workflow/bin/cvx.py drift` 呈证（有则引,无则免,不作判 block 要件）。",
         advance="phase",
     ),
     # ---------- evolution ----------
