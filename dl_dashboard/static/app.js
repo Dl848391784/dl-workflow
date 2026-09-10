@@ -1100,7 +1100,8 @@ document.querySelectorAll(".mode-cards").forEach((row) => {
 async function initEngineCards() {
   const row = $("engine-cards");
   const r = await fetch("/api/engines");
-  const engines = (await r.json()).engines || [];
+  const data = await r.json().catch(() => ({}));
+  const engines = (data && data.engines) || [];
   row.innerHTML = "";
   const LABELS = {
     claude: ["claude", "Claude Code 后端（默认）"],
@@ -1121,7 +1122,7 @@ async function initEngineCards() {
   });
   syncProviderForEngine();
 }
-initEngineCards();
+initEngineCards().catch((err) => console.warn("engine cards unavailable:", err));
 
 function currentEngine() {
   return document.querySelector("#engine-cards .mode-card.sel")?.dataset.v || "claude";
