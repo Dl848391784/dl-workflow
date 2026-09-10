@@ -1234,7 +1234,7 @@ es.onmessage = (e) => {
 const TabAlert = (() => {
   const ORIG_TITLE = document.title;
   const prev = new Map();      // key -> "wait"|"done"|""（上一轮状态）
-  const doneUnread = new Set(); // 完结未读（页签重获焦点时清空）
+  const doneUnread = new Set(); // 完结未读（仅页签隐藏时记录，重获焦点清空）
   let lastList = [];
   let seeded = false;
   let flashTimer = null;
@@ -1315,7 +1315,9 @@ const TabAlert = (() => {
       }
       if (cur === "done" && before !== "done") {
         alerts.push({ icon: "✅", text: `${shortName(k)} 已完结` });
-        doneUnread.add(k);
+        // 人正盯着=卡片上已见，不记未读（同 startFlash「不骚扰」守卫）——
+        // 缺此守卫时：页签一直可见的用户 doneUnread 只增不清，红 badge 永久常亮
+        if (document.hidden) doneUnread.add(k);
       }
     });
     prev.clear(); now.forEach((v, k) => prev.set(k, v));
