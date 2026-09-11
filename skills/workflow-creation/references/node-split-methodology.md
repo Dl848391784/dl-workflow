@@ -60,3 +60,7 @@ plan:2 子3 的 interface 字段 = 签名 + **数据契约**（执行零求证�
 ## 技术方案（proposal.md）需求可验收三节制（2026-09-11 用户裁决，commit 32dcdd0）
 
 人读技术方案 = 需求→实现映射 + 配置与可调参数 + 改动面（v0.7.0 收敛的「调用流程+改动面」之上补两节，用户裁决：纯新增功能按需求逐条可验收，配置功能必须写清在哪改怎么改）。**plan:2 子4 两条件字段**（append-trace 当场拒）：req_impl_map=纯新增批次（change_point 全「增」）逐项必给一行「需求条目→实现：文件.函数（机制一句）」；config_usage=条目含配置/参数（test 文件行豁免）必给「含义/默认值/在哪改（文件:字段）/怎么改」。渲染层 fields_only 提取（旧 trace 静默跳过幂等兼容）；judge 只判映射与 change_point 脱节/凭空条目（默认-PASS 边界）。v1_text 重渲染实证三节制产出合格（state-reset plan:2:4 重跑归一化即重渲染——proposal 机械装配禁手改，旧档要新格式=state-reset 重跑对应步）。
+
+## 需求覆盖核对表（coverage-table 轨道，2026-09-11 用户裁决，commit 9b2abac）
+
+plan:1 子5 必给一项 fields.coverage_table——全量需求条目逐行 `条目｜进|不进|数据缺口｜理由`（防 plan 枚举静默漏项：v1_text 板块栏实例，understand 映射有/plan 枚举无且不自知）。机械校验：表存在+每行三态裁决+不进/缺口行理由非空（当场拒）；judge 判①完备性（对照子1 需求材料漏行=block）②不进/缺口行有 plan:1#2 用户裁决留痕（静默豁免=校验缺位）。proposal 首节渲染——用户先看覆盖再看映射。**tacet 坑**：载体步 plan:1#5 在 tacet 下是静默步（脊柱=u:1#1-4/plan:1#2/plan:2#4[fermate 重映射]）——tacet 实例要覆盖表须 `/dl upgrade <phase>:<sub>#<step>` 把该步移出静默集再 state-reset 重跑（v1_text 实证 plan:1#5）。附：契约收紧后旧重放夹具补最小合法表对齐（stale fixture 非回归判例）。
