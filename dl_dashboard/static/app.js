@@ -226,11 +226,12 @@ function tlEmpty(box) {
 /* 树形 DOM（metro 与 cards 共用；视觉差异全部由容器类 CSS 决定）：
    major_state 分带 -> minor_state 为枝 -> step 为叶（嵌迷你耗时条）。 */
 const ART_PHASE = { understands: "understand", plans: "plan", proposals: "plan" };
+// 产物区只展示技术方案（用户 2026-09-11 裁决：understand.html/plan.html 不上 UI，
+// 后端照产不删）；proposals 显示名=技术方案.html（系统内部文件名 proposal.html 不动）
 const ART_LABEL = {
-  understands: { html: "understand.html", md: "understand.md" },
-  plans: { html: "plan.html", md: "plan.md" },
-  proposals: { html: "proposal.html", md: "proposal.md" },
+  proposals: { html: "技术方案.html", md: "技术方案.md" },
 };
+const ART_KINDS_VISIBLE = ["proposals"];
 
 /* 产物链接挂载点 = 对应阶段最后一个可见节点（fermate 下 plan:4 不存在、
    tacet 下 understand:4 静默——静态映射会丢链接，动态选存活节点） */
@@ -331,7 +332,7 @@ function renderTimelineTree(stats, nodes, info, artifacts) {
         nodeEl.appendChild(st);
       }
       // 归属节点的产物链接（新页面阅读）
-      for (const kind of ["understands", "plans", "proposals"]) {
+      for (const kind of ART_KINDS_VISIBLE) {
         if (artAnchorNode(nodes, kind) === n.node_id &&
             artifacts && artifacts[kind] && artifacts[kind].exists) {
           const al = document.createElement("div");
@@ -500,7 +501,7 @@ function renderTimelineGantt(stats, nodes, info, artifacts) {
         `Σ ${nstat.dur}s · ${nstat.turns}轮 · in${fmtTok(nstat.tin)}/out${fmtTok(nstat.tout)}`;
       label.appendChild(st);
     }
-    for (const kind of ["understands", "plans", "proposals"]) {
+    for (const kind of ART_KINDS_VISIBLE) {
       if (artAnchorNode(nodes, kind) === n.node_id &&
           artifacts && artifacts[kind] && artifacts[kind].exists) {
         const al = document.createElement("div");

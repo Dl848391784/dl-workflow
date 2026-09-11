@@ -1153,6 +1153,21 @@ _ARTIFACT_RENDER_SOURCES: dict[str, dict] = {
     # （仍留 evidence/plan.md 机器真源，零信息丢失）。
     "proposal.md": {
         "blocks": [
+            # proposal-upgrade（2026-09-11 用户裁决）：纯新增功能补「需求→实现映射」
+            # （每条需求可验收）+「配置与可调参数」（在哪改/怎么改）两节——渲染层
+            # fields_only 提取，旧 trace 无此字段静默跳过（幂等兼容）。
+            {
+                "t": "s",
+                "title": "需求→实现映射",
+                "srcs": (("TaskBreakdown", 4),),
+                "fields_only": ("req_impl_map",),
+            },
+            {
+                "t": "s",
+                "title": "配置与可调参数",
+                "srcs": (("TaskBreakdown", 4),),
+                "fields_only": ("config_usage",),
+            },
             {
                 "t": "s",
                 "title": "改动面",
