@@ -56,3 +56,7 @@
 ## interface 数据契约（plan 完备性，2026-09-11 落地，designs/plan-completeness-design.md）
 
 plan:2 子3 的 interface 字段 = 签名 + **数据契约**（执行零求证）：步骤消费数据/文件/API/缓存时必给五要素——格式样本（文件结构/记录示例）、单位与换算、时序语义（排序/最新值取法）、失败语义（None 还是异常/缺记录形态）、读取先例行号；纯函数接口显式声明「纯代码接口」豁免。三层对齐（弱模型友好）：①append-trace 机械校验（数据消费信号词命中须 ≥2 契约词——单位/格式/结构/失败语义/示例/先例——或豁免声明，当场拒）②gate judge 只判契约与材料矛盾（存在性机械已判，默认-PASS 边界防 thrash）③u:1#4 ③内查「供给面/先例」条目必带读取形态（可消费锚点，只给存在性锚点=欠细）。实证（plantest_zc2 deepseek-flash）：五要素齐+豁免正确使用，执行零求证成立。设计新字段/判据时的复盘点：判据词表必须单一来源（dl_flow_checks._CONTRACT_SIGNAL_WORDS/_CONTRACT_KEYWORDS），文案引用不复制。
+
+## 技术方案（proposal.md）需求可验收三节制（2026-09-11 用户裁决，commit 32dcdd0）
+
+人读技术方案 = 需求→实现映射 + 配置与可调参数 + 改动面（v0.7.0 收敛的「调用流程+改动面」之上补两节，用户裁决：纯新增功能按需求逐条可验收，配置功能必须写清在哪改怎么改）。**plan:2 子4 两条件字段**（append-trace 当场拒）：req_impl_map=纯新增批次（change_point 全「增」）逐项必给一行「需求条目→实现：文件.函数（机制一句）」；config_usage=条目含配置/参数（test 文件行豁免）必给「含义/默认值/在哪改（文件:字段）/怎么改」。渲染层 fields_only 提取（旧 trace 静默跳过幂等兼容）；judge 只判映射与 change_point 脱节/凭空条目（默认-PASS 边界）。v1_text 重渲染实证三节制产出合格（state-reset plan:2:4 重跑归一化即重渲染——proposal 机械装配禁手改，旧档要新格式=state-reset 重跑对应步）。
