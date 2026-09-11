@@ -5878,10 +5878,15 @@ class TestStatementFieldsMigration:
         # up-change-spec-gate：change_list/change_point 占位内容须过锚点语法
         # （tmp_path 无 git/db——三验走降级跳过，语法齐备是判面）。
         spec = "src/foo.py:bar:L10-20（改）：改 X 计算逻辑为 Y"
-        return {
+        out = {
             k: (spec if k in ("change_list", "change_point") else f"{k} 内容")
             for k in keys
         }
+        if "h9_units" in keys:
+            # coverage-table 轨道（2026-09-11）：plan:1 子5 新契约——覆盖核对表必给，
+            # 旧重放夹具补最小合法表（否则被新机械校验当场拒，掩盖被测判面）
+            out["coverage_table"] = "位置栏｜进｜\n板块栏｜不进｜下期补"
+        return out
 
     def test_three_steps_declare_statements_and_fields(self):
         for phase, sub, step_no, keys in self._MIGRATED:
@@ -5987,6 +5992,8 @@ class TestStatementFieldsMigration:
                 "assumptions": "1 条（置信度中）",
                 "acceptance_map": "T1+T2 修复，T3 另列任务项",
                 "h9_units": "1 阶段 1 文件",
+                # coverage-table 轨道：plan:1 子5 新契约——重放夹具补最小合法表
+                "coverage_table": "因子卡片渲染层二次放大｜进｜",
             },
         }
         (tmp_path / "payload.json").write_text(
