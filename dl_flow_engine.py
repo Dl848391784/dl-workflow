@@ -1158,6 +1158,12 @@ _ARTIFACT_RENDER_SOURCES: dict[str, dict] = {
             # fields_only 提取，旧 trace 无此字段静默跳过（幂等兼容）。
             {
                 "t": "s",
+                "title": "需求覆盖核对表",
+                "srcs": (("DesignSolution", 5),),
+                "fields_only": ("coverage_table",),
+            },
+            {
+                "t": "s",
                 "title": "需求→实现映射",
                 "srcs": (("TaskBreakdown", 4),),
                 "fields_only": ("req_impl_map",),

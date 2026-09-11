@@ -798,6 +798,37 @@ def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool
                         f"——本步逐项必备：{'/'.join(req_fields)}"
                         "（字段齐备是机械校验的形式要件，补齐再提交）"
                     )
+        # coverage-table 轨道（2026-09-11 用户裁决）：plan:1 子5（签名=h9_units）
+        # 必给「需求覆盖核对表」——全量需求条目逐行三态裁决，漏表/行式错/理由缺当场拒
+        if "h9_units" in req_fields and "change_list" in req_fields:
+            table_items = [
+                str((it.get("fields") or {}).get("coverage_table", "")).strip()
+                for it in statements if isinstance(it, dict)
+            ]
+            table_text = next((t for t in table_items if t), "")
+            if not table_text:
+                return False, (
+                    "缺「需求覆盖核对表」——plan:1 子5 必给一项 fields.coverage_table："
+                    "全量需求条目逐行 `条目｜进|不进|数据缺口｜理由`"
+                    "（防 plan 枚举静默漏项——每栏进/不进必须逐栏可核）"
+                )
+            for ln_no, ln in enumerate(table_text.split("\n"), 1):
+                ln = ln.strip()
+                if not ln:
+                    continue
+                parts = [p.strip() for p in ln.split("｜")]
+                if len(parts) < 3:
+                    return False, f"覆盖核对表第 {ln_no} 行行式错（须 `条目｜进|不进|数据缺口｜理由`）：{ln[:60]}"
+                if parts[1] not in ("进", "不进", "数据缺口"):
+                    return False, (
+                        f"覆盖核对表第 {ln_no} 行裁决={parts[1]!r} 非三态"
+                        "（进|不进|数据缺口）：" + ln[:60]
+                    )
+                if parts[1] in ("不进", "数据缺口") and not parts[2]:
+                    return False, (
+                        f"覆盖核对表第 {ln_no} 行「{parts[1]}」理由缺失"
+                        "（不进/缺口行理由必给，充分性归用户 plan 门栏审）：" + ln[:60]
+                    )
                 if "interface" in req_fields:
                     contract_msg = _check_interface_data_contract(
                         str(flds.get("interface", ""))
