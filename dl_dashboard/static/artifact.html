@@ -40,7 +40,7 @@
 <script>
 "use strict";
 const qs = new URLSearchParams(location.search);
-const KIND_LABEL = { understands: "understand.md", plans: "plan.md" };
+const KIND_LABEL = { understands: "understand.md", plans: "plan.md", proposals: "技术方案" };
 const kind = qs.get("kind");
 const name = qs.get("name");
 document.getElementById("art-title").textContent =

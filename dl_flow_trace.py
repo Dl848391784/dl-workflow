@@ -748,6 +748,32 @@ def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool
                 "statements 须为非空数组："
                 '[{"text":...,"type_label":...,"boundary":...}, ...]'
             )
+        # proposal-upgrade：纯新增批次（change_point 全为「增」）逐项 req_impl_map
+        # 必给（技术方案「需求→实现映射」节源——纯新增功能按需求逐条可验收）
+        if "change_point" in req_fields and "trace_anchor" in req_fields:
+            cps = [
+                str((it.get("fields") or {}).get("change_point", ""))
+                for it in statements
+                if isinstance(it, dict)
+            ]
+            cp_lines = [
+                ln.strip() for cp in cps for ln in cp.split("\n") if ln.strip()
+            ]
+            # change_point 行格式=`文件:方法:L行（改|增|删）：…`——纯新增=每行都是（增
+            is_pure_new = bool(cp_lines) and all(
+                "（增" in ln and "（改" not in ln and "（删" not in ln
+                for ln in cp_lines
+            )
+            if is_pure_new:
+                for j, it in enumerate(statements):
+                    rim = str(((it.get("fields") or {}).get("req_impl_map", ""))).strip()
+                    if not rim:
+                        return False, (
+                            f"statements[{j}].fields.req_impl_map：纯新增批次"
+                            "（change_point 全为「增」）逐项必给——一行「需求条目→实现："
+                            "<文件>.<函数>（<机制一句>）」（技术方案「需求→实现映射」节源，"
+                            "否则「完成了 100% 需求」无从核对）"
+                        )
         for i, item in enumerate(statements):
             if not isinstance(item, dict):
                 return False, f"statements[{i}] 须为对象"
@@ -778,6 +804,27 @@ def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool
                     )
                     if contract_msg is not None:
                         return False, f"statements[{i}].fields.interface：{contract_msg}"
+                # proposal-upgrade：两条件字段（plan 完备性后续轨，用户 2026-09-11 裁决）
+                # config_usage——条目含配置/参数/config 时必给（技术方案「配置与可调参数」节源）
+                if "change_point" in req_fields and "trace_anchor" in req_fields:
+                    # 配置节源=源码条目（test 文件行豁免——「配置测试」条目自身不是可调参数）
+                    import re as _re
+
+                    _src_lines = [
+                        ln
+                        for ln in str(flds.get("change_point", "")).split("\n")
+                        if not _re.search(r"(^|/)test_[^:]*\.py|test_cases/", ln)
+                    ]
+                    blob = "\n".join(_src_lines) + str(item.get("text", ""))
+                    if any(k in blob for k in ("配置", "参数", "config", "Config")):
+                        cu = str(flds.get("config_usage", "")).strip()
+                        if not cu:
+                            return False, (
+                                f"statements[{i}].fields.config_usage：条目含配置/参数"
+                                "——config_usage 必给（含义/默认值/在哪改（文件:字段）/"
+                                "怎么改（改默认值或构造传参）——技术方案「配置与可调参数」"
+                                "节源，缺即当场拒）"
+                            )
         nouns = _implementation_nouns(project_root)
         for i, item in enumerate(statements):
             for noun in sorted(nouns):
