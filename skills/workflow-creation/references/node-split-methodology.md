@@ -64,3 +64,7 @@ plan:2 子3 的 interface 字段 = 签名 + **数据契约**（执行零求证�
 ## 需求覆盖核对表（coverage-table 轨道，2026-09-11 用户裁决，commit 9b2abac）
 
 plan:1 子5 必给一项 fields.coverage_table——全量需求条目逐行 `条目｜进|不进|数据缺口｜理由`（防 plan 枚举静默漏项：v1_text 板块栏实例，understand 映射有/plan 枚举无且不自知）。机械校验：表存在+每行三态裁决+不进/缺口行理由非空（当场拒）；judge 判①完备性（对照子1 需求材料漏行=block）②不进/缺口行有 plan:1#2 用户裁决留痕（静默豁免=校验缺位）。proposal 首节渲染——用户先看覆盖再看映射。**tacet 坑**：载体步 plan:1#5 在 tacet 下是静默步（脊柱=u:1#1-4/plan:1#2/plan:2#4[fermate 重映射]）——tacet 实例要覆盖表须 `/dl upgrade <phase>:<sub>#<step>` 把该步移出静默集再 state-reset 重跑（v1_text 实证 plan:1#5）。附：契约收紧后旧重放夹具补最小合法表对齐（stale fixture 非回归判例）。
+
+## 需求点主轴（req-points 轨道，2026-09-14 用户 goal，commit 7cb658c+eb7802d）
+
+用户 goal=「需求点一条都不能漏（拆分要方法+拆完能核对）」+「文档按需求点组织：是什么/怎么实现/数据链路/改动面」。**载体全落两轨共同脊柱**（tacet/fermate/全量/tacet+fermate 四组合都覆盖，禁挂静默步——plan:1#5 教训）：①u:1#2 payload `req_items`（source_unit 行=源材料结构单元清单 + req 行=需求点，机械核「每 unit 至少被一个 req 的 covers 覆盖」=拆分完整性由源结构可核）②plan:1#2 payload `req_status`（逐 req 三态 进|不进|数据缺口 + 理由；该步本就是用户拍板步）③plan:2#4 与 plan:4#4 mech `req_id_known`（每条改动/施工单元归属 req_id，读 evidence 校验 ∈ req_items，老实例无 req_items 跳过）④render 新 block 类型 `req_blocks`（三元 join→按需求点成块）。**弱模型兼容铁律**：scaffold 是【键】值 markdown，模型写不出 JSON 嵌套——`kind` 必须按形状推断（有 unit 无 id=结构单元行；有 id=需求点行），deepseek 实测写不出 kind 撞墙 170 次死锁（同族：判据元件要按载荷实际形态设计，不能按 JSON 直觉）。**已知观察**：粒度判据（一条 req=一个可独立验收判据，禁合并）已入 purpose+gate 零条款，但 deepseek judge 未拦（仍出 5 条粗粒度），细化方案=source_unit 加 evaluable 字段做 1:1 机械核。
