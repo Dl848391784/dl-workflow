@@ -1750,7 +1750,14 @@ def _check_req_items(v: list, _qa: list) -> str | None:
     for i, it in enumerate(v):
         if not isinstance(it, dict):
             return f"req_items[{i}] 须为对象"
-        kind = it.get("kind")
+        # kind 按形状推断（scaffold 是【键】值 markdown，模型写不出 JSON 嵌套——
+        # 实证 deepseek 170 次撞「kind=None」死锁；显式 kind 仍认）：
+        # 有 unit 无 id = 源结构单元行；有 id = 需求点行。
+        kind = str(it.get("kind") or "").strip()
+        if not kind:
+            kind = "req" if str(it.get("id") or "").strip() else (
+                "source_unit" if str(it.get("unit") or "").strip() else ""
+            )
         if kind == "source_unit":
             u = str(it.get("unit") or "").strip()
             if not u:
@@ -1766,7 +1773,8 @@ def _check_req_items(v: list, _qa: list) -> str | None:
                 return f"req_items[{i}]（{rid}）covers 须为非空数组（源结构单元清单）"
             reqs.append({"id": rid, "covers": [str(c).strip() for c in covers]})
         else:
-            return f"req_items[{i}] kind 非法（{kind!r}，须 source_unit|req）"
+            return (f"req_items[{i}] 行形态无法识别（键：{sorted(it.keys())}）——"
+                    "源结构单元行须有 unit 字段，需求点行须有 id/req/covers 字段")
     if not units:
         return (
             "req_items 缺 source_unit 行——源材料结构单元清单必给"
@@ -1857,10 +1865,11 @@ def _check_req_id_known(statements: list, *_ctx) -> str | None:
     req_items = _load_req_items(_ctx[0], _ctx[1]) if _ctx and _ctx[0] is not None else None
     if not req_items:
         return None
+    # kind 按形状（同 _check_req_items：scaffold markdown 下模型不写 kind）
     known = {
         str(it.get("id")).strip()
         for it in req_items
-        if isinstance(it, dict) and it.get("kind") == "req" and it.get("id")
+        if isinstance(it, dict) and it.get("id")
     }
     if not known:
         return None
