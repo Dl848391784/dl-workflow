@@ -30,7 +30,14 @@ import pytest
 DLWF_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(DLWF_ROOT))
 
-import dl_flow_engine as eng  # noqa: E402
+import dl_flow_engine as eng
+
+# req-points 轨道（2026-09-11）：u:1#2 新契约 req_items 必给——夹具最小合法值
+# （一个源结构单元 + 一个需求点，covers 全覆盖；stale fixture 对齐非回归）
+_REQ_ITEMS_MIN = [
+    {"kind": "source_unit", "unit": "源单元A"},
+    {"kind": "req", "id": "R1", "req": "需求点", "covers": ["源单元A"]},
+]  # noqa: E402
 
 
 # ---------- 节点标识推导 ----------
@@ -6772,7 +6779,7 @@ class TestV237FirstPassRate:
         ]
         (tmp_path / "payload.json").write_text(
             json.dumps(
-                {"purpose": "p", "qa": qa, "atomic_questions": aq}, ensure_ascii=False
+                {"purpose": "p", "qa": qa, "atomic_questions": aq, "req_items": _REQ_ITEMS_MIN}, ensure_ascii=False
             ),
             encoding="utf-8",
         )
@@ -6825,7 +6832,7 @@ class TestV237FirstPassRate:
         ]
         (tmp_path / "payload.json").write_text(
             json.dumps(
-                {"purpose": "p", "qa": qa, "atomic_questions": aq}, ensure_ascii=False
+                {"purpose": "p", "qa": qa, "atomic_questions": aq, "req_items": _REQ_ITEMS_MIN}, ensure_ascii=False
             ),
             encoding="utf-8",
         )
@@ -6866,7 +6873,7 @@ class TestV237FirstPassRate:
         ]
         (tmp_path / "payload.json").write_text(
             json.dumps(
-                {"purpose": "p", "qa": qa, "atomic_questions": aq}, ensure_ascii=False
+                {"purpose": "p", "qa": qa, "atomic_questions": aq, "req_items": _REQ_ITEMS_MIN}, ensure_ascii=False
             ),
             encoding="utf-8",
         )
@@ -10196,7 +10203,7 @@ class TestFetchTier:
         qa = [{"q": "原子 A → 5Whys 因果链", "a": "Why1 实测值（:655）"}]
         (tmp_path / "payload.json").write_text(
             json.dumps(
-                {"purpose": "p", "qa": qa, "atomic_questions": aq}, ensure_ascii=False
+                {"purpose": "p", "qa": qa, "atomic_questions": aq, "req_items": _REQ_ITEMS_MIN}, ensure_ascii=False
             ),
             encoding="utf-8",
         )
