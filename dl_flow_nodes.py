@@ -944,6 +944,17 @@ _NODES: dict[str, Node] = {
                     "仓内已查无对照举证，缺项当场拒；"
                     "首字母标签与 MECE 声明「原子 X」集合对齐"
                     "（未声明标签/同标签重复当场拒））。"
+                    "③需求点拆分（req-points 轨道，用户 goal「需求点一条都不能漏」）——"
+                    "把本轮要满足的需求/规格逐点拆出，载荷顶层 req_items 键提交，"
+                    "两种行混合：{"
+                    '\"kind\":\"source_unit\",\"unit\":<源材料结构单元>}'
+                    "=源材料结构单元清单（手册各部分/栏位逐条，或用户陈述的功能块逐条）；"
+                    '{'
+                    '\"kind\":\"req\",\"id\":\"R1\",\"req\":<需求点原文/语义>,'
+                    '\"covers\":[<本需求点覆盖的源结构单元>]}'
+                    "=需求点。append-trace 机械校验：id 唯一、covers 逐字引用已声明单元、"
+                    "**每个 source_unit 至少被一个 req 的 covers 覆盖**（漏单元=当场拒"
+                    "——拆分完整性由源结构可核，非模型自觉）。"
                     "输出走 evidence skill-trace（q/a 数组），不建单独 md。"
                 ),
                 input="step1.real_problem",
@@ -1003,6 +1014,7 @@ _NODES: dict[str, Node] = {
                 extra_payload_keys=(
                     ("atomic_questions", "fetch_tier_items"),
                     ("atomic_questions", "atomic_mece_alignment"),
+                    ("req_items", "req_items_structure"),
                 ),
                 # 子2a 也禁 raw grep/rg：规划步的轻量侦察（定档需判"仓内可达"）走
                 # dl codebase（结构化+落账去重），防"规划思考被搜索打断"重演。
@@ -2782,7 +2794,16 @@ _NODES: dict[str, Node] = {
                     "硬规则兼容核验归子3（本步候选不逐条引规则条号，缺引不"
                     "违规）；评估排序归子4；为后续步预取材料=越界（「先查清楚"
                     "再发散」不是本步职责）。"
+                    "③需求点三态裁决（req-points 轨道；本步=用户拍板步，裁决天然"
+                    "归属在此）——对照 u:1#2 req_items 的每个需求点逐点给出处置，"
+                    "载荷顶层 req_status 键提交：逐项 "
+                    '{"id":<需求点 id>,"status":"进|不进|数据缺口","reason":<理由>}；'
+                    "进=本批实现（理由可空）；不进=本批不做；数据缺口=仓内未供给"
+                    "（声明外部输入形态）。append-trace 机械校验：三态枚举/id 唯一/"
+                    "不进与数据缺口理由必给（静默豁免=校验缺位）。"
+                    "不进/数据缺口项=用户裁决项，须在问答留痕有用户裁决记录。"
                 ),
+                extra_payload_keys=(("req_status", "req_status_three_state"),),
                 input="step1.terrain_map",
                 record=True,
                 # p1-sub2-cost L1：Step 级 strip（第八例，交互步第二例）——
@@ -2797,6 +2818,8 @@ _NODES: dict[str, Node] = {
                 # gate 凭空设计判据使包外材料结构性不可用=#19 判别意图不命中）。
                 pack_self_contained=True,
                 selfcheck=(
+                    "需求点三态裁决给了吗（req_status 逐 req 一行：进/不进/数据缺口，"
+                    "不进与数据缺口带理由）？"
                     "≥3 个候选吗，还是走了②（走了②有逐维度论证吗）？"
                     "每个候选都锚定子1 事实条目了吗（有凭空 API 吗）？"
                     "候选间是架构维度实质差异还是措辞变体？"
@@ -3684,6 +3707,12 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     "config_usage——条目 change_point/text 含配置/参数/config 时必给"
                     "（含义/默认值/在哪改（文件:字段）/怎么改（改默认值或构造传参）——"
                     "技术方案「配置与可调参数」节源）；"
+                    "**另必给 req_id**（需求点主轴，req-points 轨道——文档按需求点组织的前"
+                    "提）：本条改动归属 u:1#2 req_items 的哪个需求点（填其 id，如 R1）；"
+                    "append-trace 机械校验 id 必在清单内（凭空归属=拒；无 req_items "
+                    "留痕的老实例跳过）；"
+                    "data_chain（数据链路）：本条实现的数据流一行——"
+                    "源（文件/接口）→ 字段 → 变换 → 消费点（无数据消费写「无数据链路」）；"
                     "④假设传导（子3 假设项原样携带，不丢不淡化）。"
                     "⑤回归防护二态（禁沉默，append-trace 机械核验存在性）："
                     "change_point 含源码（非 test 文件）（改|删|增）条目的批次，"
@@ -3767,6 +3796,7 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     "sc_coverage_trace",
                     "change_point_anchor_verify",
                     "regression_guard_declared",
+                    "req_id_known",
                 ),
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace、"
@@ -4790,7 +4820,10 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                     "return_contract/cp_position/cp_criterion/cp_failure_route/"
                     "cp_type/cp_acceptance_map/cp_goal_anchor}}——fields 十键"
                     "逐键非空（append-trace 机械校验，缺键即拒；调度项 cp_* "
-                    "六键、检查点项调度四键填显式「无」）。text 只留单句——"
+                    "六键、检查点项调度四键填显式「无」）；**另必给 req_id**（需求点主轴，"
+                    "req-points 轨道）——本条计划包单元归属 u:1#2 req_items 的哪个"
+                    "需求点；append-trace 机械校验 id 必在清单内（凭空归属=拒），"
+                    "无 req_items 留痕的老实例跳过。text 只留单句——"
                     "改动文件/判据命令/签名进 fields（方案名词扫描同源纪律，"
                     "text 含实现侧名词当场拒）。"
                     # p4-sub4-cost L4（复用钉死无取证例外形态，#34 第五例——
@@ -4848,11 +4881,12 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                 # 性佐证。#40 方差防守定位（fresh 化后包尾通用邀请=元探查
                 # 诱因，#16 反指邀请）；装配不变量测试钉死。
                 pack_self_contained=True,
+                mech_checks=("req_id_known",),
                 selfcheck=(
                     "每断言 ≤1 句且自包含（零上下文 orchestrator 照做）吗？"
-                    "fields 十键都填了吗（parallel_group/mutex_surface/worker_map/"
+                    "fields 十键 + req_id 都填了吗（parallel_group/mutex_surface/worker_map/"
                     "return_contract/cp_position/cp_criterion/cp_failure_route/"
-                    "cp_type/cp_acceptance_map/cp_goal_anchor——append-trace "
+                    "cp_type/cp_acceptance_map/cp_goal_anchor + req_id——append-trace "
                     "机械校验，缺键即拒；无内容键填显式「无」）？"
                     "字段与子2/子3 已定内容一致吗（无丢失无篡改无新增）？"
                     "每 triggered 验收项有检查点落点（或显式「continuous 覆盖」"
@@ -4863,7 +4897,7 @@ judge 判 block 须在 reason 引用判据条款并附 1 个正确改写范例�
                 ),
                 gate=(
                     "evidence/<name>.jsonl 含 kind=skill-trace、minor_stage=ExecutionPlanCheckpoints 且 sub_step==4 的记录。\n"
-                    "形式要件：本步 record_format=statements——trace 正文是 statements 列表、无 q/a 字段是生产形态，不得以「缺 q/a 字段/缺 kind·minor_stage 顶层键」为由 block；fields 十键（调度四+检查点六）逐键非空已由 append-trace 机械校验，勿再数字段、不得以「缺键/字段为空/调度项 cp_* 填『无』」为由 block。triggered 验收项有检查点落点或显式「continuous 覆盖」声明；假设传导。\n"
+                    "形式要件：本步 record_format=statements——trace 正文是 statements 列表、无 q/a 字段是生产形态，不得以「缺 q/a 字段/缺 kind·minor_stage 顶层键」为由 block；fields 十键（调度四+检查点六）逐键非空 + req_id 归属校验（req_id_known）已由 append-trace 机械校验，勿再数字段、不得以「缺键/字段为空/调度项 cp_* 填『无』」为由 block。triggered 验收项有检查点落点或显式「continuous 覆盖」声明；假设传导。\n"
                     "默认 pass--仅当以下成立才判 block（每条附合法形态，合法形态在场不得判）：\n"
                     "一、字段与子2/子3 已定内容不一致（丢失/篡改/新增）：某调度字段或检查点字段与子2 调度提案/子3 锚点核验结果语义冲突判 block。两种违规形态：(a) 篡改--措辞与子2/子3 已定内容语义冲突（子2「增加 FACTOR_CATEGORIES 分组键」vs 子4「重写为独立八维度聚合器，输出全新数据结构」类）判 block；(b) 丢失/新增--子2/子3 已定的改动点/判据命令/失败路由/类型在子4 缺失，或混入子2/子3 未定的内容判 block。合法形态=对子2/子3 内容的忠实提取/适度压缩/同义转述即合规，不要求逐字一致（「增加分组键」转述为「加维度分组」类语义等价转述合法）--语序调整/同义替换/细节省略不判，改动范围/性质/产出物未变化不判；子2/子3 用泛指（「判据命令」「改动 paths.py」）而子4 细化为具体命令/具体文件=细化即合规，不算新增/篡改；子3 假设项原样携带（不丢不淡化，量化范围与置信度×影响原样保留）即合规。本条只约束十字段（调度四+检查点六）字段内容+假设传导与子2/子3 一致；子2 的红队条件未触发声明/密度论证叙述/提案语义声明是子2 的过程留痕、非 sub4 归一化字段，不要求 sub4 携带，不得以「红队声明/密度论证未传导」为由 block。\n"
                     "二、复合句（未原子化）：一句合并 ≥2 个可独立成立/可分别提交的交付物判 block。检测：提取 statements 每项 text，凡 text 以「以及/同时/并且」等并列连接词连接两个可独立成立、可分别提交的交付物（各自含独立动作与独立交付物，如「W1 派发 T1 完成…，以及 W2 派发 T2 完成…」）判 block。合法形态=命令+退出码（可附输出断言标识，如「pytest … 退出码 0 且输出含八维度断言通过」）=单条可执行判据非复合句--「退出码 0 且输出含 X 断言」是断言锚定形非复合句；worker 任务包映射以逗号/分号分隔 W1/W2/W3 各自独立任务包（如「W1->T1（...），W2->T2（...），W3->T3（...）」）、返回契约列多种证据形式、验收包映射列多个 SC ID=字段枚举非复合句（逗号/分号分隔即枚举，「以及/并且/同时」将两个任务包并入一句即复合句）；goal anchoring「原目标…；当前位置…」两成分=字段结构非复合句。\n"

@@ -1726,6 +1726,161 @@ def _check_fermate_placeholder_consistency(
 # statements 格式步的写侧机械校验注册表（Step.mech_checks 声明名 -> 检查函数，
 # 签名 (statements, project_root, name)）。statements 首个 mech 注册表
 # （u:2#4 预留独立项，#30 ⑰ 的解）。未注册名 = nodes 与 engine 配置漂移，fail loud。
+# ============ 需求点主轴（req-points 轨道，2026-09-11 用户 goal）============
+# 用户裁决：①需求点一条都不能漏（拆分要方法、拆完要能核对）②文档按需求点组织
+# （是什么/怎么实现/数据链路/改动面）。载体全部落在两轨共同脊柱步：
+#   u:1#2（拆分+源覆盖核对，tacet/fermate 脊柱共有）
+#   plan:1#2（三态裁决，脊柱共有且本就是用户拍板步）
+#   plan:2#4 / plan:4#4（改动归属 req_id，两轨各自的终端产物步）
+# 机械层只管形式与集合关系，语义充分性归 judge（既有分工）。
+
+
+def _check_req_items(v: list, _qa: list) -> str | None:
+    """req_items：需求点拆分清单（source_unit 行 + req 行）——拆分完整性机械核验。
+
+    单键自包含：源材料结构单元（source_unit 行）必须被 req 行的 covers 全覆盖
+    （漏单元=当场拒——「一条都不能漏」由源结构可核，非模型自觉）；covers 引用
+    不存在的单元=凭空（拒）；id 唯一。跨步一致性（与 plan:1#2 req_status /
+    plan:2#4 req_id 对齐）归 req_id_known 机械校验 + judge。
+    """
+    if not isinstance(v, list) or not v:
+        return "req_items 须为非空数组"
+    units: set[str] = set()
+    reqs: list[dict] = []
+    for i, it in enumerate(v):
+        if not isinstance(it, dict):
+            return f"req_items[{i}] 须为对象"
+        kind = it.get("kind")
+        if kind == "source_unit":
+            u = str(it.get("unit") or "").strip()
+            if not u:
+                return f"req_items[{i}]（source_unit）unit 须非空"
+            units.add(u)
+        elif kind == "req":
+            rid = str(it.get("id") or "").strip()
+            req = str(it.get("req") or "").strip()
+            covers = it.get("covers")
+            if not rid or not req:
+                return f"req_items[{i}]（req）id/req 须非空"
+            if not isinstance(covers, list) or not covers:
+                return f"req_items[{i}]（{rid}）covers 须为非空数组（源结构单元清单）"
+            reqs.append({"id": rid, "covers": [str(c).strip() for c in covers]})
+        else:
+            return f"req_items[{i}] kind 非法（{kind!r}，须 source_unit|req）"
+    if not units:
+        return (
+            "req_items 缺 source_unit 行——源材料结构单元清单必给"
+            "（拆分完整性的核对基准：手册各部分/栏位 或 用户陈述的功能块逐条）"
+        )
+    if not reqs:
+        return "req_items 缺 req 行——需求点清单必给"
+    ids = [r["id"] for r in reqs]
+    if len(ids) != len(set(ids)):
+        dup = sorted({x for x in ids if ids.count(x) > 1})
+        return f"req_items id 重复：{dup}"
+    covered: set[str] = set()
+    for r in reqs:
+        for c in r["covers"]:
+            if c not in units:
+                return (
+                    f"req_items（{r['id']}）covers 引用不存在的源结构单元 {c!r}"
+                    "——须与 source_unit 行逐字一致（凭空引用=拒）"
+                )
+            covered.add(c)
+    missed = sorted(units - covered)
+    if missed:
+        return (
+            "需求点拆分有漏：源结构单元未被任何需求点覆盖 "
+            + "、".join(missed[:5])
+            + f"（共 {len(missed)} 个）——每单元至少一个 req 行 covers"
+        )
+    return None
+
+
+def _check_req_status(v: list, _qa: list) -> str | None:
+    """req_status：需求点三态裁决（进|不进|数据缺口 + 理由）——plan:1#2 用户拍板步。
+
+    单键自包含：三态枚举 + 不进/数据缺口理由必给（静默豁免=校验缺位）+ id 唯一。
+    与 u:1#2 req_items 的 id 集合一致性归 judge（judge 可见前序 trace）+
+    plan:2#4 req_id_known 机械校验。
+    """
+    if not isinstance(v, list) or not v:
+        return "req_status 须为非空数组"
+    seen: set[str] = set()
+    for i, it in enumerate(v):
+        if not isinstance(it, dict):
+            return f"req_status[{i}] 须为对象"
+        rid = str(it.get("id") or "").strip()
+        if not rid:
+            return f"req_status[{i}] id 须非空"
+        if rid in seen:
+            return f"req_status id 重复：{rid}"
+        seen.add(rid)
+        status = str(it.get("status") or "").strip()
+        if status not in ("进", "不进", "数据缺口"):
+            return (
+                f"req_status（{rid}）status={status!r} 非三态"
+                "（进|不进|数据缺口）——本批做/本批不做/仓内未供给，三态必居其一"
+            )
+        reason = str(it.get("reason") or "").strip()
+        if status in ("不进", "数据缺口") and not reason:
+            return (
+                f"req_status（{rid}）「{status}」理由缺失——不进/数据缺口须给出理由"
+                "（充分性归用户 plan 门栏审；静默豁免=校验缺位）"
+            )
+    return None
+
+
+def _load_req_items(project_root, name: str) -> list | None:
+    """读 u:1#2 最新 trace 的 req_items（req_id 归属校验的对照基准）。"""
+    text = read_evidence(project_root, name)
+    if not text:
+        return None
+    pc_minor = _NODES["understand:1"].minor_key
+    found = None
+    for _seg, rec in _iter_trace_segments(text, 2, pc_minor):
+        v = rec.get("req_items")
+        if isinstance(v, list) and v:
+            found = v
+    return found
+
+
+def _check_req_id_known(statements: list, *_ctx) -> str | None:
+    """req_id_known：每条改动/施工单元的 req_id 须在 u:1#2 req_items 需求点集内。
+
+    plan:2#4（fermate/普通轨）与 plan:4#4（全量 tacet 脊柱）共用——需求点主轴
+    的机械锚：改动归属不得指向不存在的需求点（凭空归属=拒），也不得全批缺
+    req_id（文档按需求点组织的前提）。老实例（无 req_items 留痕）跳过=legacy
+    兼容（同 _load_atomic_questions 的 v2.40 处理范式，不算 silent fallback：
+    旧实例本就没有需求点清单）。
+    """
+    req_items = _load_req_items(_ctx[0], _ctx[1]) if _ctx and _ctx[0] is not None else None
+    if not req_items:
+        return None
+    known = {
+        str(it.get("id")).strip()
+        for it in req_items
+        if isinstance(it, dict) and it.get("kind") == "req" and it.get("id")
+    }
+    if not known:
+        return None
+    for i, it in enumerate(statements):
+        if not isinstance(it, dict):
+            continue
+        rid = str((it.get("fields") or {}).get("req_id", "")).strip()
+        if not rid:
+            return (
+                f"statements[{i}].fields.req_id 缺失——需求点主轴：每条改动/施工单元"
+                f"须归属需求点（可选 id：{'/'.join(sorted(known))}）"
+            )
+        if rid not in known:
+            return (
+                f"statements[{i}].fields.req_id={rid!r} 不在 u:1#2 需求点清单内"
+                f"（可选：{'/'.join(sorted(known))}）——凭空归属=拒"
+            )
+    return None
+
+
 _MECH_STATEMENTS_CHECKS = {
     "sc_coverage_trace": _check_sc_coverage_trace,
     "rejected_rationale_trace": _check_rejected_rationale_trace,
@@ -1735,6 +1890,7 @@ _MECH_STATEMENTS_CHECKS = {
     "change_point_anchor_verify": _check_change_point_anchor,
     "fermate_placeholder_consistency": _check_fermate_placeholder_consistency,
     "regression_guard_declared": _check_regression_guard_declared,
+    "req_id_known": _check_req_id_known,
 }
 
 
@@ -1956,6 +2112,8 @@ def _check_atomic_mece_alignment(items: list, qa: list | None = None) -> str | N
 _MECH_EXTRA_ITEM_CHECKS = {
     "fetch_tier_items": _check_fetch_tier_items,
     "atomic_mece_alignment": _check_atomic_mece_alignment,
+    "req_items_structure": _check_req_items,
+    "req_status_three_state": _check_req_status,
 }
 
 

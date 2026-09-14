@@ -1096,6 +1096,9 @@ def step_needs_evidence(step: Step) -> bool:
 # design.md 装配已退役（designs/design-md-assembly-retire-design.md）：
 # 工作流内部零消费（下游 judge 读 evidence 不读产物文件），H8 按路径分流——
 # dl-workflow 驱动改动豁免 design.md，非工作流改动仍手写。
+# req-points 轨道：需求点分块节标题（用户可见文档名）
+_BLK_REQ_BLOCKS_TITLE = "需求点分块"
+
 _ARTIFACT_RENDER_SOURCES: dict[str, dict] = {
     "understand.md": {
         # 节名 = ARTIFACT_SECTIONS 单源；源 = (minor_stage, 归一化步 sub_step)。
@@ -1156,23 +1159,12 @@ _ARTIFACT_RENDER_SOURCES: dict[str, dict] = {
             # proposal-upgrade（2026-09-11 用户裁决）：纯新增功能补「需求→实现映射」
             # （每条需求可验收）+「配置与可调参数」（在哪改/怎么改）两节——渲染层
             # fields_only 提取，旧 trace 无此字段静默跳过（幂等兼容）。
+            # req-points 轨道（2026-09-11 用户 goal）：文档按需求点组织——
+            # 每需求点一块（是什么/状态/怎么实现/数据链路/改动面），机械装配
+            # 自 u:1#2 req_items + plan:1#2 req_status + 终端产物步 statements。
             {
-                "t": "s",
-                "title": "需求覆盖核对表",
-                "srcs": (("DesignSolution", 5),),
-                "fields_only": ("coverage_table",),
-            },
-            {
-                "t": "s",
-                "title": "需求→实现映射",
-                "srcs": (("TaskBreakdown", 4),),
-                "fields_only": ("req_impl_map",),
-            },
-            {
-                "t": "s",
-                "title": "配置与可调参数",
-                "srcs": (("TaskBreakdown", 4),),
-                "fields_only": ("config_usage",),
+                "t": "req_blocks",
+                "title": "需求点分块",
             },
             {
                 "t": "s",
@@ -1208,6 +1200,7 @@ def render_artifact(
     否则跳过该节并在输出点名）。幂等覆盖写，落主仓 .claude/<out_dir>/<name>.md。
     """
     spec = _ARTIFACT_RENDER_SOURCES.get(basename)
+    BLK_TITLE = _BLK_REQ_BLOCKS_TITLE  # req_blocks 节标题（spec 未单列时用常量）
     if spec is None:
         return False, (
             f"render-artifact 不支持 {basename}（支持："
@@ -1362,6 +1355,99 @@ def render_artifact(
         parts.append("")
         emitted_titles.append(title)
 
+    def _emit_req_blocks() -> None:
+        """按需求点成块渲染（req-points 轨道）——是什么/状态/怎么实现/数据链路/改动面。
+
+        数据源三元 join（机械装配，禁手写）：
+          u:1#2 payload req_items（source_unit 行 + req 行：需求点本体）
+          plan:1#2 payload req_status（三态 + 理由）
+          终端产物步 statements（plan:2#4 change_point/data_chain/req_id；
+          plan:4#4 只有 req_id）——按 req_id 分组归到各需求点下。
+        任一源缺失（老实例/tacet 静默步）→ 该源零贡献，节仍出（诚实可见）。
+        """
+        pc_minor = _NODES["understand:1"].minor_key
+        req_items = None
+        for _seg, rec in _iter_trace_segments(text, 2, pc_minor):
+            v = rec.get("req_items")
+            if isinstance(v, list) and v:
+                req_items = v
+        if not req_items:
+            parts.append(f"## {BLK_TITLE}")
+            parts.append("")
+            parts.append("**[无需求点清单：u:1#2 未执行（tacet 静默）或老实例]**")
+            parts.append("")
+            emitted_titles.append(BLK_TITLE)
+            return
+        status = {}
+        for _seg, rec in _iter_trace_segments(text, 2, _NODES["plan:1"].minor_key):
+            v = rec.get("req_status")
+            if isinstance(v, list) and v:
+                for it in v:
+                    if isinstance(it, dict) and it.get("id"):
+                        status[str(it["id"]).strip()] = it
+        # 改动归属：优先 plan:2#4（fermate/普通轨），回退 plan:4#4（全量 tacet 脊柱）
+        by_req: dict[str, list[dict]] = {}
+        for minor, stp in (
+            (_NODES["plan:2"].minor_key, 4),
+            (_NODES["plan:4"].minor_key, 4),
+        ):
+            rec = latest.get((minor, stp))
+            for it in (rec or {}).get("statements") or []:
+                flds = it.get("fields") or {}
+                rid = str(flds.get("req_id", "")).strip()
+                if rid:
+                    by_req.setdefault(rid, []).append(
+                        {
+                            "text": str(it.get("text", "")),
+                            "change_point": str(flds.get("change_point", "")),
+                            "data_chain": str(flds.get("data_chain", "")),
+                            "config_usage": str(flds.get("config_usage", "")),
+                        }
+                    )
+        units = [
+            str(it.get("unit")).strip()
+            for it in req_items
+            if isinstance(it, dict) and it.get("kind") == "source_unit" and it.get("unit")
+        ]
+        reqs = [it for it in req_items if isinstance(it, dict) and it.get("kind") == "req"]
+        parts.append(f"## {BLK_TITLE}")
+        parts.append("")
+        parts.append(f"- 源材料结构单元 {len(units)} 个 / 需求点 {len(reqs)} 个（逐点可核，不漏）")
+        parts.append("")
+        for it in reqs:
+            rid = str(it.get("id", "")).strip()
+            st = status.get(rid) or {}
+            parts.append(f"### {rid} {it.get('req', '')}")
+            parts.append("")
+            covers = it.get("covers") or []
+            if covers:
+                parts.append(f"- **出处**：{'、'.join(str(c) for c in covers)}")
+            parts.append(
+                f"- **状态**：{st.get('status', '（未裁决）')}"
+                + (f"｜理由：{st.get('reason')}" if st.get("reason") else "")
+            )
+            entries = by_req.get(rid) or []
+            if entries:
+                parts.append("- **怎么实现**：" + "；".join(e["text"] for e in entries if e["text"]))
+                chains = [e["data_chain"] for e in entries if e["data_chain"]]
+                if chains:
+                    parts.append("- **数据链路**：" + "；".join(chains))
+                cps = [e["change_point"] for e in entries if e["change_point"]]
+                if cps:
+                    parts.append("- **改动面**：")
+                    for cp in cps:
+                        for ln in cp.split("\n"):
+                            ln = ln.strip()
+                            if ln:
+                                parts.append(f"  - {ln}")
+                cfgs = [e["config_usage"] for e in entries if e["config_usage"]]
+                if cfgs:
+                    parts.append("- **配置**：" + "；".join(cfgs))
+            else:
+                parts.append("- **怎么实现**：（本批无改动归属——见状态行）")
+            parts.append("")
+        emitted_titles.append(BLK_TITLE)
+
     def _emit_decisions() -> None:
         decisions = []
         for minor, stp in spec["decision_steps"]:
@@ -1378,7 +1464,9 @@ def render_artifact(
 
     if "blocks" in spec:
         for blk in spec["blocks"]:
-            if blk["t"] == "decisions":
+            if blk["t"] == "req_blocks":
+                _emit_req_blocks()
+            elif blk["t"] == "decisions":
                 _emit_decisions()
             elif blk["t"] == "s":
                 _emit_stmts(
