@@ -39,6 +39,7 @@ sys.path.insert(0, str(_DLWF_ROOT))
 import dl_flow_engine as engine  # noqa: E402
 import dl_engine  # noqa: E402  # 引擎 profile 单源（qodercli-engine-profile P1）
 from dl_flow_common import steer_consume  # noqa: E402  # 插话通道（evolution-up P5）
+from dl_flow_common import trace_payload_path  # noqa: E402  # 载荷路径单源（v2.125）
 from scripts.workflow import project_tools  # noqa: E402
 
 try:  # 常驻进度区依赖（drive-tasklist-render-design §2.1）；缺失时降级事件打印
@@ -1681,13 +1682,22 @@ def build_step_prompt(
             "- 备齐问题清单后输出 `### NEED_USER` + 上述 json 载荷并结束"
         )
     else:
+        # 派发即预生成载荷骨架（2026-09-17 GLM-5.3-Flash 30min/375 调用实爆：
+        # 文案三件套在场仍先元探查找位置、再手写逆向猜 req_items 格式——弱模型
+        # 文案失效上机制：骨架钉死在 prompt 给的路径上，「找文件→Edit」本能
+        # 直接落在待填骨架；手写自创格式被骨架在场+拒绝文案附骨架全文双杀）。
+        # 幂等：已在场拒覆盖（在写工作不抹），上轮残留由 scaffold stale 清理；
+        # 失败（竞态/旧 state）不阻断派发——文案退路仍在。
+        payload_p = trace_payload_path(project_root, name, state)
+        if not payload_p.exists():
+            engine.scaffold_payload(project_root, name)
         deliverable = (
             f"{how}；完成后落 evidence（本步的硬性交付，门控只认它）：\n"
-            f"1. Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace --scaffold`"
-            f" 生成载荷骨架（打印路径）\n"
+            f"1. 载荷骨架已生成在 `{payload_p}`（不在场才跑 `python3 ~/.dl-workflow/"
+            f"dl_flow_engine.py append-trace --scaffold` 生成；禁手写自创格式/路径）\n"
             f"2. Read 骨架文件，Edit 把每个「待填」换成实际内容\n"
             f"3. Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace "
-            f"--from-file <骨架路径>` 落库"
+            f"--from-file {payload_p}` 落库"
         )
         rules_block = (
             "铁律：\n"

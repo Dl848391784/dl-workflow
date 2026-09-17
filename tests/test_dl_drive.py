@@ -250,6 +250,38 @@ def test_step_prompt_core_elements(wf_repo):
     assert "禁 `$(...)`" in prompt
 
 
+def test_step_prompt_prescaffolds_payload(wf_repo):
+    """派发即预生成载荷骨架（2026-09-17 GLM-5.3-Flash 30min/375 调用实爆：
+    文案三件套在场仍元探查+手写猜格式——机制堵入口：骨架钉死在 prompt
+    给的路径上）。幂等不覆盖在写工作；prep 段（禁落 trace）不生成。"""
+    drv = _load(DRIVER, "drv_under_test")
+    state = _write_state(wf_repo)
+    node = engine.get_node("understand", 1)
+    step = engine.sub_step_at(node, 2)
+    payload = wf_repo / ".claude" / "worktrees" / "t" / ".trace-payload-t.md"
+    assert not payload.exists()
+    prompt = drv.build_step_prompt(wf_repo, "t", state, node, 2, step, rework=None)
+    assert payload.exists()                       # 骨架已落钉死路径
+    assert "待填" in payload.read_text(encoding="utf-8")
+    assert str(payload) in prompt                 # prompt 直接给路径
+    assert "禁手写自创格式" in prompt
+    # 幂等：在写工作不被覆盖
+    payload.write_text("在写内容", encoding="utf-8")
+    drv.build_step_prompt(wf_repo, "t", state, node, 2, step, rework=None)
+    assert payload.read_text(encoding="utf-8") == "在写内容"
+
+
+def test_step_prompt_prep_does_not_prescaffold(wf_repo):
+    drv = _load(DRIVER, "drv_under_test")
+    state = _write_state(wf_repo)
+    node = engine.get_node("understand", 1)
+    step = engine.sub_step_at(node, 1)
+    payload = wf_repo / ".claude" / "worktrees" / "t" / ".trace-payload-t.md"
+    drv.build_step_prompt(wf_repo, "t", state, node, 1, step, rework=None,
+                          prep=True)
+    assert not payload.exists()
+
+
 def test_step_prompt_pack_self_contained_clause(wf_repo):
     """u2-sub2-cost：pack_self_contained 步的段 prompt 带材料边界条款
     （材料全在包内、禁 Read evidence 全量），未置位步不带。"""
