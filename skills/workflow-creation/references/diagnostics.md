@@ -561,3 +561,10 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 - **修复原则**：解析器对齐单源语法（本例 regex 加 `(?:-\d+)?` + 等号改可选，commit 0baa356）；回归测试的锚点行**取真实产物原文**（本例测例直接用该实例 plan.md 的锚点行）。存量实例零迁移——但 server 常驻内存旧码，**必须先重启 dl_dashboard（症状 AR）再刷新页面才生效**（2026-09-02 web_interaction_amplitude_ret3d_abs 二次实爆：0baa356 已落盘但 server 是修复前启的，改动面仍空，重启后 17 条全出）。
 - **预防**：改任何单源产出格式（语法常量/装配模板/落盘 schema）时，先 grep 全部消费方（parser/renderer/dashboard/judge 输入装配）列进改动 checklist——这是 §3.5 #29「设计变量跨层同向审计」从 gate 层到 artifact 层的泛化（原条目只覆盖 gate 文本/judge prompt/purpose/mech 层）。
 - **连带盲区**：契约漂移期间**所有**按新语法产出的实例卡片全空（不止报告的那一例）——修复后告知用户影响面，避免逐例误报「工作流没产出」。
+
+### 症状 AV：代理链路 SSE 断流 + 长请求截断（公网地址访问 dashboard）
+
+- **根因**（2026-09-17 qoder 实例提交答案实爆）：浏览器经公网代理/隧道访问 dashboard，代理杀两类连接——①**SSE 长连接被缓冲**：连接看似活着但 onmessage 永不触发（onerror 也不一定），已答横幅/侧栏状态等一切 live 更新都要手动 F5 才见；②**长 POST ~180s 截断**：inject 服务端同步跑整轮模型回复（qoder 上 3min 正常），代理超时切断响应而服务端照常跑完——`post()` 无 catch，`finally` 静默复活按钮零反馈，用户分不清「没提交」还是「处理中」。
+- **判读**：按钮转圈数分钟后复活且无 toast + 任何状态变化都需手动刷新；**同实例 localhost 直连无此现象** = 代理链路问题而非 server（服务端 inject 其实成功了，`answered_at_if_covers` 防重复注入兜底，重复点只会收「答案已提交」）。
+- **修复**（2026-09-17 已落地 commit 7868a93，纯静态 app.js 免重启、硬刷生效）：①`post()` fail-safe catch——异常返回红 toast「请求未正常返回…操作可能已在服务端执行，勿急于重复操作」；②SSE watchdog——15s 无消息判死（正常节拍 2s），降级 10s 轮询 `/api/workflows`（与 SSE 快照同形状），SSE 恢复后轮询自动静默。
+- **教训**：dashboard 任何「等响应/等推送」的假设都要先问「中间有没有代理」——长连接（SSE）和长请求（同步等模型轮）是代理链路最先杀的两类。fail-safe 默认：请求结果未知时如实说「可能已执行」，禁静默复活；live 更新必须有降级通道，SSE 是唯一通道 = 代理下零通道。

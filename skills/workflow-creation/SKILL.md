@@ -134,6 +134,7 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
 - "dashboard 没确认卡 / 工作流停了没人问 / 读回确认没让我确认 / driver 断点退出" → references/diagnostics.md 症状 AQ
 - "NEED_USER 载荷畸形 / prep 段白烧 / TUI 段已结束但未落库 / need_user.json 不存在" → references/diagnostics.md 症状 AT
 - "改动面空 / 产物卡空 / 卡片没数据但产物文件在场 / 解析出 0 条" → references/diagnostics.md 症状 AU（消费方解析器契约漂移，先直跑解析器验真）
+- "公网/代理访问 dashboard / 转圈后按钮复活无 toast / 状态要手动刷新才变 / SSE 断流" → references/diagnostics.md 症状 AV（代理杀 SSE+长请求；已修 post fail-safe + 降级轮询）
 - "dashboard 端到端验证 / E2E 怎么跑 / 改动怎么验收" → references/build-and-modify.md §1.5（pytest 绿≠工作，真实实例 sweep 纪律）
 - "判据改动怎么验证 / 重放工作流 / 镜像重放 / purpose/mech 改了行为对不对" → references/build-and-modify.md §1.6（镜像重放：逐字镜像陈述+镜像答案，产出差异即判据效果）
 - "校验上一版优化 / 版本批次验收 / release 需求点逐项核对" → references/runtime-audit.md #29（版本批次校验 playbook 五步法）
