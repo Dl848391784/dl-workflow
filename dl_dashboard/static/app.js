@@ -4,6 +4,13 @@
 const sel = { project: null, name: null };
 const $ = (id) => document.getElementById(id);
 
+/* 答题排队（2026-09-17，B 方案）：问题已 stash 但注入段台账未落（「准备中」
+   窗口，qoder 冷段 30-90s×5 交互步）时允许先作答——答案本地暂存，
+   inject_ready 翻面后自动走既有守卫 POST（服务端时序铁律不动）。等待与
+   答题并行，窗口期感知延迟归零。问题集重 stash（ts 变）作废暂存——
+   防答案注进已换的题目。 */
+let parked = null;  // {project, name, ts, answer, inflight, retries}
+
 async function post(url, body) {
   // fail-safe：代理/隧道可能在长操作时截断响应（inject 模型轮 1-3min 实爆：
   // 公网地址 ~180s 超时，服务端照常跑完，前端静默复活按钮零反馈）——
@@ -660,21 +667,35 @@ function renderInteract(d) {
     prep.textContent = `${d.answered} 已注入——模型处理中，门控通过后自动推进下一步` +
       "（无需重复提交；需要你再答的新问题出现时会自动替换本卡）";
     box.appendChild(prep);
-  } else if (d.need_user && d.need_user.questions && !d.inject_ready) {
-    // 问题已落盘但交互段记录未就绪（时间窗）——此时提交必被中止，显示准备中
+  } else if (parked && parked.project === proj && parked.name === name &&
+             d.need_user && d.need_user.ts === parked.ts) {
+    // 答题排队暂存态（就绪自动注入由 refreshDetail 的 parked 生命周期执行）
     const h = document.createElement("h3");
-    h.textContent = "等待输入";
+    h.textContent = "答案已暂存";
     box.appendChild(h);
     const prep = document.createElement("div");
     prep.className = "q";
-    prep.textContent = d.driver_pid
-      ? "交互段准备中…就绪后问题自动出现（无需刷新）"
-      : "交互段未就绪且 driver 已停——点标题行「恢复驱动」，拉起后问题自动就绪";
+    prep.textContent = "交互段就绪后自动注入——无需守等/刷新；" +
+      "问题若被更新暂存会自动作废（防答进错题）";
     box.appendChild(prep);
+    box.appendChild(mkBtn("取消暂存（重新作答）", () => {
+      parked = null;
+      refreshDetail();
+    }, "btn"));
   } else if (d.need_user && d.need_user.questions) {
     const h = document.createElement("h3");
     h.textContent = "等待输入";
     box.appendChild(h);
+    if (!d.inject_ready) {
+      // 准备中窗口（问题已 stash 但注入段台账未落）：问题内容不再变，
+      // 先作答=等待与答题并行（旧版锁表单纯等，qoder 冷段实爆）
+      const prep = document.createElement("div");
+      prep.className = "q";
+      prep.textContent = d.driver_pid
+        ? "交互段准备中——可先作答，就绪后自动注入（无需守等）"
+        : "交互段未就绪且 driver 已停——点标题行「恢复驱动」；也可先作答，拉起后自动注入";
+      box.appendChild(prep);
+    }
     const answers = [];
     d.need_user.questions.forEach((q, i) => {
       const div = document.createElement("div");
@@ -696,25 +717,35 @@ function renderInteract(d) {
       box.appendChild(div);
       answers.push(i);
     });
-    box.appendChild(mkBtn("提交答案", async (btn) => {
-      const done = busy(btn, "注入中…（交互段回复要 1-2 分钟，勿重复点）");
-      try {
-        const parts = answers.map((i) => {
-          const q = d.need_user.questions[i];
-          const checked = [...box.querySelectorAll(`input[name=q${i}]:checked`)]
-            .map((r) => r.value);
-          const other = $(`q${i}-other`).value.trim();
-          const picked = q.multiSelect ? checked.join("；") : (checked[0] || "");
-          return `问题${i + 1}：${other || picked || "（未选）"}`;
-        });
-        const r = await post("/api/inject",
-          { project: proj, name, answer: parts.join("\n") });
-        toast(r.msg, r.ok);
-        refreshDetail();
-      } finally {
-        done();
-      }
-    }, "btn primary"));
+    const collect = () => answers.map((i) => {
+      const q = d.need_user.questions[i];
+      const checked = [...box.querySelectorAll(`input[name=q${i}]:checked`)]
+        .map((r) => r.value);
+      const other = $(`q${i}-other`).value.trim();
+      const picked = q.multiSelect ? checked.join("；") : (checked[0] || "");
+      return `问题${i + 1}：${other || picked || "（未选）"}`;
+    }).join("\n");
+    box.appendChild(mkBtn(
+      d.inject_ready ? "提交答案" : "暂存答案（就绪后自动注入）",
+      async (btn) => {
+        if (!d.inject_ready) {
+          // 暂存：不动服务端，refreshDetail 指纹含 parked 当场重渲暂存态
+          parked = { project: proj, name, ts: d.need_user.ts,
+                     answer: collect(), inflight: false };
+          toast("答案已暂存——交互段就绪后自动注入", true);
+          refreshDetail();
+          return;
+        }
+        const done2 = busy(btn, "注入中…（交互段回复要 1-2 分钟，勿重复点）");
+        try {
+          const r = await post("/api/inject",
+            { project: proj, name, answer: collect() });
+          toast(r.msg, r.ok);
+          refreshDetail();
+        } finally {
+          done2();
+        }
+      }, "btn primary"));
   }
   const adv = document.createElement("details");
   adv.className = "dl-advanced";
@@ -843,6 +874,28 @@ async function refreshDetail() {
     `/api/workflow?project=${encodeURIComponent(sel.project)}` +
     `&name=${encodeURIComponent(sel.name)}`);
   const d = await r.json();
+  /* 答题排队生命周期（在任何渲染门之前跑——fp 不变也要判）：
+     失效（问题集重 stash）→ 作废；就绪（inject_ready 翻面）→ 自动注入 */
+  if (parked && parked.project === sel.project && parked.name === sel.name) {
+    if (!d.need_user || d.need_user.ts !== parked.ts) {
+      parked = null;
+      toast("问题已更新——暂存答案作废，请重新作答", false);
+    } else if (!parked.inflight && d.inject_ready && !d.answered) {
+      parked.inflight = true;
+      const pr = await post("/api/inject",
+        { project: parked.project, name: parked.name, answer: parked.answer });
+      toast(pr.msg, pr.ok);
+      // 失败重试一次（竞态窗口：就绪翻面到 POST 之间段态再变）；再失败放
+      // 弃暂存，用户看到 toast 重答——防无限重试空转
+      if (!pr.ok && (parked.retries || 0) < 1) {
+        parked.inflight = false;
+        parked.retries = (parked.retries || 0) + 1;
+      } else {
+        parked = null;
+      }
+      return refreshDetail();  // 拉已答横幅/失败后的表单重渲
+    }
+  }
   /* 差异化刷新：指纹（updated_at/gate/held/need_user/driver/stats/log）变了才动
      静态面（标题/按钮/交互区/日志）；动态面（徽标/时间轴）只在 driver 活着时
      按拍刷（在跑计时/增长条），driver 停且无变化 = 完全不动。 */
@@ -866,6 +919,9 @@ async function refreshDetail() {
     d.totals && d.totals.cost_usd,
     // 插话（evolution-up P5）：新发/被消费翻面必须当场重渲列表
     d.steers ? d.steers.length + ":" + d.steers.filter((s) => s.consumed).length : 0,
+    // 答题排队：暂存/取消必须当场重渲交互区（服务端数据不变，纯本地态）
+    parked && parked.project === sel.project && parked.name === sel.name
+      ? "parked:" + parked.ts : "",
   ]);
   const changed = fp !== lastDetailFp;
   lastDetailFp = fp;
