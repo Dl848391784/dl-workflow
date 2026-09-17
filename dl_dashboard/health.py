@@ -14,10 +14,34 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import dl_flow_engine as engine
 from dl_dashboard import audit
 from dl_dashboard.scanner import iter_workflow_names
 
 log = logging.getLogger("dl_dashboard.health")
+
+
+def _step_label(key: str) -> str:
+    """node#step -> 节点中文名·子步中文名（dl_flow_nodes label/short 单源，
+    与 scanner step_labels/detail 审计区同口径；缺定义回退裸 key）。"""
+    try:
+        node_id, sub = key.rsplit("#", 1)
+        phase, sub_idx = node_id.split(":")
+        node = engine.get_node(phase, int(sub_idx))
+        step = engine.sub_step_at(node, int(sub))
+        short = getattr(step, "short", None) or f"#{sub}"
+        return f"{node.label}·{short}"
+    except (KeyError, ValueError, IndexError, TypeError):
+        return key
+
+
+def _node_label(node_id: str) -> str:
+    """node -> 节点中文名（缺定义回退裸 id）。"""
+    try:
+        phase, sub_idx = node_id.split(":")
+        return engine.get_node(phase, int(sub_idx)).label
+    except (KeyError, ValueError, TypeError):
+        return node_id
 
 
 def _pct(sorted_vals: list[float], q: float) -> float | None:
@@ -56,6 +80,7 @@ def health_report(projects, cache_dir: Path) -> dict:
                     key,
                     {
                         "step": key,
+                        "label": _step_label(key),
                         "judged": 0,
                         "blocked": 0,
                         "verdicts": 0,
@@ -83,6 +108,7 @@ def health_report(projects, cache_dir: Path) -> dict:
         node_costs.append(
             {
                 "node": node,
+                "label": _node_label(node),
                 "instances": len(vals),
                 "total_cost": round(sum(vals), 4),
                 "p50_cost": _pct(vals_s, 0.5),
@@ -93,7 +119,8 @@ def health_report(projects, cache_dir: Path) -> dict:
         )
     node_costs.sort(key=lambda r: -r["total_cost"])
     dispute_board = sorted(
-        ({"step": k, "count": v} for k, v in disputes.items()),
+        ({"step": k, "label": _step_label(k), "count": v}
+         for k, v in disputes.items()),
         key=lambda r: -r["count"],
     )
     return {

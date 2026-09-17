@@ -106,6 +106,29 @@ def test_health_aggregates_gate_board_across_instances(tmp_path):
     assert board["plan:3#1"]["blocked"] == 0
 
 
+def test_health_labels_chinese_names(tmp_path):
+    """榜单行带中文 label（dl_flow_nodes label/short 单源——2026-09-17 用户
+    裁决禁裸 understand:1#1，detail 审计区 dac9340 同规）。"""
+    proj = tmp_path / "p"
+    _mk_instance(
+        proj,
+        "wf1",
+        [_trace("TaskBreakdown", 3), _trace("TaskBreakdown", 3)],
+    )
+    r = health_report([proj], tmp_path / "c")
+    board = {b["step"]: b for b in r["gate_board"]}
+    assert board["plan:2#3"]["label"] == "拆解任务与阶段·锚点核验"
+
+
+def test_health_label_fallback_on_unknown_key():
+    from dl_dashboard.health import _node_label, _step_label
+    assert _step_label("plan:2#3") == "拆解任务与阶段·锚点核验"
+    assert _node_label("understand:1") == "理解问题和背景"
+    assert _step_label("foo:9#9") == "foo:9#9"  # 缺定义回退裸 key
+    assert _node_label("foo:9") == "foo:9"
+
+
+
 def test_health_node_cost_percentiles(tmp_path):
     proj = tmp_path / "p"
     for i, cost in enumerate((0.2, 0.4, 1.0)):
