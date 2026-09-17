@@ -972,7 +972,7 @@ function renderDetailStatic(d) {
       (d.driver_pid ? `（driver #${d.driver_pid}）` : "（driver 已停）")) + modeTags;
   renderInteract(d);
   $("log-tail").textContent = d.log_tail;
-  renderAudit(d.audit);
+  renderAudit(d.audit, d.info.nodes);
   renderSteer(d.steers || []);
 }
 
@@ -1005,7 +1005,15 @@ function renderSteer(steers) {
 /* 运行审计（evolution-up P1）：每轮运行的例行体检——一次通过率/block
    分布/节点成本/dispute 清单。数据 = /api/workflow 的 audit 键（audit.py
    纯读侧机械装配，零模型）。 */
-function renderAudit(a) {
+function renderAudit(a, nodes) {
+  // 中文步名映射：scanner step_labels 单源，与时间轴同口径（2026-09-17
+  // 用户裁决：审计区禁裸 understand:1#1）；节点不在可见集回退裸 id
+  const nmap = new Map((nodes || []).map((n) => [n.node_id, n]));
+  const stepLabel = (nodeId, subStep) => {
+    const n = nmap.get(nodeId);
+    return n ? `${n.label}·${stepName(n, subStep)}` : `${nodeId}#${subStep}`;
+  };
+  const nodeLabel = (nodeId) => (nmap.get(nodeId) || {}).label || nodeId;
   const box = $("audit"), sum = $("audit-summary");
   if (!a || a.error) {
     sum.textContent = "";
@@ -1026,7 +1034,7 @@ function renderAudit(a) {
       "</tr></thead><tbody>";
     for (const s of g.steps) {
       const cls = s.blocked ? "audit-blocked" : "audit-pass";
-      html += `<tr class="${cls}"><td class="num" data-l="步骤">${esc(s.node)}#${s.sub_step}</td>` +
+      html += `<tr class="${cls}"><td data-l="步骤">${esc(stepLabel(s.node, s.sub_step))}</td>` +
         `<td class="num" data-l="提交">${s.traces}</td><td class="num" data-l="block">${s.blocked}</td>` +
         `<td data-l="状态">${STATUS[s.status] || esc(s.status)}</td>` +
         `<td class="num" data-l="第几次过">${s.attempts_to_pass ?? "—"}</td>` +
@@ -1037,7 +1045,7 @@ function renderAudit(a) {
   if (g.disputes && g.disputes.length) {
     html += '<div class="audit-disputes"><b>判据申诉（rubric-dispute）：</b><ul>';
     for (const d of g.disputes) {
-      html += `<li><span class="num">${esc(d.node)}#${d.sub_step}</span> ${esc(d.reason)}</li>`;
+      html += `<li><span>${esc(stepLabel(d.node, d.sub_step))}</span> ${esc(d.reason)}</li>`;
     }
     html += "</ul></div>";
   }
@@ -1046,7 +1054,7 @@ function renderAudit(a) {
       "<th>节点</th><th>段</th><th>轮</th><th>墙钟</th><th>成本</th>" +
       "<th>fresh in</th><th>cache read</th></tr></thead><tbody>";
     for (const n of a.nodes) {
-      html += `<tr><td class="num" data-l="节点">${esc(n.node)}</td>` +
+      html += `<tr><td data-l="节点">${esc(nodeLabel(n.node))}</td>` +
         `<td class="num" data-l="段">${n.segments}</td><td class="num" data-l="轮">${n.turns}</td>` +
         `<td class="num" data-l="墙钟">${fmtHMS(n.duration_s)}</td>` +
         `<td class="num" data-l="成本">$${n.cost_usd}</td>` +
