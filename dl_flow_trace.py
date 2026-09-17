@@ -545,36 +545,10 @@ _FIELD_SCAFFOLD_HINTS = {
 }
 
 
-def scaffold_payload(project_root: Path, name: str) -> tuple[bool, str]:
-    """append-trace --scaffold：当前子步骤载荷骨架生成并落盘钉死路径。
-
-    v2.57 动机（2026-08-02 tail_volume_acceleration_annualized u:1 审计）：
-    模型手写全量 JSON 载荷出语法错（Extra data char 3895）白烧一轮——
-    §3.6 #10 自检信号：语法错误不该归「模型基本功」，杠杆=脚本生成骨架。
-    v2.58 正治：骨架从 JSON 换成分节标记文本（.md，零转义）——Edit 填
-    JSON 仍会被内容里的 ASCII 引号弄崩（四桶分工没贯彻到底的半吊子），
-    标记文本让模型全程零接触序列化格式。占位符统一用「待填」——
-    _placeholder_hit 全局扫描兜底，漏填任何字段都过不了 append-trace。
-    落盘路径单源 trace_payload_path（v2.125 起 = worktree 根，动机见其
-    docstring；v2.42 纪律不变：路径归脚本不归模型自选）；已存在载荷拒覆盖
-    （防抹掉在写工作）——例外：mtime < state.created_at 判为上轮残留，
-    自动清理（v2.63，见函数体注释）。
-    """
-    state = load_state(project_root, name)
-    if state is None:
-        return False, f"工作流 {name} 的 state.json 缺失"
-    state = normalize_state(state)
-    try:
-        node = get_node(state["phase"], state["sub_index"])
-    except KeyError:
-        return False, f"节点 {state['phase']}:{state['sub_index']} 不存在"
-    if not node.sub_steps:
-        return False, f"节点 {node_id(node.phase, node.sub)} 无子步骤编排"
-    cur = state.get("sub_step_index", 1)
-    step = sub_step_at(node, cur)
-    if step is None:
-        return False, f"子步骤 {cur} 不存在"
-
+def _scaffold_text(step) -> str:
+    """当前子步骤载荷骨架文本（格式单源：--scaffold 落盘与 append-trace
+    格式族拒绝文案共用——拒绝时把正确结构直接拍给模型：正例塌缩「换个
+    假设再试」的枚举空间，否定式报错不能，2026-09-17 格式打地鼠实爆）。"""
     parts = ["【purpose】\n待填：本步目的/本轮做了什么（一句话）"]
     if getattr(step, "record_format", "qa") == "statements":
         # u4-sub4-cost 修A（u4_sub4_ab B 轮实测）：单条骨架未示多条形态，
@@ -610,6 +584,40 @@ def scaffold_payload(project_root: Path, name: str) -> tuple[bool, str]:
                 parts.append(f"【{k}】\n【q】\n待填")
         else:
             parts.append(f"【{k}】\n待填：{'/'.join(spec)} 开头+逐句出处")
+    return "\n\n".join(parts) + "\n"
+
+
+def scaffold_payload(project_root: Path, name: str) -> tuple[bool, str]:
+    """append-trace --scaffold：当前子步骤载荷骨架生成并落盘钉死路径。
+
+    v2.57 动机（2026-08-02 tail_volume_acceleration_annualized u:1 审计）：
+    模型手写全量 JSON 载荷出语法错（Extra data char 3895）白烧一轮——
+    §3.6 #10 自检信号：语法错误不该归「模型基本功」，杠杆=脚本生成骨架。
+    v2.58 正治：骨架从 JSON 换成分节标记文本（.md，零转义）——Edit 填
+    JSON 仍会被内容里的 ASCII 引号弄崩（四桶分工没贯彻到底的半吊子），
+    标记文本让模型全程零接触序列化格式。占位符统一用「待填」——
+    _placeholder_hit 全局扫描兜底，漏填任何字段都过不了 append-trace。
+    落盘路径单源 trace_payload_path（v2.125 起 = worktree 根，动机见其
+    docstring；v2.42 纪律不变：路径归脚本不归模型自选）；已存在载荷拒覆盖
+    （防抹掉在写工作）——例外：mtime < state.created_at 判为上轮残留，
+    自动清理（v2.63，见函数体注释）。
+    """
+    state = load_state(project_root, name)
+    if state is None:
+        return False, f"工作流 {name} 的 state.json 缺失"
+    state = normalize_state(state)
+    try:
+        node = get_node(state["phase"], state["sub_index"])
+    except KeyError:
+        return False, f"节点 {state['phase']}:{state['sub_index']} 不存在"
+    if not node.sub_steps:
+        return False, f"节点 {node_id(node.phase, node.sub)} 无子步骤编排"
+    cur = state.get("sub_step_index", 1)
+    step = sub_step_at(node, cur)
+    if step is None:
+        return False, f"子步骤 {cur} 不存在"
+
+    skeleton = _scaffold_text(step)
 
     out = trace_payload_path(project_root, name, state)
     stale_cleaned = ""
@@ -637,7 +645,7 @@ def scaffold_payload(project_root: Path, name: str) -> tuple[bool, str]:
         stale_cleaned = f"（已自动清理上轮残留载荷：mtime 早于本工作流启动 {created}）"
     try:
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text("\n\n".join(parts) + "\n", encoding="utf-8")
+        out.write_text(skeleton, encoding="utf-8")
     except OSError as e:
         return False, f"写骨架失败：{e}"
     # v2.126 披露前置（web_ui_interaction u:2#4 打地鼠 733s）：statements 步
@@ -661,6 +669,22 @@ def scaffold_payload(project_root: Path, name: str) -> tuple[bool, str]:
         "内容随便带引号/换行/代码，格式全归脚本），"
         f"然后 Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace --from-file {out}`"
         f"{transmit_note}"
+    )
+
+
+def _format_reject(step, err: str) -> tuple[bool, str]:
+    """格式族拒绝统一附本步正确骨架（designs/trace_format_disclosure_design.md）。
+
+    2026-09-17 searchstoretagmodify 33min 格式打地鼠实爆：模型在【q】/
+    【text】、JSON ±kind 键间枚举假设逐个试——否定式报错塌缩不了假设
+    空间，把正确结构（正例）直接拍给模型才塌缩。骨架仅供对照：载荷文件
+    已在场，--scaffold 拒覆盖，文案须明说勿重跑。
+    """
+    return False, (
+        err
+        + "\n——格式零成本出口：本步正确骨架如下，对照修正当前载荷文件后重交"
+        "（骨架仅供对照，勿重跑 --scaffold——载荷文件已在场会拒覆盖）：\n"
+        + _scaffold_text(step)
     )
 
 
@@ -709,14 +733,17 @@ def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool
     if pf.suffix == ".md":
         payload, md_err = _parse_trace_md(raw, step)
         if md_err:
-            return False, f"载荷标记文本解析失败：{md_err}"
+            return _format_reject(step, f"载荷标记文本解析失败：{md_err}")
     if not isinstance(payload, dict):
-        return False, '载荷须是 JSON 对象：{"purpose":..., "qa":[{"q":..., "a":...}]}'
+        return _format_reject(
+            step, '载荷须是 JSON 对象：{"purpose":..., "qa":[{"q":..., "a":...}]}'
+        )
     leaked = [k for k in _TRACE_STRUCT_FIELDS if k in payload]
     if leaked:
-        return False, (
+        return _format_reject(
+            step,
             f"载荷含结构字段 {leaked}——这些由脚本从 state 自动填，载荷里不要写"
-            "（只留 purpose + 内容字段：qa 或 statements，及本步声明的额外必填键）"
+            "（只留 purpose + 内容字段：qa 或 statements，及本步声明的额外必填键）",
         )
     purpose = payload.get("purpose")
     if not isinstance(purpose, str) or not purpose.strip():
@@ -742,7 +769,9 @@ def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool
             or payload.get("q") is not None
             or payload.get("a") is not None
         ):
-            return False, "载荷 statements 与 qa/q/a 两格式混用——只留 statements"
+            return _format_reject(
+                step, "载荷 statements 与 qa/q/a 两格式混用——只留 statements"
+            )
         if not isinstance(statements, list) or not statements:
             return False, (
                 "statements 须为非空数组："

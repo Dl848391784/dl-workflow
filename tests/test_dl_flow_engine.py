@@ -5477,6 +5477,64 @@ class TestStatementsRecordFormat:
         assert "in[1]" in msg and "in[2]" in msg and "传导" in msg
 
 
+class TestAppendTraceFormatDisclosure:
+    """格式族拒绝附本步正确骨架（2026-09-17 searchstoretagmodify 实例实爆：
+    33min 格式打地鼠——模型在【q】/【text】、JSON ±kind 键间枚举假设逐个
+    试。否定式报错（「不要写 kind」「须写在数组键节内」）塌缩不了假设空间，
+    正例才塌缩；#54 分诊=披露缺口。语义族拒绝（占位符/字段空）不带骨架。"""
+
+    def test_md_parse_error_carries_skeleton(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 3, sub_step=4)
+        payload = tmp_path / "payload.md"
+        payload.write_text("【purpose】\np\n\n【foo】\nx\n", encoding="utf-8")
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert not ok and "未知标头" in msg
+        # 本步（u:3#4，statements 格式）正确骨架随拒绝附出
+        assert "【purpose】" in msg and "【statements】" in msg
+        assert "对照" in msg and "勿重跑" in msg
+
+    def test_struct_field_leak_carries_skeleton(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 3, sub_step=4)
+        payload = tmp_path / "payload.json"
+        payload.write_text(
+            json.dumps(
+                {"purpose": "p", "kind": "skill-trace",
+                 "statements": [{"text": "x", "type_label": "in",
+                                 "boundary": "无"}]},
+                ensure_ascii=False),
+            encoding="utf-8")
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert not ok and "结构字段" in msg
+        assert "【statements】" in msg and "对照" in msg
+
+    def test_mixed_formats_carries_skeleton(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 3, sub_step=4)
+        payload = tmp_path / "payload.json"
+        payload.write_text(
+            json.dumps(
+                {"purpose": "p",
+                 "statements": [{"text": "x", "type_label": "in",
+                                 "boundary": "无"}],
+                 "qa": [{"q": "q", "a": "a"}]},
+                ensure_ascii=False),
+            encoding="utf-8")
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert not ok and "混用" in msg
+        assert "【statements】" in msg
+
+    def test_placeholder_rejection_has_no_skeleton(self, tmp_path):
+        """语义族拒绝（占位符未填）不带骨架——格式没错，噪音不收。"""
+        _write_state_full(tmp_path, "t", "understand", 3, sub_step=4)
+        payload = tmp_path / "payload.md"
+        payload.write_text(
+            "【purpose】\n待填：还没做\n\n【statements】\n【text】\nx"
+            "\n【type_label】\nin\n【boundary】\n无\n",
+            encoding="utf-8")
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert not ok and "占位" in msg
+        assert "骨架" not in msg
+
+
 class TestInterfaceDataContract:
     """plan 完备性：interface 数据消费条目必须带数据契约（执行零求证）。"""
 
