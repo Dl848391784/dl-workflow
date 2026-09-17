@@ -5,12 +5,21 @@ const sel = { project: null, name: null };
 const $ = (id) => document.getElementById(id);
 
 async function post(url, body) {
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  return r.json();
+  // fail-safe：代理/隧道可能在长操作时截断响应（inject 模型轮 1-3min 实爆：
+  // 公网地址 ~180s 超时，服务端照常跑完，前端静默复活按钮零反馈）——
+  // 失败必须如实告知「状态未知」，绝不静默。
+  try {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return await r.json();
+  } catch (e) {
+    return { ok: false,
+             msg: "请求未正常返回（网络/代理中断）——操作可能已在服务端执行，" +
+                  "状态稍候自动刷新，勿急于重复操作" };
+  }
 }
 
 // 问题描述折叠/展开（stmt-collapse）：CSS line-clamp 截断，溢出才显示按钮
@@ -1213,9 +1222,7 @@ document.querySelectorAll("#tl-switch button").forEach((b) => {
 });
 
 let lastSidebarJson = "";
-const es = new EventSource("/api/events");
-es.onmessage = (e) => {
-  const data = JSON.parse(e.data);
+function handleSnapshot(data) {
   lastProjects = data.projects || [];
   lastProviders = data.providers || [];
   lastWorkflowNames = new Set(data.workflows.map((w) => w.name));
@@ -1227,7 +1234,24 @@ es.onmessage = (e) => {
     renderSidebar(data.workflows);
   }
   if (sel.project) refreshDetail();
+}
+const es = new EventSource("/api/events");
+let lastEsMsg = Date.now();
+es.onmessage = (e) => {
+  lastEsMsg = Date.now();
+  handleSnapshot(JSON.parse(e.data));
 };
+/* SSE 断流降级轮询：代理/隧道缓冲长连接时 onmessage 静默断流（连接看似
+   开着但数据永不到达，onerror 不一定触发——公网地址访问实爆：状态全靠
+   手动刷新）。SSE 节拍 2s，15s 无消息即判死，10s 轮询 /api/workflows 兜底；
+   SSE 恢复（重连成功 onmessage 复跳）后 lastEsMsg 刷新，轮询自动静默。 */
+setInterval(async () => {
+  if (Date.now() - lastEsMsg < 15000) return;
+  try {
+    const r = await fetch("/api/workflows");
+    if (r.ok) handleSnapshot(await r.json());
+  } catch (e) { /* 网络抖动下轮继续 */ }
+}, 10000);
 
 /* ---------- 页签关注提醒：标题闪动 + favicon 红点（tab-attention-alert-design） ----------
    触发=SSE workflows 状态跃迁：isWaiting 进入=🔔待确认 / gate=done 进入=✅已完结。
