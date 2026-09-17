@@ -51,18 +51,22 @@ def create_workflow(project: Path, name: str, statement: str, mgr,
                     provider_env: dict | None = None,
                     timeout: int = 600,
                     engine: str | None = None) -> tuple[bool, str]:
-    """launcher 建实例（headless）-> 置 problem_statement -> 起 driver。
+    """launcher 建实例（--setup-only，秒级）-> 置 problem_statement -> 起 driver。
 
     两维正交：scope=fermate|forte（互斥），tacet=True|False（独立）。
     成败判定沿用 wf_ctl：实例落盘（state.json 存在）即建成，launcher
     超时/非零 rc 只作消息展示（driver 在 TTY 缺失下徘徊是已知形态）。
+    --setup-only（2026-09-17 qoder 新建弹窗长转实爆）：旧 --headless 路径
+    launcher exec dl_drive.py 全程跑首段，本 POST 同步等数分钟；且该 driver
+    不受 mgr 托管（无 pid 文件=不可观测）。现 launcher 只建实例即退，driver
+    唯一来源 = 下方 mgr.start（pid 文件 + killpg，跨平台可观测）。
     engine（per-instance-engine）：None=调用方 env 默认（claude）；
     显式值经 env 传 launcher 落 state.engine，并随 driver spawn env 携带。
     """
     if scope not in _SCOPE_FLAGS:
         return False, f"未知范围 {scope}（可选：{'/'.join(_SCOPE_FLAGS)}）"
     argv = ["bash", str(DLWF / "scripts" / "workflow" / "dl-launch.sh"),
-            "--workflow", name, "--headless", _SCOPE_FLAGS[scope]]
+            "--workflow", name, "--setup-only", _SCOPE_FLAGS[scope]]
     if tacet:
         argv.append("--force-tacet")
     launch_env = None

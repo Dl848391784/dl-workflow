@@ -245,6 +245,9 @@ def test_create_passes_scope_and_tacet_flags(tmp_path):
     assert ok
     argv = run.call_args[0][0]
     assert "--forte" in argv and "--force-tacet" in argv  # 两维正交共存
+    # 2026-09-17 qoder 新建弹窗长转实爆：launcher 必须 --setup-only（秒级
+    # 建实例退出），禁 --headless（exec driver 全程跑首段，POST 被绑架数分钟）
+    assert "--setup-only" in argv and "--headless" not in argv
 
 
 def test_create_standard_track_has_no_tacet_flag(tmp_path):

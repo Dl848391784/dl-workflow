@@ -86,6 +86,7 @@ while [ $# -gt 0 ]; do
     --debug) WF_DEBUG=1;;
     --verbose) WF_VERBOSE=1;;
     --headless) WF_HEADLESS=1;;
+    --setup-only) WF_SETUP_ONLY=1;;
     --force-tacet) WF_FORCE_TACET=1;;
     --fermate) WF_FORCE_FERMATE=1;;
     --forte) WF_FORCE_FORTE=1;;
@@ -331,6 +332,19 @@ fi
 # codegraph_gate（H15）等 PreToolUse hook 不受影响。放在 "$@" 前，用户显式传值可覆盖。
 # qoder 同理唯 CLI flag 生效——P0 实测 settings defaultMode 被忽略。
 PERM_ARGS=(--permission-mode "$ENGINE_PERM")
+
+# ---------- setup-only（dashboard /api/create 专用，2026-09-17）----------
+# 只建实例不起会话：旧路径 dashboard 复用 --headless，launcher 末尾 exec
+# dl_drive.py 全程跑首个段才退出，create POST 被首段时长绑架（qoder 数分钟，
+# 弹窗长转）且该 driver 不受 DriverManager 托管（无 pid 文件=不可观测）。
+# 拆正：launcher 秒级退出，driver 由调用方 mgr.start 唯一托管（pid 文件+
+# killpg，跨平台可观测）。front_mode 显式 off（与 --headless 同轨：driver
+# 主循环，禁残留串模态）。
+if [ "${WF_SETUP_ONLY:-0}" = "1" ]; then
+  python3 "$LIB_DIR/../../dl_flow_engine.py" front-mode "$WF_NAME" off >/dev/null 2>&1 || true
+  echo "setup-only：实例已建（state/settings 落盘），driver 由调用方托管启动"
+  exit 0
+fi
 
 # ---------- 模式派发（2026-08-11 用户裁决：默认 = v4 front 前台混合） ----------
 # v4（默认，front-tui-hybrid-design）：常驻 TUI 前台（下方 TUI 路径），非交互步

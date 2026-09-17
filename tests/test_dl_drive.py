@@ -2136,6 +2136,32 @@ def test_launcher_default_enters_tui_with_front_mode(wf_repo, tmp_path):
     assert st["drive_mode"] is False
 
 
+def test_launcher_setup_only_exits_without_engine(wf_repo, tmp_path):
+    """--setup-only（dashboard /api/create 专用）：建实例即退，不 exec 引擎/
+    driver（2026-09-17 qoder 新建弹窗长转实爆——旧 --headless 路径 exec
+    dl_drive.py 全程跑首段，create POST 同步等数分钟；driver 归 mgr.start
+    托管唯一来源）。front_mode 显式 off（与 --headless 同轨：driver 主循环）。"""
+    r = subprocess.run(
+        [
+            "bash",
+            str(DLWF_ROOT / "scripts" / "workflow" / "dl-launch.sh"),
+            "--workflow",
+            "t",
+            "--setup-only",
+        ],
+        cwd=wf_repo,
+        env=_fake_claude_env(tmp_path),
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0, r.stderr
+    assert "FAKE_CLAUDE" not in r.stdout  # 不起 TUI
+    assert "dl_drive" not in r.stdout     # 不起 driver
+    st = _read_state(wf_repo)
+    assert st["phase"] == "understand"    # state 已初始化落盘
+    assert st["front_mode"] is False
+
+
 def test_launcher_tui_path_clears_front_mode(wf_repo, tmp_path):
     """WF_TUI=1（v2 回滚面）：front_mode 显式 off——模式由入口唯一决定。"""
     env = _fake_claude_env(tmp_path)

@@ -1177,7 +1177,7 @@ function syncProviderForEngine() {
 
 $("create-form").onsubmit = async (e) => {
   e.preventDefault();
-  // 创建中禁重复提交（launcher 要跑十几秒——无反馈时用户会连点，
+  // 创建中禁重复提交（launcher --setup-only 建实例要几秒——无反馈时用户会连点，
   // per-workflow 锁在服务端兜底，前端先拦）
   const submitBtn = $("create-form").querySelector("button[type=submit]");
   if (submitBtn.disabled) return;
