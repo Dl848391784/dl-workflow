@@ -35,6 +35,22 @@ import uuid
 from pathlib import Path
 
 _DLWF_ROOT = Path(__file__).resolve().parents[2]  # ~/.dl-workflow/
+
+
+def _dlwf_display_root(dlwf_root: Path, home: Path) -> str:
+    """模型面向的 dl-workflow 根形态（2026-09-17 GLM Mac 三连权限拒实爆）：
+    主树（含符号链接等价，如 ~/.dl-workflow → ~/Documents/dl-workflow——
+    __file__.resolve() 破解后 != 未解析的 home/.dl-workflow）→ 字面
+    ~/.dl-workflow，per-wf 白名单 `Bash(bash ~/.dl-workflow/...:*)` 按字面
+    ~ 前缀匹配，绝对路径必被拒；worktree dogfood 副本 → 绝对路径（主树
+    无新子命令时模型可降级，语义不变）。"""
+    main = home / ".dl-workflow"
+    try:
+        if dlwf_root == main or dlwf_root == main.resolve():
+            return "~/.dl-workflow"
+    except OSError:
+        pass
+    return str(dlwf_root)
 sys.path.insert(0, str(_DLWF_ROOT))
 import dl_flow_engine as engine  # noqa: E402
 import dl_engine  # noqa: E402  # 引擎 profile 单源（qodercli-engine-profile P1）
@@ -516,8 +532,7 @@ def ensure_node_rules(
     # 无新子命令时模型回退 mtime/手搓降级，#31 验收面第三路径同型——种子侧
     # settings 补 worktree 路径白名单可端到端验）。
     ledger = project_root / ".claude" / "workflows" / name / "discoveries.jsonl"
-    _main_tree = Path.home() / ".dl-workflow"
-    _cb_root = "~/.dl-workflow" if _DLWF_ROOT == _main_tree else str(_DLWF_ROOT)
+    _cb_root = _dlwf_display_root(_DLWF_ROOT, Path.home())
     _cb = f"bash {_cb_root}/scripts/workflow/dl-cmd.sh codebase"
     text += (
         f"\n## 发现台账\n"

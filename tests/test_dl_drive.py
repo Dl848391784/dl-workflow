@@ -2247,6 +2247,44 @@ def test_settings_allowlist_covers_segment_dispatch(wf_repo):
     assert data["wf_settings_template_version"] == engine.SETTINGS_TEMPLATE_VERSION
 
 
+def test_settings_allowlist_covers_skill_tool(wf_repo):
+    """Skill 裸规则进白名单（2026-09-17 GLM/qoder 实爆：headless 段 Skill
+    调用 3/3 死——「Activate skill define-problem?」交互确认无人可答；
+    段 prompt 教 invoke skill（step.kind==skill）权限层就必须放行，
+    否则会话结构性自相矛盾）。威胁模型=弱遵从（与 AskUserQuestion/Agent
+    裸规则同档）。"""
+    r = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f"source {DLWF_ROOT}/scripts/workflow/dl-lib.sh && wf_write_settings t",
+        ],
+        cwd=wf_repo,
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0, r.stderr
+    data = json.loads((wf_repo / SEG_META / "settings.json").read_text())
+    assert "Skill" in data["permissions"]["allow"]
+
+
+def test_dlwf_display_root_symlink_equivalence(tmp_path):
+    """主树符号链接等价也发字面 ~/.dl-workflow（2026-09-17 Mac 实爆：
+    ~/.dl-workflow → ~/Documents/dl-workflow，__file__.resolve() 破解后
+    != 未解析的 Path.home()/.dl-workflow → node-rules 发绝对路径 → 白名单
+    字面 ~ 前缀不匹配 → 照抄规则被权限拒 3 次）。worktree 副本仍绝对路径。"""
+    drv = _load(DRIVER, "drv_disp_root")
+    home = tmp_path / "home"
+    home.mkdir()
+    real = tmp_path / "Documents" / "dl-workflow"
+    real.mkdir(parents=True)
+    (home / ".dl-workflow").symlink_to(real)
+    assert drv._dlwf_display_root(real, home) == "~/.dl-workflow"
+    wt = tmp_path / "wt" / "dl-workflow"
+    wt.mkdir(parents=True)
+    assert drv._dlwf_display_root(wt, home) == str(wt)
+
+
 def test_settings_allowlist_covers_project_tool_heads(wf_repo):
     """组件 B：注册项目工具 command 头并入 per-wf settings allowlist
     （codebase-archaeology-toolbox-design §3.2 action 3 / §4 row 5）——否则前台

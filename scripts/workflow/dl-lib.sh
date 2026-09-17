@@ -308,6 +308,7 @@ wf_write_settings() {
       "AskUserQuestion",
       "WebFetch",
       "Agent",
+      "Skill",
       "Bash(bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh:*)",
       "Bash(python3 ~/.dl-workflow/dl_flow_engine.py:*)",
       "Bash(python3 ${LIB_DIR_ABS}/dl_drive.py:*)",

@@ -10621,6 +10621,84 @@ class TestTraceMdParser:
         assert err is None
         assert payload["statements"][0]["text"] == "年化数字允许被更新"
 
+    def test_req_items_dual_row_kind_parse(self):
+        """req_items 双行形态（unit 行/id 行混排）+ 列表字段一行一条
+        （2026-09-17 GLM 三连拒实爆：旧 parser 只认单字段重复=新行，
+        req 行【id】开头被误当 unit 行字段；行字段集不含 unit/id/req/
+        covers/evaluable——.md 通道结构性写不出合法 req_items）。"""
+        step = eng.get_node("understand", 1).sub_steps[1]  # u:1#2
+        md = (
+            "【purpose】\np\n【qa】\n【q】\nq1\n【a】\na1\n"
+            "【req_items】\n【unit】\n源单元A\n【evaluable】\n判据A1\n判据A2\n"
+            "【unit】\n源单元B\n【evaluable】\n\n"
+            "【id】\nR1\n【req】\n需求点一\n【covers】\n源单元A\n源单元B\n"
+            "【criterion】\n判据A1\n"
+            "【id】\nR2\n【req】\n需求点二\n【covers】\n源单元B\n【criterion】\n判据A1"
+        )
+        payload, err = eng._parse_trace_md(md, step)
+        assert err is None, err
+        assert payload["req_items"] == [
+            {"unit": "源单元A", "evaluable": ["判据A1", "判据A2"]},
+            {"unit": "源单元B", "evaluable": []},  # 留空=[]（不可判据单元合法）
+            {"id": "R1", "req": "需求点一", "covers": ["源单元A", "源单元B"],
+             "criterion": "判据A1"},
+            {"id": "R2", "req": "需求点二", "covers": ["源单元B"],
+             "criterion": "判据A1"},
+        ]
+
+    def test_req_items_row_must_start_with_unit_or_id(self):
+        step = eng.get_node("understand", 1).sub_steps[1]
+        _, err = eng._parse_trace_md(
+            "【purpose】\np\n【req_items】\n【req】\nx", step
+        )
+        assert err and "【unit】" in err and "【id】" in err
+
+    def test_req_items_explicit_kind_accepted(self):
+        """显式 kind 仍认（_req_row_kind 读写同口径）——模型写【kind】不再被拒。"""
+        step = eng.get_node("understand", 1).sub_steps[1]
+        md = (
+            "【purpose】\np\n【qa】\n【q】\nq1\n【a】\na1\n"
+            "【req_items】\n【unit】\nA\n【kind】\nsource_unit\n【evaluable】\n判1"
+        )
+        payload, err = eng._parse_trace_md(md, step)
+        assert err is None, err
+        assert payload["req_items"][0]["kind"] == "source_unit"
+
+    def test_scaffold_req_items_dual_row_skeleton(self):
+        """scaffold 对 req_items_structure 键生成双行形态骨架（旧版只给【q】
+        待填——格式信息只能在被拒时学到=三连拒的根）。"""
+        import dl_flow_trace as trace
+        step = eng.get_node("understand", 1).sub_steps[1]
+        sk = trace._scaffold_text(step)
+        for h in ("【unit】", "【evaluable】", "【id】", "【req】",
+                  "【covers】", "【criterion】"):
+            assert h in sk, h
+
+    def test_u1s2_full_md_payload_accepted(self, tmp_path):
+        """u:1#2 全键（qa+atomic_questions+req_items）.md 载荷端到端过
+        append-trace——与 JSON 通道等价（内容取自 att3 真实通过版）。"""
+        _write_state_full(tmp_path, "t", "understand", 1, sub_step=2)
+        md = (
+            "【purpose】\np\n"
+            "【qa】\n【q】\n单一/复合判定\n【a】\n复合：原子A=数值正确性，原子B=展示精度\n"
+            "【q】\n原子 A=数值正确性 → 5Whys 因果链\n"
+            "【a】\nWhy1 量级 +9963%；Why2 layered_backtest.py:655 简单乘法年化\n"
+            "【q】\n原子 B=展示精度 → 5Whys 因果链\n"
+            "【a】\nWhy1 实测「+9963.0%」；Why2 layered_backtest.py:901 decimals=2\n"
+            "【q】\n竞争假设\n【a】\nH_A1=年化公式错（保留：:651/:655）\n"
+            "【q】\n近因 vs 根因 + 置信度\n【a】\n近因=:655；根因候选 R1（置信度中高）\n"
+            "【atomic_questions】\n【q】\n数值正确性\n【tier】\nnone\n"
+            "【tier_reason】\n年化公式 layered_backtest.py:655 仓内可证伪\n"
+            "【q】\n展示精度\n【tier】\nnone\n"
+            "【tier_reason】\n渲染链 _section_backtest.html:38 仓内可证伪\n"
+            "【req_items】\n【unit】\n源单元A\n【evaluable】\n判据A1\n"
+            "【id】\nR1\n【req】\n需求点\n【covers】\n源单元A\n【criterion】\n判据A1"
+        )
+        payload = tmp_path / "payload.md"
+        payload.write_text(md, encoding="utf-8")
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert ok, msg
+
     def test_unknown_header_rejected(self):
         step = self._step("understand", 1, 0)
         _, err = eng._parse_trace_md(

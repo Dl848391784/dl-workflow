@@ -63,8 +63,17 @@ _MD_HEADER_RE = re.compile(r"^【([^】]+)】[ \t]*(.*)$")
 
 
 _MD_ITEM_FIELDS = frozenset(
-    {"q", "a", "text", "type_label", "boundary", "tier", "tier_reason"}
+    {"q", "a", "text", "type_label", "boundary", "tier", "tier_reason",
+     # req_items 行字段（req-points 轨道，2026-09-17 GLM 三连拒实爆：字段集
+     # 缺这些 = .md 通道结构性写不出合法 req_items，模型只能猜 JSON/造标头）
+     "unit", "id", "req", "covers", "criterion", "evaluable", "kind"}
 )
+# 列表值字段（一行一条）：req_items 的 covers（源结构单元清单）/evaluable（判据枚举）
+_MD_ITEM_LIST_FIELDS = frozenset({"covers", "evaluable"})
+# 混合行形态键的行首字段集：req_items 的 unit 行（源结构单元）与 id 行（需求点）
+# 混排——「首个字段重复=新一项」对双形态失效（req 行【id】开头会被误当
+# unit 行的字段），行首集合钉死替代单字段规则
+_MD_ROW_STARTERS = {"req_items": {"unit", "id"}}
 
 
 class _MdErr(Exception):
@@ -131,6 +140,8 @@ def _parse_trace_md(raw: str, step) -> tuple[dict | None, str | None]:
                 return
             if field.startswith("fields."):
                 item.setdefault("fields", {})[field.split(".", 1)[1]] = val
+            elif field in _MD_ITEM_LIST_FIELDS:
+                item[field] = [ln.strip() for ln in val.splitlines() if ln.strip()]
             else:
                 item[field] = val
         else:
@@ -160,19 +171,32 @@ def _parse_trace_md(raw: str, step) -> tuple[dict | None, str | None]:
                         f"【{h}】是数组项字段标头，须写在数组键节内"
                         f"（{'/'.join(sorted(array_keys))}），当前节=【{key}】"
                     )
-                ff = first_field.setdefault(key, h)
-                if h == ff:
-                    item = {}
-                    payload[key].append(item)
-                elif item is None:
-                    raise _MdErr(f"【{key}】节每项都须以【{ff}】开头")
+                starters = _MD_ROW_STARTERS.get(key)
+                if starters is not None:
+                    if h in starters:
+                        item = {}
+                        payload[key].append(item)
+                    elif item is None:
+                        raise _MdErr(
+                            f"【{key}】节每行须以 "
+                            + "/".join(f"【{x}】" for x in sorted(starters))
+                            + " 开头（unit 行=源结构单元 / id 行=需求点）"
+                        )
+                else:
+                    ff = first_field.setdefault(key, h)
+                    if h == ff:
+                        item = {}
+                        payload[key].append(item)
+                    elif item is None:
+                        raise _MdErr(f"【{key}】节每项都须以【{ff}】开头")
                 field = h
             else:
                 raise _MdErr(
                     f"未知标头【{h}】——本步合法标头："
                     + "/".join(f"【{x}】" for x in sorted(scalar_keys | array_keys))
-                    + " + 数组项字段【q】【a】/【text】【type_label】【boundary】"
-                    "（内容行想以【开头：缩进一格即不算标头）"
+                    + " + 数组项字段 "
+                    + "/".join(f"【{x}】" for x in sorted(_MD_ITEM_FIELDS))
+                    + "（内容行想以【开头：缩进一格即不算标头）"
                 )
             # v2.65：粘头内容（【key】内容 同行）注入当前节首行--
             # 模型手写自然风格粘头，scaffold 骨架是标头独占行；group(2)=粘头文本
@@ -579,6 +603,19 @@ def _scaffold_text(step) -> str:
                     f"【{k}】\n【q】\n待填：原子问题（与 MECE 声明标签一一对应）"
                     "\n【tier】\n待填：none|light|full（拿不准标 light）"
                     "\n【tier_reason】\n待填：分档理由（none 档须含仓内路径）"
+                )
+            elif spec == "req_items_structure":
+                # 双行形态骨架（2026-09-17 GLM 三连拒实爆：旧版只给【q】待填，
+                # 合法字段只能被拒时学到）：unit 行=源结构单元 / id 行=需求点，
+                # 列表字段一行一条；kind 缺省按形状推断（_req_row_kind 单源）
+                parts.append(
+                    f"【{k}】\n【unit】\n待填：源结构单元名（源材料的部分/栏位/功能块，逐字）"
+                    "\n【evaluable】\n待填：本单元逐条可独立验收判据，一行一条（不可判据单元留空=[]）"
+                    f"\n\n【{k}】\n【id】\n待填：需求点 id（如 R1）"
+                    "\n【req】\n待填：需求点一句话"
+                    "\n【covers】\n待填：覆盖的源结构单元，一行一个（与【unit】逐字一致）"
+                    "\n【criterion】\n待填：逐字引用 covers 单元的一条判据（判据↔req 一一对应）"
+                    "\n（两种行按需各自重复整段；kind 缺省按形状推断，显式【kind】也可写）"
                 )
             else:
                 parts.append(f"【{k}】\n【q】\n待填")
