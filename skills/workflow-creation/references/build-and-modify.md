@@ -106,3 +106,7 @@ dl <name> --done          # 归档（删 worktree+分支+元数据）
 5. **中断恢复**：后台 drive 被 Monitor/会话退出收割（exit 137）≠ 实例损坏——state/evidence 完好，`ps` 确认无残留 driver/段进程后直接再 `drive` 即续跑（本session实证：u:1#4 中途被割，重 drive 一步跑完）
 
 **与 judge 重放的分工**：judge 判据/framing 变更 → n≥6 三向重放（§3.5 #28，裁决方向回归）；purpose/selfcheck/mech 变更 → 本节真实实例镜像重放（模型行为回归）。gate 文本双侧钉死类改动两轴都要。
+
+### 1.7 全量测试挂但单文件跑绿 = 顺序污染——bisect 对 + 外部单变量复现 + monkeypatch 盲区（2026-09-17，main 25 挂根治实证）
+
+**排查法**（25 挂两族、两文件单跑 935 全绿的实证路径）：①**bisect 对**——嫌疑文件+受害文件两两跑（`pytest tests/<嫌疑>.py tests/<受害>.py`），比全量 bisect 快一个量级；②**外部单变量复现坐实根因**——锁定嫌疑是 env 泄漏后，`DL_ENGINE=qodercli pytest <受害文件>` 一次完整复现全部 25 挂 = 唯一根因坐实，不用逐测试核对；③**monkeypatch 盲区（根因模式）**——monkeypatch 只追踪**自己的** set/del，**生产代码直写 `os.environ` 它看不见**：`TestApplyInstanceEngine` 调生产代码 `_apply_instance_engine` 直写 `DL_ENGINE=qodercli`，teardown 无记录可恢复 → 泄漏到后续全部测试（transcript 根错走 `~/.qoder`）。**防线 = tests/conftest.py autouse env 快照复位夹具**（setup 前 `dict(os.environ)`、teardown `clear()+update(saved)`）——通用拦所有同类直写，不止一案。判别信号：全量挂的文件单跑全绿 + 挂点集中在「读全局状态（env/cwd/HOME/模块单例）」的函数。

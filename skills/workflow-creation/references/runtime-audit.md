@@ -138,3 +138,15 @@
 - 段 wedge（engine-qodercli.md §3 特征三件套）是 qodercli 内部随机事件——审计报「wedge 次数+SIGTERM 后自动重派成功率」，**不归因编排也不归因模型**；watchdog 落地前属已知基础设施噪声
 - judge 全链走 qodercli（`-p --output-format json --tools ""`），判词/通过语义与 claude 轨道同口径对账（本例逐子步骤门控全过）
 - BYOK 路由经 Qoder 云端代理——成本账没有 provider 侧账单可对的，按段台账轮数×时长做相对账
+
+## 29. 版本批次校验 playbook——「上一版优化梳理+逐项校验」的五步法（2026-09-17，0.11.9 需求点主轴校验实证）
+
+**触发**：验收一个已发布批次（「上一版优化的需求点每个都对吗」）——与实例级运行审计平级的第二类审计。五步：
+
+1. **定位批次**：`cat VERSION` + `git log --oneline --since=<release 日>`——release commit 只戳版本号，真实改动在它前面的 feat/fix 链。
+2. **需求点真源**：无 design.md 时代（design-md 装配退役后）= commit message 正文 + skill 沉淀节（node-split-methodology.md 等）——先读全再列清单，别只看 release 标题行。
+3. **机制在场 grep**：逐需求点 grep 机制名/键名，确认代码面在场（gate 文案/purpose/mech 注册表/渲染层）。
+4. **功能探针直调**：`sys.path.insert + import dl_flow_checks` 后直接调 `_check_*` 函数喂正反载荷（猴子补丁 `_load_*` 数据源伪造对照基准）——比写正式测试快，当场验判据行为；**渲染层冒烟 = 合成 evidence trace + `render_artifact`**。
+5. **测试三层**：新用例 → 相关文件单跑 → **全量**（全量挂但文件单跑绿 = 顺序污染，build-and-modify §1.7）。
+
+**本批次逮到的真 bug 类型 = 读侧/写侧口径漂移**（渲染层没跟上写侧的形状推断修复）——校验时对所有「形态兼容修复」必问：读侧消费方（渲染/台账/交接包）都同步了吗（mechanical-checks #13）。

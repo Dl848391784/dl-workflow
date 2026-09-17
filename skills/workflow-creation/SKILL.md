@@ -136,4 +136,6 @@ dl <name>  ─►  ~/.dl-workflow/scripts/workflow/dl-launch.sh
 - "改动面空 / 产物卡空 / 卡片没数据但产物文件在场 / 解析出 0 条" → references/diagnostics.md 症状 AU（消费方解析器契约漂移，先直跑解析器验真）
 - "dashboard 端到端验证 / E2E 怎么跑 / 改动怎么验收" → references/build-and-modify.md §1.5（pytest 绿≠工作，真实实例 sweep 纪律）
 - "判据改动怎么验证 / 重放工作流 / 镜像重放 / purpose/mech 改了行为对不对" → references/build-and-modify.md §1.6（镜像重放：逐字镜像陈述+镜像答案，产出差异即判据效果）
+- "校验上一版优化 / 版本批次验收 / release 需求点逐项核对" → references/runtime-audit.md #29（版本批次校验 playbook 五步法）
+- "全量测试挂但单文件跑绿 / 顺序污染 / env 泄漏" → references/build-and-modify.md §1.7（bisect 对+外部单变量复现+monkeypatch 盲区）
 - "多选题只能单选 / checkbox 变 radio / 时间轴中文步名 / gate 按钮不该显示时显示" → 均已修（2026-08-31 批次），复现按症状 AN 先查静态缓存再查 scanner 单源字段（step_labels/gate_actionable）
