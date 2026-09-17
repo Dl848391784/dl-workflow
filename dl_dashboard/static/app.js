@@ -699,18 +699,23 @@ function renderInteract(d) {
   } else if (parked && parked.project === proj && parked.name === name &&
              d.need_user && d.need_user.ts === parked.ts) {
     // 答题排队暂存态（就绪自动注入由 refreshDetail 的 parked 生命周期执行）
+    // inflight 区分显示（2026-09-17 实爆：注入 POST 在飞 1-3min 卡面停在
+    // 「已暂存」，「未触发」与「注入中」不可分，用户误判延迟）
     const h = document.createElement("h3");
-    h.textContent = "答案已暂存";
+    h.textContent = parked.inflight ? "注入中" : "答案已暂存";
     box.appendChild(h);
     const prep = document.createElement("div");
     prep.className = "q";
-    prep.textContent = "交互段就绪后自动注入——无需守等/刷新；" +
-      "问题若被更新暂存会自动作废（防答进错题）";
+    prep.textContent = parked.inflight
+      ? "答案注入中——模型段回复要 1-2 分钟，完成自动翻「已提交」（无需刷新）"
+      : "交互段就绪后自动注入——无需守等/刷新；问题若被更新暂存会自动作废（防答进错题）";
     box.appendChild(prep);
-    box.appendChild(mkBtn("取消暂存（重新作答）", () => {
-      setParked(null);
-      refreshDetail();
-    }, "btn"));
+    if (!parked.inflight) {
+      box.appendChild(mkBtn("取消暂存（重新作答）", () => {
+        setParked(null);
+        refreshDetail();
+      }, "btn"));
+    }
   } else if (d.need_user && d.need_user.questions) {
     const h = document.createElement("h3");
     h.textContent = "等待输入";
@@ -950,7 +955,7 @@ async function refreshDetail() {
     d.steers ? d.steers.length + ":" + d.steers.filter((s) => s.consumed).length : 0,
     // 答题排队：暂存/取消必须当场重渲交互区（服务端数据不变，纯本地态）
     parked && parked.project === sel.project && parked.name === sel.name
-      ? "parked:" + parked.ts : "",
+      ? "parked:" + parked.ts + (parked.inflight ? ":inflight" : "") : "",
   ]);
   const changed = fp !== lastDetailFp;
   lastDetailFp = fp;
