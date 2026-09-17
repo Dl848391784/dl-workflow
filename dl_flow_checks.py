@@ -1735,6 +1735,24 @@ def _check_fermate_placeholder_consistency(
 # 机械层只管形式与集合关系，语义充分性归 judge（既有分工）。
 
 
+def _req_row_kind(it: dict) -> str:
+    """req_items 行 kind：显式 kind 仍认；缺省按形状推断。
+
+    scaffold 是【键】值 markdown，弱模型写不出 JSON 嵌套 kind（deepseek 170 次
+    死锁实证，eb7802d）：有 id=需求点行；有 unit 无 id=源结构单元行。写侧校验
+    （_check_req_items）与读侧渲染（engine _emit_req_blocks）共用本单源，
+    禁两套口径（渲染层自判会静默漏掉无 kind 行=proposal 空块）。
+    """
+    kind = str(it.get("kind") or "").strip()
+    if kind:
+        return kind
+    if str(it.get("id") or "").strip():
+        return "req"
+    if str(it.get("unit") or "").strip():
+        return "source_unit"
+    return ""
+
+
 def _check_req_items(v: list, _qa: list) -> str | None:
     """req_items：需求点拆分清单（source_unit 行 + req 行）——拆分完整性机械核验。
 
@@ -1750,14 +1768,8 @@ def _check_req_items(v: list, _qa: list) -> str | None:
     for i, it in enumerate(v):
         if not isinstance(it, dict):
             return f"req_items[{i}] 须为对象"
-        # kind 按形状推断（scaffold 是【键】值 markdown，模型写不出 JSON 嵌套——
-        # 实证 deepseek 170 次撞「kind=None」死锁；显式 kind 仍认）：
-        # 有 unit 无 id = 源结构单元行；有 id = 需求点行。
-        kind = str(it.get("kind") or "").strip()
-        if not kind:
-            kind = "req" if str(it.get("id") or "").strip() else (
-                "source_unit" if str(it.get("unit") or "").strip() else ""
-            )
+        # kind 显式仍认、缺省按形状推断（单源 _req_row_kind，读写两侧同口径）
+        kind = _req_row_kind(it)
         if kind == "source_unit":
             u = str(it.get("unit") or "").strip()
             if not u:

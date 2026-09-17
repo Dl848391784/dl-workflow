@@ -209,6 +209,7 @@ from dl_flow_checks import (
     _placeholder_hit,  # noqa: F401  # re-export：tests/hooks 经 eng.* 访问
     _recorded_task_ids_in_evidence,  # noqa: F401  # re-export：tests/hooks 经 eng.* 访问
     _redteam_worker_file,  # noqa: F401  # re-export：tests/hooks 经 eng.* 访问
+    _req_row_kind,
     _source_step_index,  # noqa: F401  # re-export：tests/hooks 经 eng.* 访问
     _step_trace_ids,  # noqa: F401  # re-export：tests/hooks 经 eng.* 访问
     _verify_anchor_parts,  # noqa: F401  # re-export：tests/hooks 经 eng.* 访问
@@ -1404,12 +1405,18 @@ def render_artifact(
                             "config_usage": str(flds.get("config_usage", "")),
                         }
                     )
+        # kind 与写侧同口径（_req_row_kind 形状推断）——弱模型不写 kind 的
+        # 载荷 append-trace 已放行，渲染层若只认显式 kind 会静默出 0/0 空块
         units = [
             str(it.get("unit")).strip()
             for it in req_items
-            if isinstance(it, dict) and it.get("kind") == "source_unit" and it.get("unit")
+            if isinstance(it, dict) and _req_row_kind(it) == "source_unit" and it.get("unit")
         ]
-        reqs = [it for it in req_items if isinstance(it, dict) and it.get("kind") == "req"]
+        reqs = [
+            it
+            for it in req_items
+            if isinstance(it, dict) and _req_row_kind(it) == "req"
+        ]
         parts.append(f"## {BLK_TITLE}")
         parts.append("")
         parts.append(f"- 源材料结构单元 {len(units)} 个 / 需求点 {len(reqs)} 个（逐点可核，不漏）")

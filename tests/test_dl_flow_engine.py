@@ -11118,6 +11118,61 @@ class TestProposalArtifact:
         ok2, msg2 = eng.render_artifact(tmp_path, "t", "proposal.md")
         assert ok2 and "proposal ✓" not in msg2
 
+    def test_req_blocks_kind_shape_inferred(self, tmp_path):
+        # req-points 弱模型兼容：scaffold 是【键】值 markdown，模型写不出嵌套
+        # kind——写侧 append-trace 按形状推断放行（eb7802d），渲染层须同口径，
+        # 否则弱模型路径下 proposal 静默渲染「0 单元/0 需求点」空块。
+        u1s2 = json.dumps(
+            {
+                "kind": "skill-trace",
+                "minor_stage": "ProblemContext",
+                "sub_step": 2,
+                "req_items": [
+                    {"unit": "手册§3 入场条件"},
+                    {"id": "R1", "req": "量能突破入场", "covers": ["手册§3 入场条件"]},
+                ],
+            },
+            ensure_ascii=False,
+        )
+        p1s2 = json.dumps(
+            {
+                "kind": "skill-trace",
+                "minor_stage": "DesignSolution",
+                "sub_step": 2,
+                "req_status": [{"id": "R1", "status": "进"}],
+            },
+            ensure_ascii=False,
+        )
+        _write_evidence(
+            tmp_path,
+            "t",
+            [
+                u1s2,
+                p1s2,
+                self._stmt_fields(
+                    "TaskBreakdown",
+                    4,
+                    [
+                        (
+                            "S1 实现入场条件",
+                            {
+                                "req_id": "R1",
+                                "change_point": "screener.py:L10（改）：改前=a → 改后=b",
+                                "data_chain": "日线→量能",
+                            },
+                        )
+                    ],
+                ),
+            ],
+        )
+        ok, msg = eng.render_artifact(tmp_path, "t", "proposal.md")
+        assert ok, msg
+        text = (tmp_path / ".claude" / "proposals" / "t.md").read_text(encoding="utf-8")
+        assert "源材料结构单元 1 个 / 需求点 1 个" in text
+        assert "### R1 量能突破入场" in text
+        assert "- **状态**：进" in text
+        assert "日线→量能" in text
+
 
 class TestIngestAgentReport:
     """v2.60 append-trace --ingest-agent：子代理报告原文落载荷（审计违规②根治）。
