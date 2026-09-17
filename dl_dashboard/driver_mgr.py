@@ -1,7 +1,8 @@
 """driver 进程托管：spawn(setsid) / PID 文件 / 后端重启认领 / killpg 停止。
 
 保活语义（dashboard-design §5）：工作流真实状态全落盘，driver 死 = 标红可
-一键重驱，不是数据丢失。认领校验 /proc/<pid>/cmdline 防 pid 复用误认。
+一键重驱，不是数据丢失。认领校验 cmdline 防 pid 复用误认（Linux 走 /proc，
+其余平台走 ps）。
 """
 from __future__ import annotations
 
@@ -9,10 +10,26 @@ import logging
 import os
 import signal
 import subprocess
+import sys
 import typing
 from pathlib import Path
 
 log = logging.getLogger("dl_dashboard.driver_mgr")
+
+
+def _read_cmdline(pid: int) -> bytes:
+    """读进程 cmdline（防 pid 复用误认）。Linux 走 /proc，其余平台走 ps
+    （macOS 无 /proc）。失败统一抛 OSError，走调用方既有清理路径。"""
+    if sys.platform == "linux":
+        return Path(f"/proc/{pid}/cmdline").read_bytes()
+    try:
+        r = subprocess.run(["ps", "-p", str(pid), "-o", "command="],
+                           capture_output=True, timeout=5)
+    except subprocess.TimeoutExpired as e:
+        raise OSError("ps timeout") from e
+    if r.returncode != 0:
+        raise OSError(f"ps rc={r.returncode}")
+    return r.stdout
 
 
 class DriverManager:
@@ -68,13 +85,16 @@ class DriverManager:
                 return proc.pid
             self._cleanup(slug)
             return None
-        # 后端重启后认领：pid 文件 + /proc cmdline 双重校验（防 pid 复用）
+        # 后端重启后认领：pid 文件 + cmdline 双重校验（防 pid 复用）
         p = self._pid_path(slug)
         if not p.exists():
             # pid 文件缺失：扫 /proc 认领「野生」driver（server 重启丢 pid
             # 文件、外部 `dl` 启动等场景）——不认领则 restart_drive 会起重复
             # driver（双执行体并行事故面）。argv 级匹配：dl_drive.py 与 name
-            # 各自独立成参（防子串误配）。
+            # 各自独立成参（防子串误配）。/proc 为 Linux 专有，其余平台放弃
+            # 野生认领（macOS 实爆：iterdir 抛 FileNotFoundError 致接口 500）。
+            if sys.platform != "linux":
+                return None
             for proc_dir in Path("/proc").iterdir():
                 if not proc_dir.name.isdigit():
                     continue
@@ -95,7 +115,7 @@ class DriverManager:
         try:
             pid = int(p.read_text(encoding="utf-8").strip())
             os.kill(pid, 0)
-            cmdline = Path(f"/proc/{pid}/cmdline").read_bytes()
+            cmdline = _read_cmdline(pid)
         except (ValueError, OSError):
             self._cleanup(slug)
             return None

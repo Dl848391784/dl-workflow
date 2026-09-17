@@ -120,3 +120,31 @@ def test_alive_claims_wild_driver_without_pid_file(tmp_path):
     finally:
         proc.kill()
         proc.wait()
+
+
+def test_alive_wild_scan_skipped_on_non_linux(tmp_path):
+    """macOS 无 /proc：pid 文件缺失时野生认领直接放弃，不抛 FileNotFoundError
+    （实爆：iterdir 未捕获 -> dashboard 接口全 500）。"""
+    mgr = _mgr(tmp_path)
+    with patch("sys.platform", "darwin"), \
+         patch("dl_dashboard.driver_mgr.Path.iterdir",
+               side_effect=FileNotFoundError("/proc")):
+        assert mgr.alive(Path("/p"), "wildwf") is None
+
+
+def test_alive_reclaim_uses_ps_on_non_linux(tmp_path):
+    """macOS pid 文件认领：/proc 不存在改走 ps 校验 cmdline（防 pid 复用不误删
+    pid 文件/误报 driver 死 -> 重驱起重复 driver）。"""
+    mgr = _mgr(tmp_path)
+    mgr._pid_path(mgr.slug("/p", "demo")).write_text(str(os.getpid()), encoding="utf-8")
+    ps_hit = MagicMock(returncode=0, stdout=b"python3 /x/dl_drive.py demo")
+    with patch("sys.platform", "darwin"), \
+         patch("dl_dashboard.driver_mgr.subprocess.run", return_value=ps_hit):
+        assert mgr.alive(Path("/p"), "demo") == os.getpid()
+    # cmdline 不匹配（pid 复用）-> 不认领且清陈旧 pid 文件
+    mgr._pid_path(mgr.slug("/p", "demo")).write_text(str(os.getpid()), encoding="utf-8")
+    ps_miss = MagicMock(returncode=0, stdout=b"/usr/bin/other")
+    with patch("sys.platform", "darwin"), \
+         patch("dl_dashboard.driver_mgr.subprocess.run", return_value=ps_miss):
+        assert mgr.alive(Path("/p"), "demo") is None
+    assert not mgr._pid_path(mgr.slug("/p", "demo")).exists()
