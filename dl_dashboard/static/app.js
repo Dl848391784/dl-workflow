@@ -10,6 +10,27 @@ const $ = (id) => document.getElementById(id);
    答题并行，窗口期感知延迟归零。问题集重 stash（ts 变）作废暂存——
    防答案注进已换的题目。 */
 let parked = null;  // {project, name, ts, answer, inflight, retries}
+const PARKED_KEY = "dl-parked-answer";
+function setParked(v) {
+  // localStorage 持久化——旧版纯内存，刷新页面静默丢暂存（用户以为排着队，
+  // 实际没了 = silent failure）。inflight/retries 是运行态不落盘。
+  parked = v;
+  try {
+    if (v) localStorage.setItem(PARKED_KEY, JSON.stringify(
+      { project: v.project, name: v.name, ts: v.ts, answer: v.answer,
+        retries: v.retries || 0 }));
+    else localStorage.removeItem(PARKED_KEY);
+  } catch (e) { /* 隐私模式等写失败：退化为内存态 */ }
+}
+try {
+  const raw = localStorage.getItem(PARKED_KEY);
+  if (raw) {
+    const v = JSON.parse(raw);
+    if (v && v.project && v.name && v.ts && typeof v.answer === "string") {
+      parked = { ...v, inflight: false };  // 刷新恢复：未在飞，等生命周期判
+    }
+  }
+} catch (e) { /* 坏数据即丢弃 */ }
 
 async function post(url, body) {
   // fail-safe：代理/隧道可能在长操作时截断响应（inject 模型轮 1-3min 实爆：
@@ -687,7 +708,7 @@ function renderInteract(d) {
       "问题若被更新暂存会自动作废（防答进错题）";
     box.appendChild(prep);
     box.appendChild(mkBtn("取消暂存（重新作答）", () => {
-      parked = null;
+      setParked(null);
       refreshDetail();
     }, "btn"));
   } else if (d.need_user && d.need_user.questions) {
@@ -738,8 +759,8 @@ function renderInteract(d) {
       async (btn) => {
         if (!d.inject_ready) {
           // 暂存：不动服务端，refreshDetail 指纹含 parked 当场重渲暂存态
-          parked = { project: proj, name, ts: d.need_user.ts,
-                     answer: collect(), inflight: false };
+          setParked({ project: proj, name, ts: d.need_user.ts,
+                      answer: collect(), inflight: false });
           toast("答案已暂存——交互段就绪后自动注入", true);
           refreshDetail();
           return;
@@ -886,7 +907,7 @@ async function refreshDetail() {
      失效（问题集重 stash）→ 作废；就绪（inject_ready 翻面）→ 自动注入 */
   if (parked && parked.project === sel.project && parked.name === sel.name) {
     if (!d.need_user || d.need_user.ts !== parked.ts) {
-      parked = null;
+      setParked(null);
       toast("问题已更新——暂存答案作废，请重新作答", false);
     } else if (!parked.inflight && d.inject_ready && !d.answered) {
       parked.inflight = true;
@@ -897,9 +918,9 @@ async function refreshDetail() {
       // 弃暂存，用户看到 toast 重答——防无限重试空转
       if (!pr.ok && (parked.retries || 0) < 1) {
         parked.inflight = false;
-        parked.retries = (parked.retries || 0) + 1;
+        setParked({ ...parked, retries: (parked.retries || 0) + 1 });
       } else {
-        parked = null;
+        setParked(null);
       }
       return refreshDetail();  // 拉已答横幅/失败后的表单重渲
     }
