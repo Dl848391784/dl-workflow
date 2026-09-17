@@ -260,7 +260,7 @@ function artLink(kind, artifacts) {
   return `<a class="art-link" target="_blank" href="/static/artifact.html?${q}">${ART_LABEL[kind].md}</a>`;
 }
 
-function renderTimelineTree(stats, nodes, info, artifacts) {
+function renderTimelineTree(stats, nodes, info, artifacts, driverPid) {
   const box = $("timeline");
   box.innerHTML = "";
   const stepMap = new Map();
@@ -358,7 +358,14 @@ function renderTimelineTree(stats, nodes, info, artifacts) {
         const isCur = n.status === "current" && i === info.sub_step_index;
         const leaf = document.createElement("div");
         leaf.className = "tl-leaf" + (a ? " done" : isCur ? " cur" : " todo");
-        if (isCur && !a) {
+        if (isCur && !a && !driverPid) {
+          // driver 停（暂停/等答/门栏/死）当前步不计时——旧版无条件按
+          // current_segment/末段 ts 起算，暂停后计时永远涨（2026-09-17 实爆）；
+          // 与在跑徽标同规（徽标早已 driver_pid 门控，driver 停不显示）
+          leaf.innerHTML =
+            `<div class="tl-l1"><span class="tl-lid">${esc(stepName(n, i))}</span>` +
+            `<span class="tl-ldur">未在跑</span></div>`;
+        } else if (isCur && !a) {
           // 在跑步：实时计时——优先在飞段起点（current_segment，driver 起跑
           // 落盘，不含段间空隙）；缺它回退末段 ts（近似）
           const cs = info.current_segment;
@@ -406,7 +413,7 @@ function renderTimelineTree(stats, nodes, info, artifacts) {
 }
 
 /* 甘特泳道：节点为道、段为真实时间定位的横条。 */
-function renderTimelineGantt(stats, nodes, info, artifacts) {
+function renderTimelineGantt(stats, nodes, info, artifacts, driverPid) {
   const box = $("timeline");
   box.innerHTML = "";
   const segs = stats.filter((s) => s.ts);
@@ -526,7 +533,7 @@ function renderTimelineGantt(stats, nodes, info, artifacts) {
       const x = Math.round(((new Date(s.ts).getTime() - t0) / 1000) * scale);
       const isCur = n.status === "current";
       const bar = document.createElement("div");
-      if (s.duration_s == null && isCur) {
+      if (s.duration_s == null && isCur && driverPid) {
         // 在跑段：sky 实时条，右缘=now（每 SSE 拍增长）——起点优先在飞段
         // current_segment.started_at（不含段间空隙），缺它回退末行 ts
         const cs = info.current_segment;
@@ -585,7 +592,7 @@ function tlSkin() {
   return TL_SKINS.has(s) ? s : "cards";
 }
 
-function renderTimeline(stats, nodes, info, artifacts) {
+function renderTimeline(stats, nodes, info, artifacts, driverPid) {
   const box = $("timeline");
   const skin = tlSkin();
   box.classList.remove("metro", "gantt", "cards");
@@ -605,8 +612,8 @@ function renderTimeline(stats, nodes, info, artifacts) {
   } else {
     prog.classList.add("hidden");
   }
-  if (skin === "gantt") renderTimelineGantt(stats, nodes, info, artifacts);
-  else renderTimelineTree(stats, nodes, info, artifacts);
+  if (skin === "gantt") renderTimelineGantt(stats, nodes, info, artifacts, driverPid);
+  else renderTimelineTree(stats, nodes, info, artifacts, driverPid);
   document.querySelectorAll("#tl-switch button").forEach((b) =>
     b.classList.toggle("on", b.dataset.skin === skin));
 }
@@ -1008,7 +1015,7 @@ function renderDetailLive(d) {
     toast(r.msg, r.ok);
     refreshDetail();
   };
-  renderTimeline(d.stats, d.info.nodes, d.info, d.artifacts);
+  renderTimeline(d.stats, d.info.nodes, d.info, d.artifacts, d.driver_pid);
 }
 
 $("sidebar-toggle").onclick = () => {
