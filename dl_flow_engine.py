@@ -1433,6 +1433,11 @@ def render_artifact(
                 f"- **状态**：{st.get('status', '（未裁决）')}"
                 + (f"｜理由：{st.get('reason')}" if st.get("reason") else "")
             )
+            # evaluable 1:1（2026-09-17）：criterion 有则渲染验收判据行
+            # （旧式 trace 无 criterion=省略该行，幂等兼容）
+            crit = str(it.get("criterion", "")).strip()
+            if crit:
+                parts.append(f"- **验收判据**：{crit}")
             entries = by_req.get(rid) or []
             if entries:
                 parts.append("- **怎么实现**：" + "；".join(e["text"] for e in entries if e["text"]))
