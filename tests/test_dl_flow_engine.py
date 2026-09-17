@@ -34,9 +34,10 @@ import dl_flow_engine as eng
 
 # req-points 轨道（2026-09-11）：u:1#2 新契约 req_items 必给——夹具最小合法值
 # （一个源结构单元 + 一个需求点，covers 全覆盖；stale fixture 对齐非回归）
+# 2026-09-17 evaluable 1:1 机械核：unit 行必给 evaluable、req 行 criterion 逐字引用
 _REQ_ITEMS_MIN = [
-    {"kind": "source_unit", "unit": "源单元A"},
-    {"kind": "req", "id": "R1", "req": "需求点", "covers": ["源单元A"]},
+    {"kind": "source_unit", "unit": "源单元A", "evaluable": ["判据A1"]},
+    {"kind": "req", "id": "R1", "req": "需求点", "criterion": "判据A1", "covers": ["源单元A"]},
 ]  # noqa: E402
 
 
@@ -11172,6 +11173,94 @@ class TestProposalArtifact:
         assert "### R1 量能突破入场" in text
         assert "- **状态**：进" in text
         assert "日线→量能" in text
+
+
+class TestReqItemsEvaluable:
+    """evaluable 1:1 机械核（req-points 粒度钉死下沉，2026-09-17）。
+
+    背景：粒度判据（一条 req=一个可独立验收判据，禁合并）v0.11.9 只入
+    purpose+gate 零条款，deepseek judge 未拦（仍出 5 条粗粒度）。下沉机械层：
+    unit 行必给 evaluable（逐条可验收判据枚举，空数组=不可判据章节），
+    req 行 criterion 逐字引用一条判据，判据↔req 1:1（合并判据结构不可能化）。
+    """
+
+    def _check(self, rows):
+        return eng._MECH_EXTRA_ITEM_CHECKS["req_items_structure"](rows, [])
+
+    def test_one_to_one_pass(self):
+        rows = [
+            {"unit": "手册§3", "evaluable": ["量能≥2倍", "涨幅<5%"]},
+            {"id": "R1", "req": "量能突破", "criterion": "量能≥2倍", "covers": ["手册§3"]},
+            {"id": "R2", "req": "涨幅过滤", "criterion": "涨幅<5%", "covers": ["手册§3"]},
+        ]
+        assert self._check(rows) is None
+
+    def test_unit_missing_evaluable_key_rejected(self):
+        # evaluable 必给（显式空数组合法）——缺键=漏枚举嫌疑，拒
+        rows = [
+            {"unit": "手册§3"},
+            {"id": "R1", "req": "x", "covers": ["手册§3"]},
+        ]
+        msg = self._check(rows)
+        assert msg and "evaluable" in msg
+
+    def test_criterion_unreferenced_rejected(self):
+        # 判据漏承接=粒度核对失败，拒
+        rows = [
+            {"unit": "手册§3", "evaluable": ["量能≥2倍", "涨幅<5%"]},
+            {"id": "R1", "req": "量能突破", "criterion": "量能≥2倍", "covers": ["手册§3"]},
+        ]
+        msg = self._check(rows)
+        assert msg and "涨幅<5%" in msg
+
+    def test_criterion_ghost_rejected(self):
+        # criterion 凭空（不逐字等于任何 evaluable 条目）=拒
+        rows = [
+            {"unit": "手册§3", "evaluable": ["量能≥2倍"]},
+            {"id": "R1", "req": "x", "criterion": "量能≥3倍", "covers": ["手册§3"]},
+        ]
+        msg = self._check(rows)
+        assert msg and "凭空" in msg
+
+    def test_criterion_double_claimed_rejected(self):
+        # 两条 req 抢同一判据=1:1 破，拒
+        rows = [
+            {"unit": "手册§3", "evaluable": ["量能≥2倍"]},
+            {"id": "R1", "req": "a", "criterion": "量能≥2倍", "covers": ["手册§3"]},
+            {"id": "R2", "req": "b", "criterion": "量能≥2倍", "covers": ["手册§3"]},
+        ]
+        msg = self._check(rows)
+        assert msg and "重复" in msg
+
+    def test_criterion_required_when_unit_has_evaluable(self):
+        # 覆盖含判据单元的 req 不给 criterion=粒度无锚，拒
+        rows = [
+            {"unit": "手册§3", "evaluable": ["量能≥2倍"]},
+            {"id": "R1", "req": "x", "covers": ["手册§3"]},
+        ]
+        msg = self._check(rows)
+        assert msg and "criterion" in msg
+
+    def test_exclusion_req_without_criterion_pass(self):
+        # 不可判据章节（evaluable 空）归排除行：免 criterion 合法
+        rows = [
+            {"unit": "手册§3", "evaluable": ["量能≥2倍"]},
+            {"unit": "买卖纪律箴言", "evaluable": []},
+            {"id": "R1", "req": "量能突破", "criterion": "量能≥2倍", "covers": ["手册§3"]},
+            {"id": "R2", "req": "明示不进范围", "covers": ["买卖纪律箴言"]},
+        ]
+        assert self._check(rows) is None
+
+    def test_criterion_must_be_from_covered_unit(self):
+        # criterion 引用未覆盖单元的判据=跨单元错位，拒
+        rows = [
+            {"unit": "手册§3", "evaluable": ["量能≥2倍"]},
+            {"unit": "手册§4", "evaluable": ["48h 首响"]},
+            {"id": "R1", "req": "a", "criterion": "量能≥2倍", "covers": ["手册§3"]},
+            {"id": "R2", "req": "b", "criterion": "48h 首响", "covers": ["手册§3"]},
+        ]
+        msg = self._check(rows)
+        assert msg and "手册§4" in msg
 
 
 class TestIngestAgentReport:

@@ -1760,10 +1760,17 @@ def _check_req_items(v: list, _qa: list) -> str | None:
     （漏单元=当场拒——「一条都不能漏」由源结构可核，非模型自觉）；covers 引用
     不存在的单元=凭空（拒）；id 唯一。跨步一致性（与 plan:1#2 req_status /
     plan:2#4 req_id 对齐）归 req_id_known 机械校验 + judge。
+
+    evaluable 1:1 机械核（2026-09-17，粒度钉死下沉）：unit 行必给 evaluable
+    （该单元逐条可独立验收判据枚举；空数组=不可判据章节，合法），req 行
+    criterion 逐字引用所覆盖单元的一条判据——判据↔req 一一对应（漏承接/凭空/
+    重复承接/跨单元错位均拒）。合并多个判据进一条 req 在结构上不可能（每条
+    req 只承接一条判据），粒度判断自此不依赖 judge（deepseek judge 未拦
+    粗粒度实证后下沉）。
     """
     if not isinstance(v, list) or not v:
         return "req_items 须为非空数组"
-    units: set[str] = set()
+    units: dict[str, list[str]] = {}  # unit -> evaluable 判据清单
     reqs: list[dict] = []
     for i, it in enumerate(v):
         if not isinstance(it, dict):
@@ -1774,7 +1781,14 @@ def _check_req_items(v: list, _qa: list) -> str | None:
             u = str(it.get("unit") or "").strip()
             if not u:
                 return f"req_items[{i}]（source_unit）unit 须非空"
-            units.add(u)
+            ev = it.get("evaluable")
+            if not isinstance(ev, list):
+                return (
+                    f"req_items[{i}]（source_unit {u}）evaluable 须为数组（可空）"
+                    "——该单元逐条可独立验收判据枚举（不可判据章节给 []；"
+                    "缺键=漏枚举嫌疑，拒）"
+                )
+            units[u] = [str(e).strip() for e in ev if str(e).strip()]
         elif kind == "req":
             rid = str(it.get("id") or "").strip()
             req = str(it.get("req") or "").strip()
@@ -1783,7 +1797,13 @@ def _check_req_items(v: list, _qa: list) -> str | None:
                 return f"req_items[{i}]（req）id/req 须非空"
             if not isinstance(covers, list) or not covers:
                 return f"req_items[{i}]（{rid}）covers 须为非空数组（源结构单元清单）"
-            reqs.append({"id": rid, "covers": [str(c).strip() for c in covers]})
+            reqs.append(
+                {
+                    "id": rid,
+                    "covers": [str(c).strip() for c in covers],
+                    "criterion": str(it.get("criterion") or "").strip(),
+                }
+            )
         else:
             return (f"req_items[{i}] 行形态无法识别（键：{sorted(it.keys())}）——"
                     "源结构单元行须有 unit 字段，需求点行须有 id/req/covers 字段")
@@ -1807,12 +1827,57 @@ def _check_req_items(v: list, _qa: list) -> str | None:
                     "——须与 source_unit 行逐字一致（凭空引用=拒）"
                 )
             covered.add(c)
-    missed = sorted(units - covered)
+    missed = sorted(set(units) - covered)
     if missed:
         return (
             "需求点拆分有漏：源结构单元未被任何需求点覆盖 "
             + "、".join(missed[:5])
             + f"（共 {len(missed)} 个）——每单元至少一个 req 行 covers"
+        )
+    # evaluable 判据 ↔ req 1:1（粒度钉死的机械核）
+    all_criteria: dict[str, str] = {}  # 判据文本 -> 所属 unit
+    for u, evs in units.items():
+        for e in evs:
+            if e in all_criteria:
+                return (
+                    f"evaluable 判据 {e!r} 在 {all_criteria[e]!r} 与 {u!r} 两单元"
+                    "重复——判据文本跨单元须唯一（逐字相等则归属歧义）"
+                )
+            all_criteria[e] = u
+    claimed: dict[str, str] = {}  # 判据文本 -> 承接 req id
+    for r in reqs:
+        crit = r["criterion"]
+        if not crit:
+            if any(units[c] for c in r["covers"]):
+                return (
+                    f"req_items（{r['id']}）criterion 缺失——其覆盖单元含可验收判据，"
+                    "每条 req 须逐字引用一条 evaluable 判据（判据↔req 1:1；"
+                    "仅当覆盖单元 evaluable 全空的纯排除行可免）"
+                )
+            continue
+        owner = all_criteria.get(crit)
+        if owner is None:
+            return (
+                f"req_items（{r['id']}）criterion {crit!r} 凭空——须逐字等于"
+                "所覆盖 source_unit 的某条 evaluable 判据"
+            )
+        if owner not in r["covers"]:
+            return (
+                f"req_items（{r['id']}）criterion {crit!r} 属单元 {owner!r}"
+                "但 covers 未含该单元——跨单元错位"
+            )
+        if crit in claimed:
+            return (
+                f"req_items criterion {crit!r} 被 {claimed[crit]} 与 {r['id']}"
+                "重复承接——判据↔req 须 1:1"
+            )
+        claimed[crit] = r["id"]
+    unclaimed = [e for e in all_criteria if e not in claimed]
+    if unclaimed:
+        return (
+            "可验收判据漏承接（每条判据须恰好一条 req 的 criterion 逐字引用）："
+            + "、".join(unclaimed[:5])
+            + f"（共 {len(unclaimed)} 条）"
         )
     return None
 
