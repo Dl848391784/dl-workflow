@@ -373,16 +373,24 @@ function renderTimelineTree(stats, nodes, info, artifacts, driverPid) {
             `<div class="tl-l1"><span class="tl-lid">${esc(stepName(n, i))}</span>` +
             `<span class="tl-ldur">未在跑</span></div>`;
         } else if (isCur && !a) {
-          // 在跑步：实时计时——优先在飞段起点（current_segment，driver 起跑
-          // 落盘，不含段间空隙）；缺它回退末段 ts（近似）
+          // 在跑步：实时计时——在飞段起点（current_segment，driver 起跑落盘，
+          // 不含段间空隙）+ 本步已完成段耗时累加（交互步 prep/问答/注入多段
+          // 串行，旧版只算在飞段——答题触发新段后显示归零「重新计算」，
+          // 2026-09-17 实爆）。duration_s==null 的在飞行不入累加（防双计）。
           const cs = info.current_segment;
           const csHit = cs && cs.node === n.node_id &&
             Number(cs.sub_step) === i && cs.started_at;
-          const runSeg = stats.filter((x) => x.node === n.node_id && x.sub_step === i).pop();
+          const stepSegs = stats.filter((x) => x.node === n.node_id && x.sub_step === i);
+          const priorDur = stepSegs.reduce((acc, s) => acc + (s.duration_s || 0), 0);
+          const lastSeg = stepSegs[stepSegs.length - 1];
           const elapsed = csHit
-            ? Math.max(0, Math.round((Date.now() - new Date(cs.started_at).getTime()) / 1000))
-            : runSeg
-              ? Math.max(0, Math.round((Date.now() - new Date(runSeg.ts).getTime()) / 1000))
+            ? priorDur + Math.max(0, Math.round((Date.now() - new Date(cs.started_at).getTime()) / 1000))
+            : lastSeg
+              // 回退（在飞段无 current_segment，如旧 driver）：末段在飞才从
+              // 其 ts 起算；末段已完成则耗时已在 priorDur，只加 0（防双计）
+              ? priorDur + (lastSeg.duration_s == null
+                  ? Math.max(0, Math.round((Date.now() - new Date(lastSeg.ts).getTime()) / 1000))
+                  : 0)
               : null;
           leaf.innerHTML =
             `<div class="tl-l1"><span class="tl-lid">${esc(stepName(n, i))}</span>` +
