@@ -82,6 +82,27 @@ function fmtTok(n) {
 }
 
 /* 总耗时人性化：35m07s / 1h05m（在跑徽标的工作流总执行时间用） */
+/* 步骤起止时间（用户裁决 2026-09-18：时间轴除耗时外展示开始/结束）。
+   ts 形如 "2026-09-18T12:56:30"（本地时间）；行内紧凑 HH:MM:SS，
+   tooltip 带完整日期。 */
+function fmtClock(ts) {
+  return (ts && ts.split("T")[1]) || ts || "";
+}
+function fmtClockD(d) {
+  return d ? d.toTimeString().slice(0, 8) : "";
+}
+function stepTimes(stepSegs) {
+  // 步级起止聚合：开始=本步最早段 ts；结束=已完成段 ts+duration_s 的最大者
+  const starts = stepSegs.map((s) => s.ts).filter(Boolean).sort();
+  let end = null;
+  for (const s of stepSegs) {
+    if (s.duration_s == null || !s.ts) continue;  // 在飞行无结束
+    const e = new Date(new Date(s.ts).getTime() + s.duration_s * 1000);
+    if (!end || e > end) end = e;
+  }
+  return { start: starts[0] || null, end };
+}
+
 function fmtHMS(s) {
   s = Math.max(0, Math.round(s));
   if (s >= 3600) {
@@ -418,14 +439,22 @@ function renderTimelineTree(stats, nodes, info, artifacts, driverPid) {
             `<span class="tl-ldur">在跑${elapsed != null ? ` ${elapsed}s` : ""}</span></div>`;
         } else if (a) {
           const barW = Math.max(2, Math.round((a.dur / nodeMax) * 90));
+          const tt = stepTimes(stats.filter(
+            (x) => x.node === n.node_id && x.sub_step === i));
           leaf.title =
-            `${n.label} ${stepName(n, i)}\n耗时 ${a.dur}s · ${a.turns} 轮\n` +
+            `${n.label} ${stepName(n, i)}\n开始 ${tt.start || "?"}\n` +
+            `结束 ${tt.end ? tt.end.toLocaleString() : "?"}\n` +
+            `耗时 ${a.dur}s · ${a.turns} 轮\n` +
             `tok in ${a.tin} / out ${a.tout}\n$${a.cost.toFixed(3)}`;
           leaf.innerHTML =
             `<div class="tl-l1"><span class="tl-lid">${esc(stepName(n, i))}</span>` +
             `<span class="tl-bar" style="width:${barW}px"></span>` +
             `<span class="tl-ldur num">${a.dur}s</span></div>` +
-            `<div class="tl-l2 num">${a.turns}轮 ` +
+            `<div class="tl-l2 num">` +
+            (tt.start
+              ? `${fmtClock(tt.start)}–${tt.end ? fmtClockD(tt.end) : "…"} · `
+              : "") +
+            `${a.turns}轮 ` +
             `in${fmtTok(a.tin)}/out${fmtTok(a.tout)} ` +
             `$${a.cost.toFixed(2)}</div>`;
         } else {
@@ -593,7 +622,9 @@ function renderTimelineGantt(stats, nodes, info, artifacts, driverPid) {
         bar.style.left = x + "px";
         bar.style.width = Math.max(3, Math.round(s.duration_s * scale)) + "px";
         bar.title =
-          `${n.label} ${stepName(n, s.sub_step)}\n${s.ts} 起 · 耗时 ${s.duration_s}s · ` +
+          `${n.label} ${stepName(n, s.sub_step)}\n${s.ts} 起 · ` +
+          `结束 ${fmtClockD(new Date(new Date(s.ts).getTime() + s.duration_s * 1000))} · ` +
+          `耗时 ${s.duration_s}s · ` +
           `${fmtDur(s.num_turns)} 轮\ntok in ${s.input_tokens ?? "-"} / out ` +
           `${s.output_tokens ?? "-"}\n$${(s.cost_usd ?? 0).toFixed(3)}`;
         if (s.duration_s * scale > 68) {
