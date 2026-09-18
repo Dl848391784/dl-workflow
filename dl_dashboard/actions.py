@@ -210,9 +210,33 @@ def injecting_since(project: Path, name: str) -> "str | None":
         p.unlink(missing_ok=True)
         return None
     try:
-        return str(json.loads(p.read_text(encoding="utf-8")).get("started_at") or "?")
+        m = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return "?"
+    if m.get("error"):
+        return None  # 错误态 = 已结束（失败），不算在飞
+    return str(m.get("started_at") or "?")
+
+
+def inject_error(project: Path, name: str) -> "str | None":
+    """inject 失败信息（标记错误态且仍对得上当前步——state 已推进则陈旧，
+    清理并返回 None）。异步 inject 的唯一失败上报通道（POST 秒回后模型
+    轮结果不再经 HTTP 返回）。"""
+    p = _injecting_path(project, name)
+    try:
+        m = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    err = m.get("error")
+    if not err:
+        return None
+    st = engine.load_state(project, name)
+    cur_node = st.get("node") if st else None
+    cur_sub = st.get("sub_step_index") if st else None
+    if m.get("node") != cur_node or m.get("sub_step") != cur_sub:
+        p.unlink(missing_ok=True)  # 陈旧（步已推进/新问题）——清理不误显
+        return None
+    return str(err)
 
 
 def inject_ready(project: Path, name: str) -> bool:
@@ -304,16 +328,31 @@ def inject_answer(project: Path, name: str, answer: str,
         }),
         encoding="utf-8",
     )
+    ip = _injecting_path(project, name)
+    err_msg = None
     try:
         # errors="replace"：provider 偶发非法 UTF-8——strict 解码崩 server 线程
         # （同类：dl_drive run_session / engine run_judge 同款修复）
         p = subprocess.run(cmd, cwd=state["worktree_path"], env=env,
                            stdin=subprocess.DEVNULL, capture_output=True, text=True,
                            errors="replace")
-    finally:
-        _injecting_path(project, name).unlink(missing_ok=True)
-    if p.returncode != 0:
-        return False, f"注入失败 rc={p.returncode}：{(p.stdout + p.stderr)[-300:]}"
+        if p.returncode != 0:
+            err_msg = f"注入失败 rc={p.returncode}：{(p.stdout + p.stderr)[-300:]}"
+    except OSError as e:
+        err_msg = f"注入执行异常：{e}"
+        log.warning("inject 执行异常", exc_info=True)
+    if err_msg is not None:
+        # 失败：标记转错误态（不删——异步 inject 下 POST 已秒回，错误态是
+        # 唯一的用户可见失败通道；state 推进/新问题后 inject_error 自清）
+        ip.write_text(json.dumps({
+            "node": nid, "sub_step": cur,
+            "questions_sha": _questions_sha(nu) if nu else None,
+            "started_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "error": err_msg,
+        }), encoding="utf-8")
+        return False, err_msg
+    ip.unlink(missing_ok=True)
     # 已答标记：覆盖当前问题卡直到 state 推进 / 问题内容变 / 撞 block（自失效）
     _answered_path(project, name).write_text(
         json.dumps({

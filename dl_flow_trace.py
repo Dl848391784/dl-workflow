@@ -10,6 +10,7 @@ dl_flow_common。engine 经 re-export 保持 eng.<name> 访问面不变
 """
 
 from __future__ import annotations
+import logging
 
 import json
 import os
@@ -44,9 +45,12 @@ from dl_flow_common import (
     read_evidence_for_step,
     sub_step_at,
     sub_step_has_trace,
+    state_path,
     trace_payload_path,
 )
 from dl_flow_nodes import _NODES, get_node, node_id
+
+log = logging.getLogger("dl_flow_trace")
 
 
 # 载荷里禁止出现的结构字段（由 append_trace 从 state 推导填充）。
@@ -66,14 +70,17 @@ _MD_ITEM_FIELDS = frozenset(
     {"q", "a", "text", "type_label", "boundary", "tier", "tier_reason",
      # req_items 行字段（req-points 轨道，2026-09-17 GLM 三连拒实爆：字段集
      # 缺这些 = .md 通道结构性写不出合法 req_items，模型只能猜 JSON/造标头）
-     "unit", "id", "req", "covers", "criterion", "evaluable", "kind"}
+     "unit", "id", "req", "covers", "criterion", "evaluable", "kind",
+     # req_status 行字段（plan:1#2 三态裁决，2026-09-18 10 连拒 37min 实爆——
+     # mechanical §14 第二实例：req_items 修时漏了它）
+     "status", "reason"}
 )
 # 列表值字段（一行一条）：req_items 的 covers（源结构单元清单）/evaluable（判据枚举）
 _MD_ITEM_LIST_FIELDS = frozenset({"covers", "evaluable"})
 # 混合行形态键的行首字段集：req_items 的 unit 行（源结构单元）与 id 行（需求点）
 # 混排——「首个字段重复=新一项」对双形态失效（req 行【id】开头会被误当
 # unit 行的字段），行首集合钉死替代单字段规则
-_MD_ROW_STARTERS = {"req_items": {"unit", "id"}}
+_MD_ROW_STARTERS = {"req_items": {"unit", "id"}, "req_status": {"id"}}
 
 
 class _MdErr(Exception):
@@ -617,6 +624,15 @@ def _scaffold_text(step) -> str:
                     "\n【criterion】\n待填：逐字引用 covers 单元的一条判据（判据↔req 一一对应）"
                     "\n（两种行按需各自重复整段；kind 缺省按形状推断，显式【kind】也可写）"
                 )
+            elif spec == "req_status_three_state":
+                # plan:1#2 三态裁决行（2026-09-18 10 连拒实爆前与 req_items
+                # 同坑：scaffold 只给【q】待填，合法字段只能被拒时学到）
+                parts.append(
+                    f"【{k}】\n【id】\n待填：需求点 id（与 u:1#2 req_items 一致，如 R1）"
+                    "\n【status】\n待填：进|不进|数据缺口（三态必居其一）"
+                    "\n【reason】\n待填：理由（「不进」/「数据缺口」必给；「进」留空=删本行）"
+                    "\n（多条需求点 = 逐项重复本段）"
+                )
             else:
                 parts.append(f"【{k}】\n【q】\n待填")
         else:
@@ -725,7 +741,36 @@ def _format_reject(step, err: str) -> tuple[bool, str]:
     )
 
 
+def _log_trace_reject(project_root: Path, name: str, reason: str) -> None:
+    """append-trace 拒绝留痕（2026-09-18 plan:1#2 实爆：10 连拒同一 32 字符
+    报错，会话转录只存 text_chars 不存内容——事后无法审计校验器在拒什么；
+    拒绝原文是门槛披露面优化的第一手数据）。拒绝是常态分支（fail loud 设计
+    内），写台账失败绝不反过来阻断调用方。"""
+    try:
+        st = normalize_state(load_state(project_root, name) or {})
+        rec = {
+            "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "node": st.get("node"),
+            "sub_step": st.get("sub_step_index"),
+            "reason": reason[:4000],
+        }
+        p = state_path(project_root, name).parent / "trace-rejects.jsonl"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:  # noqa: BLE001 - 留痕通道自身故障不阻断主流程
+        log.warning("trace-reject 留痕失败", exc_info=True)
+
+
 def append_trace(project_root: Path, name: str, payload_file: str) -> tuple[bool, str]:
+    """包壳：拒绝统一留痕 trace-rejects.jsonl（实现见 _append_trace_impl）。"""
+    ok, msg = _append_trace_impl(project_root, name, payload_file)
+    if not ok:
+        _log_trace_reject(project_root, name, msg)
+    return ok, msg
+
+
+def _append_trace_impl(project_root: Path, name: str, payload_file: str) -> tuple[bool, str]:
     """载荷（purpose + qa 配对；旧 q/a 平行数组写侧已退役硬拒）+ state 结构字段 -> 校验 -> 单行 skill-trace append。
 
     返回 (ok, 消息)。校验失败 (False, 原因)——fail loud：模型当轮按报错修载荷

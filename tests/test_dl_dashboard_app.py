@@ -136,6 +136,30 @@ def test_detail_answered_passthrough(client):
     assert d["answered"] == "2026-08-31T15:00:00"
 
 
+def test_inject_async_accepted_returns_immediately(client):
+    """inject 异步受理（2026-09-18 plan:1#2 实爆：同步 POST 阻塞 37min 零
+    反馈）——POST 秒回「已受理」，注入在后台任务执行（injecting.json 在飞
+    标记是状态真源，SSE/轮询驱动前端）。"""
+    import threading
+    c, project = client
+    done = threading.Event()
+
+    def fake_inject(*a, **kw):
+        done.set()
+        return True, "已注入"
+
+    with patch("dl_dashboard.app.actions.inject_ready", return_value=True), \
+         patch("dl_dashboard.app.actions.inject_answer", side_effect=fake_inject), \
+         patch("dl_dashboard.app.actions.restart_drive", return_value=(True, "ok")), \
+         patch("dl_dashboard.app.actions.injecting_since", return_value=None):
+        r = c.post("/api/inject", json={
+            "project": str(project), "name": "demo", "answer": "选A"})
+        assert r.status_code == 200
+        d = r.json()
+        assert d["ok"] is True and "已受理" in d["msg"]  # 秒回，不等模型轮
+        assert done.wait(timeout=5)  # 后台任务实际执行了注入
+
+
 def test_inject_rejected_message_when_covered(client):
     """已覆盖时端点如实说「答案已提交」，不用「未就绪/恢复驱动」误导（E2 附修）。"""
     c, project = client

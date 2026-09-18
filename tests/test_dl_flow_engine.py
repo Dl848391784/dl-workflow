@@ -5535,6 +5535,38 @@ class TestAppendTraceFormatDisclosure:
         assert "骨架" not in msg
 
 
+class TestTraceRejectLedger:
+    """append-trace 拒绝落 per-实例台账（2026-09-18 plan:1#2 实爆：10 连拒
+    同一 32 字符报错，但会话转录只存 text_chars 不存内容——事后无法审计
+    校验器在拒什么。拒绝原文是门槛披露面优化的第一手数据，必须留痕）。"""
+
+    def test_reject_logged_with_reason(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 3, sub_step=4)
+        payload = tmp_path / "payload.json"
+        payload.write_text(json.dumps(
+            {"purpose": "p", "statements": [{"text": "x", "type_label": "in"}]},
+            ensure_ascii=False), encoding="utf-8")
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert not ok
+        ledger = tmp_path / ".claude" / "workflows" / "t" / "trace-rejects.jsonl"
+        assert ledger.exists()
+        rec = json.loads(ledger.read_text(encoding="utf-8").strip())
+        assert rec["node"] == "understand:3" and rec["sub_step"] == 4
+        assert "boundary" in rec["reason"] and rec["ts"]
+
+    def test_success_not_logged(self, tmp_path):
+        _write_state_full(tmp_path, "t", "understand", 3, sub_step=4)
+        payload = tmp_path / "payload.json"
+        payload.write_text(json.dumps(
+            {"purpose": "p",
+             "statements": [{"text": "x", "type_label": "in", "boundary": "无"}]},
+            ensure_ascii=False), encoding="utf-8")
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert ok, msg
+        ledger = tmp_path / ".claude" / "workflows" / "t" / "trace-rejects.jsonl"
+        assert not ledger.exists()
+
+
 class TestInterfaceDataContract:
     """plan 完备性：interface 数据消费条目必须带数据契约（执行零求证）。"""
 
@@ -10693,6 +10725,43 @@ class TestTraceMdParser:
             "【tier_reason】\n渲染链 _section_backtest.html:38 仓内可证伪\n"
             "【req_items】\n【unit】\n源单元A\n【evaluable】\n判据A1\n"
             "【id】\nR1\n【req】\n需求点\n【covers】\n源单元A\n【criterion】\n判据A1"
+        )
+        payload = tmp_path / "payload.md"
+        payload.write_text(md, encoding="utf-8")
+        ok, msg = eng.append_trace(tmp_path, "t", str(payload))
+        assert ok, msg
+
+    def test_req_status_rows_parse(self):
+        """req_status 三态行（id/status/reason）——plan:1#2 实爆（2026-09-18
+        注入轮 10 连拒 37min）：mechanical §14 的第二个实例，req_items 修时
+        漏了它（字段集缺 status/reason + 行首规则错 + scaffold 只给【q】）。"""
+        step = eng.get_node("plan", 1).sub_steps[1]  # plan:1#2
+        md = (
+            "【purpose】\np\n【qa】\n【q】\nq1\n【a】\na1\n"
+            "【req_status】\n【id】\nR1\n【status】\n进\n【reason】\n\n"
+            "【id】\nR2\n【status】\n不进\n【reason】\n本批不做"
+        )
+        payload, err = eng._parse_trace_md(md, step)
+        assert err is None, err
+        assert payload["req_status"] == [
+            {"id": "R1", "status": "进", "reason": ""},
+            {"id": "R2", "status": "不进", "reason": "本批不做"},
+        ]
+
+    def test_scaffold_req_status_skeleton(self):
+        import dl_flow_trace as trace
+        step = eng.get_node("plan", 1).sub_steps[1]
+        sk = trace._scaffold_text(step)
+        for h in ("【id】", "【status】", "【reason】", "进|不进|数据缺口"):
+            assert h in sk, h
+
+    def test_plan1s2_full_md_payload_accepted(self, tmp_path):
+        _write_state_full(tmp_path, "t", "plan", 1, sub_step=2)
+        md = (
+            "【purpose】\n方案发散\n【qa】\n【q】\n发散了几个方案\n"
+            "【a】\n两个：A=删逻辑，B=保留参数化\n"
+            "【req_status】\n【id】\nR1\n【status】\n进\n【reason】\n\n"
+            "【id】\nR2\n【status】\n不进\n【reason】\n本批不做"
         )
         payload = tmp_path / "payload.md"
         payload.write_text(md, encoding="utf-8")

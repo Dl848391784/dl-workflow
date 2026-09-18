@@ -741,6 +741,15 @@ function renderInteract(d) {
         : "交互段未就绪且 driver 已停——点标题行「恢复驱动」；也可先作答，拉起后自动注入";
       box.appendChild(prep);
     }
+    if (d.inject_error) {
+      // inject 失败如实上报（异步受理后失败不再经 HTTP 返回——服务端标记
+      // 错误态是唯一通道；表单照常渲染可直接重答）
+      const errDiv = document.createElement("div");
+      errDiv.className = "q";
+      errDiv.style.color = "var(--err, #c00)";
+      errDiv.textContent = `上次注入失败：${d.inject_error}——请重新作答提交`;
+      box.appendChild(errDiv);
+    }
     const answers = [];
     d.need_user.questions.forEach((q, i) => {
       const div = document.createElement("div");
@@ -968,7 +977,7 @@ async function refreshDetail() {
     parked && parked.project === sel.project && parked.name === sel.name
       ? "parked:" + parked.ts + (parked.inflight ? ":inflight" : "") : "",
     // inject 在飞标记翻面（提交→刷新页面也要见「注入中」）当场重渲
-    d.injecting,
+    d.injecting, d.inject_error,
   ]);
   const changed = fp !== lastDetailFp;
   lastDetailFp = fp;

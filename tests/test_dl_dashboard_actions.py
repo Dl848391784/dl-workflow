@@ -101,14 +101,33 @@ def test_inject_writes_and_clears_injecting_marker(tmp_path):
     assert (meta / "answered.json").exists()        # answered 接续
 
 
-def test_inject_failure_clears_injecting_marker(tmp_path):
+def test_inject_failure_leaves_error_marker(tmp_path):
+    """inject 失败转错误态（2026-09-18 异步化：POST 秒回后失败不再经 HTTP
+    返回，标记错误态是唯一用户可见通道）；不算在飞、可重答。"""
     meta = _mk_injectable(tmp_path)
     with patch.object(actions.subprocess, "run",
                       return_value=MagicMock(returncode=1, stdout="", stderr="x")):
         ok, _ = actions.inject_answer(tmp_path, "demo", "选A")
     assert not ok
-    assert not (meta / "injecting.json").exists()   # 失败也删
-    assert not (meta / "answered.json").exists()    # 失败无 answered
+    m = json.loads((meta / "injecting.json").read_text(encoding="utf-8"))
+    assert m["error"] and m["finished_at"]
+    assert actions.injecting_since(tmp_path, "demo") is None  # 错误态非在飞
+    assert actions.inject_error(tmp_path, "demo")             # 失败信息可读
+    assert actions.inject_ready(tmp_path, "demo") is True     # 可重答
+    assert not (meta / "answered.json").exists()              # 失败无 answered
+
+
+def test_inject_error_cleared_on_step_advance(tmp_path):
+    """错误标记陈旧自清（state 推进/换步后不误显）。"""
+    meta = _mk_injectable(tmp_path)
+    (meta / "injecting.json").write_text(json.dumps({
+        "node": "plan:4", "sub_step": 2, "error": "boom"}), encoding="utf-8")
+    st = json.loads((meta / "state.json").read_text(encoding="utf-8"))
+    st["node"] = "plan:4"
+    st["sub_step_index"] = 3  # 推进到下一步
+    (meta / "state.json").write_text(json.dumps(st), encoding="utf-8")
+    assert actions.inject_error(tmp_path, "demo") is None
+    assert not (meta / "injecting.json").exists()
 
 
 def test_inject_ready_false_while_injecting(tmp_path):

@@ -219,6 +219,8 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
         # 注册，优先命中）
         return _serve_html("artifact.html")
 
+    _BG_TASKS: set = set()  # 后台任务引用保持（inject 异步化，防 GC 提前收割）
+
     @app.get("/api/workflows")
     def list_workflows():
         return _snapshot()
@@ -274,6 +276,7 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
             "inject_ready": actions.inject_ready(proj, name) if need_user else False,
             "answered": actions.answered_at_if_covers(proj, name),
             "injecting": actions.injecting_since(proj, name),
+            "inject_error": actions.inject_error(proj, name),
             "driver_pid": mgr.alive(proj, name),
             "log_tail": log_tail,
             "artifacts": outputs.artifact_status(proj, name),
@@ -364,15 +367,33 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
                 return {"ok": False,
                         "msg": "交互段未就绪——问题还在准备或 driver 已停，"
                                "稍候重试；driver 已停请先「恢复驱动」"}
-            if mgr.alive(proj, name):
-                mgr.stop(proj, name)
-            ok, msg = await asyncio.to_thread(
-                actions.inject_answer, proj, name, body["answer"],
-                _driver_env(proj, name))
-            if ok:
-                await asyncio.to_thread(
-                    actions.restart_drive, proj, name, mgr, _driver_env(proj, name))
-        return {"ok": ok, "msg": msg}
+        # 异步受理（2026-09-18 plan:1#2 实爆：inject 内嵌整轮模型 37min 同步
+        # 阻塞，浏览器零反馈「提交后没动静」）——POST 秒回，进展由 SSE/轮询
+        # 经 injecting.json 驱动（在飞标记=唯一真源）；失败经标记错误态上报
+        # （inject_error），不再依赖 HTTP 返回。
+        async def _run() -> None:
+            async with _lock(proj, name):
+                try:
+                    if not actions.inject_ready(proj, name):
+                        return  # 起跑前复核（快速连点竞态：双 POST 都过预检）
+                    if mgr.alive(proj, name):
+                        mgr.stop(proj, name)
+                    ok, msg = await asyncio.to_thread(
+                        actions.inject_answer, proj, name, body["answer"],
+                        _driver_env(proj, name))
+                    if ok:
+                        await asyncio.to_thread(
+                            actions.restart_drive, proj, name, mgr,
+                            _driver_env(proj, name))
+                    else:
+                        log.warning("inject 失败 %s/%s: %s", proj, name, msg)
+                except Exception:
+                    log.exception("inject 后台任务异常 %s/%s", proj, name)
+        task = asyncio.create_task(_run())
+        _BG_TASKS.add(task)
+        task.add_done_callback(_BG_TASKS.discard)
+        return {"ok": True,
+                "msg": "已受理——注入中（模型段 1-2 分钟），完成自动翻「已提交」"}
 
     @app.post("/api/gate")
     async def gate(body: dict):
