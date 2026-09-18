@@ -187,6 +187,34 @@ def answered_at_if_covers(project: Path, name: str) -> "str | None":
     return answered_at
 
 
+# ---------- 在飞标记（designs/injecting_marker_design.md） ----------
+# 2026-09-18 实爆：提交答案后刷新页面表单复活——answered.json 要等 inject
+# 模型轮（1-3min）跑完才写，在飞窗口无任何落盘标记，「未提交」与「处理中」
+# 不可分。在飞标记把 double-submit 防线从 inject 完成提前到 inject 起跑。
+_INJECTING_STALE_S = 1800  # inject 无超时上限，stale 阈值宁宽勿窄
+
+
+def _injecting_path(project: Path, name: str) -> Path:
+    return meta_root(project, name) / "injecting.json"
+
+
+def injecting_since(project: Path, name: str) -> "str | None":
+    """inject 在飞标记的 started_at；无标记 / stale（>30min=server 崩溃残留，
+    自动清理——不永久堵重答）→ None。"""
+    p = _injecting_path(project, name)
+    try:
+        st = p.stat()
+    except OSError:
+        return None
+    if time.time() - st.st_mtime > _INJECTING_STALE_S:
+        p.unlink(missing_ok=True)
+        return None
+    try:
+        return str(json.loads(p.read_text(encoding="utf-8")).get("started_at") or "?")
+    except (OSError, ValueError):
+        return "?"
+
+
 def inject_ready(project: Path, name: str) -> bool:
     """注入目标段是否已落台账（need_user.json 已展示 与 可注入 之间有时间窗：
     问题在段运行中落盘，段记录在完成时落台账——窗口内提交必被中止，
@@ -200,6 +228,8 @@ def inject_ready(project: Path, name: str) -> bool:
     cur = state.get("sub_step_index", 1)
     if _find_needuser_sid(project, name, state, nid, cur) is None:
         return False
+    if injecting_since(project, name) is not None:
+        return False  # 在飞窗口（answered 未落）同样禁提交
     return answered_at_if_covers(project, name) is None
 
 
@@ -262,15 +292,29 @@ def inject_answer(project: Path, name: str, answer: str,
     env.update(provider_env or {})
     env.update(ov.get("env") or {})
     log.info("inject -> %s#%s sid=%s…", nid, cur, sid[:8])
-    # errors="replace"：provider 偶发非法 UTF-8——strict 解码崩 server 线程
-    # （同类：dl_drive run_session / engine run_judge 同款修复）
-    p = subprocess.run(cmd, cwd=state["worktree_path"], env=env,
-                       stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                       errors="replace")
+    nu = _read_need_user(project, name)
+    # 在飞标记：起跑前落盘（刷新页面/重进可见「注入中」），finally 删——
+    # server 崩溃残留由 injecting_since 的 mtime stale 判定清理
+    _injecting_path(project, name).write_text(
+        json.dumps({
+            "node": nid,
+            "sub_step": cur,
+            "questions_sha": _questions_sha(nu) if nu else None,
+            "started_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }),
+        encoding="utf-8",
+    )
+    try:
+        # errors="replace"：provider 偶发非法 UTF-8——strict 解码崩 server 线程
+        # （同类：dl_drive run_session / engine run_judge 同款修复）
+        p = subprocess.run(cmd, cwd=state["worktree_path"], env=env,
+                           stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                           errors="replace")
+    finally:
+        _injecting_path(project, name).unlink(missing_ok=True)
     if p.returncode != 0:
         return False, f"注入失败 rc={p.returncode}：{(p.stdout + p.stderr)[-300:]}"
     # 已答标记：覆盖当前问题卡直到 state 推进 / 问题内容变 / 撞 block（自失效）
-    nu = _read_need_user(project, name)
     _answered_path(project, name).write_text(
         json.dumps({
             "node": nid,

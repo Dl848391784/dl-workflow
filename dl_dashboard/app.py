@@ -273,6 +273,7 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
             "need_user": need_user,
             "inject_ready": actions.inject_ready(proj, name) if need_user else False,
             "answered": actions.answered_at_if_covers(proj, name),
+            "injecting": actions.injecting_since(proj, name),
             "driver_pid": mgr.alive(proj, name),
             "log_tail": log_tail,
             "artifacts": outputs.artifact_status(proj, name),
@@ -355,6 +356,11 @@ def create_app(config: DashboardConfig | None = None) -> FastAPI:
                     return {"ok": False,
                             "msg": f"答案已提交（{covered}）——模型处理中，"
                                    "门控通过后自动推进，无需重复提交"}
+                injecting = actions.injecting_since(proj, name)
+                if injecting:
+                    return {"ok": False,
+                            "msg": f"答案注入中（{injecting} 起）——模型处理中，"
+                                   "完成自动推进，无需重复提交"}
                 return {"ok": False,
                         "msg": "交互段未就绪——问题还在准备或 driver 已停，"
                                "稍候重试；driver 已停请先「恢复驱动」"}

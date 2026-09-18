@@ -70,6 +70,69 @@ def test_inject_targets_needuser_segment_only(tmp_path):
     assert "选A" in cmd[cmd.index("-p") + 1]  # 答案原文在一次性注入包装内
 
 
+def _mk_injectable(tmp_path):
+    """可注入实例夹具（needuser 台账 + tui settings/rules）。"""
+    segs = [
+        {"ts": "t2", "session_id": "sid-cur", "kind": "tui-step-needuser",
+         "node": "plan:4", "sub_step": 2, "note": "rc=1"},
+    ]
+    meta = _mk_state(tmp_path, "demo", segs, worktree_path=str(tmp_path / "wt"))
+    (meta / "settings.drive-tui.json").write_text("{}", encoding="utf-8")
+    (meta / "tui-rules.plan:4.md").write_text("rules", encoding="utf-8")
+    return meta
+
+
+def test_inject_writes_and_clears_injecting_marker(tmp_path):
+    """在飞标记（2026-09-18 实爆：提交后刷新页面表单复活——answered 要等
+    模型轮跑完才写，在飞 1-3min 窗口无落盘标记）：起跑前写、结束删。"""
+    meta = _mk_injectable(tmp_path)
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        # 子进程运行期间标记必须在场（=刷新页面可见「注入中」的时刻）
+        seen["during"] = (meta / "injecting.json").exists()
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    with patch.object(actions.subprocess, "run", side_effect=fake_run):
+        ok, _ = actions.inject_answer(tmp_path, "demo", "选A")
+    assert ok
+    assert seen["during"] is True
+    assert not (meta / "injecting.json").exists()   # 成功后删除
+    assert (meta / "answered.json").exists()        # answered 接续
+
+
+def test_inject_failure_clears_injecting_marker(tmp_path):
+    meta = _mk_injectable(tmp_path)
+    with patch.object(actions.subprocess, "run",
+                      return_value=MagicMock(returncode=1, stdout="", stderr="x")):
+        ok, _ = actions.inject_answer(tmp_path, "demo", "选A")
+    assert not ok
+    assert not (meta / "injecting.json").exists()   # 失败也删
+    assert not (meta / "answered.json").exists()    # 失败无 answered
+
+
+def test_inject_ready_false_while_injecting(tmp_path):
+    """在飞期间 inject_ready=False（double-submit 防线提前到 inject 起跑）。"""
+    meta = _mk_injectable(tmp_path)
+    (meta / "injecting.json").write_text(
+        '{"started_at": "t", "node": "plan:4", "sub_step": 2}', encoding="utf-8")
+    assert actions.inject_ready(tmp_path, "demo") is False
+    assert actions.injecting_since(tmp_path, "demo") is not None
+
+
+def test_stale_injecting_marker_auto_cleaned(tmp_path):
+    """server 崩溃残留：mtime > 30min 判 stale 自动清理，不永久堵重答。"""
+    import os
+    import time
+    meta = _mk_injectable(tmp_path)
+    p = meta / "injecting.json"
+    p.write_text('{"started_at": "t"}', encoding="utf-8")
+    old = time.time() - 31 * 60
+    os.utime(p, (old, old))
+    assert actions.injecting_since(tmp_path, "demo") is None
+    assert not p.exists()
+
+
 def test_inject_aborts_without_needuser_segment(tmp_path):
     _mk_state(tmp_path, "demo", [
         {"ts": "t", "session_id": "sid-x", "kind": "headless-step",

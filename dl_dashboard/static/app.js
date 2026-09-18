@@ -696,6 +696,17 @@ function renderInteract(d) {
     prep.textContent = `${d.answered} 已注入——模型处理中，门控通过后自动推进下一步` +
       "（无需重复提交；需要你再答的新问题出现时会自动替换本卡）";
     box.appendChild(prep);
+  } else if (d.injecting) {
+    // inject 在飞（2026-09-18 实爆：提交后刷新页面表单复活——在飞标记
+    // 落盘前「未提交」与「处理中」不可分）；服务端 injecting.json 单源
+    const h = document.createElement("h3");
+    h.textContent = "注入中";
+    box.appendChild(h);
+    const prep = document.createElement("div");
+    prep.className = "q";
+    prep.textContent = `答案注入中（${d.injecting} 起）——模型段回复要 1-2 分钟，` +
+      "完成自动翻「已提交」（无需刷新/重复提交）";
+    box.appendChild(prep);
   } else if (parked && parked.project === proj && parked.name === name &&
              d.need_user && d.need_user.ts === parked.ts) {
     // 答题排队暂存态（就绪自动注入由 refreshDetail 的 parked 生命周期执行）
@@ -956,6 +967,8 @@ async function refreshDetail() {
     // 答题排队：暂存/取消必须当场重渲交互区（服务端数据不变，纯本地态）
     parked && parked.project === sel.project && parked.name === sel.name
       ? "parked:" + parked.ts + (parked.inflight ? ":inflight" : "") : "",
+    // inject 在飞标记翻面（提交→刷新页面也要见「注入中」）当场重渲
+    d.injecting,
   ]);
   const changed = fp !== lastDetailFp;
   lastDetailFp = fp;
