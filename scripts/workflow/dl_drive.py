@@ -63,23 +63,14 @@ def _load_skill_body(project_root: Path, ref: str) -> "str | None":
 
 
 def _dlwf_display_root(dlwf_root: Path, home: Path) -> str:
-    """模型面向的 dl-workflow 根形态（2026-09-17 GLM Mac 三连权限拒实爆）：
-    主树（含符号链接等价，如 ~/.dl-workflow → ~/Documents/dl-workflow——
-    __file__.resolve() 破解后 != 未解析的 home/.dl-workflow）→ 字面
-    ~/.dl-workflow，per-wf 白名单 `Bash(bash ~/.dl-workflow/...:*)` 按字面
-    ~ 前缀匹配，绝对路径必被拒；worktree dogfood 副本 → 绝对路径（主树
-    无新子命令时模型可降级，语义不变）。"""
-    main = home / ".dl-workflow"
-    try:
-        if dlwf_root == main or dlwf_root == main.resolve():
-            return "~/.dl-workflow"
-    except OSError:
-        pass
-    return str(dlwf_root)
+    """委托 dl_flow_common.dlwf_path_forms（路径形态单源，display 与
+    白名单规则成对同源）——保留本包装仅为既有测试/调用兼容。"""
+    return dlwf_path_forms(dlwf_root=dlwf_root, home=home)["display"]
 sys.path.insert(0, str(_DLWF_ROOT))
 import dl_flow_engine as engine  # noqa: E402
 import dl_engine  # noqa: E402  # 引擎 profile 单源（qodercli-engine-profile P1）
 from dl_flow_common import steer_consume  # noqa: E402  # 插话通道（evolution-up P5）
+from dl_flow_common import dlwf_path_forms  # noqa: E402  # 路径形态单源
 from dl_flow_common import trace_payload_path  # noqa: E402  # 载荷路径单源（v2.125）
 from scripts.workflow import project_tools  # noqa: E402
 
@@ -1634,9 +1625,12 @@ def build_step_prompt(
     total = len(node.sub_steps or ())
     if step.kind == "skill":
         how = f"先用 Skill 工具 invoke `{step.ref}`，再按其引导执行"
-        if not interactive:
-            # headless 一次性段：Skill 激活确认是交互闸（无人可答必死，
-            # allow 有 Skill 也救不了）——正文内联，结构性绕开
+        if not interactive and ":" not in step.ref:
+            # headless 一次性段 spawn 契约校验（目录枚举=运行时真实技能集）：
+            # 插件命名空间（含 :）预授信保持 invoke（对照样本实证可激活）；
+            # 裸名 skill 激活确认是交互闸（无人可答必死，allow 有 Skill 也
+            # 救不了）——正文在 → 内联绕开；正文缺 → 纯文本降级（回退 invoke
+            # = 死路，模型被拒后本来就靠 purpose 自救），禁调 Skill 工具
             body = _load_skill_body(project_root, step.ref)
             if body is not None:
                 how = (
@@ -1644,6 +1638,13 @@ def build_step_prompt(
                     "会话的 Skill 激活确认无人可答，禁调 Skill 工具，"
                     "直接按以下正文执行：\n\n---\n"
                     f"{body}\n---"
+                )
+            else:
+                how = (
+                    f"本步 skill（{step.ref}）不在运行时技能集（目录枚举核实）"
+                    "——降级为纯文本指引：按本步 purpose 引导执行，禁调 Skill "
+                    "工具（激活闸无人可答）；落 trace 时在 qa 注明「skill 降级："
+                    f"{step.ref} 正文缺失」（降级留痕）"
                 )
     else:
         how = f"用工具 {step.ref} 执行"
@@ -1699,7 +1700,12 @@ def build_step_prompt(
             "（driver 会接管为交互会话），禁编造用户答复"
         )
     if prep:
-        if step.kind == "skill":
+        if step.kind == "skill" and ":" in step.ref:
+            how_prep = (
+                f"0. 先用 Skill 工具 invoke `{step.ref}` 取问题设计指引"
+                "（只准备，不执行问答）\n"
+            )
+        elif step.kind == "skill":
             body = _load_skill_body(project_root, step.ref)
             if body is not None:
                 how_prep = (
@@ -1751,12 +1757,13 @@ def build_step_prompt(
         payload_p = trace_payload_path(project_root, name, state)
         if not payload_p.exists():
             engine.scaffold_payload(project_root, name)
+        _eng_disp = dlwf_path_forms(dlwf_root=_DLWF_ROOT)["display"]
         deliverable = (
             f"{how}；完成后落 evidence（本步的硬性交付，门控只认它）：\n"
-            f"1. 载荷骨架已生成在 `{payload_p}`（不在场才跑 `python3 ~/.dl-workflow/"
+            f"1. 载荷骨架已生成在 `{payload_p}`（不在场才跑 `python3 {_eng_disp}/"
             f"dl_flow_engine.py append-trace --scaffold` 生成；禁手写自创格式/路径）\n"
             f"2. Read 骨架文件，Edit 把每个「待填」换成实际内容\n"
-            f"3. Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace "
+            f"3. Bash `python3 {_eng_disp}/dl_flow_engine.py append-trace "
             f"--from-file {payload_p}` 落库"
         )
         rules_block = (

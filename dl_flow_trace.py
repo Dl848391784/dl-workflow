@@ -45,6 +45,7 @@ from dl_flow_common import (
     read_evidence_for_step,
     sub_step_at,
     sub_step_has_trace,
+    dlwf_path_forms,
     state_path,
     trace_payload_path,
 )
@@ -477,7 +478,7 @@ def ingest_redteam_report(
     wj_path = meta / "redteam_worker.json"
     report_path = meta / "redteam_report.md"
     _fallback = (
-        "回退会话内路径：`python3 ~/.dl-workflow/dl_flow_engine.py redteam-prompt`"
+        f"回退会话内路径：`python3 {dlwf_path_forms()['display']}/dl_flow_engine.py redteam-prompt`"
         " 生成 prompt → Agent 工具单发起 → append-trace --ingest-agent <task-id>"
     )
     if not wj_path.exists():
@@ -720,7 +721,7 @@ def scaffold_payload(project_root: Path, name: str) -> tuple[bool, str]:
         "先 Read 该文件再 Write/Edit（harness 写前必读，跳过会报 "
         "read-first 错）；把所有「待填」换成实际内容（漏填会被占位符扫描当场拒；"
         "内容随便带引号/换行/代码，格式全归脚本），"
-        f"然后 Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace --from-file {out}`"
+        f"然后 Bash `python3 {dlwf_path_forms()['display']}/dl_flow_engine.py append-trace --from-file {out}`"
         f"{transmit_note}"
     )
 

@@ -74,6 +74,7 @@ from dl_flow_nodes import (
 # ---------- state/trace 低层 helper（单源在 dl_flow_common.py，2026-08-27 拆分）----------
 from dl_flow_common import (
     _PHASE_ARTIFACT_DIRS,
+    dlwf_path_forms,
     _evidence_path,
     _iter_trace_segments,
     _node_entered_at,
@@ -425,7 +426,7 @@ MERGED_RUN_NODES = frozenset({"understand:2"})
 # （2026-08-01 understand:1 审计：24 次裁决 316.6s 全 allow 纯税，其中
 # AskUserQuestion 3 次均值 46.2s 被误归因为用户思考时间）。
 SETTINGS_TEMPLATE_VERSION = (
-    14  # v14：allow 补 dl-cmd.sh 绝对形态（Mac overlay 布局软链不成立实爆）
+    15  # v15：allow 补 dl_flow_engine.py 绝对形态（dlwf_path_forms 单源成对同源）
 )
 # （2026-09-10 cvx-wiring：worktree 内无 project settings.json，旧假设「inject
 # 由项目自己注册」在工作流会话不成立，44 步全程收不到 codegraph/蒸馏瘦档——
@@ -1017,7 +1018,7 @@ def assembly_obligation_hint(
         return None
     return (
         "- ⚠ 本步有装配义务：STEP_DONE 前必须先跑 `python3 "
-        f"~/.dl-workflow/dl_flow_engine.py render-artifact {node.artifact}`"
+        f"{dlwf_path_forms()['display']}/dl_flow_engine.py render-artifact {node.artifact}`"
         f"（机械装配落 `{f}`，禁手写产物）——忘跑 = gate 机械校验必 block，白返工一轮"
     )
 
@@ -2516,8 +2517,8 @@ def _corrupt_trace_reason(sub_step_index: int) -> str:
         f"evidence 写入损坏：文件里存在 sub_step=={sub_step_index} 的记录片段，"
         "但不是可解析的单行合法 JSON（手写 JSON 跨行/转义出错的典型后果）。"
         "门控读不到等同没写。返工：改用 append-trace 落库——Bash `python3 "
-        "~/.dl-workflow/dl_flow_engine.py append-trace --scaffold` 生成载荷骨架，"
-        "Edit 填掉「待填」，再 Bash `python3 ~/.dl-workflow/dl_flow_engine.py "
+        f"{dlwf_path_forms()['display']}/dl_flow_engine.py append-trace --scaffold` 生成载荷骨架，"
+        f"Edit 填掉「待填」，再 Bash `python3 {dlwf_path_forms()['display']}/dl_flow_engine.py "
         "append-trace --from-file <载荷>`（格式/路径/结构字段全归脚本，不会再写碎）。"
     )
 

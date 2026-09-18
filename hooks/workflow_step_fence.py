@@ -42,6 +42,7 @@ from pathlib import Path
 _DLWF_ROOT = Path(__file__).resolve().parents[1]  # ~/.dl-workflow/
 sys.path.insert(0, str(_DLWF_ROOT))
 import dl_flow_engine as engine  # noqa: E402
+from dl_flow_common import dlwf_path_forms  # noqa: E402  # 路径形态单源
 from scripts.workflow import project_tools  # noqa: E402
 
 
@@ -689,12 +690,13 @@ def main() -> int:
         if same:
             _log_deny(project_root, name, "evidence_direct_write_deny", f"tool={tool}")
             payload_path = str(engine.trace_payload_path(project_root, name))
+            _eng = dlwf_path_forms(dlwf_root=_DLWF_ROOT)["display"]
             return _deny(
                 "evidence 落库走 append-trace（你定内容，脚本管格式/路径/结构字段）：\n"
-                "① Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace --scaffold`"
+                f"① Bash `python3 {_eng}/dl_flow_engine.py append-trace --scaffold`"
                 " 生成载荷骨架（标头已就位，「待填」占位）\n"
                 "② 把骨架里的「待填」全部换成实际内容\n"
-                "③ Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace "
+                f"③ Bash `python3 {_eng}/dl_flow_engine.py append-trace "
                 f"--from-file {payload_path}`\n"
                 "直写 evidence jsonl（含覆盖/编辑旧行）一律禁止——修正旧记录的方式是"
                 "用 append-trace 追加新行（judge 以最后一条为准）。"
@@ -715,13 +717,14 @@ def main() -> int:
                 is_payload = False
             if is_payload:
                 _log_deny(project_root, name, "payload_raw_write_deny", f"tool={tool}")
+                _eng = dlwf_path_forms(dlwf_root=_DLWF_ROOT)["display"]
                 return _deny(
                     "载荷格式归脚本（四桶分工：你定内容，脚本定 `【标头】` 格式）--"
                     "禁手写 Write 载荷文件（标头粘内容同行=手写格式，必被解析拒）：\n"
-                    "① Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace "
+                    f"① Bash `python3 {_eng}/dl_flow_engine.py append-trace "
                     "--scaffold` 生成载荷骨架（标头已就位，「待填」占位）\n"
                     f"② Edit 骨架文件，把每个「待填」换成实际内容（{payload_path}）\n"
-                    "③ Bash `python3 ~/.dl-workflow/dl_flow_engine.py append-trace "
+                    f"③ Bash `python3 {_eng}/dl_flow_engine.py append-trace "
                     f"--from-file {payload_path}`\n"
                     "返工重做同样走 --scaffold（自动清上轮残留）；标头格式全归脚本，"
                     "你只填内容。"

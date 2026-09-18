@@ -411,3 +411,37 @@ def parse_change_points(text: str, root: Path | None) -> list[dict]:
                 }
             )
     return out
+
+
+def dlwf_path_forms(dlwf_root: "Path | None" = None,
+                    home: "Path | None" = None) -> dict:
+    """dl-workflow 路径形态唯一真源（2026-09-18 dev 仓库 5 连拒治本）。
+
+    模型可见的展示形态与权限白名单规则**成对同源**：display 软链等价归一
+    （canonical/软链 → 字面 ~/.dl-workflow——白名单字面 ~ 前缀匹配；独立
+    overlay 副本/clone 布局 → 运行副本绝对路径）。allow 规则两形态恒全，
+    任何 display 输出都必然已被白名单覆盖——结构上不可能再分叉。
+    消费方：node-rules/段 prompt/fence 拒绝文案/engine+trace 指引文案
+    （取 display）；settings 白名单生成器（两形态规则恒入，dl-lib.sh v15）。
+    """
+    if home is None:
+        home = Path.home()
+    if dlwf_root is None:
+        dlwf_root = Path(__file__).resolve().parent
+    main = home / ".dl-workflow"
+    try:
+        canonical = dlwf_root == main or dlwf_root == main.resolve()
+    except OSError:
+        canonical = False
+    display = "~/.dl-workflow" if canonical else str(dlwf_root)
+    return {
+        "display": display,
+        "allow_dlcmd": [
+            "Bash(bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh:*)",
+            f"Bash(bash {dlwf_root}/scripts/workflow/dl-cmd.sh:*)",
+        ],
+        "allow_engine": [
+            "Bash(python3 ~/.dl-workflow/dl_flow_engine.py:*)",
+            f"Bash(python3 {dlwf_root}/dl_flow_engine.py:*)",
+        ],
+    }

@@ -2268,6 +2268,95 @@ def test_settings_allowlist_covers_skill_tool(wf_repo):
     assert "Skill" in data["permissions"]["allow"]
 
 
+def test_dlwf_path_forms_three_layouts(tmp_path):
+    """路径形态单源（2026-09-18 5 连拒治本）：display 与 allow 规则成对同源。
+    三布局：canonical（~/.dl-workflow 真身）/ 独立 overlay 副本 + clone /
+    软链。"""
+    import dl_flow_common as common
+    home = tmp_path / "home"
+    home.mkdir()
+    # canonical
+    main = home / ".dl-workflow"
+    main.mkdir()
+    f = common.dlwf_path_forms(dlwf_root=main, home=home)
+    assert f["display"] == "~/.dl-workflow"
+    assert f["allow_dlcmd"][0] == "Bash(bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh:*)"
+    assert f"Bash(bash {main}/scripts/workflow/dl-cmd.sh:*)" in f["allow_dlcmd"]
+    assert f"Bash(python3 {main}/dl_flow_engine.py:*)" in f["allow_engine"]
+    # overlay + clone（Mac 布局）：display 发运行副本绝对路径
+    (tmp_path / "home2").mkdir()
+    home2 = tmp_path / "home2"
+    (home2 / ".dl-workflow").mkdir()
+    clone = tmp_path / "Documents" / "dl-workflow"
+    clone.mkdir(parents=True)
+    f2 = common.dlwf_path_forms(dlwf_root=clone, home=home2)
+    assert f2["display"] == str(clone)
+    assert f"Bash(bash {clone}/scripts/workflow/dl-cmd.sh:*)" in f2["allow_dlcmd"]
+    # 软链：归一 ~ 形态
+    real = tmp_path / "real" / "dl-workflow"
+    real.mkdir(parents=True)
+    (home / ".dl-link").symlink_to(real)
+    f3 = common.dlwf_path_forms(dlwf_root=real, home=home)
+    # home/.dl-workflow 是真身（非软链指向 real）——real 是别处，发绝对
+    assert f3["display"] == str(real)
+    # 软链等价：main 是软链指向 real
+    (home / ".dl-workflow").rename(tmp_path / "moved")
+    (home / ".dl-workflow").symlink_to(real)
+    f4 = common.dlwf_path_forms(dlwf_root=real, home=home)
+    assert f4["display"] == "~/.dl-workflow"
+
+
+def test_settings_allowlist_covers_path_forms(wf_repo):
+    """一致性约束可执行化：dlwf_path_forms 导出的全部 allow 规则必须在
+    wf_write_settings 生成的白名单内——结构上不可能再分叉。"""
+    import dl_flow_common as common
+    r = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f"source {DLWF_ROOT}/scripts/workflow/dl-lib.sh && wf_write_settings t",
+        ],
+        cwd=wf_repo,
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0, r.stderr
+    data = json.loads((wf_repo / SEG_META / "settings.json").read_text())
+    allow = data["permissions"]["allow"]
+    forms = common.dlwf_path_forms(dlwf_root=DLWF_ROOT, home=Path.home())
+    for rule in forms["allow_dlcmd"] + forms["allow_engine"]:
+        assert rule in allow, rule
+
+
+def test_step_prompt_plugin_skill_keeps_invoke(wf_repo):
+    """插件命名空间 skill（superpowers:x）预授信，headless 也可激活
+    （2026-09-18 对照样本实证）——保持 invoke，不内联不降级。"""
+    import dataclasses
+    drv = _load(DRIVER, "drv_under_test")
+    state = _write_state(wf_repo)
+    node = engine.get_node("understand", 1)
+    step = engine.sub_step_at(node, 1)
+    step2 = dataclasses.replace(step, ref="superpowers:brainstorming")
+    prompt = drv.build_step_prompt(wf_repo, "t", state, node, 1, step2,
+                                   rework=None)
+    assert "invoke `superpowers:brainstorming`" in prompt
+
+
+def test_step_prompt_missing_skill_body_degrades(wf_repo):
+    """裸名 skill 正文缺失 → 纯文本降级（禁 invoke——激活闸死路）+
+    禁调 Skill 工具 + 降级留痕指引。段不炸，不烧激活死路轮次。"""
+    import dataclasses
+    drv = _load(DRIVER, "drv_under_test")
+    state = _write_state(wf_repo)
+    node = engine.get_node("understand", 1)
+    step = engine.sub_step_at(node, 1)
+    step2 = dataclasses.replace(step, ref="nonexistent-skill-xyz")
+    prompt = drv.build_step_prompt(wf_repo, "t", state, node, 1, step2,
+                                   rework=None)
+    assert "降级" in prompt and "禁调 Skill 工具" in prompt
+    assert "invoke `nonexistent-skill-xyz`" not in prompt
+
+
 def test_dlwf_display_root_symlink_equivalence(tmp_path):
     """主树符号链接等价也发字面 ~/.dl-workflow（2026-09-17 Mac 实爆：
     ~/.dl-workflow → ~/Documents/dl-workflow，__file__.resolve() 破解后

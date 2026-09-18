@@ -144,6 +144,26 @@ class TestS15EngagePreFence:
         assert "子步骤 1" in reason
         assert "define-problem" in reason
 
+    def test_deny_text_uses_dlwf_display_form(self, wf_repo, monkeypatch, capsys):
+        """fence 拒绝文案的 append-trace 指路用 dlwf_path_forms display 形态
+        （路径形态单源——dev 仓库跑 driver 时硬编码 ~ 形态撞白名单 5 连拒
+        实爆）。display 计算与文案消费同函数，结构上不可能再分叉。"""
+        import dl_flow_common as common
+        _write_state(wf_repo, sub_step=1)
+        mod = _load_hook()
+        ev = wf_repo / ".claude" / "evidence" / "t.jsonl"
+        ev.parent.mkdir(parents=True, exist_ok=True)
+        decision, reason = _run_hook(
+            mod, wf_repo, monkeypatch, capsys, "Write", {"file_path": str(ev)}
+        )
+        assert decision == "deny"
+        disp = common.dlwf_path_forms()["display"]
+        assert f"{disp}/dl_flow_engine.py append-trace" in reason
+        # display 非 ~ 形态时（如本测试环境）禁残留硬编码 ~ 指路
+        if disp != "~/.dl-workflow":
+            assert "python3 ~/.dl-workflow/dl_flow_engine.py" not in reason
+
+
     def test_websearch_denied(self, wf_repo, monkeypatch, capsys):
         _write_state(wf_repo, sub_step=1)
         mod = _load_hook()

@@ -277,6 +277,8 @@ wf_write_settings() {
   # hooks 在仓库根（scripts/workflow 的上两级）：../../hooks--差一层会解析成
   # scripts/hooks/（不存在，UserPromptSubmit 全灭，2026-08-23 首跑实证）。
   local LIB_DIR_ABS="$WF_LIB_DIR"
+  local WF_LIB_DIR_ABS_ROOT
+  WF_LIB_DIR_ABS_ROOT="$(cd "$WF_LIB_DIR/../.." && pwd)"  # 规范化：禁 /../ 字面进白名单
   local hk="$WF_LIB_DIR/../../hooks"
   mkdir -p "$dir"
   # qoder 引擎附加 model 键（DL_QODER_MODEL 设值时）——per-wf settings 经
@@ -315,6 +317,7 @@ wf_write_settings() {
       "Bash(bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh:*)",
       "Bash(bash ${WF_LIB_DIR}/dl-cmd.sh:*)",
       "Bash(python3 ~/.dl-workflow/dl_flow_engine.py:*)",
+      "Bash(python3 ${WF_LIB_DIR_ABS_ROOT}/dl_flow_engine.py:*)",
       "Bash(python3 ${LIB_DIR_ABS}/dl_drive.py:*)",
       "Bash(sqlite3:*)",
       "Bash(codegraph:*)",
