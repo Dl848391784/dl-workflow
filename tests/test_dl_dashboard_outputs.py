@@ -42,6 +42,25 @@ def test_load_evidence_parses_entries_and_skips_corrupt(tmp_path):
     assert load_evidence(proj, "nonexistent") == []
 
 
+def test_load_evidence_filters_tacet_records(tmp_path):
+    """kind=tacet 机械落库记录不进证据链（2026-09-18 用户裁决：强制静默步
+    无模型会话无内容，展示即噪音——「TACET 强制档」满屏）。过滤按 kind 标记
+    （写侧单源，engine 落库即钉），不猜步号。"""
+    proj = _mk_project(tmp_path)
+    import json as _json
+    evp = proj / ".claude" / "evidence" / "demo.jsonl"
+    with open(evp, "a", encoding="utf-8") as f:
+        f.write(_json.dumps({
+            "kind": "tacet", "major_stage": "Understand", "minor_stage": "x",
+            "sub_step": 3, "skill": "tacet",
+            "purpose": "TACET 强制档（机械落库，无模型会话）",
+            "q": ["tacet"], "a": ["静默"],
+        }, ensure_ascii=False) + "\n")
+    ev = load_evidence(proj, "demo")
+    assert all(e["kind"] != "tacet" for e in ev)
+    assert len(ev) == 2  # 原有两条不受影响
+
+
 def test_load_change_points_extracts_anchors(tmp_path):
     proj = _mk_project(tmp_path)
     plans = tmp_path / ".claude" / "plans"

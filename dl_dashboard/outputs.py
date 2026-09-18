@@ -21,7 +21,13 @@ log = logging.getLogger("dl_dashboard.outputs")
 
 
 def load_evidence(project: Path, name: str) -> list[dict]:
-    """证据链条目（q/a/结论 全量保留——用户要看的就是链本身）。"""
+    """证据链条目（q/a/结论 全量保留——用户要看的就是链本身）。
+
+    kind=tacet 机械落库记录过滤（2026-09-18 用户裁决）：强制静默步无模型
+    会话、无实质内容，展示即噪音（「TACET 强制档」满屏）。按 kind 标记
+    过滤（写侧单源，engine 落库即钉死），不猜步号——judge 输入面
+    （_iter_trace_segments 等）本就只认 kind=skill-trace，同口径。
+    """
     p = project / ".claude" / "evidence" / f"{name}.jsonl"
     if not p.exists():
         return []
@@ -31,6 +37,8 @@ def load_evidence(project: Path, name: str) -> list[dict]:
             d = json.loads(line)
         except json.JSONDecodeError:
             log.warning("evidence 损坏行跳过: %s", p, exc_info=True)
+            continue
+        if d.get("kind") == "tacet":
             continue
         out.append({
             "kind": d.get("kind", "?"),
