@@ -425,7 +425,7 @@ MERGED_RUN_NODES = frozenset({"understand:2"})
 # （2026-08-01 understand:1 审计：24 次裁决 316.6s 全 allow 纯税，其中
 # AskUserQuestion 3 次均值 46.2s 被误归因为用户思考时间）。
 SETTINGS_TEMPLATE_VERSION = (
-    13  # v13：allow 补 Skill 裸规则（GLM/qoder headless 段 Skill 3/3 死实爆）
+    14  # v14：allow 补 dl-cmd.sh 绝对形态（Mac overlay 布局软链不成立实爆）
 )
 # （2026-09-10 cvx-wiring：worktree 内无 project settings.json，旧假设「inject
 # 由项目自己注册」在工作流会话不成立，44 步全程收不到 codegraph/蒸馏瘦档——

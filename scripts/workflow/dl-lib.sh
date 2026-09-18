@@ -251,6 +251,9 @@ wf_state_mark_artifact() {
 #   v7（同日三次实证）：两轮真实运行 transcript 全量命令头挖掘补尾——
 #   路径形态调用盖不住前缀规则（codegraph/venv python/.local pytest 的绝对
 #   或相对路径形态）+ 名单外常用头（xargs/tr/comm/od/xxd/env/sleep）。
+#   补记（2026-09-18 Mac 实爆）：dl-cmd.sh 另放行 ${WF_LIB_DIR} 绝对形态——
+#   ~/.dl-workflow 是 install.sh overlay 独立副本非软链时，node-rules 发
+#   绝对路径，字面 ~ 规则不匹配照拒；两形态并存覆盖任意安装布局。
 #   刻意不加 rm/dd/sudo：破坏性命令保留弹窗=弱模型幻觉刹车（正向名单
 #   可收敛，deny 反向名单是打地鼠）。env 前缀形态规则语法不支持=已知残余。
 # 威胁模型 = 弱遵从而非对抗（SKILL 症状 O 原则 4），宽白名单可接受。
@@ -310,6 +313,7 @@ wf_write_settings() {
       "Agent",
       "Skill",
       "Bash(bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh:*)",
+      "Bash(bash ${WF_LIB_DIR}/dl-cmd.sh:*)",
       "Bash(python3 ~/.dl-workflow/dl_flow_engine.py:*)",
       "Bash(python3 ${LIB_DIR_ABS}/dl_drive.py:*)",
       "Bash(sqlite3:*)",

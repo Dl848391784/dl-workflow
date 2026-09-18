@@ -37,6 +37,31 @@ from pathlib import Path
 _DLWF_ROOT = Path(__file__).resolve().parents[2]  # ~/.dl-workflow/
 
 
+def _load_skill_body(project_root: Path, ref: str) -> "str | None":
+    """skill 正文（headless 段内联——2026-09-18 GLM/qoder ×4 实爆：「Activate
+    skill?」激活确认是交互闸非权限层，allow 有 Skill 仍全死；对齐症状 AL
+    哲学：无真人通道里交互闸必须结构性不存在）。搜索序：项目 .claude/
+    skills → ~/.claude/skills → ~/.qoder/skills；找不到 → None（回退 invoke
+    指引——不是静默兜底，warning 落 driver 日志暴露）。"""
+    name = ref.split(":")[-1].strip()
+    if not name or "/" in name:
+        return None
+    for root in (
+        project_root / ".claude" / "skills",
+        Path.home() / ".claude" / "skills",
+        Path.home() / ".qoder" / "skills",
+    ):
+        f = root / name / "SKILL.md"
+        if f.is_file():
+            try:
+                return f.read_text(encoding="utf-8")
+            except OSError as e:
+                log.warning("skill 正文读取失败 %s: %s", f, e)
+                return None
+    log.warning("skill 正文未找到 ref=%s——回退 invoke 指引（headless 激活闸或死）", ref)
+    return None
+
+
 def _dlwf_display_root(dlwf_root: Path, home: Path) -> str:
     """模型面向的 dl-workflow 根形态（2026-09-17 GLM Mac 三连权限拒实爆）：
     主树（含符号链接等价，如 ~/.dl-workflow → ~/Documents/dl-workflow——
@@ -1609,6 +1634,17 @@ def build_step_prompt(
     total = len(node.sub_steps or ())
     if step.kind == "skill":
         how = f"先用 Skill 工具 invoke `{step.ref}`，再按其引导执行"
+        if not interactive:
+            # headless 一次性段：Skill 激活确认是交互闸（无人可答必死，
+            # allow 有 Skill 也救不了）——正文内联，结构性绕开
+            body = _load_skill_body(project_root, step.ref)
+            if body is not None:
+                how = (
+                    f"本步 skill（{step.ref}）指引正文已内联——headless 一次性"
+                    "会话的 Skill 激活确认无人可答，禁调 Skill 工具，"
+                    "直接按以下正文执行：\n\n---\n"
+                    f"{body}\n---"
+                )
     else:
         how = f"用工具 {step.ref} 执行"
     phase_label = engine.PHASE_LABELS.get(node.phase, node.phase)
@@ -1664,10 +1700,19 @@ def build_step_prompt(
         )
     if prep:
         if step.kind == "skill":
-            how_prep = (
-                f"0. 先用 Skill 工具 invoke `{step.ref}` 取问题设计指引"
-                "（只准备，不执行问答）\n"
-            )
+            body = _load_skill_body(project_root, step.ref)
+            if body is not None:
+                how_prep = (
+                    f"0. 本步 skill（{step.ref}）指引正文已内联（headless "
+                    "禁调 Skill 工具——激活闸无人可答）——按以下正文取问题"
+                    "设计指引（只准备，不执行问答）：\n\n---\n"
+                    f"{body}\n---\n"
+                )
+            else:
+                how_prep = (
+                    f"0. 先用 Skill 工具 invoke `{step.ref}` 取问题设计指引"
+                    "（只准备，不执行问答）\n"
+                )
         elif step.ref == "AskUserQuestion":
             how_prep = ""  # 问答工具本身在 prep 环境不可用，不指引
         else:

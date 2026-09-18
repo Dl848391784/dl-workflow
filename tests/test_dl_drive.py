@@ -2285,6 +2285,60 @@ def test_dlwf_display_root_symlink_equivalence(tmp_path):
     assert drv._dlwf_display_root(wt, home) == str(wt)
 
 
+def test_step_prompt_inlines_skill_body_headless(wf_repo):
+    """headless 一次性段 skill 正文内联（2026-09-18 GLM/qoder 实爆：Skill
+    激活确认是交互闸非权限层——allow 有 Skill 仍 4/4 死；对齐症状 AL 哲学：
+    无真人通道里交互闸必须结构性不存在）。交互 TUI 段保持 invoke 不变。"""
+    drv = _load(DRIVER, "drv_under_test")
+    state = _write_state(wf_repo)
+    node = engine.get_node("understand", 1)
+    step = engine.sub_step_at(node, 1)
+    assert step.kind == "skill" and step.ref == "define-problem"
+    prompt = drv.build_step_prompt(wf_repo, "t", state, node, 1, step,
+                                   rework=None)  # interactive=False 默认
+    assert "禁调 Skill 工具" in prompt
+    assert "define-problem" in prompt  # 内联正文（含 skill 名/正文标记）
+    assert "invoke" not in prompt.split("禁调 Skill 工具")[0].split("内联")[-1] \
+        or "已内联" in prompt
+    # 交互段保持 Skill 工具路径
+    prompt_i = drv.build_step_prompt(wf_repo, "t", state, node, 1, step,
+                                     rework=None, interactive=True)
+    assert "invoke `define-problem`" in prompt_i
+
+
+def test_step_prompt_prep_inlines_skill_body(wf_repo):
+    """prep 段（同为 headless 一次性）的 skill 指引也内联。"""
+    drv = _load(DRIVER, "drv_under_test")
+    state = _write_state(wf_repo)
+    node = engine.get_node("understand", 1)
+    step = engine.sub_step_at(node, 1)
+    prompt = drv.build_step_prompt(wf_repo, "t", state, node, 1, step,
+                                   rework=None, prep=True)
+    assert "禁调 Skill 工具" in prompt
+
+
+def test_settings_allowlist_covers_dlcmd_absolute(wf_repo):
+    """dl-cmd.sh 绝对形态入白名单（2026-09-18 Mac 实爆：~/.dl-workflow 是
+    install.sh overlay 独立副本非软链，driver 跑 ~/Documents clone →
+    node-rules 发绝对路径 → 字面 ~ 规则不匹配照拒；与 dl_drive.py 绝对
+    规则同先例，两形态并存兜底任意安装布局）。"""
+    r = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f"source {DLWF_ROOT}/scripts/workflow/dl-lib.sh && wf_write_settings t",
+        ],
+        cwd=wf_repo,
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0, r.stderr
+    data = json.loads((wf_repo / SEG_META / "settings.json").read_text())
+    allow = data["permissions"]["allow"]
+    assert "Bash(bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh:*)" in allow
+    assert f"Bash(bash {DLWF_ROOT}/scripts/workflow/dl-cmd.sh:*)" in allow
+
+
 def test_settings_allowlist_covers_project_tool_heads(wf_repo):
     """组件 B：注册项目工具 command 头并入 per-wf settings allowlist
     （codebase-archaeology-toolbox-design §3.2 action 3 / §4 row 5）——否则前台
