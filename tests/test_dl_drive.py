@@ -2306,6 +2306,66 @@ def test_dlwf_path_forms_three_layouts(tmp_path):
     assert f4["display"] == "~/.dl-workflow"
 
 
+def test_resume_rewrites_stale_settings(wf_repo, tmp_path):
+    """resume 时 settings 落后即重写（自愈链实修：staleness notice 只警告、
+    resume 只在缺失时补写——指的路是断的；dashboard 通道由 driver 起跑
+    自愈覆盖，launcher 通道由本处覆盖）。"""
+    meta = wf_repo / SEG_META
+    meta.mkdir(parents=True, exist_ok=True)
+    (meta / "state.json").write_text(json.dumps({
+        "name": "t", "phase": "understand", "index": 1, "sub_index": 1,
+        "sub_total": 4, "node": "understand:1", "sub_step_index": 1,
+        "gate": "pending", "node_attempts": 0, "session_id": "s",
+        "branch": "wf/t",
+        "worktree_path": str(wf_repo / ".claude" / "worktrees" / "t"),
+        "created_at": "x"}), encoding="utf-8")
+    (meta / "settings.json").write_text(
+        '{"wf_settings_template_version": 0}', encoding="utf-8")  # 落后
+    r = subprocess.run(
+        ["bash", str(DLWF_ROOT / "scripts" / "workflow" / "dl-launch.sh"),
+         "--workflow", "t", "--setup-only"],
+        cwd=wf_repo, env=_fake_claude_env(tmp_path),
+        capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    data = json.loads((meta / "settings.json").read_text())
+    assert data["wf_settings_template_version"] == engine.SETTINGS_TEMPLATE_VERSION
+
+
+def test_driver_start_refreshes_stale_settings(wf_repo, monkeypatch):
+    """driver 起跑时 settings 落后 → 调 bash wf_write_settings 补写
+    （dashboard restart_drive 直拉 dl_drive.py 不过 launcher，在飞实例
+    永拿不到新白名单——driver 侧自愈是 dashboard 通道唯一入口）。"""
+    drv = _load(DRIVER, "drv_refresh")
+    meta = wf_repo / SEG_META
+    meta.mkdir(parents=True, exist_ok=True)
+    (meta / "settings.json").write_text(
+        '{"wf_settings_template_version": 0}', encoding="utf-8")
+    called = []
+    monkeypatch.setattr(drv.subprocess, "run",
+                        lambda *a, **kw: called.append(a))
+    drv._maybe_refresh_settings(wf_repo, "t")
+    assert called and "wf_write_settings" in str(called[0])
+    # 新鲜时不调
+    (meta / "settings.json").write_text(json.dumps(
+        {"wf_settings_template_version": engine.SETTINGS_TEMPLATE_VERSION}),
+        encoding="utf-8")
+    called.clear()
+    drv._maybe_refresh_settings(wf_repo, "t")
+    assert not called
+
+
+def test_render_phase_rules_uses_display_form(monkeypatch):
+    """phase-rules 模板里的 ~/.dl-workflow 字面量渲染期替换为 display 形态
+    （Mac overlay 副本与 driver clone 版本 skew 面；canonical 下零变化）。"""
+    import dl_flow_engine as eng2
+    monkeypatch.setattr(eng2, "dlwf_path_forms",
+                        lambda **kw: {"display": "/x/y"})
+    out = eng2.render_phase_rules(
+        "跑 `bash ~/.dl-workflow/scripts/workflow/dl-cmd.sh status` 确认")
+    assert "/x/y/scripts/workflow/dl-cmd.sh" in out
+    assert "~/.dl-workflow" not in out
+
+
 def test_settings_allowlist_covers_path_forms(wf_repo):
     """一致性约束可执行化：dlwf_path_forms 导出的全部 allow 规则必须在
     wf_write_settings 生成的白名单内——结构上不可能再分叉。"""

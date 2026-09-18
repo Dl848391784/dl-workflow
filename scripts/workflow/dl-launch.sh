@@ -173,8 +173,15 @@ if [ -f "$STATE_FILE" ]; then
   fi
   WORKTREE_PATH="$WORKTREE_EXISTING"
   WF_PHASE_OVERRIDE_SET=0
-  # 续接时补 settings（若缺失，如旧工作流或手动删过）
-  [ -f "$WF_META_ROOT/$WF_NAME/settings.json" ] || wf_write_settings "$WF_NAME"
+  # 续接时补 settings：缺失（旧工作流/手动删过）**或模板落后**即重写——
+  # 旧版仅缺失补写 + staleness notice 只警告指路 --resume，而 resume 不
+  # 重写 = 自愈链断裂（2026-09-18 复核实锤，白名单新版本永远到不了在飞
+  # 实例）。dashboard 通道由 driver 起跑 _maybe_refresh_settings 覆盖。
+  if [ ! -f "$WF_META_ROOT/$WF_NAME/settings.json" ] \
+     || wf_settings_stale "$WF_NAME"; then
+    wf_write_settings "$WF_NAME"
+    echo "  settings 已重写（模板 v${WF_SETTINGS_TEMPLATE_VERSION:-?}）"
+  fi
 else
   # 新建
   [ -z "$WF_BASE" ] && WF_BASE="$(git -C "$WF_REPO_ROOT" rev-parse --abbrev-ref HEAD)"

@@ -3270,6 +3270,12 @@ def render_phase_rules(template_text: str, fermate: bool = False) -> str:
     三阶段：先 fermate 条件块，再 GENERATED 块，后 artifact_sections 内联 token。
     """
     text = _strip_fermate_blocks(template_text, fermate)
+    # 模型面向路径形态单源（dlwf_path_forms）：模板里 ~/.dl-workflow 字面量
+    # 渲染期替换为 display 形态——canonical 下零变化；overlay/clone 布局
+    # （Mac）下指向 driver 同码副本，消除 overlay 版本 skew 面
+    _disp = dlwf_path_forms()["display"]
+    if _disp != "~/.dl-workflow":
+        text = text.replace("~/.dl-workflow", _disp)
     rendered = _GENERATED_RE.sub(
         lambda m: render_substeps_section(m.group(1), fermate=fermate), text
     )

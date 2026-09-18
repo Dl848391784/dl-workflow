@@ -278,7 +278,7 @@ wf_write_settings() {
   # scripts/hooks/（不存在，UserPromptSubmit 全灭，2026-08-23 首跑实证）。
   local LIB_DIR_ABS="$WF_LIB_DIR"
   local WF_LIB_DIR_ABS_ROOT
-  WF_LIB_DIR_ABS_ROOT="$(cd "$WF_LIB_DIR/../.." && pwd)"  # 规范化：禁 /../ 字面进白名单
+  WF_LIB_DIR_ABS_ROOT="$(cd "$WF_LIB_DIR/../.." && pwd -P)"  # 规范化+物理路径（-L 逻辑路径含软链段会与 python resolve 失配）
   local hk="$WF_LIB_DIR/../../hooks"
   mkdir -p "$dir"
   # qoder 引擎附加 model 键（DL_QODER_MODEL 设值时）——per-wf settings 经
@@ -443,20 +443,30 @@ PY
 # 旧模板会话静默缴 auto 权限税，tail_volume plan:3 实测 ~6.4min/20min）。
 # 版本戳单源 engine SETTINGS_TEMPLATE_VERSION（经 meta 缓存）。文件缺失/损坏
 # 不报警（另一类问题，见症状 A1）；字段缺失计 v0 = 落后，--resume 补写自愈。
-wf_settings_staleness_notice() {
+wf_settings_stale() {
+  # settings 模板落后判定（exit 0=落后/缺失，1=新鲜）——notice 与 resume
+  # 补写共用本判定（2026-09-18 自愈链实修：旧版 notice 只警告、resume 只在
+  # 缺失时补写，指的路是断的）
   local name="$1" latest="${WF_SETTINGS_TEMPLATE_VERSION:-0}"
   local sf="$WF_META_ROOT/$name/settings.json"
-  [ -f "$sf" ] && [ "$latest" -ge 1 ] || return 0
-  python3 - "$sf" "$latest" "$name" <<'PY'
+  [ "$latest" -ge 1 ] || return 1
+  [ -f "$sf" ] || return 0
+  python3 - "$sf" "$latest" <<'PY'
 import json, sys
-sf, latest, name = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+sf, latest = sys.argv[1], int(sys.argv[2])
 try:
     cur = json.load(open(sf, encoding="utf-8")).get("wf_settings_template_version", 0)
 except Exception:
-    sys.exit(0)
-if isinstance(cur, int) and cur < latest:
-    print(f"  ⚠ settings 模板版本落后（v{cur} < v{latest}）——跑 `dl {name} --resume` 刷新（防 auto 权限税）")
+    sys.exit(0)  # 损坏按落后处理（重写自愈）
+sys.exit(0 if (not isinstance(cur, int) or cur < latest) else 1)
 PY
+}
+
+wf_settings_staleness_notice() {
+  local name="$1" latest="${WF_SETTINGS_TEMPLATE_VERSION:-0}"
+  [ -f "$WF_META_ROOT/$name/settings.json" ] && [ "$latest" -ge 1 ] || return 0
+  wf_settings_stale "$name" || return 0
+  echo "  ⚠ settings 模板版本落后——本次启动已自动补写（v${latest}）" >&2
 }
 
 # ---------- 列举工作流 ----------

@@ -37,6 +37,28 @@ from pathlib import Path
 _DLWF_ROOT = Path(__file__).resolve().parents[2]  # ~/.dl-workflow/
 
 
+def _maybe_refresh_settings(project_root: Path, name: str) -> None:
+    """driver 起跑 settings 自愈（2026-09-18 复核实锤：dashboard 的
+    restart_drive 直拉 dl_drive.py 不过 launcher，在飞实例的白名单/模板
+    永远停在创建时版本）——模板落后即 bash wf_write_settings 重写。
+    观测通道失败只 log 不阻断（settings 旧=缴权限税，不是致命）。"""
+    sf = _meta_root(project_root, name) / "settings.json"
+    try:
+        cur = json.loads(sf.read_text(encoding="utf-8")).get(
+            "wf_settings_template_version", 0)
+    except (OSError, ValueError):
+        cur = 0
+    if isinstance(cur, int) and cur >= engine.SETTINGS_TEMPLATE_VERSION:
+        return
+    log.info("settings 模板落后（v%s < v%s）——补写",
+             cur, engine.SETTINGS_TEMPLATE_VERSION)
+    subprocess.run(
+        ["bash", "-c",
+         f'source "{LIB_DIR}/dl-lib.sh" && wf_write_settings "{name}"'],
+        cwd=str(project_root), capture_output=True, text=True, check=False,
+    )
+
+
 def _load_skill_body(project_root: Path, ref: str) -> "str | None":
     """skill 正文（headless 段内联——2026-09-18 GLM/qoder ×4 实爆：「Activate
     skill?」激活确认是交互闸非权限层，allow 有 Skill 仍全死；对齐症状 AL
@@ -2336,6 +2358,7 @@ class _PrintDisp:
 
 
 def drive(project_root: Path, name: str, debug: bool, verbose: bool = False) -> int:
+    _maybe_refresh_settings(project_root, name)  # settings 自愈（起跑一次性）
     """全程 driver（v3 默认入口）：断点 = 前台 stdin，交互步 = 原地 TUI 段。"""
     meta = _meta_root(project_root, name)
     settings = ensure_drive_settings(project_root, name)
