@@ -110,3 +110,7 @@ dl <name> --done          # 归档（删 worktree+分支+元数据）
 ### 1.7 全量测试挂但单文件跑绿 = 顺序污染——bisect 对 + 外部单变量复现 + monkeypatch 盲区（2026-09-17，main 25 挂根治实证）
 
 **排查法**（25 挂两族、两文件单跑 935 全绿的实证路径）：①**bisect 对**——嫌疑文件+受害文件两两跑（`pytest tests/<嫌疑>.py tests/<受害>.py`），比全量 bisect 快一个量级；②**外部单变量复现坐实根因**——锁定嫌疑是 env 泄漏后，`DL_ENGINE=qodercli pytest <受害文件>` 一次完整复现全部 25 挂 = 唯一根因坐实，不用逐测试核对；③**monkeypatch 盲区（根因模式）**——monkeypatch 只追踪**自己的** set/del，**生产代码直写 `os.environ` 它看不见**：`TestApplyInstanceEngine` 调生产代码 `_apply_instance_engine` 直写 `DL_ENGINE=qodercli`，teardown 无记录可恢复 → 泄漏到后续全部测试（transcript 根错走 `~/.qoder`）。**防线 = tests/conftest.py autouse env 快照复位夹具**（setup 前 `dict(os.environ)`、teardown `clear()+update(saved)`）——通用拦所有同类直写，不止一案。判别信号：全量挂的文件单跑全绿 + 挂点集中在「读全局状态（env/cwd/HOME/模块单例）」的函数。
+
+### 1.8 编排自相矛盾两检测点（2026-09-17 GLM/qoder 实爆批次）
+
+①**教模型用的工具必须进 settings 白名单**：段 prompt/node-rules 写「invoke define-problem」而 per-wf settings allowlist 无 `Skill` 裸规则 → headless 段「Activate skill?」交互确认无人可答，3/3 全死。改编排文案提到任何工具/命令时，同 commit 查 `wf_write_settings` allowlist（+ `SETTINGS_TEMPLATE_VERSION` bump——存量 settings 靠版本戳自愈）；威胁模型=弱遵从，裸规则可接受（`AskUserQuestion`/`Agent` 同档先例）。②**模型面向的路径形态必须与 allowlist 字面匹配**：白名单 `Bash(bash ~/.dl-workflow/...:*)` 按字面 `~` 前缀匹配；`__file__.resolve()` 会**破解符号链接**（Mac：~/.dl-workflow → ~/Documents/dl-workflow），与未解析的 `Path.home()` 比较不等 → rules 发绝对路径 → 模型照抄被权限拒 3 次。凡把路径渲染进 prompt/rules 的落点，走 `_dlwf_display_root` 式软链等价判断（主树→字面 ~ 形态，worktree 副本→绝对路径）。
