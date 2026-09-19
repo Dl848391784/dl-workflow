@@ -858,6 +858,10 @@ def test_run_tui_step_no_tty_goes_print_mode(wf_repo, monkeypatch):
     assert calls["disallow_ask"] is True
     assert calls["prompt"]  # needuser 任务书（need_user.json 指针）
     assert not (meta / "tui_segment.json").exists()  # 无交互进程，无段标记
+    # disabled 档（2026-09-18 用户裁决）：呈现段逐字照抄 stash 问题零创作，
+    # thinking 清零——claude 引擎经 spawn_env MAX_THINKING_TOKENS=0
+    assert calls["spawn_env"].get("MAX_THINKING_TOKENS") == "0"
+    assert calls["extra_args"] == []  # claude 无 flag（qodercli=--thinking disabled）
 
 
 def test_run_tui_step_no_tty_bare_fallback_prompt(wf_repo, monkeypatch):

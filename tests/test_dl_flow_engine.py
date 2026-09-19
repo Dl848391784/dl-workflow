@@ -3671,6 +3671,30 @@ class TestRunJudgeHarnessTrim:
         eng.run_judge("rubric", "label", "out")
         assert captured["env"].get("MAX_THINKING_TOKENS") == "0"
 
+    def test_judge_thinking_off_qodercli_uses_flag(self, monkeypatch):
+        """qoder 引擎下 judge 走 --thinking disabled 原生 flag（env 变量
+        qodercli 不读，v2.44 裁剪在 qoder 路径曾空转）且 env 不加 MAX。"""
+        import dl_engine
+        captured = {}
+
+        class _Res:
+            returncode = 0
+            stdout = '{"is_error":false,"result":"{\"pass\": true, \"reason\": \"\"}"}\n'
+
+        def _run(cmd, **kw):
+            captured["cmd"] = cmd
+            captured["env"] = kw.get("env") or {}
+            return _Res()
+
+        monkeypatch.setattr(eng.subprocess, "run", _run)
+        monkeypatch.setattr(eng.dl_engine, "get_engine",
+                            lambda *a, **kw: dl_engine._PROFILES["qodercli"])
+        eng.run_judge("rubric", "label", "out")
+        assert "--thinking" in captured["cmd"]
+        cmd = captured["cmd"]
+        assert cmd[cmd.index("--thinking") + 1] == "disabled"
+        assert "MAX_THINKING_TOKENS" not in captured["env"]
+
     def test_judge_invocation_disables_mcp(self, monkeypatch):
         # O1（u1-overall-cost）：judge 本就不调工具（--tools ""），MCP schema
         # （实测 2.5k tok/调用）是纯税——strict-mcp-config + 空表结构封死；

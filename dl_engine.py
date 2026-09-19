@@ -60,6 +60,20 @@ class EngineProfile:
         # ~/.qoder/logs/sessions/<proj>/<sid>/segments/*.jsonl（结构化 jsonl，更优）
         return ["--debug"]
 
+    def thinking_off(self) -> "tuple[dict, list[str]]":
+        """thinking 清零传输对（env 追加, CLI flag 追加）——judge/disabled
+        档段的单源（2026-09-18 用户裁决）。
+
+        claude = env MAX_THINKING_TOKENS=0（v2.44 MiniMax A/B 实证
+        -92%tok/-84%s、判决方向一致；K3 端点忽略无副作用）；
+        qodercli = --thinking disabled（1.1.47 原生 flag，本机探针实证
+        rc=0——MAX_THINKING_TOKENS 是 claude harness 约定，qodercli 不读，
+        env 通道在 qoder 路径是空转）。
+        """
+        if self.name == "qodercli":
+            return {}, ["--thinking", "disabled"]
+        return {"MAX_THINKING_TOKENS": "0"}, []
+
     def disallow_ask_args(self) -> list[str]:
         # qoder 无 AskUserQuestion 工具（P0 D4 tools 列表确认）——工具不存在=
         # 结构堵死，L1 权限层封禁豁免；L2 嗅探（_session_called_ask_user）保留

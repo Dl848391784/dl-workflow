@@ -115,3 +115,15 @@ class TestGetEngineOverride:
 
         with pytest.raises(SystemExit):
             dl_engine.get_engine("gemini")
+
+
+def test_thinking_off_profiles():
+    """thinking 清零传输对（2026-09-18 用户裁决两件之一）：claude=env
+    MAX_THINKING_TOKENS=0（v2.44 实证保留）；qodercli=--thinking disabled
+    （1.1.47 原生 flag 本机探针实证——env 变量 qodercli 不读，v2.44 的
+    judge 裁剪在 qoder 路径原为空转）。"""
+    import dl_engine
+    env_c, args_c = dl_engine.get_engine("claude").thinking_off()
+    assert env_c == {"MAX_THINKING_TOKENS": "0"} and args_c == []
+    env_q, args_q = dl_engine.get_engine("qodercli").thinking_off()
+    assert env_q == {} and args_q == ["--thinking", "disabled"]

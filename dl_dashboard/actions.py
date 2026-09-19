@@ -310,11 +310,16 @@ def inject_answer(project: Path, name: str, answer: str,
         f"3. 输出 ### STEP_DONE: {cur} 结束。\n"
         f"回答有缺失/含糊处：在 trace 中如实标注，由门控裁决——不要因此重新提问。"
     )
+    # disabled 档（2026-09-18 用户裁决）：inject 轮=答案映射+落 trace，
+    # 近机械零推理——thinking 清零（引擎单源：claude=env / qoder=flag）
+    _t_env, _t_args = eng.thinking_off()
+    cmd += _t_args
     cmd += ["-p", payload]
     cmd += list(engine.NO_MCP_ARGS)
     env = dict(os.environ)
     env.update(provider_env or {})
     env.update(ov.get("env") or {})
+    env.update(_t_env)
     log.info("inject -> %s#%s sid=%s…", nid, cur, sid[:8])
     nu = _read_need_user(project, name)
     # 在飞标记：起跑前落盘（刷新页面/重进可见「注入中」），finally 删——

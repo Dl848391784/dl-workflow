@@ -3042,9 +3042,10 @@ def _run_judge_once(prompt: str) -> tuple[bool, str, bool]:
         # 278 tok/6.3s（-92%/-84%），判决方向一致。judge 任务是按判据
         # 比对，非开放推理，思考链成本不成比例。只覆盖 judge 子进程 env，
         # 主会话与 provider/认证链不动（K3 端点忽略该 var，无副作用）。
-        env = dict(os.environ)
-        env["MAX_THINKING_TOKENS"] = "0"
         eng = dl_engine.get_engine()
+        _t_env, _t_args = eng.thinking_off()
+        env = dict(os.environ)
+        env.update(_t_env)
         res = subprocess.run(
             # --tools ""：judge 明确不调工具，裁掉全套工具 schema（harness 开销大头）。
             # --system-prompt：judge 人设替换 coding 助手人设，减人设冲突干扰。
@@ -3062,6 +3063,7 @@ def _run_judge_once(prompt: str) -> tuple[bool, str, bool]:
                 "",
                 # O1（u1-overall-cost）：judge 不调工具，MCP schema 纯税，结构封死
                 *NO_MCP_ARGS,
+                *_t_args,
                 "--system-prompt",
                 JUDGE_SYSTEM_PROMPT,
                 prompt.replace("~/.claude/skills", eng.skills_dir_display).replace(

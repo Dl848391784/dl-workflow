@@ -758,6 +758,7 @@ def run_session(
     resume_sid: "str | None" = None,
     spawn_env: "dict | None" = None,
     tools: "tuple | None" = None,
+    extra_args: "list | None" = None,
 ) -> tuple[int, str, str]:
     """一次 headless `claude -p` 会话。返回 (rc, assistant 全文, session_id)。
 
@@ -788,6 +789,8 @@ def run_session(
         # qoder：无 AskUserQuestion 工具（P0 D4），eng.disallow_ask_args() 返回空
         cmd += eng.disallow_ask_args()
     cmd += eng.permission_args()
+    if extra_args:
+        cmd += list(extra_args)  # 引擎差异 flag（如 qoder --thinking disabled）
     cmd += [
         "--settings",
         str(settings),
@@ -1998,6 +2001,9 @@ def _run_tui_step_print_mode(
         # -p 空输入 rc=1）：一次性静默段，保台账/resume 靶子语义
         prompt = "用户尚未陈述问题（将在 dashboard 侧输入）——本会话一次性，直接结束。"
     _ov = engine.segment_spawn_overrides(node, step)
+    # disabled 档（2026-09-18 用户裁决）：呈现段逐字照抄 stash 问题零创作，
+    # thinking 清零（引擎单源：claude=env MAX_THINKING_TOKENS / qoder=flag）
+    _t_env, _t_args = dl_engine.get_engine().thinking_off()
     rc, _out, sid = run_session(
         prompt,
         cwd=wt,
@@ -2009,8 +2015,9 @@ def _run_tui_step_print_mode(
         verbose=False,
         disp=disp,
         disallow_ask=True,
-        spawn_env=_ov["env"],
+        spawn_env={**_ov["env"], **_t_env},
         tools=_ov["tools"],
+        extra_args=_t_args,
     )
     return rc, sid
 
