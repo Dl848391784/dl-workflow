@@ -546,6 +546,7 @@ ls -la <主 repo>/.claude/worktrees/<name>/.claude/evidence/<name>.jsonl     # �
 - **判读**：「跑完了么 / 卡住了」先看 `state.force_fermate` + `state.gate`——fermate 下 gate=done 即完结（唯一人工动作 = `/dl done` 归档），别数 5 阶段进度。显示异常先 curl API 看下发节点集：API 已过滤 = 前端/缓存层；API 未过滤 = scanner 或进程内存层（症状 AR）。
 - **修复**（显示层，2026-09-01 已落地 commit 1959685）：可见性判据下沉 `dl_flow_nodes.fermate_cut_node`（plan:3/plan:4 裁剪）+ `fermate_phase_reachable`（execute+ 不可达），scanner 组合下发、前端零手写过滤。脊柱再演进只改这一处单源。
 - **教训**：运行轨道分叉（forte/fermate/tacet）的判读入口 = state 开关位，不是默认全量形态。展示层手写跟随引擎演进必掉队——可见**节点**与可见**步**同规：一律取 dl_flow_nodes 单源，消费方禁自猜。
+- **补注（2026-09-18，可见性门禁配引用方自包含）**：隐藏任何内容前先查它的**引用方**是否裸引用——「技术方案 plan 完成才展示」（2937e8f）的副作用是答题卡上「R4 怎么样」失去上下文（req_items/方案本体不可见），配套修复 = 引用方自包含（就地附原文摘要，219cc13）。规则：可见性门禁设计时，grep 被隐藏内容的编号/条目被谁引用，引用方必须在该内容不可见时仍可独立理解。
 
 ### 症状 AT：NEED_USER 载荷畸形 → 静默 stash 失败 → 无卡 + driver 死（no-TTY 组合坑）
 
