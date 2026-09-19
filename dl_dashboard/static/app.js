@@ -392,7 +392,8 @@ function renderTimelineTree(stats, nodes, info, artifacts, driverPid) {
       // 归属节点的产物链接（新页面阅读）
       for (const kind of ART_KINDS_VISIBLE) {
         if (artAnchorNode(nodes, kind) === n.node_id &&
-            artifacts && artifacts[kind] && artifacts[kind].exists) {
+            artifacts && artifacts[kind] && artifacts[kind].exists &&
+            artifacts[kind].visible !== false) {  // 后端可见性单源（技术方案 plan 完成才展示）
           const al = document.createElement("div");
           al.className = "tl-art";
           al.innerHTML = artLink(kind, artifacts);
@@ -584,7 +585,8 @@ function renderTimelineGantt(stats, nodes, info, artifacts, driverPid) {
     }
     for (const kind of ART_KINDS_VISIBLE) {
       if (artAnchorNode(nodes, kind) === n.node_id &&
-          artifacts && artifacts[kind] && artifacts[kind].exists) {
+          artifacts && artifacts[kind] && artifacts[kind].exists &&
+          artifacts[kind].visible !== false) {
         const al = document.createElement("div");
         al.className = "tl-art";
         al.innerHTML = artLink(kind, artifacts);

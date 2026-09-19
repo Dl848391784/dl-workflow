@@ -139,6 +139,37 @@ def test_change_point_code_context_from_worktree(tmp_path):
     assert ctx["lines"] == ["l1", "l2", "OLD = x", "l4", "l5"]
 
 
+def test_proposal_hidden_until_plan_done(tmp_path):
+    """技术方案可见性（2026-09-18 用户裁决）：plan 阶段没执行完不展示——
+    否则展示的都是不全的。可见 = 阶段序过 plan / gate=done / plan 门栏扣留
+    （内容已定稿待放行）；无 state（老/归档实例）宁纵显示。"""
+    proj = _mk_project(tmp_path)
+    prop = proj / ".claude" / "proposals" / "demo.md"
+    prop.parent.mkdir(parents=True, exist_ok=True)
+    prop.write_text("# 技术方案", encoding="utf-8")
+    meta = proj / ".claude" / "workflows" / "demo"
+    meta.mkdir(parents=True, exist_ok=True)
+
+    def _st(**kw):
+        import json as _j
+        base = {"phase": "plan", "gate": "pending", "held_for_gate": False}
+        base.update(kw)
+        (meta / "state.json").write_text(_j.dumps(base), encoding="utf-8")
+
+    _st(phase="plan")                      # plan 中段
+    assert artifact_status(proj, "demo")["proposals"]["visible"] is False
+    _st(phase="plan", held_for_gate=True)  # plan 门栏扣留（定稿待放行）
+    assert artifact_status(proj, "demo")["proposals"]["visible"] is True
+    _st(phase="plan", gate="done")         # fermate 完结
+    assert artifact_status(proj, "demo")["proposals"]["visible"] is True
+    _st(phase="execute")                   # 阶段序过 plan
+    assert artifact_status(proj, "demo")["proposals"]["visible"] is True
+    (meta / "state.json").unlink()         # 无 state：宁纵
+    assert artifact_status(proj, "demo")["proposals"]["visible"] is True
+    # understands/plans 不受此门
+    assert artifact_status(proj, "demo")["understands"]["visible"] is True
+
+
 def test_artifact_status_and_content(tmp_path):
     proj = _mk_project(tmp_path)
     st = artifact_status(proj, "demo")

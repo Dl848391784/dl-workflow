@@ -14,6 +14,7 @@ import logging
 from pathlib import Path
 
 from dl_flow_common import parse_change_points  # noqa: E402
+from dl_flow_engine import PHASES  # noqa: E402
 
 log = logging.getLogger("dl_dashboard.outputs")
 
@@ -72,7 +73,30 @@ def load_change_points(project: Path, name: str) -> list[dict]:
     return parse_change_points(text, worktree)
 
 
+def _proposal_visible(st: "dict | None") -> bool:
+    """技术方案可见性（2026-09-18 用户裁决：plan 执行完才展示——否则展示的
+    都是不全的）。可见 = 阶段序过 plan / gate=done（fermate 完结）/ plan
+    门栏扣留（内容已定稿待放行）；无 state（老/归档实例）宁纵显示。"""
+    if not st:
+        return True
+    phase = st.get("phase", "")
+    try:
+        past = PHASES.index(phase) > PHASES.index("plan")
+    except ValueError:
+        past = False
+    return bool(
+        past or st.get("gate") == "done"
+        or (phase == "plan" and st.get("held_for_gate"))
+    )
+
+
 def artifact_status(project: Path, name: str) -> dict:
+    st: dict | None = None
+    state_p = project / ".claude" / "workflows" / name / "state.json"
+    try:
+        st = json.loads(state_p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        st = None
     out: dict[str, dict] = {}
     for kind in ("understands", "plans", "proposals"):
         p = project / ".claude" / kind / f"{name}.md"
@@ -82,6 +106,7 @@ def artifact_status(project: Path, name: str) -> dict:
             "size": p.stat().st_size if p.exists() else 0,
             "html_exists": h.exists(),
             "html_size": h.stat().st_size if h.exists() else 0,
+            "visible": _proposal_visible(st) if kind == "proposals" else True,
         }
     return out
 
