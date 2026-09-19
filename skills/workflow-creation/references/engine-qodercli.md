@@ -79,3 +79,7 @@
 - E2E 冒烟（qoder+DeepSeek BYOK，fermate 全程 gate=done）：现场 `/tmp/dl-qoder-smoke`（state/evidence/drive-stream 全留）；方法与口径 → `runtime-audit.md` #28
 - 验收记录：`designs/qodercli-engine-profile-design.md` §5；实施计划：`designs/qodercli-engine-profile-plan.md`（11 任务 D 编号映射）
 - SDD 过程档案（任务报告/审查包/ledger）：`~/.dl-workflow/.superpowers/sdd-qodercli-engine-profile/`
+
+## 8. 引擎能力接入方法论：探针实证先于假设——env 约定不跨 harness（2026-09-18）
+
+给引擎加任何「能力假设」前（thinking 控制/输出格式/权限拼写），**先本机最小探针实证**：`--help` 看原生 flag + `cwd=/tmp` 裸跑一次性 `-p`（探针纪律：不带 workflow settings，防 Stop hook 推进状态机）。实例：假设 MAX_THINKING_TOKENS 在 qoder 生效 → 探针发现 qodercli 1.1.47 原生 `--thinking disabled|enabled|auto|adaptive` / `--thinking-budget N` / `--reasoning-effort`（显式 flag，优于 env）；**env 约定不跨 harness**——claude 的 MAX_* 系列 qodercli 不读，v2.44 judge 裁剪在 qoder 路径因此空转（实修 541e250：EngineProfile.thinking_off() 按引擎分源）。结论一律入 dl_engine.py profile 单源，禁散在调用点。
