@@ -152,15 +152,17 @@ def test_stale_injecting_marker_auto_cleaned(tmp_path):
     assert not p.exists()
 
 
-def test_inject_thinking_off_claude_env(tmp_path):
-    """inject 轮 thinking 清零（disabled 档：答案映射+落 trace 近机械）——
-    claude 引擎走 env MAX_THINKING_TOKENS=0（judge 同通道 v2.44 实证）。"""
+def test_inject_keeps_default_thinking(tmp_path):
+    """inject 轮不在 disabled 档（2026-09-18 用户裁决：弱模型在答案映射上
+    清零 thinking 有质量风险，不值得冒）——反向 pinning：env 不得带
+    MAX_THINKING_TOKENS、cmd 不得带 --thinking。disabled 档=judge/呈现段。"""
     _mk_injectable(tmp_path)
     with patch.object(actions.subprocess, "run",
                       return_value=MagicMock(returncode=0, stdout="", stderr="")) as run:
         ok, _ = actions.inject_answer(tmp_path, "demo", "选A")
     assert ok
-    assert run.call_args[1]["env"].get("MAX_THINKING_TOKENS") == "0"
+    assert "MAX_THINKING_TOKENS" not in run.call_args[1]["env"]
+    assert "--thinking" not in run.call_args[0][0]
 
 
 def test_inject_aborts_without_needuser_segment(tmp_path):
