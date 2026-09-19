@@ -2455,6 +2455,19 @@ def test_step_prompt_inlines_skill_body_headless(wf_repo):
     assert "invoke `define-problem`" in prompt_i
 
 
+def test_prep_contract_requires_inline_ref_text(wf_repo):
+    """问题载荷内容纪律：引用编号条目（R4 等）须就地附原文摘要——答题卡
+    自包含（2026-09-18 用户实爆：问题问「R4 怎么样」而 R4 内容在 plan 完成
+    前不可见的技术方案里，无从作答）。"""
+    drv = _load(DRIVER, "drv_under_test")
+    state = _write_state(wf_repo)
+    node = engine.get_node("understand", 1)
+    step = engine.sub_step_at(node, 1)
+    prompt = drv.build_step_prompt(wf_repo, "t", state, node, 1, step,
+                                   rework=None, prep=True)
+    assert "就地附原文摘要" in prompt and "答题卡自包含" in prompt
+
+
 def test_step_prompt_prep_inlines_skill_body(wf_repo):
     """prep 段（同为 headless 一次性）的 skill 指引也内联。"""
     drv = _load(DRIVER, "drv_under_test")
