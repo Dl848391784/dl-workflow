@@ -1009,6 +1009,9 @@ async function refreshDetail() {
       ? "parked:" + parked.ts + (parked.inflight ? ":inflight" : "") : "",
     // inject 在飞标记翻面（提交→刷新页面也要见「注入中」）当场重渲
     d.injecting, d.inject_error,
+    // 证据链 append-only——长度即新条目信号（步执行完落 trace 自动加载，
+    // 不再等其它字段碰巧变化才重渲）
+    d.evidence.length,
   ]);
   const changed = fp !== lastDetailFp;
   lastDetailFp = fp;
@@ -1020,6 +1023,10 @@ function renderDetailStatic(d) {
   const modeTags = (d.info.force_tacet ? `<span class="tag mode-tacet">tacet</span>` : "") +
     (d.info.force_fermate ? `<span class="tag mode-fermate">fermate</span>` : "") +
     (d.info.gate === "done" ? `<span class="tag mode-done">已完结</span>` : "");
+  // 工作流开始时间常驻时间轴标题行（用户裁决 2026-09-18：一直展示，
+  // 不随 driver 存活/在跑徽标消失）
+  $("tl-start").textContent =
+    d.info.created_at ? `开始于 ${d.info.created_at}` : "";
   $("d-title").innerHTML = `${esc(d.info.name)} · ${esc(d.info.node)}` +
     (d.info.gate === "done" ? "" :
       (d.driver_pid ? `（driver #${d.driver_pid}）` : "（driver 已停）")) + modeTags;
